@@ -1,21 +1,36 @@
-import React from 'react';
-
-const mockRows = [
-  { id: 198734, name: 'lr122_ladacenter', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
-  { id: 157203, name: 'lr104 клиника act (тест)', type: 'С кодом', globalLimit: 78, dayLimit: 30, status: 'Активен', ident: 0 },
-  { id: 152352, name: 'lr104 клиника act', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
-  { id: 71422, name: '50. winnstrategy', type: 'С кодом', globalLimit: 0, dayLimit: 100, status: 'На паузе', ident: 0 },
-  { id: 18487, name: '47. лиеднборюо', type: 'С кодом', globalLimit: 10000, dayLimit: 50, status: 'На паузе', ident: 0 },
-  { id: 6902, name: '43. м-спорт', type: 'С кодом', globalLimit: 0, dayLimit: 50, status: 'На паузе', ident: 0 },
-];
+import React, { useMemo, useState } from 'react';
+import { projects } from '../data/projects';
 
 function ProjectsTable() {
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('Все');
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return projects.filter((row) => {
+      const matchesStatus = status === 'Все' ? true : row.status === status;
+      const nameHit = row.name.toLowerCase().includes(q);
+      const idHit = String(row.id).includes(q);
+      const matchesQuery = q === '' ? true : (nameHit || idHit);
+      return matchesStatus && matchesQuery;
+    });
+  }, [search, status]);
+
   return (
     <div className="table-card">
       <div className="table-toolbar">
         <div className="filters">
-          <select><option>Все типы</option></select>
-          <select><option>Все статусы</option></select>
+          <input
+            type="search"
+            placeholder="Поиск по названию/ID"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="Все">Все статусы</option>
+            <option value="Активен">Активен</option>
+            <option value="На паузе">На паузе</option>
+          </select>
           <select><option>Канал</option></select>
         </div>
         <div className="actions">
@@ -36,7 +51,7 @@ function ProjectsTable() {
           </tr>
         </thead>
         <tbody>
-          {mockRows.map((row, index) => (
+          {filteredRows.map((row, index) => (
             <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
               <td><input type="checkbox" /></td>
               <td>
@@ -60,7 +75,7 @@ function ProjectsTable() {
         </tbody>
       </table>
       <div className="table-footer">
-        Показано {mockRows.length} из {mockRows.length}
+        Показано {filteredRows.length} из {projects.length}
         <div className="spacer" />
         <div>
           <button className="btn btn--ghost">1</button>

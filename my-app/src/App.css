@@ -23,6 +23,7 @@
 .table-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: hidden; }
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ececf2; }
 .filters select { margin-right: 8px; padding: 6px 8px; border: 1px solid #dcdce6; border-radius: 8px; background: #fff; }
+.filters input[type="search"] { margin-right: 8px; padding: 6px 10px; border: 1px solid #dcdce6; border-radius: 8px; min-width: 240px; }
 .actions .btn { padding: 6px 10px; }
 .table { width: 100%; border-collapse: collapse; }
 .table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; }
