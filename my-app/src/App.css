@@ -1,0 +1,44 @@
+/* Базовая сетка */
+.layout { display: flex; flex-direction: column; min-height: 100vh; background: #f7f7fb; color: #1d1d1f; }
+.content { display: flex; flex: 1; }
+.main { flex: 1; padding: 16px 24px; }
+.page-title { font-size: 18px; font-weight: 600; margin: 12px 0 16px; }
+
+/* Хедер */
+.header { height: 56px; background: #ffffff; border-bottom: 1px solid #ececf2; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; position: sticky; top: 0; z-index: 10; }
+.header__left { display: flex; align-items: center; gap: 12px; }
+.brand { font-weight: 700; text-transform: lowercase; }
+.brand__pill { display: inline-block; background: #6a5cff; color: #fff; border-radius: 10px; padding: 0 6px; margin-left: 4px; font-size: 12px; }
+.divider { width: 1px; height: 22px; background: #e6e6ee; }
+.header__right { display: flex; align-items: center; gap: 8px; }
+
+/* Сайдбар */
+.sidebar { width: 220px; background: #ffffff; border-right: 1px solid #ececf2; padding: 16px 12px; }
+.nav-section { font-size: 12px; color: #8b8b98; margin: 12px 8px 6px; text-transform: uppercase; }
+.sidebar ul { list-style: none; margin: 0; padding: 0; }
+.sidebar li { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.sidebar li.active, .sidebar li:hover { background: #f1f1f7; }
+
+/* Таблица */
+.table-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: hidden; }
+.table-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ececf2; }
+.filters select { margin-right: 8px; padding: 6px 8px; border: 1px solid #dcdce6; border-radius: 8px; background: #fff; }
+.actions .btn { padding: 6px 10px; }
+.table { width: 100%; border-collapse: collapse; }
+.table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; }
+.table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; }
+.row-alt { background: #fff7f7; }
+.name { font-weight: 500; }
+.sub { font-size: 12px; color: #8b8b98; }
+.muted { color: #8b8b98; }
+.badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge--green { background: #e6f7ed; color: #1d7a45; }
+.badge--orange { background: #fff3e6; color: #8a4b00; }
+.icon-btn { background: transparent; border: none; cursor: pointer; font-size: 16px; }
+.table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
+.spacer { flex: 1; }
+
+/* Кнопки */
+.btn { border: 1px solid #dcdce6; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.btn--primary { background: #6a5cff; border-color: #6a5cff; color: #fff; }
+.btn--ghost { background: transparent; }
