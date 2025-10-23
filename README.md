@@ -15,6 +15,16 @@ cd my-app
 npm run build
 ```
 
+Текущий стек
+- React 18 + create-react-app 5.1.0 (react-scripts)
+- JavaScript (ES2015+) без TypeScript
+- CSS (простые стили в `App.css`)
+- Webpack/Babel (из `react-scripts`, под капотом CRA)
+- Node.js v22 + npm (локальная среда)
+- Тестирование предустановлено (Jest + @testing-library/react), пока не используем
+- Git + корневой `.gitignore`
+- Данные временно мокируются в `my-app/src/data/projects.js` (бэкенда нет)
+
 Важные файлы
 - my-app/src/components/Header.js — верхняя панель
 - my-app/src/components/Sidebar.js — левое меню
