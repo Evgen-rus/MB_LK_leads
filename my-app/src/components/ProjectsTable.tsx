@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { projects } from '../data/projects';
+import { Project } from '../types/project';
 
 function ProjectsTable() {
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('Все');
+  const [search, setSearch] = useState<string>('');
+  const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
 
-  const filteredRows = useMemo(() => {
+  const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
     return projects.filter((row) => {
       const matchesStatus = status === 'Все' ? true : row.status === status;
@@ -26,7 +27,7 @@ function ProjectsTable() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
             <option value="Все">Все статусы</option>
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>

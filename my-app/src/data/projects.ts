@@ -1,4 +1,6 @@
-export const projects = [
+import { Project } from '../types/project';
+
+export const projects: Project[] = [
   { id: 198734, name: '[LR167] тест1', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
   { id: 157203, name: '[LR168] тест2', type: 'С кодом', globalLimit: 78, dayLimit: 30, status: 'Активен', ident: 0 },
   { id: 152352, name: '[LR169] тест3', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
