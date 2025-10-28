@@ -1,3 +1,4 @@
+// Верхняя панель (бренд, инфо о менеджере, основная кнопка действий)
 function Header() {
   return (
     <header className="header">
@@ -7,7 +8,7 @@ function Header() {
         <div className="header__info">Менеджер: Евгений Расюк</div>
       </div>
       <div className="header__right">
-        <button className="btn btn--primary">+ Добавить канал</button>
+        <button className="btn btn--primary">+ Добавить проект</button>
       </div>
     </header>
   );

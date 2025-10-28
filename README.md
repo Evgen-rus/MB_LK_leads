@@ -1,37 +1,40 @@
-MB_LK_leads — Личный кабинет (React)
+MB_LK_leads — Личный кабинет (React + Vite + TypeScript)
 
-Короткое описание: прототип ЛК на React с хедером, левым меню и таблицей проектов. Есть поиск по названию/ID и фильтр по статусу.
+Короткое описание: прототип ЛК с хедером, левым меню и таблицей проектов (поиск по названию/ID, фильтр по статусу).
 
 Команды запуска (Windows PowerShell)
 ```bash
-cd my-app
+cd my-app-vite
 npm install  # первый запуск/после клонирования
-npm start    # dev-сервер: http://localhost:3000
+npm run dev  # dev-сервер: http://localhost:5173
 ```
 
-Сборка продакшн-версии
+Сборка и превью продакшн-версии
 ```bash
-cd my-app
+cd my-app-vite
 npm run build
+npm run preview  # локальный предпросмотр сборки
 ```
 
 Текущий стек
-- React 18 + create-react-app 5.1.0 (react-scripts)
-- JavaScript (ES2015+) без TypeScript
+- React 19.2.0
+- TypeScript 5.9.3
+- Vite 7.1.12 + @vitejs/plugin-react 5.1.0 (dev — esbuild 0.25.11, prod — Rollup 4.52.5)
 - CSS (простые стили в `App.css`)
-- Webpack/Babel (из `react-scripts`, под капотом CRA)
-- Node.js v22 + npm (локальная среда)
-- Тестирование предустановлено (Jest + @testing-library/react), пока не используем
+- Node.js 24.10.0
+- npm 11.6.1
 - Git + корневой `.gitignore`
-- Данные временно мокируются в `my-app/src/data/projects.js` (бэкенда нет)
+- Данные временно мокируются в `my-app-vite/src/data/projects.ts` (бэкенда нет)
 
 Важные файлы
-- my-app/src/components/Header.js — верхняя панель
-- my-app/src/components/Sidebar.js — левое меню
-- my-app/src/components/ProjectsTable.js — таблица, поиск и фильтр
-- my-app/src/data/projects.js — мок-данные
-- my-app/src/App.js — сборка лейаута
+- my-app-vite/src/components/Header.tsx — верхняя панель
+- my-app-vite/src/components/Sidebar.tsx — левое меню
+- my-app-vite/src/components/ProjectsTable.tsx — таблица, поиск и фильтр
+- my-app-vite/src/data/projects.ts — мок-данные
+- my-app-vite/src/types/project.ts — типы данных
+- my-app-vite/src/App.tsx — сборка лейаута
+- my-app-vite/src/main.tsx — точка входа Vite
 
 Примечание
-- Игнор системных/временных файлов настроен в корневом .gitignore (включая **/node_modules/).
+- Старый CRA-проект перенесён на Vite. Игнор системных/временных файлов настроен в корневом .gitignore (включая **/node_modules/).
 

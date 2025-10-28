@@ -1,3 +1,4 @@
+// Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useMemo, useState } from 'react';
 import { projects } from '../data/projects';
 import type { Project } from '../types/project';
@@ -42,34 +43,39 @@ function ProjectsTable() {
         <thead>
           <tr>
             <th style={{width: 32}}><input type="checkbox" /></th>
+            <th>ID</th>
+            <th>Статус проекта</th>
             <th>Название</th>
-            <th>Тип канала</th>
-            <th>Глобальный лимит</th>
-            <th>Дневной лимит</th>
-            <th>Статус</th>
-            <th>Идентификация</th>
-            <th></th>
+            <th>Тег</th>
+            <th>Тип</th>
+            <th>Лимит</th>
+            <th>Номеров получено сегодня</th>
+            <th>Номеров получено всего</th>
+            <th>Дни получения номеров</th>
+            <th>Настройки</th>
           </tr>
         </thead>
         <tbody>
           {filteredRows.map((row, index) => (
             <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
               <td><input type="checkbox" /></td>
-              <td>
-                <div className="name">{row.name}</div>
-                <div className="sub">{row.id}</div>
-              </td>
-              <td>{row.type}</td>
-              <td className="muted">{row.globalLimit}</td>
-              <td>{row.dayLimit}</td>
+              <td className="muted">{row.id}</td>
               <td>
                 <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}>
                   {row.status}
                 </span>
               </td>
-              <td className="muted">{row.ident}</td>
               <td>
-                <button className="icon-btn" title="Удалить">🗑️</button>
+                <div className="name">{row.name}</div>
+              </td>
+              <td className="muted">{row.tag}</td>
+              <td>{row.type}</td>
+              <td>{row.dataLimit}</td>
+              <td>{row.numbersToday}</td>
+              <td>{row.numbersTotal}</td>
+              <td className="muted">{row.daysReceived}</td>
+              <td>
+                <button className="icon-btn" title="Настройки">⚙️</button>
               </td>
             </tr>
           ))}

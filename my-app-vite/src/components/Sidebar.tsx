@@ -1,10 +1,11 @@
+// Левое меню навигации по разделам личного кабинета
 function Sidebar() {
   return (
     <aside className="sidebar">
       <nav>
         <div className="nav-section">Основное</div>
         <ul>
-          <li className="active">Проекты и каналы</li>
+          <li className="active">Проекты</li>
           <li>Идентификации</li>
           <li>Отчеты</li>
           <li>Интеграции</li>

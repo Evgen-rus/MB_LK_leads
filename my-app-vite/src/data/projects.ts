@@ -1,12 +1,12 @@
+// Мок-данные для таблицы проектов (временная замена бэкенда)
 import type { Project } from '../types/project';
 
 export const projects: Project[] = [
-  { id: 198734, name: '[LR167] тест1', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
-  { id: 157203, name: '[LR168] тест2', type: 'С кодом', globalLimit: 78, dayLimit: 30, status: 'Активен', ident: 0 },
-  { id: 152352, name: '[LR169] тест3', type: 'С кодом', globalLimit: 0, dayLimit: 300, status: 'Активен', ident: 0 },
-  { id: 71422, name: '[LR170] тест4', type: 'С кодом', globalLimit: 0, dayLimit: 100, status: 'На паузе', ident: 0 },
-  { id: 18487, name: '[LR171] тест5', type: 'С кодом', globalLimit: 10000, dayLimit: 50, status: 'На паузе', ident: 0 },
-  { id: 6902, name: '[LR172] тест6', type: 'С кодом', globalLimit: 0, dayLimit: 50, status: 'На паузе', ident: 0 },
+  { id: 157203, status: 'Активен', name: '[LR166] ПромСпецАвто Татьяна', tag: '[LR166] ПромСпецАвто Татьяна', type: 'Звонки', dataLimit: 100, numbersToday: 0, numbersTotal: 19, daysReceived: 'Вт. Ср. Чт. Пт. Сб.' },
+  { id: 152352, status: 'На паузе', name: '[LR169] тест3', tag: '[LR169] тест3', type: 'С кодом', dataLimit: 300, numbersToday: 0, numbersTotal: 0, daysReceived: 'Пн. Вт. Ср.' },
+  { id: 71422, status: 'На паузе', name: '[LR170] тест4', tag: '[LR170] тест4', type: 'С кодом', dataLimit: 100, numbersToday: 0, numbersTotal: 0, daysReceived: 'Пн. Вт. Ср.' },
+  { id: 18487, status: 'На паузе', name: '[LR171] тест5', tag: '[LR171] тест5', type: 'С кодом', dataLimit: 100, numbersToday: 0, numbersTotal: 0, daysReceived: 'Пн. Вт. Ср.' },
+  { id: 6902, status: 'На паузе', name: '[LR172] тест6', tag: '[LR172] тест6', type: 'С кодом', dataLimit: 200, numbersToday: 0, numbersTotal: 0, daysReceived: 'Пн. Вт. Ср.' },
 ];
 
 

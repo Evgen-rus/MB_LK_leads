@@ -1,4 +1,4 @@
-/* Базовая сетка */
+/* Базовая сетка и базовые компоненты страницы */
 .layout { display: flex; flex-direction: column; min-height: 100vh; background: #f7f7fb; color: #1d1d1f; }
 .content { display: flex; flex: 1; }
 .main { flex: 1; padding: 16px 24px; }
@@ -26,7 +26,7 @@
 .filters input[type="search"] { margin-right: 8px; padding: 6px 10px; border: 1px solid #dcdce6; border-radius: 8px; min-width: 240px; }
 .actions .btn { padding: 6px 10px; }
 .table { width: 100%; border-collapse: collapse; }
-.table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; }
+.table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; white-space: normal; }
 .table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; }
 .row-alt { background: #fff7f7; }
 .name { font-weight: 500; }
