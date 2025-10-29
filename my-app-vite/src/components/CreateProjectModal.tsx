@@ -27,13 +27,13 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   const [name, setName] = useState('');
   const [tag, setTag] = useState('');
-  const [collectionSource, setCollectionSource] = useState<CollectionSource>('Сайты');
+  const [collectionSource, setCollectionSource] = useState<CollectionSource>('Звонки');
   const [dataLimit, setDataLimit] = useState<number>(100);
   const [status, setStatus] = useState<ProjectStatus>('Активен');
 
-  const [b1, setB1] = useState(false);
+  const [b1, setB1] = useState(true);
   const [b2, setB2] = useState(true);
-  const [b3, setB3] = useState(false);
+  const [b3, setB3] = useState(true);
   const [b4, setB4] = useState(false);
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>('include');
@@ -44,23 +44,13 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const [phonesText, setPhonesText] = useState('');
   const [smsSenderName, setSmsSenderName] = useState('');
 
-  const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Пн','Вт','Ср','Чт','Пт']);
+  const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Вт','Ср','Чт','Пт','Сб']);
 
   useEffect(() => {
     setTag(name);
   }, [name]);
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target === e.currentTarget) onClose();
-  }
+  // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
   const filteredRegions = useMemo(() => {
     const q = regionQuery.trim().toLowerCase();
@@ -70,7 +60,12 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   useEffect(() => {
     // Ограничения по B-кодам в зависимости от источника сбора
-    if (collectionSource === 'СМС') {
+    if (collectionSource === 'Звонки') {
+      setB1(true);
+      setB2(true);
+      setB3(true);
+      setB4(false);
+    } else if (collectionSource === 'СМС') {
       setB1(false);
       setB2(true);
       setB3(true);
@@ -150,7 +145,6 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   return (
     <div
-      onClick={handleBackdropClick}
       style={{
         position: 'fixed',
         inset: 0,
@@ -171,6 +165,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
           borderRadius: 8,
           width: '100%',
           maxWidth: 560,
+          maxHeight: '90vh',
+          overflowY: 'auto',
           boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
         }}
       >
@@ -204,11 +200,11 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               <label style={{ display: 'grid', gap: 6 }}>
                 <span style={{ fontSize: 12, color: '#666' }}>Источник сбора</span>
                 <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
-                  <option value="Сайты">Сайты</option>
                   <option value="Звонки">Звонки</option>
+                  <option value="Сайты">Сайты</option>
                   <option value="СМС">СМС</option>
-                  <option value="Ретросайты">Ретросайты</option>
                   <option value="Ретрозвонки">Ретрозвонки</option>
+                  <option value="Ретросайты">Ретросайты</option>
                   <option value="Пересечение">Пересечение</option>
                 </select>
               </label>
