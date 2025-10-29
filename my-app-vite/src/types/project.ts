@@ -1,6 +1,13 @@
 // Типы и интерфейсы данных проектов (страница «Проекты и каналы»)
 export type ProjectStatus = 'Активен' | 'На паузе';
 export type DeliveryStatus = 'Активна' | 'На модерации' | 'Отключена';
+export type CollectionSource =
+  | 'Сайты'
+  | 'Звонки'
+  | 'СМС'
+  | 'Ретросайты'
+  | 'Ретрозвонки'
+  | 'Пересечение';
 
 export interface Project {
   id: number;
@@ -8,7 +15,13 @@ export interface Project {
   deliveryStatus: DeliveryStatus; // «Статус отгрузки»: управляется нами
   name: string;
   tag: string;
-  type: string;
+  collectionSource: CollectionSource; // «Источник сбора»
+  dataSourceCode: 'B1' | 'B2' | 'B3' | 'B4';
+  regionMode?: 'include' | 'exclude';
+  regions?: string[];
+  sites?: string[];
+  phones?: string[];
+  smsSenderName?: string;
   dataLimit: number; // отображается как «Лимит»
   numbersToday: number; // «Номеров получено сегодня»
   numbersTotal: number; // «Номеров получено всего»

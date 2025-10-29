@@ -1,6 +1,6 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useMemo, useState } from 'react';
-import type { Project, DeliveryStatus } from '../types/project';
+import type { Project, DeliveryStatus, CollectionSource } from '../types/project';
 
 type ProjectsTableProps = {
   rows: Project[];
@@ -12,14 +12,14 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<'Все' | DeliveryStatus>('Все');
-  const [typeFilter, setTypeFilter] = useState<'Все' | string>('Все');
+  const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesStatus = status === 'Все' ? true : row.status === status;
       const matchesDelivery = deliveryStatus === 'Все' ? true : row.deliveryStatus === deliveryStatus;
-      const matchesType = typeFilter === 'Все' ? true : row.type === typeFilter;
+      const matchesType = typeFilter === 'Все' ? true : row.collectionSource === typeFilter;
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit);
@@ -27,9 +27,9 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
     });
   }, [rows, search, status, deliveryStatus, typeFilter]);
 
-  const availableTypes = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    rows.forEach(r => set.add(r.type));
+  const availableTypes = useMemo<CollectionSource[]>(() => {
+    const set = new Set<CollectionSource>();
+    rows.forEach(r => set.add(r.collectionSource));
     return Array.from(set);
   }, [rows]);
 
@@ -78,8 +78,8 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
           </select>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="Все">Все типы</option>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'Все' | CollectionSource)}>
+            <option value="Все">Все источники</option>
             {availableTypes.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
@@ -104,7 +104,7 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
             <th>Тег</th>
             <th>Название</th>
             <th>Статус проекта</th>
-            <th>Тип</th>
+            <th>Источник сбора</th>
             <th>Лимит</th>
             <th>Номеров получено сегодня</th>
             <th>Номеров получено всего</th>
@@ -147,7 +147,7 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
                   {row.status}
                 </span>
               </td>
-              <td>{row.type}</td>
+              <td>{row.collectionSource}</td>
               <td>{row.dataLimit}</td>
               <td>{row.numbersToday}</td>
               <td>{row.numbersTotal}</td>

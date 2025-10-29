@@ -35,22 +35,37 @@ function App() {
       {isCreateOpen && (
         <CreateProjectModal
           onClose={() => setIsCreateOpen(false)}
-          onSubmit={(payload) => {
-            const newProject: Project = {
-              id: maxId + 1,
-              status: payload.status,
+          onSubmit={(items) => {
+            setRows((prev) => {
+              let nextId = maxId + 1;
+              const createdAt = new Date().toISOString().slice(0, 10);
+              const newProjects: Project[] = items.map((it) => {
+                const daysReceived = it.days.length ? it.days.map(d => `${d}.`).join(' ').trim() : '';
+                const sourcesCount = (it.sites?.length || 0) + (it.phones?.length || 0) + (it.smsSenderName ? 1 : 0);
+                const p: Project = {
+                  id: nextId++,
+                  status: it.status,
                   deliveryStatus: 'На модерации',
-              name: payload.name,
-              tag: payload.tag,
-              type: payload.type,
-              dataLimit: payload.dataLimit,
-              numbersToday: 0,
-              numbersTotal: 0,
-              daysReceived: 'Пн. Вт. Ср.',
-                  sourcesCount: 0,
-                  createdAt: new Date().toISOString().slice(0, 10),
-            };
-            setRows((prev) => [newProject, ...prev]);
+                  name: it.name,
+                  tag: it.tag,
+                  collectionSource: it.collectionSource,
+                  dataSourceCode: it.dataSourceCode,
+                  regionMode: it.regionMode,
+                  regions: it.regions,
+                  sites: it.sites,
+                  phones: it.phones,
+                  smsSenderName: it.smsSenderName,
+                  dataLimit: it.dataLimit,
+                  numbersToday: 0,
+                  numbersTotal: 0,
+                  daysReceived,
+                  sourcesCount,
+                  createdAt,
+                };
+                return p;
+              });
+              return [...newProjects, ...prev];
+            });
           }}
         />
       )}
