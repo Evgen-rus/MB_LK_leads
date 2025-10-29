@@ -5,12 +5,14 @@ import Sidebar from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
 import { useMemo, useState } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
+import EditProjectModal from './components/EditProjectModal';
 import { projects as initialProjects } from './data/projects';
 import type { Project } from './types/project';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [rows, setRows] = useState<Project[]>(initialProjects);
+  const [editing, setEditing] = useState<Project | null>(null);
 
   const maxId = useMemo(() => {
     return rows.length ? Math.max(...rows.map((r) => r.id)) : 0;
@@ -29,6 +31,7 @@ function App() {
               if (!ids.length) return;
               setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
             }}
+            onEdit={(row) => setEditing(row)}
           />
         </main>
       </div>
@@ -66,6 +69,33 @@ function App() {
               });
               return [...newProjects, ...prev];
             });
+          }}
+        />
+      )}
+      {editing && (
+        <EditProjectModal
+          project={editing}
+          onClose={() => setEditing(null)}
+          onSubmit={(u) => {
+            setRows((prev) => prev.map(p => {
+              if (p.id !== editing.id) return p;
+              const daysReceived = u.days.length ? u.days.map(d => `${d}.`).join(' ').trim() : p.daysReceived;
+              const sourcesCount = (u.sites?.length || 0) + (u.phones?.length || 0) + (u.smsSenderName ? 1 : 0);
+              return {
+                ...p,
+                name: u.name,
+                tag: u.tag,
+                status: u.status,
+                dataLimit: u.dataLimit,
+                regionMode: u.regionMode,
+                regions: u.regions,
+                sites: u.sites,
+                phones: u.phones,
+                smsSenderName: u.smsSenderName,
+                daysReceived,
+                sourcesCount,
+              };
+            }));
           }}
         />
       )}

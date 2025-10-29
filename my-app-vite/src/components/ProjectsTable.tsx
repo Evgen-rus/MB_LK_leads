@@ -5,9 +5,10 @@ import type { Project, DeliveryStatus, CollectionSource } from '../types/project
 type ProjectsTableProps = {
   rows: Project[];
   onDelete?: (ids: number[]) => void;
+  onEdit?: (row: Project) => void;
 };
 
-function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
+function ProjectsTable({ rows, onDelete, onEdit }: ProjectsTableProps) {
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -155,7 +156,7 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
               <td>{row.sourcesCount}</td>
               <td className="muted">{row.createdAt}</td>
               <td>
-                <button className="icon-btn" title="Настройки">⚙️</button>
+                <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
                 <button
                   className="icon-btn"
                   title="Удалить"
