@@ -44,3 +44,14 @@
 .btn { border: 1px solid #dcdce6; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .btn--primary { background: #6a5cff; border-color: #6a5cff; color: #fff; }
 .btn--ghost { background: transparent; }
+
+/* Модалка: базовые стили под аккуратный UI */
+.modal-card input[type="text"],
+.modal-card input[type="number"],
+.modal-card input[type="search"],
+.modal-card select,
+.modal-card textarea { width: 100%; background: #f5f5f7; border: 1px solid #e6e6ee; border-radius: 10px; padding: 10px 12px; font-size: 14px; box-sizing: border-box; }
+.modal-card textarea { resize: vertical; }
+.modal-card .section-title { font-weight: 600; font-size: 16px; margin: 12px 0 4px; }
+.modal-card .hint { font-size: 12px; color: #8b8b98; }
+.modal-card .radio-row { display: flex; align-items: center; gap: 16px; }

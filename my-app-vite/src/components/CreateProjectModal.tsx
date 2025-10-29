@@ -94,6 +94,44 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
       .filter(Boolean);
   }
 
+  function uniqueList(list: string[]): string[] {
+    return Array.from(new Set(list));
+  }
+
+  const sitesParsed = useMemo(() => parseList(sitesText), [sitesText]);
+  const phonesParsed = useMemo(() => parseList(phonesText), [phonesText]);
+
+  function sanitizeSites() {
+    const unique = uniqueList(parseList(sitesText));
+    setSitesText(unique.join('\n'));
+  }
+
+  function sanitizePhones() {
+    const unique = uniqueList(parseList(phonesText));
+    setPhonesText(unique.join('\n'));
+  }
+
+  function allowedCodesForSource(src: CollectionSource): ('B1'|'B2'|'B3'|'B4')[] {
+    if (src === 'Сайты' || src === 'Звонки') return ['B1','B2','B3','B4'];
+    if (src === 'СМС') return ['B2','B3'];
+    return ['B2'];
+  }
+
+  const allowedCodes = useMemo(() => allowedCodesForSource(collectionSource), [collectionSource]);
+  const selectedCodes = useMemo(() => {
+    return allowedCodes.filter(c => (c === 'B1' ? b1 : c === 'B2' ? b2 : c === 'B3' ? b3 : b4));
+  }, [allowedCodes, b1, b2, b3, b4]);
+  const effectiveCodesPreview = useMemo(() => {
+    return selectedCodes.length > 0 ? selectedCodes : (allowedCodes.length === 1 ? allowedCodes : []);
+  }, [selectedCodes, allowedCodes]);
+  const previewLimits = useMemo(() => {
+    const total = Number.isFinite(dataLimit) ? dataLimit : 0;
+    const n = effectiveCodesPreview.length || 1;
+    const base = Math.floor(total / n);
+    const rem = total % n;
+    return effectiveCodesPreview.map((_, idx) => idx < rem ? base + 1 : base);
+  }, [dataLimit, effectiveCodesPreview]);
+
   function toggleDay(day: 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс') {
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   }
@@ -166,6 +204,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        className="modal-card"
         style={{
           background: '#fff',
           borderRadius: 8,
@@ -227,32 +266,80 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </div>
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Источник данных</span>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <label><input type="checkbox" checked={b1} onChange={(e) => setB1(e.target.checked)} disabled={!(collectionSource === 'Сайты' || collectionSource === 'Звонки')} /> B1</label>
-                <label><input type="checkbox" checked={b2} onChange={(e) => setB2(e.target.checked)} disabled={false} /> B2</label>
-                <label><input type="checkbox" checked={b3} onChange={(e) => setB3(e.target.checked)} disabled={!(collectionSource === 'Сайты' || collectionSource === 'Звонки' || collectionSource === 'СМС')} /> B3</label>
-                <label><input type="checkbox" checked={b4} onChange={(e) => setB4(e.target.checked)} disabled={!(collectionSource === 'Сайты' || collectionSource === 'Звонки')} /> B4</label>
+              <span className="section-title">Источник данных</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {(['B1','B2','B3','B4'] as const).map(code => {
+                  const allowed = allowedCodes.includes(code);
+                  const singleForced = allowedCodes.length === 1 && allowedCodes[0] === 'B2' && code === 'B2';
+                  const active = code === 'B1' ? b1 : code === 'B2' ? b2 : code === 'B3' ? b3 : b4;
+                  const setActive = (val: boolean) => {
+                    if (code === 'B1') setB1(val); else if (code === 'B2') setB2(val); else if (code === 'B3') setB3(val); else setB4(val);
+                  };
+                  return (
+                    <button
+                      key={code}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={!allowed || singleForced}
+                      onClick={() => setActive(!active)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        border: '1px solid',
+                        borderColor: active ? '#6a5cff' : '#dcdce6',
+                        background: active ? '#6a5cff' : '#fff',
+                        color: active ? '#fff' : '#1d1d1f',
+                        opacity: allowed ? 1 : 0.5,
+                        cursor: (!allowed || singleForced) ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {code}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {effectiveCodesPreview.length > 0
+                  ? `Будет создано: ${effectiveCodesPreview.length} — ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
+                  : 'Выберите источники данных'}
               </div>
             </div>
 
             {(collectionSource === 'Сайты' || collectionSource === 'Ретросайты' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Список сайтов (по одному в строке)</span>
-                <textarea rows={5} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} />
+                <span className="section-title">Список сайтов</span>
+                <span className="hint">По одному в строке</span>
+                <textarea
+                  rows={8}
+                  placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"}
+                  value={sitesText}
+                  onChange={(e) => setSitesText(e.target.value)}
+                  onBlur={sanitizeSites}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                />
+                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
               </label>
             )}
 
             {(collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Список телефонов (по одному в строке)</span>
-                <textarea rows={5} placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} />
+                <span className="section-title">Список телефонов</span>
+                <span className="hint">По одному в строке</span>
+                <textarea
+                  rows={8}
+                  placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."}
+                  value={phonesText}
+                  onChange={(e) => setPhonesText(e.target.value)}
+                  onBlur={sanitizePhones}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                />
+                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
               </label>
             )}
 
             {(collectionSource === 'СМС' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Наименование отправителя (СМС)</span>
+                <span className="section-title">Наименование отправителя (СМС)</span>
                 <input
                   type="text"
                   placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен"
@@ -263,8 +350,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             )}
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Регионы</span>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span className="section-title">Регионы</span>
+              <div className="radio-row" style={{ alignItems: 'center' }}>
                 <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
                 <input type="search" placeholder="Поиск по регионам" value={regionQuery} onChange={(e) => setRegionQuery(e.target.value)} />
@@ -287,7 +374,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </label>
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }} title="Сбор данных не осуществляется в те дни, которые не отмечены галочкой">Дни получения номеров</span>
+              <span className="section-title" title="Сбор данных не осуществляется в те дни, которые не отмечены галочкой">Дни получения номеров</span>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
                   <label key={d}>
@@ -298,7 +385,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose}>Отмена</button>
             <button type="submit" className="btn btn--primary">Создать</button>
           </div>
