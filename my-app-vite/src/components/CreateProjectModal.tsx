@@ -52,11 +52,30 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
+  const baseRegionIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    allRegions.forEach((r, i) => m.set(r, i));
+    return m;
+  }, []);
+
   const filteredRegions = useMemo(() => {
     const q = regionQuery.trim().toLowerCase();
     if (!q) return allRegions;
     return allRegions.filter(r => r.toLowerCase().includes(q));
   }, [regionQuery]);
+
+  const displayRegions = useMemo(() => {
+    const list = filteredRegions.slice();
+    list.sort((a, b) => {
+      const aSel = regions.includes(a) ? 1 : 0;
+      const bSel = regions.includes(b) ? 1 : 0;
+      if (aSel !== bSel) return bSel - aSel; // выбранные — наверх
+      const ai = baseRegionIndex.get(a) ?? 0;
+      const bi = baseRegionIndex.get(b) ?? 0;
+      return ai - bi; // сохраняем исходный порядок внутри групп
+    });
+    return list;
+  }, [filteredRegions, regions, baseRegionIndex]);
 
   useEffect(() => {
     // Ограничения по B-кодам в зависимости от источника сбора
@@ -357,7 +376,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                 <input type="search" placeholder="Поиск по регионам" value={regionQuery} onChange={(e) => setRegionQuery(e.target.value)} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                {filteredRegions.map(r => (
+                {displayRegions.map(r => (
                   <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
                   </label>
