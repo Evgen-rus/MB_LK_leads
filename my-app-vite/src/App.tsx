@@ -1,6 +1,5 @@
-// Корневой лейаут приложения: шапка, левое меню и область контента с таблицей
+// Корневой лейаут приложения: левое меню и область контента с таблицей
 import './App.css';
-import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
 import { useMemo, useState } from 'react';
@@ -20,11 +19,13 @@ function App() {
 
   return (
     <div className="layout">
-      <Header onCreateClick={() => setIsCreateOpen(true)} />
       <div className="content">
         <Sidebar />
         <main className="main">
-          <div className="page-title">Проекты</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div className="page-title">Проекты</div>
+            <button className="btn btn--primary" onClick={() => setIsCreateOpen(true)}>+ Добавить проект</button>
+          </div>
           <ProjectsTable
             rows={rows}
             onDelete={(ids) => {
