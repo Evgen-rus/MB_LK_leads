@@ -124,12 +124,18 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
       ? parseList(phonesText)
       : undefined;
 
-    const items: SubmitItem[] = effectiveCodes.map(code => ({
+    const totalLimit = Number.isFinite(dataLimit) ? dataLimit : 0;
+    const n = effectiveCodes.length;
+    const base = Math.floor(totalLimit / n);
+    const remainder = totalLimit % n;
+    const perCodeLimits = effectiveCodes.map((_, idx) => (idx < remainder ? base + 1 : base));
+
+    const items: SubmitItem[] = effectiveCodes.map((code, idx) => ({
       name: `${code}_${name.trim()}`,
       tag: `${code}_${(tag.trim() || name.trim())}`,
       collectionSource,
       dataSourceCode: code,
-      dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
+      dataLimit: perCodeLimits[idx],
       status,
       regionMode,
       regions,
