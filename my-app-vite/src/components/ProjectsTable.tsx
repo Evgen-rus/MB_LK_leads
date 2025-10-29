@@ -1,6 +1,6 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useMemo, useState } from 'react';
-import type { Project } from '../types/project';
+import type { Project, DeliveryStatus } from '../types/project';
 
 type ProjectsTableProps = {
   rows: Project[];
@@ -11,17 +11,27 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [deliveryStatus, setDeliveryStatus] = useState<'Все' | DeliveryStatus>('Все');
+  const [typeFilter, setTypeFilter] = useState<'Все' | string>('Все');
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesStatus = status === 'Все' ? true : row.status === status;
+      const matchesDelivery = deliveryStatus === 'Все' ? true : row.deliveryStatus === deliveryStatus;
+      const matchesType = typeFilter === 'Все' ? true : row.type === typeFilter;
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit);
-      return matchesStatus && matchesQuery;
+      return matchesStatus && matchesDelivery && matchesType && matchesQuery;
     });
-  }, [rows, search, status]);
+  }, [rows, search, status, deliveryStatus, typeFilter]);
+
+  const availableTypes = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    rows.forEach(r => set.add(r.type));
+    return Array.from(set);
+  }, [rows]);
 
   const filteredIds = useMemo<number[]>(() => filteredRows.map(r => r.id), [filteredRows]);
   const allOnPageSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
@@ -57,12 +67,23 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <select value={deliveryStatus} onChange={(e) => setDeliveryStatus(e.target.value as 'Все' | DeliveryStatus)}>
+            <option value="Все">Все статусы отгрузки</option>
+            <option value="Активна">Активна</option>
+            <option value="На модерации">На модерации</option>
+            <option value="Отключена">Отключена</option>
+          </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
-            <option value="Все">Все статусы</option>
+            <option value="Все">Все статусы проекта</option>
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
           </select>
-          <select><option>Канал</option></select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <option value="Все">Все типы</option>
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </div>
         <div className="actions">
           <button className="btn" disabled={selectedIds.length === 0} onClick={handleDelete}>Удалить</button>
@@ -111,7 +132,7 @@ function ProjectsTable({ rows, onDelete }: ProjectsTableProps) {
                       ? 'badge badge--green'
                       : row.deliveryStatus === 'На модерации'
                       ? 'badge badge--orange'
-                      : 'badge'
+                      : 'badge badge--gray'
                   }
                 >
                   {row.deliveryStatus}

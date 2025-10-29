@@ -35,6 +35,7 @@
 .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge--green { background: #e6f7ed; color: #1d7a45; }
 .badge--orange { background: #fff3e6; color: #8a4b00; }
+.badge--gray { background: #f0f0f3; color: #5f616b; }
 .icon-btn { background: transparent; border: none; cursor: pointer; font-size: 16px; }
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .spacer { flex: 1; }
