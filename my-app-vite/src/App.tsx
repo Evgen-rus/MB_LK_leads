@@ -22,12 +22,10 @@ function App() {
       <div className="content">
         <Sidebar />
         <main className="main">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div className="page-title">Проекты</div>
-            <button className="btn btn--primary" onClick={() => setIsCreateOpen(true)}>+ Добавить проект</button>
-          </div>
+          <div className="page-title">Проекты</div>
           <ProjectsTable
             rows={rows}
+            onCreate={() => setIsCreateOpen(true)}
             onDelete={(ids) => {
               if (!ids.length) return;
               setRows((prev) => prev.filter((p) => !ids.includes(p.id)));

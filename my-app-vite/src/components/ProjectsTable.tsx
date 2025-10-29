@@ -6,9 +6,10 @@ type ProjectsTableProps = {
   rows: Project[];
   onDelete?: (ids: number[]) => void;
   onEdit?: (row: Project) => void;
+  onCreate?: () => void;
 };
 
-function ProjectsTable({ rows, onDelete, onEdit }: ProjectsTableProps) {
+function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps) {
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -51,12 +52,7 @@ function ProjectsTable({ rows, onDelete, onEdit }: ProjectsTableProps) {
     });
   }
 
-  function handleDelete() {
-    if (!onDelete || selectedIds.length === 0) return;
-    if (!window.confirm(`Удалить выбранные проекты (${selectedIds.length})?`)) return;
-    onDelete(selectedIds);
-    setSelectedIds([]);
-  }
+  // Удаление из тулбара не используется — по просьбе отключено
 
   return (
     <div className="table-card">
@@ -87,7 +83,7 @@ function ProjectsTable({ rows, onDelete, onEdit }: ProjectsTableProps) {
           </select>
         </div>
         <div className="actions">
-          <button className="btn" disabled={selectedIds.length === 0} onClick={handleDelete}>Удалить</button>
+          <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
         </div>
       </div>
       <table className="table">
