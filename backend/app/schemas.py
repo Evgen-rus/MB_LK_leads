@@ -1,3 +1,7 @@
+"""
+Файл: backend/app/schemas.py
+Назначение: Pydantic-схемы ввода/вывода для API.
+"""
 from datetime import datetime
 from typing import List, Literal, Optional
 

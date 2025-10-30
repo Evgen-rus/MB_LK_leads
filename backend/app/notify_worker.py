@@ -1,3 +1,8 @@
+# Файл: backend/app/notify_worker.py
+# Назначение: фоновая отправка в Telegram. Агрегирует изменения за "тихое окно",
+# формирует батч-сообщения и отмечает события как отправленные.
+# Частота проверки задаётся при запуске (sleep_seconds), окно — DEBOUNCE_WINDOW_MINUTES.
+
 from __future__ import annotations
 
 import math

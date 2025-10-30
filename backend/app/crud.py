@@ -1,3 +1,7 @@
+"""
+Файл: backend/app/crud.py
+Назначение: бизнес-логика/CRUD, аудит изменений, планирование "тихого окна".
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

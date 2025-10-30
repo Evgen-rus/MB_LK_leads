@@ -1,3 +1,6 @@
+# Файл: backend/app/telegram.py
+# Назначение: простая отправка текста в Telegram Bot API (sendMessage).
+
 import requests
 
 

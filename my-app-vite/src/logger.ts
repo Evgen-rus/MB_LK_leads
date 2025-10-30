@@ -1,3 +1,6 @@
+// Файл: src/logger.ts
+// Назначение: сбор JS-ошибок на фронте.
+// Отправка: всегда в production; в dev — если VITE_REPORT_ERRORS=true в .env.local
 import { sendClientError } from './api';
 
 const isProd = (import.meta as any).env?.PROD === true || (import.meta as any).env?.MODE === 'production';

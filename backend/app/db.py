@@ -1,3 +1,7 @@
+"""
+Файл: backend/app/db.py
+Назначение: инициализация SQLAlchemy engine и фабрики сессий (SessionLocal).
+"""
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

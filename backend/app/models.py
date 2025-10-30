@@ -1,3 +1,7 @@
+"""
+Файл: backend/app/models.py
+Назначение: ORM-модели БД (Project, AuditEvent, NotifyState).
+"""
 from datetime import datetime
 from typing import Optional
 

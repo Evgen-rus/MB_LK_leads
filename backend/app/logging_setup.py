@@ -1,3 +1,7 @@
+"""
+Файл: backend/app/logging_setup.py
+Назначение: настройка логов — файл logs/app.log с суточной ротацией, хранение 30 дней.
+"""
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler

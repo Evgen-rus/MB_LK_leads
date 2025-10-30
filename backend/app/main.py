@@ -1,3 +1,12 @@
+"""
+Файл: backend/app/main.py
+Назначение: точка входа FastAPI.
+- Загружает .env, настраивает логирование и CORS
+- Инициализирует БД и создаёт таблицы
+- Выдаёт request_id (X-Request-Id), пишет access-лог
+- Регистрирует эндпоинты /health, /projects (CRUD), /client-errors
+- Стартует фоновый воркер уведомлений в Telegram ("тихое окно")
+"""
 import os
 from dotenv import load_dotenv
 import logging

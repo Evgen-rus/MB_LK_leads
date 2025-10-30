@@ -1,3 +1,5 @@
+// Файл: src/api.ts
+// Назначение: HTTP-клиент фронтенда для работы с бэкендом (projects, client-errors).
 import type { Project } from './types/project';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8000';
