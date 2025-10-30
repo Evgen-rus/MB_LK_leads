@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -9,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from . import db, models, schemas, crud, telegram, notify_worker
+from . import db, models, schemas, crud, telegram, notify_worker, logging_setup
 
 
 def get_settings():
@@ -22,6 +23,7 @@ def get_settings():
 
 
 load_dotenv()
+logging_setup.setup_logging()
 settings = get_settings()
 
 engine, SessionLocal = db.init_engine_and_session(settings["DATABASE_URL"]) 
@@ -37,6 +39,14 @@ def get_db():
 
 
 app = FastAPI(title="LK Projects API")
+@app.middleware("http")
+async def access_log(request, call_next):
+    start = datetime.now(timezone.utc)
+    response = await call_next(request)
+    duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+    logging.getLogger("app.access").info("%s %s -> %s (%d ms)", request.method, request.url.path, response.status_code, duration_ms)
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,

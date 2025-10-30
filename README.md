@@ -3,6 +3,35 @@ MB_LK_leads — Личный кабинет (React + Vite + TypeScript)
 Короткое описание: прототип ЛК с хедером, левым меню и таблицей проектов (поиск по названию/ID, фильтр по статусу).
 
 Команды запуска (Windows PowerShell)
+
+Запустить бэкенд (из корня проекта). Для быстрой проверки телеграма предлагаю временно окно 1 минуту
+```bash
+$env:DEBOUNCE_WINDOW_MINUTES="1"
+>> uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000        
+```
+
+Запуск фронтенда:
+```bash
+Invoke-WebRequest http://127.0.0.1:8000/health | Select-Object -Expand Content
+Invoke-WebRequest http://127.0.0.1:8000/projects | Select-Object -Expand Content
+```
+
+Проверка API
+```bash
+cd my-app-vite
+npm run dev
+```
+
+Если нужно быстро дернуть API без фронта:
+```bash
+# Список проектов
+Invoke-WebRequest http://localhost:8000/projects
+
+# Пример создания (тело в JSON файле create.json)
+Invoke-WebRequest -Uri http://localhost:8000/projects -Method POST -ContentType "application/json" -InFile .\create.json
+```
+
+Первый запуск дописать
 ```bash
 cd my-app-vite
 npm install  # первый запуск/после клонирования
