@@ -67,4 +67,18 @@ export async function deleteProject(id: number): Promise<void> {
   await http(`/projects/${id}`, { method: 'DELETE' });
 }
 
+export async function sendClientError(payload: {
+  message: string;
+  stack?: string;
+  url?: string;
+  userAgent?: string;
+  level?: 'error'|'warn'|'info';
+  time?: string;
+}): Promise<void> {
+  await http('/client-errors', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 

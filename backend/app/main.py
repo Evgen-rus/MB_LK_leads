@@ -1,12 +1,13 @@
 import os
 from dotenv import load_dotenv
 import logging
+import uuid
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import List
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -42,10 +43,33 @@ app = FastAPI(title="LK Projects API")
 @app.middleware("http")
 async def access_log(request, call_next):
     start = datetime.now(timezone.utc)
-    response = await call_next(request)
-    duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
-    logging.getLogger("app.access").info("%s %s -> %s (%d ms)", request.method, request.url.path, response.status_code, duration_ms)
-    return response
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    finally:
+        duration_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+        logging.getLogger("app.access").info("%s %s -> %s (%d ms) rid=%s", request.method, request.url.path, getattr(locals().get('response', None), 'status_code', '?'), duration_ms, request_id)
+    # добавить request id в ответ
+    if 'response' in locals() and response is not None:
+        response.headers['X-Request-Id'] = request_id
+        return response
+    raise
+
+
+@app.post("/client-errors")
+def client_errors(payload: schemas.ClientErrorIn, request: Request):
+    rid = getattr(request.state, 'request_id', '-')
+    logging.getLogger("app.client").error(
+        "frontend_error level=%s url=%s ua=%s msg=%s rid=%s\nstack=%s",
+        payload.level,
+        payload.url,
+        payload.userAgent,
+        (payload.message or '')[:500],
+        rid,
+        (payload.stack or '')[:4000],
+    )
+    return {"ok": True}
 
 
 app.add_middleware(

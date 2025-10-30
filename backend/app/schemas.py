@@ -64,6 +64,15 @@ class ProjectOut(BaseModel):
     createdAt: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+
+class ClientErrorIn(BaseModel):
+    message: str = Field(..., description="Сообщение ошибки")
+    stack: Optional[str] = Field(None, description="Стек ошибки")
+    url: Optional[str] = Field(None, description="URL страницы")
+    userAgent: Optional[str] = Field(None, description="User-Agent браузера")
+    level: Optional[Literal['error','warn','info']] = 'error'
+    time: Optional[str] = None
 
 
