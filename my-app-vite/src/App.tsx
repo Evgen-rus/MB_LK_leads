@@ -2,20 +2,27 @@
 import './App.css';
 import Sidebar from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
-import { useMemo, useState } from 'react';
+import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
-import { projects as initialProjects } from './data/projects';
 import type { Project } from './types/project';
+import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete } from './api';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [rows, setRows] = useState<Project[]>(initialProjects);
+  const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
 
-  const maxId = useMemo(() => {
-    return rows.length ? Math.max(...rows.map((r) => r.id)) : 0;
-  }, [rows]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiList();
+        setRows(data);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, []);
 
   return (
     <div className="layout">
@@ -28,7 +35,15 @@ function App() {
             onCreate={() => setIsCreateOpen(true)}
             onDelete={(ids) => {
               if (!ids.length) return;
-              setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
+              (async () => {
+                try {
+                  // В UI удаляется по одному, но обработаем массив на будущее
+                  await Promise.all(ids.map((id) => apiDelete(id)));
+                  setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
+                } catch (e) {
+                  console.error(e);
+                }
+              })();
             }}
             onEdit={(row) => setEditing(row)}
           />
@@ -38,36 +53,14 @@ function App() {
         <CreateProjectModal
           onClose={() => setIsCreateOpen(false)}
           onSubmit={(items) => {
-            setRows((prev) => {
-              let nextId = maxId + 1;
-              const createdAt = new Date().toISOString().slice(0, 10);
-              const newProjects: Project[] = items.map((it) => {
-                const daysReceived = it.days.length ? it.days.map(d => `${d}.`).join(' ').trim() : '';
-                const sourcesCount = (it.sites?.length || 0) + (it.phones?.length || 0) + (it.smsSenderName ? 1 : 0);
-                const p: Project = {
-                  id: nextId++,
-                  status: it.status,
-                  deliveryStatus: 'На модерации',
-                  name: it.name,
-                  tag: it.tag,
-                  collectionSource: it.collectionSource,
-                  dataSourceCode: it.dataSourceCode,
-                  regionMode: it.regionMode,
-                  regions: it.regions,
-                  sites: it.sites,
-                  phones: it.phones,
-                  smsSenderName: it.smsSenderName,
-                  dataLimit: it.dataLimit,
-                  numbersToday: 0,
-                  numbersTotal: 0,
-                  daysReceived,
-                  sourcesCount,
-                  createdAt,
-                };
-                return p;
-              });
-              return [...newProjects, ...prev];
-            });
+            (async () => {
+              try {
+                const created = await apiCreate(items);
+                setRows((prev) => [...created, ...prev]);
+              } catch (e) {
+                console.error(e);
+              }
+            })();
           }}
         />
       )}
@@ -76,25 +69,14 @@ function App() {
           project={editing}
           onClose={() => setEditing(null)}
           onSubmit={(u) => {
-            setRows((prev) => prev.map(p => {
-              if (p.id !== editing.id) return p;
-              const daysReceived = u.days.length ? u.days.map(d => `${d}.`).join(' ').trim() : p.daysReceived;
-              const sourcesCount = (u.sites?.length || 0) + (u.phones?.length || 0) + (u.smsSenderName ? 1 : 0);
-              return {
-                ...p,
-                name: u.name,
-                tag: u.tag,
-                status: u.status,
-                dataLimit: u.dataLimit,
-                regionMode: u.regionMode,
-                regions: u.regions,
-                sites: u.sites,
-                phones: u.phones,
-                smsSenderName: u.smsSenderName,
-                daysReceived,
-                sourcesCount,
-              };
-            }));
+            (async () => {
+              try {
+                const updated = await apiUpdate(editing.id, u as any);
+                setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+              } catch (e) {
+                console.error(e);
+              }
+            })();
           }}
         />
       )}
