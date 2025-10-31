@@ -73,6 +73,15 @@ function Sidebar() {
             </span>
             <span className="nav-label">Интеграции</span>
           </li>
+          <li>
+            <span className="nav-icon" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="7" y1="17" x2="17" y2="7" />
+              </svg>
+            </span>
+            <span className="nav-label">Черный список</span>
+          </li>
         </ul>
         <div className="nav-section">Биллинг</div>
         <ul>
@@ -84,15 +93,6 @@ function Sidebar() {
               </svg>
             </span>
             <span className="nav-label">Баланс</span>
-          </li>
-          <li>
-            <span className="nav-icon" aria-hidden>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <line x1="7" y1="17" x2="17" y2="7" />
-              </svg>
-            </span>
-            <span className="nav-label">Черный список</span>
           </li>
         </ul>
         <div className="nav-section">Обучение</div>

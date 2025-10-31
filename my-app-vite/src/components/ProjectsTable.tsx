@@ -131,6 +131,7 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
                       ? 'badge badge--orange'
                       : 'badge badge--gray'
                   }
+                  style={{ whiteSpace: 'nowrap' }}
                 >
                   {row.deliveryStatus}
                 </span>
@@ -140,7 +141,9 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
                 <div className="name">{row.name}</div>
               </td>
               <td>
-                <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}>
+                <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
+                      style={{ whiteSpace: 'nowrap' }}
+                >
                   {row.status}
                 </span>
               </td>
