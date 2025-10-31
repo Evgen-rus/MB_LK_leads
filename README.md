@@ -6,8 +6,7 @@ MB_LK_leads — Личный кабинет (React + Vite + TypeScript)
 
 Запустить бэкенд (из корня проекта). Для быстрой проверки телеграма предлагаю временно окно 1 минуту
 ```bash
-$env:DEBOUNCE_WINDOW_MINUTES="1"
->> uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000        
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000        
 ```
 
 Запуск фронтенда:

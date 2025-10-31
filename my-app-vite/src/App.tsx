@@ -6,30 +6,51 @@ import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
 import type { Project } from './types/project';
-import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete } from './api';
+import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete, logout as apiLogout } from './api';
+import Login from './components/Login';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [needLogin, setNeedLogin] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const data = await apiList();
         setRows(data);
-      } catch (e) {
-        console.error(e);
+        setNeedLogin(false);
+      } catch (e: any) {
+        if (e?.status === 401) {
+          setNeedLogin(true);
+        } else {
+          console.error(e);
+        }
       }
     })();
   }, []);
+
+  if (needLogin) {
+    return <Login onSuccess={() => {
+      // после успешного входа перезагружаем список
+      (async () => { try { const data = await apiList(); setRows(data); setNeedLogin(false); } catch (e) {} })();
+    }} />;
+  }
 
   return (
     <div className="layout">
       <div className="content">
         <Sidebar />
         <main className="main">
-          <div className="page-title">Проекты</div>
+          <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span>Проекты</span>
+            <button className="btn btn--ghost" onClick={async ()=>{
+              try { await apiLogout(); } catch {}
+              setRows([]);
+              setNeedLogin(true);
+            }}>Выйти</button>
+          </div>
           <ProjectsTable
             rows={rows}
             onCreate={() => setIsCreateOpen(true)}

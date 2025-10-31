@@ -10,6 +10,7 @@
 import os
 from dotenv import load_dotenv
 import logging
+import secrets
 import uuid
 import threading
 import time
@@ -20,7 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from . import db, models, schemas, crud, telegram, notify_worker, logging_setup
+from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
 
 
 def get_settings():
@@ -81,9 +82,11 @@ def client_errors(payload: schemas.ClientErrorIn, request: Request):
     return {"ok": True}
 
 
+# Разрешенные источники для CORS (для cookie нужен конкретный список, не "*")
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -117,20 +120,28 @@ def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
 
 
+def require_auth(request: Request):
+    cookie = request.cookies.get("session")
+    user = auth.verify_session(cookie or "") if cookie else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
+
+
 @app.get("/projects", response_model=List[schemas.ProjectOut])
-def list_projects(db_sess: Session = Depends(get_db)):
+def list_projects(_: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
     return crud.list_projects(db_sess)
 
 
 @app.post("/projects", response_model=List[schemas.ProjectOut])
-def create_projects(payload: schemas.CreateProjectsPayload, db_sess: Session = Depends(get_db)):
+def create_projects(payload: schemas.CreateProjectsPayload, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
     created = crud.create_projects(db_sess, payload.items)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return created
 
 
 @app.get("/projects/{project_id}", response_model=schemas.ProjectOut)
-def get_project(project_id: int, db_sess: Session = Depends(get_db)):
+def get_project(project_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
     project = crud.get_project(db_sess, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -138,7 +149,7 @@ def get_project(project_id: int, db_sess: Session = Depends(get_db)):
 
 
 @app.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
-def update_project(project_id: int, payload: schemas.ProjectUpdate, db_sess: Session = Depends(get_db)):
+def update_project(project_id: int, payload: schemas.ProjectUpdate, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
     updated = crud.update_project(db_sess, project_id, payload)
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -147,11 +158,43 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, db_sess: Ses
 
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: int, db_sess: Session = Depends(get_db)):
+def delete_project(project_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
     ok = crud.delete_project(db_sess, project_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
+
+
+@app.post("/auth/login")
+def login(payload: dict, request: Request):
+    username = str(payload.get("username", ""))
+    password = str(payload.get("password", ""))
+    u_ok = secrets.compare_digest(username, os.getenv("AUTH_USER", ""))
+    p_ok = secrets.compare_digest(password, os.getenv("AUTH_PASSWORD", ""))
+    if not (u_ok and p_ok):
+        raise HTTPException(status_code=401, detail="Bad credentials")
+    token = auth.sign_session(username)
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"ok": True})
+    secure = os.getenv("COOKIE_SECURE", "0").lower() in ("1","true")
+    resp.set_cookie(
+        key="session",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        path="/",
+        max_age=86400,
+    )
+    return resp
+
+
+@app.post("/auth/logout")
+def logout():
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("session", path="/")
+    return resp
 
 

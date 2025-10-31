@@ -37,12 +37,17 @@ export type ProjectUpdatePayload = {
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
     ...init,
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    const err = new Error(text || res.statusText) as any;
+    (err.status = res.status);
+    throw err;
   }
   return res.json();
 }
@@ -81,6 +86,17 @@ export async function sendClientError(payload: {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export async function login(username: string, password: string): Promise<void> {
+  await http('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function logout(): Promise<void> {
+  await http('/auth/logout', { method: 'POST' });
 }
 
 
