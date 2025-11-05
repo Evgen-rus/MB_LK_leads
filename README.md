@@ -1,68 +1,144 @@
-MB_LK_leads — Личный кабинет (React + Vite + TypeScript)
+# MB_LK_leads — Личный кабинет
 
-Короткое описание: прототип ЛК с хедером, левым меню и таблицей проектов (поиск по названию/ID, фильтр по статусу).
+Прототип личного кабинета с хедером, левым меню и таблицей проектов (поиск по названию/ID, фильтр по статусу).
 
-Команды запуска (Windows PowerShell)
+## 🚀 Быстрый старт
 
-Запустить бэкенд (из корня проекта). Для быстрой проверки телеграма предлагаю временно окно 1 минуту
+### Предварительные требования
+- Node.js 24.11.0+ (через NVM)
+- Python 3.8+
+- pip
+
+### Запуск проекта
+
+1. **Клонирование и установка зависимостей:**
 ```bash
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000        
+git clone <repository-url>
+cd MB_LK_leads
+
+# Python зависимости
+pip install -r requirements.txt
+
+# Node.js зависимости
+cd my-app-vite
+npm install
+cd ..
 ```
 
-Запуск фронтенда:
+2. **Запуск бэкенда:**
 ```bash
-Invoke-WebRequest http://127.0.0.1:8000/health | Select-Object -Expand Content
-Invoke-WebRequest http://127.0.0.1:8000/projects | Select-Object -Expand Content
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Проверка API
+3. **Запуск фронтенда (в новом терминале):**
 ```bash
 cd my-app-vite
 npm run dev
 ```
 
-Если нужно быстро дернуть API без фронта:
-```bash
-# Список проектов
-Invoke-WebRequest http://localhost:8000/projects
+После запуска:
+- **Фронтенд:** http://localhost:5173/
+- **Бэкенд API:** http://localhost:8000/
 
-# Пример создания (тело в JSON файле create.json)
-Invoke-WebRequest -Uri http://localhost:8000/projects -Method POST -ContentType "application/json" -InFile .\create.json
+## 📋 Детальная настройка
+
+### Node.js установка/обновление
+
+```bash
+# Проверка версии
+node --version  # v24.11.0
+
+# Если версия старая, установка через NVM
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 24
+nvm use 24
 ```
 
-Первый запуск дописать
+### Тестирование API
+
 ```bash
-cd my-app-vite
-npm install  # первый запуск/после клонирования
-npm run dev  # dev-сервер: http://localhost:5173
+# Проверка здоровья
+curl http://localhost:8000/health
+
+# Получение проектов
+curl http://localhost:8000/projects
+
+# Создание проекта (пример)
+curl -X POST http://localhost:8000/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Новый проект", "status": "active"}'
 ```
 
-Сборка и превью продакшн-версии
-```bash
-cd my-app-vite
-npm run build
-npm run preview  # локальный предпросмотр сборки
+## 🛠 Текущий стек
+
+- **Frontend:**
+  - React 19.2.0
+  - TypeScript 5.9.3
+  - Vite 7.1.12 + @vitejs/plugin-react 5.1.0
+  - CSS (стили в `App.css`)
+
+- **Backend:**
+  - FastAPI (Python)
+  - Uvicorn
+  - SQLAlchemy (база данных)
+
+- **DevOps:**
+  - Node.js 24.11.0
+  - npm 11.6.1
+  - Git + .gitignore
+
+## 📁 Структура проекта
+
+```
+MB_LK_leads/
+├── backend/                 # Python FastAPI бэкенд
+│   └── app/
+│       ├── main.py         # Точка входа API
+│       ├── models.py       # Модели данных
+│       └── db.py           # Настройки БД
+├── my-app-vite/            # React фронтенд
+│   ├── src/
+│   │   ├── components/     # React компоненты
+│   │   │   ├── Header.tsx
+│   │   │   ├── Sidebar.tsx
+│   │   │   └── ProjectsTable.tsx
+│   │   ├── data/
+│   │   │   └── projects.ts # Мок-данные
+│   │   ├── types/
+│   │   │   └── project.ts  # TypeScript типы
+│   │   ├── App.tsx         # Главный компонент
+│   │   └── main.tsx        # Точка входа Vite
+│   └── package.json
+├── requirements.txt         # Python зависимости
+└── README.md
 ```
 
-Текущий стек
-- React 19.2.0
-- TypeScript 5.9.3
-- Vite 7.1.12 + @vitejs/plugin-react 5.1.0 (dev — esbuild 0.25.11, prod — Rollup 4.52.5)
-- CSS (простые стили в `App.css`)
-- Node.js 24.10.0
-- npm 11.6.1
-- Git + корневой `.gitignore`
-- Данные временно мокируются в `my-app-vite/src/data/projects.ts` (бэкенда нет)
+## 🔧 Скрипты
 
-Важные файлы
-- my-app-vite/src/components/Header.tsx — верхняя панель
-- my-app-vite/src/components/Sidebar.tsx — левое меню
-- my-app-vite/src/components/ProjectsTable.tsx — таблица, поиск и фильтр
-- my-app-vite/src/data/projects.ts — мок-данные
-- my-app-vite/src/types/project.ts — типы данных
-- my-app-vite/src/App.tsx — сборка лейаута
-- my-app-vite/src/main.tsx — точка входа Vite
+### Фронтенд (в папке `my-app-vite`)
+```bash
+npm install      # Установка зависимостей
+npm run dev      # Dev сервер (http://localhost:5173)
+npm run build    # Сборка для продакшена
+npm run preview  # Превью продакшен сборки
+```
 
-Примечание
-- Старый CRA-проект перенесён на Vite. Игнор системных/временных файлов настроен в корневом .gitignore (включая **/node_modules/).
+### Бэкенд (в корне проекта)
+```bash
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
+## 📝 API Endpoints
+
+- `GET /health` - Проверка работоспособности
+- `GET /projects` - Получение списка проектов
+- `POST /projects` - Создание нового проекта
+- `PUT /projects/{id}` - Обновление проекта
+- `DELETE /projects/{id}` - Удаление проекта
+
+## ⚠️ Примечания
+
+- Проект перенесён с Create React App на Vite
+- Данные временно хранятся в памяти (in-memory), планируется переход на PostgreSQL
+- Конфигурация gitignore настроена для исключения системных и временных файлов
