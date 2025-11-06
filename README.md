@@ -293,3 +293,75 @@ certbot --nginx -d leadrecordwh.ru -d www.leadrecordwh.ru
 ```
 
 Примечание: для развёртывания на другом сервере поменяйте IP и домен, пути оставьте `/opt/MB_LK_leads` как в примере — так проще переносить.
+
+Отлично, проект запущен. Коротко, как обновлять его через GitHub и что пересобирать.
+
+### Базовый цикл обновления
+
+1) Локально (на вашем ПК)
+- Вносите изменения → коммит → push в GitHub:
+```bash
+git add .
+git commit -m "feature: описание"
+git push origin main
+```
+
+2) На сервере (обновление кода)
+```bash
+ssh root@82.147.71.51
+cd /opt/MB_LK_leads
+git pull --rebase
+```
+
+3) Если менялся бэкенд (Python)
+- Обновить зависимости и перезапустить сервис:
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+systemctl restart lk-backend
+journalctl -u lk-backend -n 50 --no-pager
+```
+
+4) Если менялся фронтенд (React/Vite)
+- Пересобрать статические файлы:
+```bash
+# убедиться, что активен Node 24 (если nvm)
+source ~/.bashrc && nvm use 24
+
+cd /opt/MB_LK_leads/my-app-vite
+npm ci   # или npm install
+npm run build
+```
+Nginx отдаёт `dist/` автоматически — перезапуск Nginx не нужен (только если меняли конфиг).
+
+5) Проверка
+```bash
+curl http://leadrecordwh.ru/api/health
+# в браузере: http://leadrecordwh.ru/ (жёсткое обновление: Ctrl+F5)
+```
+
+### Быстрые сценарии
+
+- Только фронтенд менялся:
+```bash
+cd /opt/MB_LK_leads && git pull --rebase
+source ~/.bashrc && nvm use 24
+cd my-app-vite && npm ci && npm run build
+```
+
+- Только бэкенд менялся:
+```bash
+cd /opt/MB_LK_leads && git pull --rebase
+source venv/bin/activate && pip install -r requirements.txt
+systemctl restart lk-backend
+```
+
+### Важные примечания
+- `.env` и `app.db` не в Git — они остаются на сервере как есть (это правильно).
+- Переменная `VITE_API_BASE=/api` уже задана в `my-app-vite/.env.production` — при каждой сборке учитывается автоматически.
+- Если меняли Nginx-конфиг, применяйте:
+```bash
+nginx -t && systemctl reload nginx
+```
+
+Если хотите, сделаю скрипт `deploy.sh`, который выполнит все шаги одной командой.
