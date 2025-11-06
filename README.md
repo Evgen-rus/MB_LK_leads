@@ -134,7 +134,7 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 - `GET /health` - Проверка работоспособности
 - `GET /projects` - Получение списка проектов
 - `POST /projects` - Создание нового проекта
-- `PUT /projects/{id}` - Обновление проекта
+- `PATCH /projects/{id}` - Обновление проекта
 - `DELETE /projects/{id}` - Удаление проекта
 
 ## ⚠️ Примечания

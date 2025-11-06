@@ -86,6 +86,7 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
           <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
         </div>
       </div>
+      <div className="table-scroll">
       <table className="table">
         <thead>
           <tr>
@@ -173,6 +174,7 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
           ))}
         </tbody>
       </table>
+      </div>
       <div className="table-footer">
         Показано {filteredRows.length} из {rows.length}
         <div className="spacer" />
