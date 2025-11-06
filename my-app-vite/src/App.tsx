@@ -14,6 +14,10 @@ function App() {
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
+  // Принудительно фиксируем светлую тему по умолчанию
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }, []);
 
   useEffect(() => {
     (async () => {
