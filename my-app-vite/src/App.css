@@ -41,6 +41,8 @@
 .actions .btn { padding: 6px 10px; }
 .date-range { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
 .date-range input[type="date"] { padding: 8px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
+.project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
+.project-filter-panel select { min-width: 240px; }
 .table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 .table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; white-space: normal; }
 .table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; }
@@ -80,8 +82,11 @@
   .main { padding: 12px; }
   .table-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filters .btn { width: 100%; }
+  .project-filter-panel { flex-direction: column; align-items: stretch; width: 100%; }
+  .project-filter-panel select { width: 100%; min-height: 140px; }
   .filters input[type="search"] { min-width: 0; flex: 1 1 100%; margin-right: 0; }
   .filters select { flex: 1 1 calc(50% - 4px); margin-right: 0; }
-  .actions { display: flex; justify-content: flex-end; }
-  .date-range { width: 100%; justify-content: flex-end; }
+  .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+  .date-range { width: 100%; justify-content: space-between; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 }

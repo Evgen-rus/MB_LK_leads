@@ -364,4 +364,7 @@ systemctl restart lk-backend
 nginx -t && systemctl reload nginx
 ```
 
-Если хотите, сделаю скрипт `deploy.sh`, который выполнит все шаги одной командой.
+Запуск загрузки лидов в бд из таблиц прописанных  в .env SHEETS_MAP
+```bash
+python -m backend.app.sheets_import
+```

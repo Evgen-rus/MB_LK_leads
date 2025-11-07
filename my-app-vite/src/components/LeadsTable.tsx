@@ -45,7 +45,7 @@ function LeadsTable({ projects }: Props) {
             Проекты: {allProjects ? 'Все' : (projectIds.length || 0)} {showProjectFilter ? '▲' : '▼'}
           </button>
           {showProjectFilter && (
-            <div style={{display:'flex',alignItems:'center',gap:8, padding:'6px 8px', border:'1px solid #ececf2', borderRadius:8, background:'#fff'}}>
+            <div className="project-filter-panel">
               <label style={{display:'inline-flex',alignItems:'center',gap:6}}>
                 <input type="checkbox" checked={allProjects} onChange={(e)=> setAllProjects(e.target.checked)} />
                 Все проекты
