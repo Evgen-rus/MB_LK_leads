@@ -19,10 +19,12 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Tuple
 
+from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from . import db, models
+from . import db, models, logging_setup
+from sqlalchemy import select
 
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
@@ -58,8 +60,9 @@ def _build_sheets_client(credentials_file: str):
 
 
 def _parse_msk_datetime(s: str, tz_name: str) -> datetime | None:
-    """Парсинг строки вида 'YYYY-MM-DD H:MM:SS' (час может быть без нуля) в UTC-naive.
-    Возвращает UTC-naive datetime (как в других моделях).
+    """Парсинг строки вида 'YYYY-MM-DD H:MM:SS' (час может быть без нуля) в ЛОКАЛЬНОЕ (MSK) время.
+    Возвращает naive datetime в часовом поясе таблицы (без tzinfo),
+    чтобы хранить в БД ровно то время, что в Google.
     """
     s = s.strip()
     m = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})$", s)
@@ -70,10 +73,10 @@ def _parse_msk_datetime(s: str, tz_name: str) -> datetime | None:
     try:
         from zoneinfo import ZoneInfo
 
-        msk = ZoneInfo(tz_name)
-        dt_local = datetime.fromisoformat(f"{date_part} {hh}:{mm}:{ss}").replace(tzinfo=msk)
-        dt_utc = dt_local.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt_utc
+        # Создаём aware в нужной TZ, затем убираем tzinfo → получаем naive локальное
+        tz = ZoneInfo(tz_name)
+        dt_local = datetime.fromisoformat(f"{date_part} {hh}:{mm}:{ss}").replace(tzinfo=tz)
+        return dt_local.replace(tzinfo=None)
     except Exception:
         return None
 
@@ -90,8 +93,9 @@ def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[T
     """Оставляем строки за последние `days` дней.
     Возвращаем кортежи: (ext_id, created_at_utc, phone, utm)
     """
-    now_utc = datetime.utcnow()
-    threshold_utc = now_utc - timedelta(days=days)
+    from zoneinfo import ZoneInfo
+    now_local = datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
+    threshold_local = now_local - timedelta(days=days)
     out: List[Tuple[int, datetime, str, str | None]] = []
     for row in rows:
         # Ожидаем как минимум A, B, C
@@ -108,23 +112,19 @@ def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[T
             ext_id = int(ext_id_str)
         except ValueError:
             continue
-        dt_utc = _parse_msk_datetime(dt_str, tz_name)
-        if not dt_utc:
+        dt_local = _parse_msk_datetime(dt_str, tz_name)
+        if not dt_local:
             continue
-        if dt_utc < threshold_utc:
+        if dt_local < threshold_local:
             continue
-        out.append((ext_id, dt_utc, phone, utm))
+        out.append((ext_id, dt_local, phone, utm))
     return out
 
 
 def _load_existing_ext_ids(db_sess, ext_ids: List[int]) -> set[int]:
     if not ext_ids:
         return set()
-    # SQLite: IN (...) нормально для сотен/тысяч
-    rows = db_sess.execute(
-        "SELECT ext_id FROM leads WHERE ext_id IN (%s)" % (",".join([":e%d" % i for i in range(len(ext_ids))])),
-        {"e%d" % i: v for i, v in enumerate(ext_ids)},
-    ).fetchall()
+    rows = db_sess.execute(select(models.Lead.ext_id).where(models.Lead.ext_id.in_(ext_ids))).all()
     return {int(r[0]) for r in rows}
 
 
@@ -182,6 +182,9 @@ def import_all():
 
 
 def main():
+    # Подхватить .env и настроить файл логов
+    load_dotenv()
+    logging_setup.setup_logging()
     logging.getLogger().setLevel(logging.INFO)
     import_all()
 

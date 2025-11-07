@@ -47,20 +47,15 @@ function App() {
   return (
     <div className="layout">
       <div className="content">
-        <Sidebar />
+        <Sidebar active={view} onNavigate={setView} />
         <main className="main">
           <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
             <span>{view === 'projects' ? 'Проекты' : 'Лиды'}</span>
-            <div style={{display:'flex',gap:8}}>
-              <button className="btn" onClick={()=> setView(v => v === 'projects' ? 'leads' : 'projects')}>
-                {view === 'projects' ? 'Перейти к лидам' : 'Перейти к проектам'}
-              </button>
-              <button className="btn btn--ghost" onClick={async ()=>{
+            <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
               setRows([]);
               setNeedLogin(true);
             }}>Выйти</button>
-            </div>
           </div>
           {view === 'projects' ? (
           <ProjectsTable

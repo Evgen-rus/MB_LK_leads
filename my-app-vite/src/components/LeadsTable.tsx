@@ -15,19 +15,18 @@ function formatDateInput(d: Date) {
 }
 
 function LeadsTable({ projects }: Props) {
-  const defaultProjectId = projects[0]?.id ?? 0;
-  const [projectId, setProjectId] = useState<number>(defaultProjectId);
-  const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date(Date.now() - 2*24*3600*1000))); // сегодня-2
+  const [allProjects, setAllProjects] = useState<boolean>(true);
+  const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!projectId) return;
     (async () => {
       try {
         setLoading(true);
-        const data = await fetchLeads({ projectId, fromDate, toDate });
+        const data = await fetchLeads({ projectIds: allProjects ? [] : projectIds, fromDate, toDate });
         setRows(data);
       } catch (e) {
         console.error(e);
@@ -35,13 +34,22 @@ function LeadsTable({ projects }: Props) {
         setLoading(false);
       }
     })();
-  }, [projectId, fromDate, toDate]);
+  }, [allProjects, projectIds, fromDate, toDate]);
 
   return (
     <div className="table-card">
       <div className="table-toolbar">
         <div className="filters">
-          <select value={projectId} onChange={(e)=> setProjectId(Number(e.target.value))}>
+          <label style={{display:'inline-flex',alignItems:'center',gap:6, marginRight:8}}>
+            <input type="checkbox" checked={allProjects} onChange={(e)=> setAllProjects(e.target.checked)} />
+            Все проекты
+          </label>
+          <select multiple size={Math.min(6, Math.max(3, projects.length))} disabled={allProjects}
+                  value={projectIds.map(String)}
+                  onChange={(e)=> {
+                    const opts = Array.from(e.currentTarget.selectedOptions).map(o=> Number(o.value));
+                    setProjectIds(opts);
+                  }}>
             {projects.map(p => (
               <option key={p.id} value={p.id}>{p.id} — {p.name}</option>
             ))}

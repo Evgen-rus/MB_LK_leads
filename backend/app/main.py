@@ -202,13 +202,13 @@ def logout():
 # ----------------------- Лиды -----------------------
 @app.get("/leads", response_model=List[schemas.LeadOut])
 def list_leads(
-    projectId: int,
+    projectIds: Optional[str] = None,  # "1,2,3"; если нет — все
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     _: str = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
-    # Конвертация дат из MSK в UTC границы
+    # Границы дат в локальной TZ; в БД храним локальные naive
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
     try:
@@ -227,9 +227,18 @@ def list_leads(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
 
-    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
-    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+    start_naive = start_local.replace(tzinfo=None)
+    end_naive = end_local.replace(tzinfo=None)
 
-    return crud.list_leads(db_sess, project_id=projectId, start_utc=start_utc, end_utc=end_utc)
+    proj_ids: Optional[List[int]] = None
+    if projectIds:
+        try:
+            proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
+            if not proj_ids:
+                proj_ids = None
+        except Exception:
+            proj_ids = None
+
+    return crud.list_leads(db_sess, project_ids=proj_ids, start_local=start_naive, end_local=end_naive)
 
 

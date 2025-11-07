@@ -109,12 +109,14 @@ export type Lead = {
   utm_campaign?: string | null;
 };
 
-export async function fetchLeads(params: { projectId: number; fromDate: string; toDate: string; }): Promise<Lead[]> {
+export async function fetchLeads(params: { projectIds?: number[]; fromDate: string; toDate: string; }): Promise<Lead[]> {
   const q = new URLSearchParams({
-    projectId: String(params.projectId),
     fromDate: params.fromDate,
     toDate: params.toDate,
   });
+  if (params.projectIds && params.projectIds.length > 0) {
+    q.set('projectIds', params.projectIds.join(','));
+  }
   return http<Lead[]>(`/leads?${q.toString()}`);
 }
 

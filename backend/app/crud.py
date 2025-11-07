@@ -195,21 +195,23 @@ def mark_events_sent_and_clear(db: Session, events: List[models.AuditEvent]) -> 
     db.commit()
 
 
-def list_leads(db: Session, project_id: int, start_utc: datetime, end_utc: datetime, limit: int = 1000) -> List[schemas.LeadOut]:
-    rows = db.execute(
+def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, limit: int = 1000) -> List[schemas.LeadOut]:
+    stmt = (
         select(models.Lead)
-        .where(models.Lead.project_id == project_id)
-        .where(models.Lead.created_at >= start_utc)
-        .where(models.Lead.created_at < end_utc)
+        .where(models.Lead.created_at >= start_local)
+        .where(models.Lead.created_at < end_local)
         .order_by(models.Lead.created_at.desc())
         .limit(limit)
-    ).scalars().all()
+    )
+    if project_ids:
+        stmt = stmt.where(models.Lead.project_id.in_(project_ids))
+    rows = db.execute(stmt).scalars().all()
     out: List[schemas.LeadOut] = []
     for r in rows:
         out.append(schemas.LeadOut(
             ext_id=r.ext_id,
             project_id=r.project_id,
-            created_at=r.created_at.isoformat(sep=' '),
+            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
             phone=r.phone,
             utm_campaign=r.utm_campaign,
         ))

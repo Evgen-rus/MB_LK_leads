@@ -1,7 +1,12 @@
 // Левое меню навигации по разделам личного кабинета
 import { useEffect, useState } from 'react';
 
-function Sidebar() {
+type SidebarProps = {
+  active: 'projects' | 'leads';
+  onNavigate: (v: 'projects' | 'leads') => void;
+};
+
+function Sidebar({ active, onNavigate }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   // Автоколлапс на узких экранах
@@ -33,7 +38,7 @@ function Sidebar() {
       <nav>
         <div className="nav-section">Основное</div>
         <ul>
-          <li className="active">
+          <li className={active === 'projects' ? 'active' : ''} onClick={() => onNavigate('projects')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -44,7 +49,7 @@ function Sidebar() {
             </span>
             <span className="nav-label">Проекты</span>
           </li>
-          <li>
+          <li className={active === 'leads' ? 'active' : ''} onClick={() => onNavigate('leads')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
