@@ -74,6 +74,7 @@ function LeadsTable({ projects }: Props) {
         <thead>
           <tr>
             <th>ext_id</th>
+            <th>project_id</th>
             <th>Дата</th>
             <th>Телефон</th>
             <th>UTM_CAMPAIGN</th>
@@ -83,6 +84,7 @@ function LeadsTable({ projects }: Props) {
           {rows.map((r, idx) => (
             <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
               <td className="muted">{r.ext_id}</td>
+              <td className="muted">{r.project_id}</td>
               <td>{r.created_at}</td>
               <td>{r.phone}</td>
               <td className="muted">{r.utm_campaign ?? ''}</td>
