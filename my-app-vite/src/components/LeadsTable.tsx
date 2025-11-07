@@ -21,6 +21,7 @@ function LeadsTable({ projects }: Props) {
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showProjectFilter, setShowProjectFilter] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
@@ -40,24 +41,33 @@ function LeadsTable({ projects }: Props) {
     <div className="table-card">
       <div className="table-toolbar">
         <div className="filters">
-          <label style={{display:'inline-flex',alignItems:'center',gap:6, marginRight:8}}>
-            <input type="checkbox" checked={allProjects} onChange={(e)=> setAllProjects(e.target.checked)} />
-            Все проекты
-          </label>
-          <select multiple size={Math.min(6, Math.max(3, projects.length))} disabled={allProjects}
-                  value={projectIds.map(String)}
-                  onChange={(e)=> {
-                    const opts = Array.from(e.currentTarget.selectedOptions).map(o=> Number(o.value));
-                    setProjectIds(opts);
-                  }}>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.id} — {p.name}</option>
-            ))}
-          </select>
-          <input type="date" value={fromDate} onChange={(e)=> setFromDate(e.target.value)} />
-          <input type="date" value={toDate} onChange={(e)=> setToDate(e.target.value)} />
+          <button className="btn" onClick={()=> setShowProjectFilter(v=>!v)}>
+            Проекты: {allProjects ? 'Все' : (projectIds.length || 0)} {showProjectFilter ? '▲' : '▼'}
+          </button>
+          {showProjectFilter && (
+            <div style={{display:'flex',alignItems:'center',gap:8, padding:'6px 8px', border:'1px solid #ececf2', borderRadius:8, background:'#fff'}}>
+              <label style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                <input type="checkbox" checked={allProjects} onChange={(e)=> setAllProjects(e.target.checked)} />
+                Все проекты
+              </label>
+              <select multiple size={Math.min(6, Math.max(3, projects.length))} disabled={allProjects}
+                      value={projectIds.map(String)}
+                      onChange={(e)=> {
+                        const opts = Array.from(e.currentTarget.selectedOptions).map(o=> Number(o.value));
+                        setProjectIds(opts);
+                      }}>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.id} — {p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
-        <div className="actions">
+        <div className="actions" style={{display:'flex',alignItems:'center',gap:8}}>
+          <div className="date-range">
+            <input type="date" value={fromDate} onChange={(e)=> setFromDate(e.target.value)} />
+            <input type="date" value={toDate} onChange={(e)=> setToDate(e.target.value)} />
+          </div>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {rows.length}</span>}
           <button className="btn" style={{marginLeft:8}} onClick={()=>{
             const url = buildLeadsExportUrl({ projectIds: allProjects ? undefined : projectIds, fromDate, toDate, format: 'csv' });

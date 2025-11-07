@@ -39,6 +39,8 @@
 .filters input[type="search"] { margin-right: 8px; padding: 8px 12px; border: 1px solid #dcdce6; border-radius: 10px; min-width: 240px; background: #fff; transition: box-shadow .2s, border-color .2s; }
 .filters select:focus, .filters input[type="search"]:focus { outline: none; border-color: #6a5cff; box-shadow: 0 4px 12px rgba(0,0,0,0.06), 0 0 0 3px rgba(106,92,255,0.15); }
 .actions .btn { padding: 6px 10px; }
+.date-range { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
+.date-range input[type="date"] { padding: 8px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
 .table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 .table thead th { text-align: left; font-size: 12px; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; white-space: normal; }
 .table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; }
@@ -81,4 +83,5 @@
   .filters input[type="search"] { min-width: 0; flex: 1 1 100%; margin-right: 0; }
   .filters select { flex: 1 1 calc(50% - 4px); margin-right: 0; }
   .actions { display: flex; justify-content: flex-end; }
+  .date-range { width: 100%; justify-content: flex-end; }
 }
