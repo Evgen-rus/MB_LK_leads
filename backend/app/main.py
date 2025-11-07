@@ -19,6 +19,7 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
@@ -241,4 +242,69 @@ def list_leads(
 
     return crud.list_leads(db_sess, project_ids=proj_ids, start_local=start_naive, end_local=end_naive)
 
+
+@app.get("/leads/export")
+def export_leads(
+    projectIds: Optional[str] = None,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    format: Optional[str] = "csv",  # csv | xlsx
+    _: str = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    # Границы дат локальные (MSK)
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+    today = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today.isoformat()
+    if not toDate:
+        toDate = today.isoformat()
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
+
+    proj_ids: Optional[List[int]] = None
+    if projectIds:
+        try:
+            proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
+            if not proj_ids:
+                proj_ids = None
+        except Exception:
+            proj_ids = None
+
+    max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
+    rows = crud.fetch_leads_for_export(db_sess, project_ids=proj_ids, start_local=start_local, end_local=end_local, max_rows=max_rows)
+
+    filename = f"leads_{fromDate}_{toDate}.{format}"
+    if (format or "csv").lower() == "csv":
+        def gen():
+            # заголовки
+            yield ("ext_id;project_id;created_at;phone;utm_campaign\n").encode('utf-8-sig')
+            for r in rows:
+                utm = r.utm_campaign or ""
+                line = f"{r.ext_id};{r.project_id};{r.created_at.strftime('%Y-%m-%d %H:%M:%S')};{r.phone};{utm}\n"
+                yield line.encode('utf-8')
+        headers = {"Content-Disposition": f"attachment; filename={filename}"}
+        return StreamingResponse(gen(), media_type="text/csv; charset=utf-8", headers=headers)
+    else:
+        # XLSX через openpyxl в память
+        import io
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "leads"
+        ws.append(["ext_id", "project_id", "created_at", "phone", "utm_campaign"])
+        for r in rows:
+            ws.append([r.ext_id, r.project_id, r.created_at.strftime('%Y-%m-%d %H:%M:%S'), r.phone, r.utm_campaign or ""])
+        bio = io.BytesIO()
+        wb.save(bio)
+        data = bio.getvalue()
+        headers = {"Content-Disposition": f"attachment; filename={filename}"}
+        return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 

@@ -1,7 +1,7 @@
 // Таблица лидов с фильтрами по проекту и дате
 import { useEffect, useState } from 'react';
 import type { Project } from '../types/project';
-import { fetchLeads, type Lead } from '../api';
+import { fetchLeads, buildLeadsExportUrl, type Lead } from '../api';
 
 type Props = {
   projects: Project[];
@@ -59,6 +59,14 @@ function LeadsTable({ projects }: Props) {
         </div>
         <div className="actions">
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {rows.length}</span>}
+          <button className="btn" style={{marginLeft:8}} onClick={()=>{
+            const url = buildLeadsExportUrl({ projectIds: allProjects ? undefined : projectIds, fromDate, toDate, format: 'csv' });
+            window.open(url, '_blank');
+          }}>CSV</button>
+          <button className="btn" onClick={()=>{
+            const url = buildLeadsExportUrl({ projectIds: allProjects ? undefined : projectIds, fromDate, toDate, format: 'xlsx' });
+            window.open(url, '_blank');
+          }}>XLSX</button>
         </div>
       </div>
       <div className="table-scroll">

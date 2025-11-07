@@ -217,3 +217,16 @@ def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datet
         ))
     return out
 
+
+def fetch_leads_for_export(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, max_rows: int) -> List[models.Lead]:
+    stmt = (
+        select(models.Lead)
+        .where(models.Lead.created_at >= start_local)
+        .where(models.Lead.created_at < end_local)
+        .order_by(models.Lead.created_at.asc())
+        .limit(max_rows)
+    )
+    if project_ids:
+        stmt = stmt.where(models.Lead.project_id.in_(project_ids))
+    return db.execute(stmt).scalars().all()
+
