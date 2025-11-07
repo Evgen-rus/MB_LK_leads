@@ -80,3 +80,13 @@ class ClientErrorIn(BaseModel):
     time: Optional[str] = None
 
 
+
+class LeadOut(BaseModel):
+    ext_id: int
+    project_id: int
+    created_at: str
+    phone: str
+    utm_campaign: Optional[str] = None
+
+    class Config:
+        from_attributes = True

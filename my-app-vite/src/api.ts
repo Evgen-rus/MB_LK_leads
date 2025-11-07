@@ -100,3 +100,22 @@ export async function logout(): Promise<void> {
 }
 
 
+// -------- Лиды --------
+export type Lead = {
+  ext_id: number;
+  project_id: number;
+  created_at: string; // ISO string
+  phone: string;
+  utm_campaign?: string | null;
+};
+
+export async function fetchLeads(params: { projectId: number; fromDate: string; toDate: string; }): Promise<Lead[]> {
+  const q = new URLSearchParams({
+    projectId: String(params.projectId),
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+  return http<Lead[]>(`/leads?${q.toString()}`);
+}
+
+

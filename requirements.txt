@@ -4,3 +4,6 @@ sqlalchemy==2.0.44
 pydantic==2.12.3
 python-dotenv==1.2.1
 requests==2.32.5
+google-api-python-client==2.151.0
+google-auth==2.43.0
+tzdata==2024.1

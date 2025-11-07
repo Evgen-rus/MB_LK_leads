@@ -2,6 +2,7 @@
 import './App.css';
 import Sidebar from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
+import LeadsTable from './components/LeadsTable';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -14,6 +15,7 @@ function App() {
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
+  const [view, setView] = useState<'projects'|'leads'>('projects');
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -48,13 +50,19 @@ function App() {
         <Sidebar />
         <main className="main">
           <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <span>Проекты</span>
-            <button className="btn btn--ghost" onClick={async ()=>{
+            <span>{view === 'projects' ? 'Проекты' : 'Лиды'}</span>
+            <div style={{display:'flex',gap:8}}>
+              <button className="btn" onClick={()=> setView(v => v === 'projects' ? 'leads' : 'projects')}>
+                {view === 'projects' ? 'Перейти к лидам' : 'Перейти к проектам'}
+              </button>
+              <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
               setRows([]);
               setNeedLogin(true);
             }}>Выйти</button>
+            </div>
           </div>
+          {view === 'projects' ? (
           <ProjectsTable
             rows={rows}
             onCreate={() => setIsCreateOpen(true)}
@@ -72,6 +80,9 @@ function App() {
             }}
             onEdit={(row) => setEditing(row)}
           />
+          ) : (
+            <LeadsTable projects={rows} />
+          )}
         </main>
       </div>
       {isCreateOpen && (

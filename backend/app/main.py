@@ -15,7 +15,7 @@ import uuid
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +30,7 @@ def get_settings():
         "DEBOUNCE_WINDOW_MINUTES": int(os.getenv("DEBOUNCE_WINDOW_MINUTES", "30")),
         "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
+        "SHEETS_TZ": os.getenv("SHEETS_TZ", "Europe/Moscow"),
     }
 
 
@@ -196,5 +197,39 @@ def logout():
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("session", path="/")
     return resp
+
+
+# ----------------------- Лиды -----------------------
+@app.get("/leads", response_model=List[schemas.LeadOut])
+def list_leads(
+    projectId: int,
+    fromDate: Optional[str] = None,  # YYYY-MM-DD
+    toDate: Optional[str] = None,    # YYYY-MM-DD
+    _: str = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    # Конвертация дат из MSK в UTC границы
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        # Фолбэк для окружений без tzdata (Windows) — фиксированный +03:00
+        tz = timezone(timedelta(hours=3))
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+
+    start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return crud.list_leads(db_sess, project_id=projectId, start_utc=start_utc, end_utc=end_utc)
 
 

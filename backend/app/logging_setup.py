@@ -46,7 +46,9 @@ def setup_logging():
 
     # Шумы от uvicorn можно приглушить/перенаправить при желании
     logging.getLogger('uvicorn').setLevel(logging.INFO)
-    logging.getLogger('uvicorn.error').setLevel(logging.INFO)
-    logging.getLogger('uvicorn.access').setLevel(logging.INFO)
+    for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access'):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.INFO)
+        lg.addHandler(file_handler)
 
 
