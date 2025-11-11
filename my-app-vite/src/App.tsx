@@ -29,8 +29,8 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await apiList();
-        setRows(data);
+        const data = await apiList({ limit: 10000 });
+        setRows(data.items);
         setNeedLogin(false);
       } catch (e: any) {
         if (e?.status === 401) {
@@ -45,7 +45,7 @@ function App() {
   if (needLogin) {
     return <Login onSuccess={() => {
       // после успешного входа перезагружаем список
-      (async () => { try { const data = await apiList(); setRows(data); setNeedLogin(false); } catch (e) {} })();
+      (async () => { try { const data = await apiList({ limit: 10000 }); setRows(data.items); setNeedLogin(false); } catch (e) {} })();
     }} />;
   }
 
@@ -72,15 +72,14 @@ function App() {
           </div>
           {view === 'projects' ? (
           <ProjectsTable
-            rows={rows}
             onCreate={() => setIsCreateOpen(true)}
             onDelete={(ids) => {
               if (!ids.length) return;
               (async () => {
                 try {
-                  // В UI удаляется по одному, но обработаем массив на будущее
                   await Promise.all(ids.map((id) => apiDelete(id)));
                   setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
+                  window.dispatchEvent(new CustomEvent('projects-refresh'));
                 } catch (e) {
                   console.error(e);
                 }
@@ -106,6 +105,7 @@ function App() {
               try {
                 const created = await apiCreate(items);
                 setRows((prev) => [...created, ...prev]);
+                window.dispatchEvent(new CustomEvent('projects-refresh'));
               } catch (e) {
                 console.error(e);
               }
@@ -122,6 +122,7 @@ function App() {
               try {
                 const updated = await apiUpdate(editing.id, u as any);
                 setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+                window.dispatchEvent(new CustomEvent('projects-refresh'));
               } catch (e) {
                 console.error(e);
               }

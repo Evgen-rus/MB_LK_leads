@@ -22,20 +22,29 @@ function LeadsTable({ projects }: Props) {
   const [rows, setRows] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
   const [showProjectFilter, setShowProjectFilter] = useState<boolean>(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+
+  async function load(p = page, s = pageSize) {
+    try {
+      setLoading(true);
+      const offset = (p - 1) * s;
+      const resp = await fetchLeads({ projectIds: allProjects ? [] : projectIds, fromDate, toDate, offset, limit: s });
+      setRows(resp.items);
+      setTotal(resp.total);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const data = await fetchLeads({ projectIds: allProjects ? [] : projectIds, fromDate, toDate });
-        setRows(data);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load(1);
   }, [allProjects, projectIds, fromDate, toDate]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="table-card">
@@ -104,7 +113,19 @@ function LeadsTable({ projects }: Props) {
       </table>
       </div>
       <div className="table-footer">
-        Показано {rows.length}
+        Показано {rows.length} из {total}
+        <div className="spacer" />
+        <div className="pager">
+          <button className="pager__btn" disabled={page <= 1} onClick={() => { const p = Math.max(1, page - 1); setPage(p); load(p); }}>‹</button>
+          <span className="pager__info">{page} / {totalPages}</span>
+          <button className="pager__btn" disabled={page >= totalPages} onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); load(p); }}>›</button>
+          <select className="pager__size" value={pageSize} onChange={(e) => { const s = Number(e.target.value); setPageSize(s); setPage(1); load(1, s); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
       </div>
     </div>
   );

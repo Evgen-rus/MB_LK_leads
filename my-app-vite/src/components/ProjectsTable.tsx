@@ -1,20 +1,40 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Project, DeliveryStatus, CollectionSource } from '../types/project';
+import { fetchProjects, deleteProject as apiDelete } from '../api';
 
 type ProjectsTableProps = {
-  rows: Project[];
   onDelete?: (ids: number[]) => void;
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
 };
 
-function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps) {
+function ProjectsTable({ onDelete, onEdit, onCreate }: ProjectsTableProps) {
+  const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<'Все' | DeliveryStatus>('Все');
   const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  async function load(p = page, s = pageSize, q = search) {
+    const offset = (p - 1) * s;
+    const resp = await fetchProjects({ offset, limit: s, q: q.trim() || undefined });
+    setRows(resp.items);
+    setTotal(resp.total);
+  }
+
+  useEffect(() => { load(1); }, []);
+  useEffect(() => {
+    // Внешний сигнал обновить список
+    const h = () => load(page);
+    window.addEventListener('projects-refresh', h as any);
+    return () => window.removeEventListener('projects-refresh', h as any);
+  }, [page, pageSize, search]);
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
@@ -63,6 +83,7 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
             placeholder="Поиск по названию/ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value); }}}
           />
           <select value={deliveryStatus} onChange={(e) => setDeliveryStatus(e.target.value as 'Все' | DeliveryStatus)}>
             <option value="Все">Все статусы отгрузки</option>
@@ -161,10 +182,20 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
                   className="icon-btn"
                   title="Удалить"
                   onClick={() => {
-                    if (!onDelete) return;
                     if (!window.confirm(`Удалить проект ${row.id}?`)) return;
-                    onDelete([row.id]);
-                    setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+                    (async () => {
+                      try {
+                        if (onDelete) {
+                          onDelete([row.id]);
+                        } else {
+                          await apiDelete(row.id);
+                        }
+                        window.dispatchEvent(new CustomEvent('projects-refresh'));
+                        setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    })();
                   }}
                 >
                   🗑️
@@ -176,14 +207,17 @@ function ProjectsTable({ rows, onDelete, onEdit, onCreate }: ProjectsTableProps)
       </table>
       </div>
       <div className="table-footer">
-        Показано {filteredRows.length} из {rows.length}
+        Показано {rows.length} из {total}
         <div className="spacer" />
-        <div>
-          <button className="btn btn--ghost">1</button>
-          <select defaultValue={50}>
-            <option>10</option>
-            <option>25</option>
-            <option>50</option>
+        <div className="pager">
+          <button className="pager__btn" disabled={page <= 1} onClick={() => { const p = Math.max(1, page - 1); setPage(p); load(p); }}>‹</button>
+          <span className="pager__info">{page} / {totalPages}</span>
+          <button className="pager__btn" disabled={page >= totalPages} onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); load(p); }}>›</button>
+          <select className="pager__size" value={pageSize} onChange={(e) => { const s = Number(e.target.value); setPageSize(s); setPage(1); load(1, s); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
           </select>
         </div>
       </div>

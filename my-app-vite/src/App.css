@@ -58,6 +58,13 @@
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .spacer { flex: 1; }
 
+/* Пейджер — единый стиль для всех таблиц */
+.pager { display: inline-flex; align-items: center; gap: 8px; }
+.pager__btn { border: 1px solid #dcdce6; background: #fff; border-radius: 10px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.pager__btn:disabled { opacity: .5; cursor: default; }
+.pager__info { font-size: 12px; color: #6b6b76; min-width: 48px; text-align: center; }
+.pager__size { padding: 6px 30px 6px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
+
 /* Кнопки */
 .btn { border: 1px solid #dcdce6; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .btn--primary { background: #6a5cff; border-color: #6a5cff; color: #fff; }

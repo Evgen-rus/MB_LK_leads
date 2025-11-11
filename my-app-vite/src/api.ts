@@ -52,8 +52,15 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export async function fetchProjects(): Promise<Project[]> {
-  return http<Project[]>('/projects');
+export type ProjectListResp = { items: Project[]; total: number };
+
+export async function fetchProjects(params?: { offset?: number; limit?: number; q?: string }): Promise<ProjectListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.q) q.set('q', params.q);
+  const qs = q.toString();
+  return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }
 
 export async function createProjects(items: CreateProjectItem[]): Promise<Project[]> {
@@ -109,7 +116,9 @@ export type Lead = {
   utm_campaign?: string | null;
 };
 
-export async function fetchLeads(params: { projectIds?: number[]; fromDate: string; toDate: string; }): Promise<Lead[]> {
+export type LeadsListResp = { items: Lead[]; total: number };
+
+export async function fetchLeads(params: { projectIds?: number[]; fromDate: string; toDate: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
   const q = new URLSearchParams({
     fromDate: params.fromDate,
     toDate: params.toDate,
@@ -117,7 +126,9 @@ export async function fetchLeads(params: { projectIds?: number[]; fromDate: stri
   if (params.projectIds && params.projectIds.length > 0) {
     q.set('projectIds', params.projectIds.join(','));
   }
-  return http<Lead[]>(`/leads?${q.toString()}`);
+  if (params.offset != null) q.set('offset', String(params.offset));
+  if (params.limit != null) q.set('limit', String(params.limit));
+  return http<LeadsListResp>(`/leads?${q.toString()}`);
 }
 
 export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; }): string {
@@ -134,8 +145,18 @@ export type BlacklistPhone = {
   createdAt: string;
 };
 
-export async function listBlacklist(): Promise<BlacklistPhone[]> {
-  return http<BlacklistPhone[]>('/blacklist');
+export type BlacklistListResp = {
+  items: BlacklistPhone[];
+  total: number;
+};
+
+export async function listBlacklist(params?: { offset?: number; limit?: number; q?: string }): Promise<BlacklistListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.q) q.set('q', params.q);
+  const qs = q.toString();
+  return http<BlacklistListResp>(`/blacklist${qs ? `?${qs}` : ''}`);
 }
 
 export async function addToBlacklist(phones: string[]): Promise<BlacklistPhone[]> {

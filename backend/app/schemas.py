@@ -71,6 +71,11 @@ class ProjectOut(BaseModel):
         from_attributes = True
 
 
+class ProjectListOut(BaseModel):
+    items: List[ProjectOut]
+    total: int
+
+
 class ClientErrorIn(BaseModel):
     message: str = Field(..., description="Сообщение ошибки")
     stack: Optional[str] = Field(None, description="Стек ошибки")
@@ -92,6 +97,11 @@ class LeadOut(BaseModel):
         from_attributes = True
 
 
+class LeadsListOut(BaseModel):
+    items: List[LeadOut]
+    total: int
+
+
 # -------- Черный список --------
 class BlacklistPhoneOut(BaseModel):
     id: int
@@ -104,3 +114,8 @@ class BlacklistPhoneOut(BaseModel):
 
 class BlacklistAddIn(BaseModel):
     phones: List[str]
+
+
+class BlacklistListOut(BaseModel):
+    items: List[BlacklistPhoneOut]
+    total: int

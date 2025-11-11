@@ -130,9 +130,11 @@ def require_auth(request: Request):
     return user
 
 
-@app.get("/projects", response_model=List[schemas.ProjectOut])
-def list_projects(_: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    return crud.list_projects(db_sess)
+@app.get("/projects", response_model=schemas.ProjectListOut)
+def list_projects(offset: int = 0, limit: int = 50, q: str | None = None, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    limit = max(1, min(1000, limit))
+    offset = max(0, offset)
+    return crud.list_projects_paginated(db_sess, offset=offset, limit=limit, q=q)
 
 
 @app.post("/projects", response_model=List[schemas.ProjectOut])
@@ -201,11 +203,13 @@ def logout():
 
 
 # ----------------------- Лиды -----------------------
-@app.get("/leads", response_model=List[schemas.LeadOut])
+@app.get("/leads", response_model=schemas.LeadsListOut)
 def list_leads(
     projectIds: Optional[str] = None,  # "1,2,3"; если нет — все
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
+    offset: int = 0,
+    limit: int = 50,
     _: str = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
@@ -240,7 +244,9 @@ def list_leads(
         except Exception:
             proj_ids = None
 
-    return crud.list_leads(db_sess, project_ids=proj_ids, start_local=start_naive, end_local=end_naive)
+    limit = max(1, min(1000, limit))
+    offset = max(0, offset)
+    return crud.list_leads_paginated(db_sess, project_ids=proj_ids, start_local=start_naive, end_local=end_naive, offset=offset, limit=limit)
 
 
 @app.get("/leads/export")
@@ -310,9 +316,11 @@ def export_leads(
 
 
 # ----------------------- Черный список -----------------------
-@app.get("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
-def list_blacklist(_: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    return crud.list_blacklist(db_sess)
+@app.get("/blacklist", response_model=schemas.BlacklistListOut)
+def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_blacklist_paginated(db_sess, offset=offset, limit=limit, q=q)
 
 
 @app.post("/blacklist", response_model=List[schemas.BlacklistPhoneOut])

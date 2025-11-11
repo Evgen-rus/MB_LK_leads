@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
 
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -67,6 +67,28 @@ def list_projects(db: Session) -> List[schemas.ProjectOut]:
     rows = db.execute(select(models.Project).order_by(models.Project.id.desc())).scalars().all()
     return [_project_to_out(p) for p in rows]
 
+
+def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None) -> schemas.ProjectListOut:
+    stmt = select(models.Project)
+    if q:
+        q = q.strip()
+        if q:
+            # поиск по id, name, tag
+            cond = or_(
+                models.Project.name.ilike(f"%{q}%"),
+                models.Project.tag.ilike(f"%{q}%"),
+            )
+            # если q число — искать и по id
+            try:
+                qid = int(q)
+                cond = or_(cond, models.Project.id == qid)
+            except Exception:
+                pass
+            stmt = stmt.where(cond)
+    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
+    items = [_project_to_out(p) for p in rows]
+    return schemas.ProjectListOut(items=items, total=total)
 
 def get_project(db: Session, project_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
@@ -175,6 +197,16 @@ def delete_project(db: Session, project_id: int) -> bool:
     return True
 
 
+def list_blacklist_paginated(db: Session, offset: int, limit: int, q: str | None) -> schemas.BlacklistListOut:
+    stmt = select(models.BlacklistPhone)
+    if q:
+        stmt = stmt.where(models.BlacklistPhone.phone.contains(q))
+    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = db.execute(stmt.order_by(models.BlacklistPhone.id.desc()).offset(offset).limit(limit)).scalars().all()
+    items = [schemas.BlacklistPhoneOut(id=r.id, phone=r.phone, createdAt=r.created_at.strftime('%Y-%m-%d')) for r in rows]
+    return schemas.BlacklistListOut(items=items, total=total)
+
+
 def fetch_pending_events(db: Session) -> Tuple[Optional[models.NotifyState], List[models.AuditEvent]]:
     state = db.get(models.NotifyState, 1)
     if not state or not state.next_send_at:
@@ -229,6 +261,26 @@ def fetch_leads_for_export(db: Session, project_ids: Optional[List[int]], start_
     if project_ids:
         stmt = stmt.where(models.Lead.project_id.in_(project_ids))
     return db.execute(stmt).scalars().all()
+
+
+def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int) -> schemas.LeadsListOut:
+    base = select(models.Lead).where(
+        and_(models.Lead.created_at >= start_local, models.Lead.created_at < end_local)
+    )
+    if project_ids:
+        base = base.where(models.Lead.project_id.in_(project_ids))
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = db.execute(base.order_by(models.Lead.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    items: List[schemas.LeadOut] = []
+    for r in rows:
+        items.append(schemas.LeadOut(
+            ext_id=r.ext_id,
+            project_id=r.project_id,
+            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            phone=r.phone,
+            utm_campaign=r.utm_campaign,
+        ))
+    return schemas.LeadsListOut(items=items, total=total)
 
 
 # -------- Черный список --------
