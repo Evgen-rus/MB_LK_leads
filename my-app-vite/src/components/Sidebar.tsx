@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 
 type SidebarProps = {
-  active: 'projects' | 'leads';
-  onNavigate: (v: 'projects' | 'leads') => void;
+  active: 'projects' | 'leads' | 'integrations' | 'blacklist';
+  onNavigate: (v: 'projects' | 'leads' | 'integrations' | 'blacklist') => void;
 };
 
 function Sidebar({ active, onNavigate }: SidebarProps) {
@@ -68,7 +68,7 @@ function Sidebar({ active, onNavigate }: SidebarProps) {
             </span>
             <span className="nav-label">Отчеты</span>
           </li>
-          <li>
+          <li className={active === 'integrations' ? 'active' : ''} onClick={() => onNavigate('integrations')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M7 7l10 10" />
@@ -78,7 +78,7 @@ function Sidebar({ active, onNavigate }: SidebarProps) {
             </span>
             <span className="nav-label">Интеграции</span>
           </li>
-          <li>
+          <li className={active === 'blacklist' ? 'active' : ''} onClick={() => onNavigate('blacklist')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />

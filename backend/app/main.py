@@ -308,3 +308,21 @@ def export_leads(
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
+
+# ----------------------- Черный список -----------------------
+@app.get("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
+def list_blacklist(_: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    return crud.list_blacklist(db_sess)
+
+
+@app.post("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
+def add_blacklist(payload: schemas.BlacklistAddIn, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    return crud.add_to_blacklist(db_sess, payload.phones)
+
+
+@app.delete("/blacklist/{row_id}")
+def delete_blacklist(row_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    ok = crud.delete_from_blacklist(db_sess, row_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"deleted": True}

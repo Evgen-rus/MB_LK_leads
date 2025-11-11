@@ -230,3 +230,48 @@ def fetch_leads_for_export(db: Session, project_ids: Optional[List[int]], start_
         stmt = stmt.where(models.Lead.project_id.in_(project_ids))
     return db.execute(stmt).scalars().all()
 
+
+# -------- Черный список --------
+def list_blacklist(db: Session) -> List[schemas.BlacklistPhoneOut]:
+    rows = db.execute(select(models.BlacklistPhone).order_by(models.BlacklistPhone.id.desc())).scalars().all()
+    out: List[schemas.BlacklistPhoneOut] = []
+    for r in rows:
+        out.append(schemas.BlacklistPhoneOut(id=r.id, phone=r.phone, createdAt=r.created_at.strftime('%Y-%m-%d')))
+    return out
+
+
+def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPhoneOut]:
+    created: List[schemas.BlacklistPhoneOut] = []
+    now = datetime.utcnow()
+    normalized_seen = set()
+    for p in phones:
+        # нормализация: только цифры, 11 символов, привести 8 к 7
+        digits = "".join([c for c in p if c.isdigit()])
+        if len(digits) == 10:
+            digits = "7" + digits
+        elif len(digits) == 11 and digits[0] == "8":
+            digits = "7" + digits[1:]
+        if len(digits) != 11 or digits[0] != "7":
+            continue
+        if digits in normalized_seen:
+            continue
+        normalized_seen.add(digits)
+        # вставка, игнорировать дубликаты по unique(phone)
+        exists = db.execute(select(models.BlacklistPhone).where(models.BlacklistPhone.phone == digits)).scalar_one_or_none()
+        if exists:
+            continue
+        row = models.BlacklistPhone(phone=digits, created_at=now)
+        db.add(row)
+        db.flush()
+        created.append(schemas.BlacklistPhoneOut(id=row.id, phone=row.phone, createdAt=row.created_at.strftime('%Y-%m-%d')))
+    db.commit()
+    return created
+
+
+def delete_from_blacklist(db: Session, row_id: int) -> bool:
+    row = db.get(models.BlacklistPhone, row_id)
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True

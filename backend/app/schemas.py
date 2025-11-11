@@ -90,3 +90,17 @@ class LeadOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# -------- Черный список --------
+class BlacklistPhoneOut(BaseModel):
+    id: int
+    phone: str
+    createdAt: str
+
+    class Config:
+        from_attributes = True
+
+
+class BlacklistAddIn(BaseModel):
+    phones: List[str]

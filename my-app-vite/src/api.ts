@@ -127,3 +127,25 @@ export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: s
 }
 
 
+// -------- Черный список --------
+export type BlacklistPhone = {
+  id: number;
+  phone: string;
+  createdAt: string;
+};
+
+export async function listBlacklist(): Promise<BlacklistPhone[]> {
+  return http<BlacklistPhone[]>('/blacklist');
+}
+
+export async function addToBlacklist(phones: string[]): Promise<BlacklistPhone[]> {
+  return http<BlacklistPhone[]>('/blacklist', {
+    method: 'POST',
+    body: JSON.stringify({ phones }),
+  });
+}
+
+export async function deleteFromBlacklist(id: number): Promise<void> {
+  await http(`/blacklist/${id}`, { method: 'DELETE' });
+}
+

@@ -86,3 +86,11 @@ class Lead(Base):
     sheet_name = Column(String, nullable=False, default="Данные")
     imported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+
+class BlacklistPhone(Base):
+    __tablename__ = "blacklist_phones"
+    __table_args__ = (UniqueConstraint('phone', name='uq_blacklist_phone'),)
+
+    id = Column(Integer, primary_key=True)
+    phone = Column(String, nullable=False, index=True, unique=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

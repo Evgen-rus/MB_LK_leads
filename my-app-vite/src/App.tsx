@@ -3,6 +3,10 @@ import './App.css';
 import Sidebar from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
 import LeadsTable from './components/LeadsTable';
+import Integrations from './components/Integrations';
+import Blacklist from './components/Blacklist';
+import ChatWidget from './components/ChatWidget';
+import HelpMenu from './components/HelpMenu';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -15,7 +19,8 @@ function App() {
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
-  const [view, setView] = useState<'projects'|'leads'>('projects');
+  const [view, setView] = useState<'projects'|'leads'|'integrations'|'blacklist'>('projects');
+  const [helpOpen, setHelpOpen] = useState(false);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -49,13 +54,21 @@ function App() {
       <div className="content">
         <Sidebar active={view} onNavigate={setView} />
         <main className="main">
-          <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <span>{view === 'projects' ? 'Проекты' : 'Лиды'}</span>
+          <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between', position:'relative'}}>
+            <span>
+              {view === 'projects' ? 'Проекты' : view === 'leads' ? 'Лиды' : view === 'integrations' ? 'Интеграции' : 'Черный список'}
+            </span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <button className="btn" onClick={() => setHelpOpen(v => !v)}>Помощь ▾</button>
+              {helpOpen && <HelpMenu onClose={() => setHelpOpen(false)} />}
+            </div>
             <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
               setRows([]);
               setNeedLogin(true);
             }}>Выйти</button>
+          </div>
           </div>
           {view === 'projects' ? (
           <ProjectsTable
@@ -75,11 +88,16 @@ function App() {
             }}
             onEdit={(row) => setEditing(row)}
           />
-          ) : (
+          ) : view === 'leads' ? (
             <LeadsTable projects={rows} />
+          ) : view === 'integrations' ? (
+            <Integrations />
+          ) : (
+            <Blacklist />
           )}
         </main>
       </div>
+      <ChatWidget />
       {isCreateOpen && (
         <CreateProjectModal
           onClose={() => setIsCreateOpen(false)}
