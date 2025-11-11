@@ -316,6 +316,20 @@ def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPh
         db.add(row)
         db.flush()
         created.append(schemas.BlacklistPhoneOut(id=row.id, phone=row.phone, createdAt=row.created_at.strftime('%Y-%m-%d')))
+
+    # Аудит: единым событием фиксируем добавленные номера
+    if created:
+        payload_after = {
+            "phones": [c.phone for c in created],
+            "count": len(created),
+        }
+        db.add(models.AuditEvent(
+            project_id=None,
+            action='blacklist_add',
+            before=None,
+            after=payload_after,
+            changed_fields=list(payload_after.keys()),
+        ))
     db.commit()
     return created
 
@@ -324,6 +338,16 @@ def delete_from_blacklist(db: Session, row_id: int) -> bool:
     row = db.get(models.BlacklistPhone, row_id)
     if not row:
         return False
+    before_phone = row.phone
     db.delete(row)
+    db.flush()
+    # Аудит: фиксируем удалённый номер
+    db.add(models.AuditEvent(
+        project_id=None,
+        action='blacklist_delete',
+        before={"phone": before_phone},
+        after=None,
+        changed_fields=["phone"],
+    ))
     db.commit()
     return True

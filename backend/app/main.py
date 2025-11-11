@@ -325,7 +325,9 @@ def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, _: st
 
 @app.post("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
 def add_blacklist(payload: schemas.BlacklistAddIn, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    return crud.add_to_blacklist(db_sess, payload.phones)
+    items = crud.add_to_blacklist(db_sess, payload.phones)
+    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    return items
 
 
 @app.delete("/blacklist/{row_id}")
@@ -333,4 +335,5 @@ def delete_blacklist(row_id: int, _: str = Depends(require_auth), db_sess: Sessi
     ok = crud.delete_from_blacklist(db_sess, row_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
+    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
