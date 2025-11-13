@@ -6,7 +6,6 @@ import LeadsTable from './components/LeadsTable';
 import Integrations from './components/Integrations';
 import Blacklist from './components/Blacklist';
 import ChatWidget from './components/ChatWidget';
-import HelpMenu from './components/HelpMenu';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -20,7 +19,6 @@ function App() {
   const [editing, setEditing] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
   const [view, setView] = useState<'projects'|'leads'|'integrations'|'blacklist'>('projects');
-  const [helpOpen, setHelpOpen] = useState(false);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -59,10 +57,6 @@ function App() {
               {view === 'projects' ? 'Проекты' : view === 'leads' ? 'Лиды' : view === 'integrations' ? 'Интеграции' : 'Черный список'}
             </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ position: 'relative' }}>
-              <button className="btn" onClick={() => setHelpOpen(v => !v)}>Помощь ▾</button>
-              {helpOpen && <HelpMenu onClose={() => setHelpOpen(false)} />}
-            </div>
             <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
               setRows([]);

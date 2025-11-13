@@ -9,11 +9,7 @@ function Integrations() {
         Для подключения интеграций (Bitrix24, amoCRM и др.) обратитесь в чат поддержки.
         Мы подскажем оптимальную схему и поможем с настройкой.
       </p>
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-        <button className="btn btn--primary" onClick={() => window.dispatchEvent(new CustomEvent('open-support-chat'))}>
-          Открыть чат поддержки
-        </button>
-      </div>
+      {/* Кнопку открытия чата убрали — используйте иконку виджета в правом нижнем углу */}
     </div>
   );
 }

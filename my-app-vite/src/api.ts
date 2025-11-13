@@ -36,17 +36,47 @@ export type ProjectUpdatePayload = {
 };
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    credentials: 'include',
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      ...init,
+    });
+  } catch (e) {
+    // Сетевая ошибка (нет интернета, сервер недоступен)
+    const err = new Error('Нет соединения с сервером. Проверьте подключение к интернету.') as any;
+    err.status = 0;
+    err.isNetworkError = true;
+    throw err;
+  }
+
   if (!res.ok) {
-    const text = await res.text();
-    const err = new Error(text || res.statusText) as any;
-    (err.status = res.status);
+    let errorMessage = res.statusText;
+    let errorDetail: string | null = null;
+    
+    try {
+      const text = await res.text();
+      if (text) {
+        try {
+          // Пытаемся распарсить JSON ответ
+          const json = JSON.parse(text);
+          errorDetail = json.detail || json.message || text;
+        } catch {
+          // Если не JSON, используем текст как есть
+          errorDetail = text;
+        }
+      }
+    } catch {
+      // Если не удалось прочитать ответ
+      errorDetail = null;
+    }
+
+    const err = new Error(errorDetail || errorMessage) as any;
+    err.status = res.status;
+    err.errorDetail = errorDetail;
     throw err;
   }
   return res.json();

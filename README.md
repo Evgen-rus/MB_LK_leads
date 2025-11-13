@@ -310,7 +310,7 @@ git push origin main
 ```bash
 ssh root@82.147.71.51
 cd /opt/MB_LK_leads
-git pull --rebase
+git pull
 ```
 
 3) Если менялся бэкенд (Python)

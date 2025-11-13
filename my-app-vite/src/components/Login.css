@@ -1,0 +1,202 @@
+/* Контейнер формы входа */
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f7f7fb 0%, #ececf2 100%);
+  padding: 20px;
+}
+
+/* Карточка формы */
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 40px 32px;
+  animation: loginFadeIn 0.4s ease-out;
+}
+
+@keyframes loginFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Заголовок */
+.login-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.login-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  color: #8b8b98;
+  margin: 0;
+}
+
+/* Форма */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Поле ввода */
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.login-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b6b76;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.login-icon {
+  color: #6a5cff;
+  flex-shrink: 0;
+}
+
+.login-input {
+  width: 100%;
+  background: #f5f5f7;
+  border: 2px solid #e6e6ee;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 15px;
+  color: #1d1d1f;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.login-input::placeholder {
+  color: #8b8b98;
+}
+
+.login-input:hover:not(:disabled) {
+  border-color: #dcdce6;
+  background: #fafafc;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: #6a5cff;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(106, 92, 255, 0.12), 0 0 0 4px rgba(106, 92, 255, 0.08);
+}
+
+.login-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Сообщение об ошибке */
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fff5f5;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #dc2626;
+  font-size: 13px;
+  animation: errorShake 0.3s ease;
+}
+
+.login-error svg {
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Кнопка входа */
+.login-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #6a5cff 0%, #5a4dee 100%);
+  border: none;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-top: 8px;
+  box-shadow: 0 4px 12px rgba(106, 92, 255, 0.3);
+}
+
+.login-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5a4dee 0%, #4a3ddd 100%);
+  box-shadow: 0 6px 16px rgba(106, 92, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.login-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(106, 92, 255, 0.3);
+}
+
+.login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Адаптивность */
+@media (max-width: 480px) {
+  .login-card {
+    padding: 32px 24px;
+    border-radius: 12px;
+  }
+
+  .login-title {
+    font-size: 24px;
+  }
+
+  .login-subtitle {
+    font-size: 13px;
+  }
+}
+
