@@ -12,38 +12,79 @@ import EditProjectModal from './components/EditProjectModal';
 import type { Project } from './types/project';
 import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete, logout as apiLogout } from './api';
 import Login from './components/Login';
+import { isJwtValid } from './utils/jwt';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [view, setView] = useState<'projects'|'leads'|'integrations'|'blacklist'>('projects');
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
   }, []);
 
+  // Предварительная проверка токена до любых запросов + установка URL
   useEffect(() => {
+    try {
+      const token = localStorage.getItem('access_token') || '';
+      const valid = token ? isJwtValid(token) : false;
+      if (!valid) {
+        try { localStorage.removeItem('access_token'); } catch {}
+        setNeedLogin(true);
+        if (window.location.pathname !== '/login') {
+          window.history.replaceState(null, '', '/login');
+        }
+      } else {
+        setNeedLogin(false);
+        if (window.location.pathname === '/login') {
+          window.history.replaceState(null, '', '/');
+        }
+      }
+    } finally {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  // Загрузка данных после подтверждённой авторизации
+  useEffect(() => {
+    if (!authChecked || needLogin) return;
     (async () => {
       try {
         const data = await apiList({ limit: 10000 });
         setRows(data.items);
-        setNeedLogin(false);
       } catch (e: any) {
         if (e?.status === 401) {
           setNeedLogin(true);
+          try { localStorage.removeItem('access_token'); } catch {}
+          if (window.location.pathname !== '/login') {
+            window.history.replaceState(null, '', '/login');
+          }
         } else {
           console.error(e);
         }
       }
     })();
-  }, []);
+  }, [authChecked, needLogin]);
+
+  // Пауза до завершения первичной проверки, чтобы избежать «мигания»
+  if (!authChecked) {
+    return <div style={{display:'grid',placeItems:'center',height:'100vh'}}>Загрузка…</div>;
+  }
 
   if (needLogin) {
     return <Login onSuccess={() => {
-      // после успешного входа перезагружаем список
-      (async () => { try { const data = await apiList({ limit: 10000 }); setRows(data.items); setNeedLogin(false); } catch (e) {} })();
+      // после успешного входа переключаем URL и загружаем данные
+      window.history.replaceState(null, '', '/');
+      setNeedLogin(false);
+      (async () => {
+        try {
+          const data = await apiList({ limit: 10000 });
+          setRows(data.items);
+        } catch {}
+      })();
     }} />;
   }
 
@@ -61,6 +102,9 @@ function App() {
               try { await apiLogout(); } catch {}
               setRows([]);
               setNeedLogin(true);
+              if (window.location.pathname !== '/login') {
+                window.history.replaceState(null, '', '/login');
+              }
             }}>Выйти</button>
           </div>
           </div>
