@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import AddPhonesModal from './AddPhonesModal';
 import { addToBlacklist, deleteFromBlacklist, listBlacklist, type BlacklistPhone } from '../api';
 
