@@ -33,14 +33,26 @@ def _diff_dict(before: dict, after: dict) -> Dict[str, Tuple[object, object]]:
 
 
 def _format_project_brief(d: dict) -> str:
-    regions = len(d.get('regions') or [])
-    sites = len(d.get('sites') or [])
-    phones = len(d.get('phones') or [])
-    parts = [
-        f"#{d['id']} {d['name']} ({d['dataSourceCode']}, {d['collectionSource']})",
-        f"  Лимит: {d['dataLimit']}; Дни: {d['daysReceived']}; Регионы: {regions}; Сайты: {sites}; Телефоны: {phones}",
-        f"  Статусы: Проект={d['status']}; Отгрузка={d['deliveryStatus']}",
-    ]
+    def _fmt_list(values) -> str:
+        vals = values or []
+        if not vals:
+            return "—"
+        # компактный вывод через запятую; если длинно, усечём
+        s = ", ".join([str(x) for x in vals])
+        if len(s) > 300:
+            s = s[:297] + "..."
+        return s
+
+    region_mode = d.get('regionMode')
+    region_mode_h = "включить" if region_mode == 'include' else ("исключить" if region_mode == 'exclude' else "все")
+
+    parts = []
+    parts.append(f"#{d['id']} {d['name']} ({d['dataSourceCode']}, {d['collectionSource']})")
+    parts.append(f"  Лимит: {d['dataLimit']}; Дни: {d['daysReceived']}; Режим регионов: {region_mode_h}")
+    parts.append(f"  Регионы: {_fmt_list(d.get('regions'))}")
+    parts.append(f"  Сайты: {_fmt_list(d.get('sites'))}")
+    parts.append(f"  Телефоны: {_fmt_list(d.get('phones'))}")
+    parts.append(f"  Статусы: Проект={d['status']}; Отгрузка={d['deliveryStatus']}")
     return "\n".join(parts)
 
 
@@ -56,14 +68,49 @@ def _format_changes(diff: Dict[str, Tuple[object, object]]) -> List[str]:
         'phones': 'Телефоны',
         'smsSenderName': 'СМС отправитель',
         'name': 'Название',
+        'collectionSource': 'Источник данных',
+        'dataSourceCode': 'Код источника',
+        'sourcesCount': 'Источники',
     }
     lines: List[str] = []
+
+    def _human_region_mode(v) -> str:
+        if v == 'include':
+            return 'include'
+        if v == 'exclude':
+            return 'exclude'
+        return str(v)
+
+    def _fmt_added_removed(b, a, title: str) -> List[str]:
+        b_list = b or []
+        a_list = a or []
+        try:
+            b_set = set(b_list)
+            a_set = set(a_list)
+        except Exception:
+            # fallback: только длины
+            return [f"  {title}: {len(b_list)} → {len(a_list)}"]
+        added = list(a_set - b_set)
+        removed = list(b_set - a_set)
+        out: List[str] = [f"  {title}: {len(b_list)} → {len(a_list)}"]
+        if added:
+            add_s = ", ".join([str(x) for x in added[:10]])
+            if len(added) > 10:
+                add_s += f" и ещё {len(added)-10}"
+            out.append(f"    + {add_s}")
+        if removed:
+            rem_s = ", ".join([str(x) for x in removed[:10]])
+            if len(removed) > 10:
+                rem_s += f" и ещё {len(removed)-10}"
+            out.append(f"    - {rem_s}")
+        return out
+
     for k, (b, a) in diff.items():
         title = mapping.get(k, k)
         if k in ('regions','sites','phones'):
-            b_len = len(b or [])
-            a_len = len(a or [])
-            lines.append(f"  {title}: {b_len} → {a_len}")
+            lines.extend(_fmt_added_removed(b, a, title))
+        elif k == 'regionMode':
+            lines.append(f"  {title}: {_human_region_mode(b)} → {_human_region_mode(a)}")
         else:
             lines.append(f"  {title}: {b} → {a}")
     return lines
