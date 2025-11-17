@@ -38,11 +38,15 @@ export type ProjectUpdatePayload = {
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     res = await fetch(`${API_BASE}${path}`, {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers,
       ...init,
     });
   } catch (e) {
@@ -74,6 +78,10 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       errorDetail = null;
     }
 
+    if (res.status === 401) {
+      // токен недействителен — очищаем и кидаем 401
+      try { localStorage.removeItem('access_token'); } catch {}
+    }
     const err = new Error(errorDetail || errorMessage) as any;
     err.status = res.status;
     err.errorDetail = errorDetail;
@@ -126,14 +134,25 @@ export async function sendClientError(payload: {
 }
 
 export async function login(username: string, password: string): Promise<void> {
-  await http('/auth/login', {
+  const resp = await fetch(`${API_BASE}/login`, {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ login: username, password }),
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    let msg = resp.statusText;
+    try { const j = text ? JSON.parse(text) : null; msg = (j?.detail || msg); } catch {}
+    const err = new Error(msg) as any;
+    err.status = resp.status;
+    throw err;
+  }
+  const data = await resp.json() as { access_token: string };
+  localStorage.setItem('access_token', data.access_token);
 }
 
 export async function logout(): Promise<void> {
-  await http('/auth/logout', { method: 'POST' });
+  try { localStorage.removeItem('access_token'); } catch {}
 }
 
 

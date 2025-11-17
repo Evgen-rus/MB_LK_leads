@@ -1,53 +1,49 @@
 """
 Файл: backend/app/auth.py
-Назначение: простая сессия по cookie без сторонних библиотек.
-- /auth/login выдает httpOnly cookie с подписью (HMAC SHA256)
-- Верификация по cookie в зависимостях эндпоинтов
+Назначение: утилиты для аутентификации пользователей (bcrypt + JWT).
+- Хеширование паролей через bcrypt
+- Генерация и валидация JWT (HS256), payload: {"user_id": <int>, "exp": <ts>}
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
 import os
 import time
+from datetime import timedelta
 from typing import Optional
 
-
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
-def _b64url_decode(s: str) -> bytes:
-    pad = '=' * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + pad)
+import bcrypt
+import jwt
 
 
-def sign_session(username: str, ttl_seconds: int = 86400) -> str:
-    secret = os.getenv("AUTH_SECRET", "dev-secret-change-me").encode()
-    payload = {"u": username, "exp": int(time.time()) + ttl_seconds}
-    body = json.dumps(payload, separators=(",", ":")).encode()
-    body_b64 = _b64url(body)
-    sig = hmac.new(secret, body, hashlib.sha256).digest()
-    sig_b64 = _b64url(sig)
-    return f"{body_b64}.{sig_b64}"
+def hash_password(plain: str) -> str:
+    """Вычисляет bcrypt-хеш пароля (utf-8)."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(plain.encode("utf-8"), salt).decode("utf-8")
 
 
-def verify_session(token: str) -> Optional[str]:
+def verify_password(plain: str, password_hash: str) -> bool:
+    """Проверяет пароль против bcrypt-хеша."""
     try:
-        body_b64, sig_b64 = token.split(".", 1)
-        body = _b64url_decode(body_b64)
-        secret = os.getenv("AUTH_SECRET", "dev-secret-change-me").encode()
-        expected = hmac.new(secret, body, hashlib.sha256).digest()
-        if not hmac.compare_digest(expected, _b64url_decode(sig_b64)):
-            return None
-        payload = json.loads(body.decode())
-        if int(payload.get("exp", 0)) < int(time.time()):
-            return None
-        return str(payload.get("u"))
+        return bcrypt.checkpw(plain.encode("utf-8"), password_hash.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
+    """Создаёт JWT с полем user_id и временем жизни (по умолчанию 24 часа)."""
+    secret = os.getenv("AUTH_SECRET", "dev-secret-change-me")
+    ttl = int(expires_delta.total_seconds()) if expires_delta else 24 * 60 * 60
+    payload = {"user_id": int(user_id), "exp": int(time.time()) + ttl}
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def decode_access_token(token: str) -> Optional[int]:
+    """Возвращает user_id из JWT или None, если токен невалиден/просрочен."""
+    try:
+        secret = os.getenv("AUTH_SECRET", "dev-secret-change-me")
+        data = jwt.decode(token, secret, algorithms=["HS256"])
+        uid = int(data.get("user_id"))
+        return uid
     except Exception:
         return None
-
-

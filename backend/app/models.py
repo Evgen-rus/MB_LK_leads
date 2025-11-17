@@ -5,7 +5,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
 
@@ -13,10 +13,20 @@ from sqlalchemy.types import JSON
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    login = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # владелец проекта
     name = Column(String, nullable=False)
     tag = Column(String, nullable=False)
     collection_source = Column(String, nullable=False)  # 'Сайты' | 'Звонки' | ...
@@ -44,6 +54,7 @@ class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     project_id = Column(Integer, nullable=True)
     action = Column(String, nullable=False)  # 'create' | 'update' | 'delete'
     before = Column(JSON, nullable=True)
@@ -89,8 +100,11 @@ class Lead(Base):
 
 class BlacklistPhone(Base):
     __tablename__ = "blacklist_phones"
-    __table_args__ = (UniqueConstraint('phone', name='uq_blacklist_phone'),)
+    # Примечание: для существующих БД добавить уникальность (user_id, phone) сложно без мигратора.
+    # В коде перед вставкой проверяем дубликат по user_id+phone.
+    __table_args__ = (UniqueConstraint('user_id', 'phone', name='uq_blacklist_user_phone'),)
 
     id = Column(Integer, primary_key=True)
-    phone = Column(String, nullable=False, index=True, unique=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    phone = Column(String, nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

@@ -8,3 +8,5 @@ google-api-python-client==2.151.0
 google-auth==2.43.0
 tzdata==2024.1
 openpyxl==3.1.5
+bcrypt==4.2.0
+PyJWT==2.9.0

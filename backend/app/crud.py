@@ -6,11 +6,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Tuple
+import os
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, text, inspect
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from . import models, schemas, auth
 
 
 def _join_days(days: Iterable[str]) -> str:
@@ -68,8 +69,8 @@ def list_projects(db: Session) -> List[schemas.ProjectOut]:
     return [_project_to_out(p) for p in rows]
 
 
-def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None) -> schemas.ProjectListOut:
-    stmt = select(models.Project)
+def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None, user_id: int) -> schemas.ProjectListOut:
+    stmt = select(models.Project).where(models.Project.user_id == user_id)
     if q:
         q = q.strip()
         if q:
@@ -90,12 +91,14 @@ def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None)
     items = [_project_to_out(p) for p in rows]
     return schemas.ProjectListOut(items=items, total=total)
 
-def get_project(db: Session, project_id: int) -> Optional[schemas.ProjectOut]:
+def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
+    if not p or p.user_id != user_id:
+        return None
     return _project_to_out(p) if p else None
 
 
-def create_projects(db: Session, items: List[schemas.CreateProjectItem]) -> List[schemas.ProjectOut]:
+def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id: int) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = datetime.utcnow()
     for it in items:
@@ -106,6 +109,7 @@ def create_projects(db: Session, items: List[schemas.CreateProjectItem]) -> List
         sources_count = _calc_sources_count(sites, phones, sms)
 
         p = models.Project(
+            user_id=user_id,
             name=it.name,
             tag=it.tag or it.name,
             collection_source=it.collectionSource,
@@ -130,6 +134,7 @@ def create_projects(db: Session, items: List[schemas.CreateProjectItem]) -> List
 
         after = _project_to_out(p).dict()
         db.add(models.AuditEvent(
+            user_id=user_id,
             project_id=p.id,
             action='create',
             before=None,
@@ -146,9 +151,11 @@ def _snapshot_project(p: models.Project) -> dict:
     return _project_to_out(p).dict()
 
 
-def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate) -> Optional[schemas.ProjectOut]:
+def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate, user_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
     if not p:
+        return None
+    if p.user_id != user_id:
         return None
     before = _snapshot_project(p)
 
@@ -168,6 +175,7 @@ def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate) 
     after = _snapshot_project(p)
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
     db.add(models.AuditEvent(
+        user_id=user_id,
         project_id=p.id,
         action='update',
         before=before,
@@ -179,14 +187,17 @@ def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate) 
     return _project_to_out(p)
 
 
-def delete_project(db: Session, project_id: int) -> bool:
+def delete_project(db: Session, project_id: int, user_id: int) -> bool:
     p = db.get(models.Project, project_id)
     if not p:
+        return False
+    if p.user_id != user_id:
         return False
     before = _snapshot_project(p)
     db.delete(p)
     db.flush()
     db.add(models.AuditEvent(
+        user_id=user_id,
         project_id=project_id,
         action='delete',
         before=before,
@@ -197,8 +208,8 @@ def delete_project(db: Session, project_id: int) -> bool:
     return True
 
 
-def list_blacklist_paginated(db: Session, offset: int, limit: int, q: str | None) -> schemas.BlacklistListOut:
-    stmt = select(models.BlacklistPhone)
+def list_blacklist_paginated(db: Session, user_id: int, offset: int, limit: int, q: str | None) -> schemas.BlacklistListOut:
+    stmt = select(models.BlacklistPhone).where(models.BlacklistPhone.user_id == user_id)
     if q:
         stmt = stmt.where(models.BlacklistPhone.phone.contains(q))
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
@@ -284,7 +295,7 @@ def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_lo
 
 
 # -------- Черный список --------
-def list_blacklist(db: Session) -> List[schemas.BlacklistPhoneOut]:
+def list_blacklist(db: Session, user_id: int) -> List[schemas.BlacklistPhoneOut]:
     rows = db.execute(select(models.BlacklistPhone).order_by(models.BlacklistPhone.id.desc())).scalars().all()
     out: List[schemas.BlacklistPhoneOut] = []
     for r in rows:
@@ -292,7 +303,7 @@ def list_blacklist(db: Session) -> List[schemas.BlacklistPhoneOut]:
     return out
 
 
-def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPhoneOut]:
+def add_to_blacklist(db: Session, user_id: int, phones: List[str]) -> List[schemas.BlacklistPhoneOut]:
     created: List[schemas.BlacklistPhoneOut] = []
     now = datetime.utcnow()
     normalized_seen = set()
@@ -308,11 +319,15 @@ def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPh
         if digits in normalized_seen:
             continue
         normalized_seen.add(digits)
-        # вставка, игнорировать дубликаты по unique(phone)
-        exists = db.execute(select(models.BlacklistPhone).where(models.BlacklistPhone.phone == digits)).scalar_one_or_none()
+        # вставка, игнорировать дубликаты по user_id+phone
+        exists = db.execute(
+            select(models.BlacklistPhone).where(
+                and_(models.BlacklistPhone.user_id == user_id, models.BlacklistPhone.phone == digits)
+            )
+        ).scalar_one_or_none()
         if exists:
             continue
-        row = models.BlacklistPhone(phone=digits, created_at=now)
+        row = models.BlacklistPhone(user_id=user_id, phone=digits, created_at=now)
         db.add(row)
         db.flush()
         created.append(schemas.BlacklistPhoneOut(id=row.id, phone=row.phone, createdAt=row.created_at.strftime('%Y-%m-%d')))
@@ -324,6 +339,7 @@ def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPh
             "count": len(created),
         }
         db.add(models.AuditEvent(
+            user_id=user_id,
             project_id=None,
             action='blacklist_add',
             before=None,
@@ -334,15 +350,18 @@ def add_to_blacklist(db: Session, phones: List[str]) -> List[schemas.BlacklistPh
     return created
 
 
-def delete_from_blacklist(db: Session, row_id: int) -> bool:
+def delete_from_blacklist(db: Session, user_id: int, row_id: int) -> bool:
     row = db.get(models.BlacklistPhone, row_id)
     if not row:
+        return False
+    if row.user_id is not None and row.user_id != user_id:
         return False
     before_phone = row.phone
     db.delete(row)
     db.flush()
     # Аудит: фиксируем удалённый номер
     db.add(models.AuditEvent(
+        user_id=user_id,
         project_id=None,
         action='blacklist_delete',
         before={"phone": before_phone},
@@ -351,3 +370,78 @@ def delete_from_blacklist(db: Session, row_id: int) -> bool:
     ))
     db.commit()
     return True
+
+
+# -------- Пользователи и инициализация --------
+def get_user_by_login(db: Session, login: str) -> Optional[models.User]:
+    return db.execute(select(models.User).where(models.User.login == login)).scalar_one_or_none()
+
+
+def create_user(db: Session, login: str, password_plain: str) -> models.User:
+    user = models.User(login=login, password_hash=auth.hash_password(password_plain))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def ensure_users_from_env(db: Session) -> None:
+    """
+    Идём по переменным USER_{N}_LOGIN / USER_{N}_PASSWORD и создаём отсутствующих.
+    Первым будет admin с id=1 (если база пустая).
+    """
+    idx = 1
+    created_any = False
+    while True:
+        login = os.getenv(f"USER_{idx}_LOGIN")
+        password = os.getenv(f"USER_{idx}_PASSWORD")
+        if not login or not password:
+            break
+        exists = get_user_by_login(db, login)
+        if not exists:
+            create_user(db, login, password)
+            created_any = True
+        idx += 1
+    if created_any:
+        # убедиться, что есть индексы/структура
+        db.commit()
+
+
+def ensure_projects_user_id_column(db: Session) -> None:
+    """
+    Добавляем столбец user_id в projects при его отсутствии и проставляем 1 (admin) для старых строк.
+    Работает на SQLite простым ALTER TABLE.
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("projects")]
+    if "user_id" not in cols:
+        db.execute(text("ALTER TABLE projects ADD COLUMN user_id INTEGER"))
+        # по умолчанию привяжем к пользователю 1
+        db.execute(text("UPDATE projects SET user_id = 1 WHERE user_id IS NULL"))
+        db.commit()
+
+
+def get_user_project_ids(db: Session, user_id: int) -> List[int]:
+    rows = db.execute(select(models.Project.id).where(models.Project.user_id == user_id)).all()
+    return [int(r[0]) for r in rows]
+
+
+def ensure_audit_user_id_column(db: Session) -> None:
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("audit_events")]
+    if "user_id" not in cols:
+        db.execute(text("ALTER TABLE audit_events ADD COLUMN user_id INTEGER"))
+        db.commit()
+
+
+def ensure_blacklist_user_id_column(db: Session) -> None:
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("blacklist_phones")]
+    if "user_id" not in cols:
+        db.execute(text("ALTER TABLE blacklist_phones ADD COLUMN user_id INTEGER"))
+        # существующие записи считаем админскими
+        db.execute(text("UPDATE blacklist_phones SET user_id = 1 WHERE user_id IS NULL"))
+        db.commit()

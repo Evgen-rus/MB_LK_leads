@@ -100,6 +100,11 @@ def startup_event():
     with SessionLocal() as s:
         # Ensure single row state exists
         crud.ensure_notify_state(s, settings["DEBOUNCE_WINDOW_MINUTES"])
+        # Ensure users from .env exist and projects have user_id column
+        crud.ensure_users_from_env(s)
+        crud.ensure_projects_user_id_column(s)
+        crud.ensure_audit_user_id_column(s)
+        crud.ensure_blacklist_user_id_column(s)
 
     # Start background notifier thread
     worker = threading.Thread(
@@ -122,39 +127,46 @@ def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
 
 
-def require_auth(request: Request):
-    cookie = request.cookies.get("session")
-    user = auth.verify_session(cookie or "") if cookie else None
+def require_auth(request: Request, db_sess: Session = Depends(get_db)):
+    # Ожидаем заголовок Authorization: Bearer <token>
+    auth_header = request.headers.get("Authorization") or ""
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = auth_header.split(" ", 1)[1].strip()
+    user_id = auth.decode_access_token(token or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user = db_sess.get(models.User, int(user_id))
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
 
 
 @app.get("/projects", response_model=schemas.ProjectListOut)
-def list_projects(offset: int = 0, limit: int = 50, q: str | None = None, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+def list_projects(offset: int = 0, limit: int = 50, q: str | None = None, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
-    return crud.list_projects_paginated(db_sess, offset=offset, limit=limit, q=q)
+    return crud.list_projects_paginated(db_sess, offset=offset, limit=limit, q=q, user_id=current_user.id)
 
 
 @app.post("/projects", response_model=List[schemas.ProjectOut])
-def create_projects(payload: schemas.CreateProjectsPayload, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    created = crud.create_projects(db_sess, payload.items)
+def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    created = crud.create_projects(db_sess, payload.items, user_id=current_user.id)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return created
 
 
 @app.get("/projects/{project_id}", response_model=schemas.ProjectOut)
-def get_project(project_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    project = crud.get_project(db_sess, project_id)
+def get_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    project = crud.get_project(db_sess, project_id, user_id=current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
 
 
 @app.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
-def update_project(project_id: int, payload: schemas.ProjectUpdate, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    updated = crud.update_project(db_sess, project_id, payload)
+def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    updated = crud.update_project(db_sess, project_id, payload, user_id=current_user.id)
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
@@ -162,44 +174,31 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, _: str = Dep
 
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    ok = crud.delete_project(db_sess, project_id)
+def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
 
 
-@app.post("/auth/login")
-def login(payload: dict, request: Request):
-    username = str(payload.get("username", ""))
+@app.post("/login")
+def login(payload: dict, db_sess: Session = Depends(get_db)):
+    login_str = str(payload.get("login") or payload.get("username") or "")
     password = str(payload.get("password", ""))
-    u_ok = secrets.compare_digest(username, os.getenv("AUTH_USER", ""))
-    p_ok = secrets.compare_digest(password, os.getenv("AUTH_PASSWORD", ""))
-    if not (u_ok and p_ok):
+    if not login_str or not password:
+        raise HTTPException(status_code=400, detail="login and password are required")
+    user = crud.get_user_by_login(db_sess, login_str)
+    if not user or not auth.verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Bad credentials")
-    token = auth.sign_session(username)
-    from fastapi.responses import JSONResponse
-    resp = JSONResponse({"ok": True})
-    secure = os.getenv("COOKIE_SECURE", "0").lower() in ("1","true")
-    resp.set_cookie(
-        key="session",
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=secure,
-        path="/",
-        max_age=86400,
-    )
-    return resp
+    token = auth.create_access_token(user.id)
+    return {"access_token": token}
 
 
 @app.post("/auth/logout")
 def logout():
-    from fastapi.responses import JSONResponse
-    resp = JSONResponse({"ok": True})
-    resp.delete_cookie("session", path="/")
-    return resp
+    # Для JWT на клиенте — серверного state нет. Возвращаем ok.
+    return {"ok": True}
 
 
 # ----------------------- Лиды -----------------------
@@ -210,7 +209,7 @@ def list_leads(
     toDate: Optional[str] = None,    # YYYY-MM-DD
     offset: int = 0,
     limit: int = 50,
-    _: str = Depends(require_auth),
+    current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
     # Границы дат в локальной TZ; в БД храним локальные naive
@@ -235,6 +234,9 @@ def list_leads(
     start_naive = start_local.replace(tzinfo=None)
     end_naive = end_local.replace(tzinfo=None)
 
+    # Разрешённые проекты текущего пользователя
+    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+
     proj_ids: Optional[List[int]] = None
     if projectIds:
         try:
@@ -243,6 +245,12 @@ def list_leads(
                 proj_ids = None
         except Exception:
             proj_ids = None
+
+    # Пересекаем с разрешёнными
+    if proj_ids is None:
+        proj_ids = list(allowed_ids)
+    else:
+        proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
 
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
@@ -317,22 +325,22 @@ def export_leads(
 
 # ----------------------- Черный список -----------------------
 @app.get("/blacklist", response_model=schemas.BlacklistListOut)
-def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
+def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     limit = max(1, min(500, limit))
     offset = max(0, offset)
-    return crud.list_blacklist_paginated(db_sess, offset=offset, limit=limit, q=q)
+    return crud.list_blacklist_paginated(db_sess, user_id=current_user.id, offset=offset, limit=limit, q=q)
 
 
 @app.post("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
-def add_blacklist(payload: schemas.BlacklistAddIn, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    items = crud.add_to_blacklist(db_sess, payload.phones)
+def add_blacklist(payload: schemas.BlacklistAddIn, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    items = crud.add_to_blacklist(db_sess, current_user.id, payload.phones)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return items
 
 
 @app.delete("/blacklist/{row_id}")
-def delete_blacklist(row_id: int, _: str = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    ok = crud.delete_from_blacklist(db_sess, row_id)
+def delete_blacklist(row_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    ok = crud.delete_from_blacklist(db_sess, current_user.id, row_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
