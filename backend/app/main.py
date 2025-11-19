@@ -128,11 +128,20 @@ def health() -> dict:
 
 
 def require_auth(request: Request, db_sess: Session = Depends(get_db)):
-    # Ожидаем заголовок Authorization: Bearer <token>
+    # Проверяем токен либо в заголовке Authorization: Bearer <token>, либо в query параметре token
+    token = None
+
+    # Сначала проверяем заголовок
     auth_header = request.headers.get("Authorization") or ""
-    if not auth_header.lower().startswith("bearer "):
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    else:
+        # Если нет заголовка, проверяем query параметр token (для экспорта)
+        token = request.query_params.get("token")
+
+    if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    token = auth_header.split(" ", 1)[1].strip()
+
     user_id = auth.decode_access_token(token or "")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")

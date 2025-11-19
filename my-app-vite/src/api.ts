@@ -197,6 +197,9 @@ export async function fetchLeads(params: { projectIds?: number[]; fromDate: stri
 export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; }): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
+  // Добавляем токен авторизации в параметры запроса для экспорта
+  const token = localStorage.getItem('access_token');
+  if (token) q.set('token', token);
   return `${API_BASE}/leads/export?${q.toString()}`;
 }
 
