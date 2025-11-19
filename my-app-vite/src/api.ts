@@ -2,7 +2,21 @@
 // Назначение: HTTP-клиент фронтенда для работы с бэкендом (projects, client-errors).
 import type { Project } from './types/project';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://localhost:8000';
+// Базовый URL для API:
+// - в проде берётся из Vite-переменной окружения VITE_API_BASE (например, "/api")
+// - дополнительно, если страница открыта на leadrecordwh.ru — форсируем "/api"
+// - локально по умолчанию используется http://localhost:8000
+// Важно использовать именно import.meta.env, чтобы Vite смог подставить значение на этапе сборки.
+const RUNTIME_HOST =
+  typeof window !== 'undefined' ? window.location.hostname : undefined;
+
+const API_BASE =
+  // 1) Явное значение из .env/.env.production
+  (import.meta.env as any).VITE_API_BASE ||
+  // 2) Если мы на прод-домене — всегда ходим через /api (через Nginx)
+  (RUNTIME_HOST === 'leadrecordwh.ru' ? '/api' : undefined) ||
+  // 3) Фолбэк для локальной разработки
+  'http://localhost:8000';
 
 export type Day = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 export type CollectionSource = 'Сайты'|'Звонки'|'СМС'|'Ретросайты'|'Ретрозвонки'|'Пересечение';
