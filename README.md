@@ -129,6 +129,27 @@ npm run preview  # Превью продакшен сборки
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Управление пользователями (CLI)
+
+- Пользователи для первого запуска создаются из `.env` (пары `USER_1_LOGIN` / `USER_1_PASSWORD` и т.д.) **только если БД пустая**.
+- Для дальнейшего управления логинами/паролями используйте скрипт `user_tools.py` в корне проекта:
+
+```bash
+cd /opt/MB_LK_leads
+source venv/bin/activate
+
+# Показать пользователей
+python user_tools.py list
+
+# Создать нового пользователя
+python user_tools.py create --login <логин>
+
+# Сменить пароль существующему пользователю
+python user_tools.py set-password --login <логин>
+```
+
+При смене пароля скрипт дополнительно записывает логин и новый пароль в локальный файл `users.txt` (он добавлен в `.gitignore` и не попадает в репозиторий).
+
 ## 📝 API Endpoints
 
 - `GET /health` - Проверка работоспособности
