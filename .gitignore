@@ -63,6 +63,9 @@ telegram_bot_deploy.tar.gz
 # Database files
 *.db
 
+# Local users log (для user_tools.py)
+users.txt
+
 # dependencies (во всех подпапках)
 **/node_modules/
 **/.pnp
