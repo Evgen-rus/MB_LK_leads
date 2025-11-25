@@ -14,11 +14,19 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Базовый размер шрифта: 100% от системного.
+   Масштабирование всего интерфейса управляется через html[data-theme] ниже. */
+html {
+  font-size: 100%;
+}
+
 /* Принудительная светлая тема при переключателе */
 html[data-theme="light"] {
   color-scheme: light;
   color: #213547;
   background-color: #ffffff;
+  /* Уменьшаем масштаб шрифтов примерно до 80% от дефолтного */
+  font-size: 80%;
 }
 
 a {

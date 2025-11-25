@@ -120,7 +120,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     >
       <div ref={dialogRef} role="dialog" aria-modal="true" className="modal-card" style={{ background: '#fff', borderRadius: 8, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
         <div style={{ padding: 20, borderBottom: '1px solid #eee' }}>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>Редактировать проект</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Редактировать проект</div>
         </div>
         <form onSubmit={handleSubmit} style={{ padding: 20 }}>
           <div style={{ display: 'grid', gap: 12 }}>
@@ -164,7 +164,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 <span className="section-title">Список сайтов</span>
                 <span className="hint">По одному в строке</span>
                 <textarea rows={8} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} onBlur={sanitizeSites} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
-                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
               </label>
             )}
 
@@ -173,7 +173,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 <span className="section-title">Список телефонов</span>
                 <span className="hint">По одному в строке</span>
                 <textarea rows={8} placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
-                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
               </label>
             )}
 

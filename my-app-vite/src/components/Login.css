@@ -37,7 +37,7 @@
 }
 
 .login-title {
-  font-size: 28px;
+  font-size: 1.75rem;
   font-weight: 700;
   color: #1d1d1f;
   margin: 0 0 8px 0;
@@ -45,7 +45,7 @@
 }
 
 .login-subtitle {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: #8b8b98;
   margin: 0;
 }
@@ -68,7 +68,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #6b6b76;
   text-transform: uppercase;
@@ -86,7 +86,7 @@
   border: 2px solid #e6e6ee;
   border-radius: 12px;
   padding: 14px 16px;
-  font-size: 15px;
+  font-size: 0.9375rem;
   color: #1d1d1f;
   transition: all 0.2s ease;
   box-sizing: border-box;
@@ -123,7 +123,7 @@
   border: 1px solid #fecaca;
   border-radius: 10px;
   color: #dc2626;
-  font-size: 13px;
+  font-size: 0.8125rem;
   animation: errorShake 0.3s ease;
 }
 
@@ -150,7 +150,7 @@
   border: none;
   border-radius: 12px;
   color: #ffffff;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -192,11 +192,11 @@
   }
 
   .login-title {
-    font-size: 24px;
+    font-size: 1.5rem;
   }
 
   .login-subtitle {
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 }
 

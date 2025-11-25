@@ -66,14 +66,14 @@ function AddPhonesModal({ onClose, onSubmit }: AddPhonesModalProps) {
         }}
       >
         <div style={{ padding: 20, borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>Добавить телефоны</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Добавить телефоны</div>
           <button className="icon-btn" aria-label="Закрыть" onClick={onClose}>✕</button>
         </div>
         <div style={{ padding: 20 }}>
           <p style={{ marginTop: 0 }}>
             Добавьте номера телефонов, по которым вы не хотите получать сигналы. Формат: 79999999999.
           </p>
-          <label className="label" style={{ display: 'block', fontSize: 12, color: '#666', marginBottom: 6 }}>Добавить номера телефонов</label>
+          <label className="label" style={{ display: 'block', fontSize: '0.75rem', color: '#666', marginBottom: 6 }}>Добавить номера телефонов</label>
           <textarea
             className=""
             rows={8}
@@ -81,7 +81,7 @@ function AddPhonesModal({ onClose, onSubmit }: AddPhonesModalProps) {
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+          <div style={{ marginTop: 8, fontSize: '0.75rem', color: '#666' }}>
             Корректных: {parsed.ok.length}
             {parsed.bad.length > 0 && (
               <span style={{ marginLeft: 12, color: '#b04949' }}>

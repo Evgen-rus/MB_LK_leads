@@ -235,12 +235,12 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
         }}
       >
         <div style={{ padding: 20, borderBottom: '1px solid #eee' }}>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>Создать проект</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Создать проект</div>
         </div>
         <form onSubmit={handleSubmit} style={{ padding: 20 }}>
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Название</span>
+              <span style={{ fontSize: '0.75rem', color: '#666' }}>Название</span>
               <input
                 autoFocus
                 type="text"
@@ -251,7 +251,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </label>
 
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Тег</span>
+              <span style={{ fontSize: '0.75rem', color: '#666' }}>Тег</span>
               <input
                 type="text"
                 placeholder="По умолчанию как название"
@@ -262,7 +262,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Источник сбора</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
                 <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
                   <option value="Звонки">Звонки</option>
                   <option value="Сайты">Сайты</option>
@@ -274,7 +274,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               </label>
 
               <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: 12, color: '#666' }}>Лимит</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Лимит</span>
                 <input
                   type="number"
                   min={0}
@@ -317,7 +317,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   );
                 })}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>
+              <div style={{ fontSize: '0.75rem', color: '#666' }}>
                 {effectiveCodesPreview.length > 0
                   ? `Будет создано: ${effectiveCodesPreview.length} — ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
                   : 'Выберите источники данных'}
@@ -336,7 +336,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   onBlur={sanitizeSites}
                   style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
                 />
-                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
               </label>
             )}
 
@@ -352,7 +352,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   onBlur={sanitizePhones}
                   style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
                 />
-                <span style={{ fontSize: 12, color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
+                <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
               </label>
             )}
 
@@ -385,7 +385,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </div>
 
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>Статус проекта</span>
+              <span style={{ fontSize: '0.75rem', color: '#666' }}>Статус проекта</span>
               <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
