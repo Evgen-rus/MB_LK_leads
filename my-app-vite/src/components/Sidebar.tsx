@@ -1,12 +1,15 @@
 // Левое меню навигации по разделам личного кабинета
 import { useEffect, useState } from 'react';
 
+export type ViewType = 'projects' | 'leads' | 'reports' | 'integrations' | 'blacklist' | 'admin-clients';
+
 type SidebarProps = {
-  active: 'projects' | 'leads' | 'reports' | 'integrations' | 'blacklist';
-  onNavigate: (v: 'projects' | 'leads' | 'reports' | 'integrations' | 'blacklist') => void;
+  active: ViewType;
+  onNavigate: (v: ViewType) => void;
+  isAdmin?: boolean;
 };
 
-function Sidebar({ active, onNavigate }: SidebarProps) {
+function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   // Автоколлапс на узких экранах
@@ -36,6 +39,24 @@ function Sidebar({ active, onNavigate }: SidebarProps) {
       </div>
 
       <nav>
+        {isAdmin && (
+          <>
+            <div className="nav-section">Администратор</div>
+            <ul>
+              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => onNavigate('admin-clients')}>
+                <span className="nav-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </span>
+                <span className="nav-label">Клиенты</span>
+              </li>
+            </ul>
+          </>
+        )}
         <div className="nav-section">Основное</div>
         <ul>
           <li className={active === 'projects' ? 'active' : ''} onClick={() => onNavigate('projects')}>

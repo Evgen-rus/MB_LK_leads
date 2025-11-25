@@ -1,11 +1,15 @@
 // Корневой лейаут приложения: левое меню и область контента с таблицей
 import './App.css';
-import Sidebar from './components/Sidebar';
+import Sidebar, { type ViewType } from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
 import LeadsTable from './components/LeadsTable';
+import AdminLeadsTable from './components/AdminLeadsTable';
 import Integrations from './components/Integrations';
 import Blacklist from './components/Blacklist';
+import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
+import AdminReports from './components/AdminReports';
+import AdminClientsTable from './components/AdminClientsTable';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -13,7 +17,7 @@ import ProjectHistoryModal from './components/ProjectHistoryModal';
 import type { Project } from './types/project';
 import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete, logout as apiLogout } from './api';
 import Login from './components/Login';
-import { isJwtValid } from './utils/jwt';
+import { isJwtValid, isAdminFromToken } from './utils/jwt';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -22,7 +26,8 @@ function App() {
   const [historyFor, setHistoryFor] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const [view, setView] = useState<'projects'|'leads'|'reports'|'integrations'|'blacklist'>('projects');
+  const [view, setView] = useState<ViewType>('projects');
+  const [isAdmin, setIsAdmin] = useState(false);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -36,11 +41,13 @@ function App() {
       if (!valid) {
         try { localStorage.removeItem('access_token'); } catch {}
         setNeedLogin(true);
+        setIsAdmin(false);
         if (window.location.pathname !== '/login') {
           window.history.replaceState(null, '', '/login');
         }
       } else {
         setNeedLogin(false);
+        setIsAdmin(isAdminFromToken(token));
         if (window.location.pathname === '/login') {
           window.history.replaceState(null, '', '/');
         }
@@ -80,6 +87,8 @@ function App() {
     return <Login onSuccess={() => {
       // после успешного входа переключаем URL и загружаем данные
       window.history.replaceState(null, '', '/');
+      const token = localStorage.getItem('access_token') || '';
+      setIsAdmin(isAdminFromToken(token));
       setNeedLogin(false);
       (async () => {
         try {
@@ -93,11 +102,13 @@ function App() {
   return (
     <div className="layout">
       <div className="content">
-        <Sidebar active={view} onNavigate={setView} />
+        <Sidebar active={view} onNavigate={setView} isAdmin={isAdmin} />
         <main className="main">
           <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between', position:'relative'}}>
             <span>
-              {view === 'projects'
+              {view === 'admin-clients'
+                ? 'Клиенты'
+                : view === 'projects'
                 ? 'Проекты'
                 : view === 'leads'
                 ? 'Идентификации'
@@ -118,7 +129,9 @@ function App() {
             }}>Выйти</button>
           </div>
           </div>
-          {view === 'projects' ? (
+          {view === 'admin-clients' && isAdmin ? (
+            <AdminClientsTable />
+          ) : view === 'projects' ? (
           <ProjectsTable
             onCreate={() => setIsCreateOpen(true)}
             onDelete={(ids) => {
@@ -137,13 +150,13 @@ function App() {
             onHistory={(row) => setHistoryFor(row)}
           />
           ) : view === 'leads' ? (
-            <LeadsTable projects={rows} />
+            isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} />
           ) : view === 'reports' ? (
-            <Reports />
+            isAdmin ? <AdminReports /> : <Reports />
           ) : view === 'integrations' ? (
             <Integrations />
           ) : (
-            <Blacklist />
+            isAdmin ? <AdminBlacklist /> : <Blacklist />
           )}
         </main>
       </div>

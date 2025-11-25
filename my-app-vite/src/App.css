@@ -150,6 +150,45 @@
   border-radius: 8px;
 }
 
+/* ——— Dropdown статуса отгрузки (для админа) ——— */
+.delivery-select {
+  appearance: none;
+  padding: 4px 28px 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6b76' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.delivery-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(106,92,255,0.2);
+}
+.delivery-select--green {
+  background-color: #e6f7ed;
+  border-color: #1d7a45;
+  color: #1d7a45;
+}
+.delivery-select--orange {
+  background-color: #fff3e6;
+  border-color: #8a4b00;
+  color: #8a4b00;
+}
+.delivery-select--gray {
+  background-color: #f0f0f3;
+  border-color: #5f616b;
+  color: #5f616b;
+}
+.delivery-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ——— Мобильная адаптация ——— */
 @media (max-width: 768px) {
   .main { padding: 12px; }

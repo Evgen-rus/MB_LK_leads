@@ -219,8 +219,10 @@ def login(payload: dict, db_sess: Session = Depends(get_db)):
     user = crud.get_user_by_login(db_sess, login_str)
     if not user or not auth.verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Bad credentials")
-    token = auth.create_access_token(user.id)
-    return {"access_token": token}
+    # Админом является пользователь с id=1
+    is_admin = user.id == 1
+    token = auth.create_access_token(user.id, is_admin=is_admin)
+    return {"access_token": token, "is_admin": is_admin}
 
 
 @app.post("/auth/logout")
@@ -432,3 +434,174 @@ def delete_blacklist(row_id: int, current_user: models.User = Depends(require_au
         raise HTTPException(status_code=404, detail="Not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
+
+
+# =====================================================
+# =================== ADMIN ENDPOINTS =================
+# =====================================================
+
+def require_admin(request: Request, db_sess: Session = Depends(get_db)):
+    """
+    Проверяет, что текущий пользователь — админ (id=1).
+    """
+    token = None
+
+    auth_header = request.headers.get("Authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    else:
+        token = request.query_params.get("token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = auth.decode_access_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user = db_sess.get(models.User, int(user_id))
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Проверяем, что это админ (id=1)
+    if user.id != 1:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    return user
+
+
+@app.get("/admin/users", response_model=List[schemas.UserInfo])
+def admin_list_users(
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Список всех пользователей (для фильтра по клиенту)."""
+    return crud.get_all_users(db_sess)
+
+
+@app.get("/admin/projects", response_model=schemas.AdminProjectListOut)
+def admin_list_projects(
+    offset: int = 0,
+    limit: int = 50,
+    q: str | None = None,
+    userId: int | None = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Список всех проектов всех клиентов."""
+    limit = max(1, min(1000, limit))
+    offset = max(0, offset)
+    return crud.admin_list_all_projects(db_sess, offset=offset, limit=limit, q=q, user_id_filter=userId)
+
+
+@app.get("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)
+def admin_get_project(
+    project_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Получить проект по id (для админа)."""
+    project = crud.admin_get_project(db_sess, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@app.patch("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)
+def admin_update_project(
+    project_id: int,
+    payload: schemas.AdminProjectUpdate,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Обновить проект (включая delivery_status)."""
+    updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Project not found")
+    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    return updated
+
+
+@app.delete("/admin/projects/{project_id}")
+def admin_delete_project(
+    project_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Удалить проект (для админа)."""
+    ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Project not found")
+    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    return {"deleted": True}
+
+
+@app.get("/admin/leads", response_model=schemas.AdminLeadsListOut)
+def admin_list_leads(
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    userId: int | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Список всех лидов (для админа)."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
+
+    limit = max(1, min(1000, limit))
+    offset = max(0, offset)
+
+    return crud.admin_list_all_leads(
+        db_sess,
+        start_local=start_local,
+        end_local=end_local,
+        offset=offset,
+        limit=limit,
+        user_id_filter=userId,
+    )
+
+
+@app.get("/admin/blacklist", response_model=schemas.AdminBlacklistListOut)
+def admin_list_blacklist(
+    offset: int = 0,
+    limit: int = 50,
+    q: str | None = None,
+    userId: int | None = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Список всех записей черного списка (для админа)."""
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.admin_list_all_blacklist(db_sess, offset=offset, limit=limit, q=q, user_id_filter=userId)
+
+
+@app.get("/admin/reports", response_model=schemas.AdminReportListOut)
+def admin_list_reports(
+    offset: int = 0,
+    limit: int = 50,
+    userId: int | None = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """Список всех отчётов (для админа)."""
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=userId)

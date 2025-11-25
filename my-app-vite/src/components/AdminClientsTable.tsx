@@ -1,0 +1,333 @@
+// Таблица проектов всех клиентов (для админа)
+// Включает столбец "Клиент" и кликабельный dropdown для статуса отгрузки
+import { useEffect, useMemo, useState } from 'react';
+import type { DeliveryStatus, CollectionSource } from '../types/project';
+import {
+  fetchAdminProjects,
+  fetchAdminUsers,
+  updateAdminProject,
+  deleteAdminProject,
+  type AdminProject,
+  type UserInfo,
+  type AdminProjectUpdate,
+} from '../api';
+import AdminEditProjectModal from './AdminEditProjectModal';
+
+function AdminClientsTable() {
+  const [rows, setRows] = useState<AdminProject[]>([]);
+  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [search, setSearch] = useState<string>('');
+  const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<'Все' | DeliveryStatus>('Все');
+  const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
+  const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [total, setTotal] = useState(0);
+  const [editing, setEditing] = useState<AdminProject | null>(null);
+  const [updatingDelivery, setUpdatingDelivery] = useState<number | null>(null);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  async function loadUsers() {
+    try {
+      const list = await fetchAdminUsers();
+      setUsers(list);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function load(p = page, s = pageSize, q = search, userId: number | null = userIdFilter) {
+    try {
+      const offset = (p - 1) * s;
+      const resp = await fetchAdminProjects({
+        offset,
+        limit: s,
+        q: q.trim() || undefined,
+        userId: userId ?? undefined,
+      });
+      setRows(resp.items);
+      setTotal(resp.total);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  useEffect(() => {
+    loadUsers();
+    load(1);
+  }, []);
+
+  useEffect(() => {
+    const h = () => load(page);
+    window.addEventListener('admin-projects-refresh', h as any);
+    return () => window.removeEventListener('admin-projects-refresh', h as any);
+  }, [page, pageSize, search, userIdFilter]);
+
+  const filteredRows = useMemo<AdminProject[]>(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((row) => {
+      const matchesStatus = status === 'Все' ? true : row.status === status;
+      const matchesDelivery = deliveryStatusFilter === 'Все' ? true : row.deliveryStatus === deliveryStatusFilter;
+      const matchesType = typeFilter === 'Все' ? true : row.collectionSource === typeFilter;
+      const nameHit = row.name.toLowerCase().includes(q);
+      const idHit = String(row.id).includes(q);
+      const userLoginHit = row.user.login.toLowerCase().includes(q);
+      const userIdHit = String(row.user.id).includes(q);
+      const matchesQuery = q === '' ? true : (nameHit || idHit || userLoginHit || userIdHit);
+      return matchesStatus && matchesDelivery && matchesType && matchesQuery;
+    });
+  }, [rows, search, status, deliveryStatusFilter, typeFilter]);
+
+  const availableTypes = useMemo<CollectionSource[]>(() => {
+    const set = new Set<CollectionSource>();
+    rows.forEach(r => set.add(r.collectionSource));
+    return Array.from(set);
+  }, [rows]);
+
+  const filteredIds = useMemo<number[]>(() => filteredRows.map(r => r.id), [filteredRows]);
+  const allOnPageSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+
+  function toggleRow(id: number) {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  function toggleAllOnPage() {
+    setSelectedIds((prev) => {
+      if (allOnPageSelected) {
+        return prev.filter(id => !filteredIds.includes(id));
+      }
+      const union = new Set([...prev, ...filteredIds]);
+      return Array.from(union);
+    });
+  }
+
+  async function handleDeliveryStatusChange(project: AdminProject, newStatus: DeliveryStatus) {
+    if (project.deliveryStatus === newStatus) return;
+    setUpdatingDelivery(project.id);
+    try {
+      // Преобразуем daysReceived в массив Day[]
+      const daysMap: Record<string, string> = {
+        'Пн.': 'Пн', 'Вт.': 'Вт', 'Ср.': 'Ср', 'Чт.': 'Чт',
+        'Пт.': 'Пт', 'Сб.': 'Сб', 'Вс.': 'Вс',
+      };
+      const days = (project.daysReceived || '')
+        .split(' ')
+        .map(d => daysMap[d] || d.replace('.', ''))
+        .filter(d => ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].includes(d)) as any[];
+
+      const payload: AdminProjectUpdate = {
+        name: project.name,
+        tag: project.tag,
+        status: project.status,
+        deliveryStatus: newStatus,
+        dataLimit: project.dataLimit,
+        regionMode: project.regionMode || 'include',
+        regions: project.regions || [],
+        sites: project.sites || undefined,
+        phones: project.phones || undefined,
+        smsSenderName: project.smsSenderName || undefined,
+        days,
+      };
+      const updated = await updateAdminProject(project.id, payload);
+      setRows(prev => prev.map(p => p.id === updated.id ? updated : p));
+    } catch (e) {
+      console.error(e);
+      alert('Ошибка при смене статуса');
+    } finally {
+      setUpdatingDelivery(null);
+    }
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm(`Удалить проект ${id}?`)) return;
+    try {
+      await deleteAdminProject(id);
+      setRows(prev => prev.filter(p => p.id !== id));
+      setSelectedIds(prev => prev.filter(x => x !== id));
+      window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
+    } catch (e) {
+      console.error(e);
+      alert('Ошибка при удалении');
+    }
+  }
+
+  return (
+    <div className="table-card">
+      <div className="table-toolbar">
+        <div className="filters">
+          <input
+            type="search"
+            placeholder="Поиск по названию/ID/клиенту"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setPage(1);
+                load(1, pageSize, (e.target as HTMLInputElement).value, userIdFilter);
+              }
+            }}
+          />
+          <select
+            value={userIdFilter ?? ''}
+            onChange={(e) => {
+              const val = e.target.value ? Number(e.target.value) : null;
+              setUserIdFilter(val);
+              setPage(1);
+              load(1, pageSize, search, val);
+            }}
+          >
+            <option value="">Все клиенты</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.login} (id: {u.id})
+              </option>
+            ))}
+          </select>
+          <select value={deliveryStatusFilter} onChange={(e) => setDeliveryStatusFilter(e.target.value as 'Все' | DeliveryStatus)}>
+            <option value="Все">Все статусы отгрузки</option>
+            <option value="Активна">Активна</option>
+            <option value="На модерации">На модерации</option>
+            <option value="Отключена">Отключена</option>
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+            <option value="Все">Все статусы проекта</option>
+            <option value="Активен">Активен</option>
+            <option value="На паузе">На паузе</option>
+          </select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'Все' | CollectionSource)}>
+            <option value="Все">Все источники</option>
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div className="actions">
+          <span className="sub">Всего: {total}</span>
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  checked={allOnPageSelected}
+                  onChange={toggleAllOnPage}
+                />
+              </th>
+              <th>ID</th>
+              <th>Клиент</th>
+              <th>Статус отгрузки</th>
+              <th>Тег</th>
+              <th>Название</th>
+              <th>Статус проекта</th>
+              <th>Источник сбора</th>
+              <th>Лимит</th>
+              <th>Сегодня</th>
+              <th>Всего</th>
+              <th>Дни</th>
+              <th>Доменов</th>
+              <th>Создан</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((row, index) => (
+              <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(row.id)}
+                    onChange={() => toggleRow(row.id)}
+                  />
+                </td>
+                <td className="muted">{row.id}</td>
+                <td>
+                  <div className="name">{row.user.login}</div>
+                  <div className="sub">id: {row.user.id}</div>
+                </td>
+                <td>
+                  <select
+                    className={`delivery-select ${
+                      row.deliveryStatus === 'Активна'
+                        ? 'delivery-select--green'
+                        : row.deliveryStatus === 'На модерации'
+                        ? 'delivery-select--orange'
+                        : 'delivery-select--gray'
+                    }`}
+                    value={row.deliveryStatus}
+                    disabled={updatingDelivery === row.id}
+                    onChange={(e) => handleDeliveryStatusChange(row, e.target.value as DeliveryStatus)}
+                  >
+                    <option value="Активна">Активна</option>
+                    <option value="На модерации">На модерации</option>
+                    <option value="Отключена">Отключена</option>
+                  </select>
+                </td>
+                <td className="muted">{row.tag}</td>
+                <td>
+                  <div className="name">{row.name}</div>
+                </td>
+                <td>
+                  <span
+                    className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {row.status}
+                  </span>
+                </td>
+                <td>{row.collectionSource}</td>
+                <td>{row.dataLimit}</td>
+                <td>{row.numbersToday}</td>
+                <td>{row.numbersTotal}</td>
+                <td className="muted">{row.daysReceived}</td>
+                <td>{row.sourcesCount}</td>
+                <td className="muted">{row.createdAt}</td>
+                <td>
+                  <button className="icon-btn" title="Редактировать" onClick={() => setEditing(row)}>
+                    ⚙️
+                  </button>
+                  <button className="icon-btn" title="Удалить" onClick={() => handleDelete(row.id)}>
+                    🗑️
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-footer">
+        Показано {rows.length} из {total}
+        <div className="spacer" />
+        <div className="pager">
+          <button className="pager__btn" disabled={page <= 1} onClick={() => { const p = Math.max(1, page - 1); setPage(p); load(p); }}>‹</button>
+          <span className="pager__info">{page} / {totalPages}</span>
+          <button className="pager__btn" disabled={page >= totalPages} onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); load(p); }}>›</button>
+          <select className="pager__size" value={pageSize} onChange={(e) => { const s = Number(e.target.value); setPageSize(s); setPage(1); load(1, s); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
+
+      {editing && (
+        <AdminEditProjectModal
+          project={editing}
+          onClose={() => setEditing(null)}
+          onSubmit={async (updated) => {
+            setRows(prev => prev.map(p => p.id === updated.id ? updated : p));
+            window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default AdminClientsTable;
+

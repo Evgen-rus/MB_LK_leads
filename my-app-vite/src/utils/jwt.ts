@@ -3,6 +3,8 @@
 
 export type JwtPayload = {
   exp?: number; // seconds since epoch
+  user_id?: number;
+  is_admin?: boolean;
   [key: string]: unknown;
 };
 
@@ -39,4 +41,16 @@ export function getValidTokenFromStorage(): string | null {
   } catch {
     return null;
   }
+}
+
+export function isAdminFromToken(token: string | null): boolean {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  return payload?.is_admin === true;
+}
+
+export function getUserIdFromToken(token: string | null): number | null {
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  return typeof payload?.user_id === 'number' ? payload.user_id : null;
 }

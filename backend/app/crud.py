@@ -667,3 +667,315 @@ def ensure_blacklist_user_id_column(db: Session) -> None:
         # существующие записи считаем админскими
         db.execute(text("UPDATE blacklist_phones SET user_id = 1 WHERE user_id IS NULL"))
         db.commit()
+
+
+# =====================================================
+# =================== ADMIN CRUD ======================
+# =====================================================
+
+def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
+    """Получить UserInfo по id."""
+    user = db.get(models.User, user_id)
+    if not user:
+        return None
+    return schemas.UserInfo(id=user.id, login=user.login)
+
+
+def _admin_project_to_out(p: models.Project, user_info: schemas.UserInfo) -> schemas.AdminProjectOut:
+    """Преобразует Project в AdminProjectOut (включая user info)."""
+    base = _project_to_out(p)
+    return schemas.AdminProjectOut(
+        **base.dict(),
+        user=user_info,
+    )
+
+
+def admin_list_all_projects(
+    db: Session,
+    offset: int,
+    limit: int,
+    q: str | None,
+    user_id_filter: int | None = None,
+) -> schemas.AdminProjectListOut:
+    """
+    Список всех проектов всех пользователей (для админа).
+    Опционально фильтрация по user_id, id, name, tag.
+    """
+    stmt = select(models.Project)
+
+    # Фильтр по user_id
+    if user_id_filter is not None:
+        stmt = stmt.where(models.Project.user_id == user_id_filter)
+
+    # Текстовый поиск
+    if q:
+        q = q.strip()
+        if q:
+            cond = or_(
+                models.Project.name.ilike(f"%{q}%"),
+                models.Project.tag.ilike(f"%{q}%"),
+            )
+            # Поиск по id проекта
+            try:
+                qid = int(q)
+                cond = or_(cond, models.Project.id == qid)
+            except Exception:
+                pass
+            # Поиск по user_id
+            try:
+                uid = int(q)
+                cond = or_(cond, models.Project.user_id == uid)
+            except Exception:
+                pass
+            stmt = stmt.where(cond)
+
+    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
+
+    # Собираем user info для всех проектов
+    user_ids = set(p.user_id for p in rows if p.user_id)
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminProjectOut] = []
+    for p in rows:
+        user_info = users_map.get(p.user_id, schemas.UserInfo(id=p.user_id or 0, login="(unknown)"))
+        items.append(_admin_project_to_out(p, user_info))
+
+    return schemas.AdminProjectListOut(items=items, total=total)
+
+
+def admin_get_project(db: Session, project_id: int) -> Optional[schemas.AdminProjectOut]:
+    """Получить проект по id (без проверки user_id)."""
+    p = db.get(models.Project, project_id)
+    if not p:
+        return None
+    user_info = _get_user_info(db, p.user_id) or schemas.UserInfo(id=p.user_id or 0, login="(unknown)")
+    return _admin_project_to_out(p, user_info)
+
+
+def admin_update_project(
+    db: Session,
+    project_id: int,
+    update: schemas.AdminProjectUpdate,
+    admin_user_id: int,
+) -> Optional[schemas.AdminProjectOut]:
+    """
+    Обновить проект админом (включая delivery_status).
+    admin_user_id — id админа для аудита.
+    """
+    p = db.get(models.Project, project_id)
+    if not p:
+        return None
+
+    before = _snapshot_project(p)
+
+    p.name = update.name
+    p.tag = update.tag or update.name
+    p.status = update.status
+    p.delivery_status = update.deliveryStatus  # Админ может менять!
+    p.data_limit = update.dataLimit
+    p.region_mode = update.regionMode
+    p.regions = update.regions or None
+    p.sites = update.sites or None
+    p.phones = update.phones or None
+    p.sms_sender_name = update.smsSenderName or None
+    p.days_received = _join_days(update.days)
+    p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)
+    p.updated_at = datetime.utcnow()
+
+    after = _snapshot_project(p)
+    changed = [k for k in after.keys() if before.get(k) != after.get(k)]
+    db.add(models.AuditEvent(
+        user_id=admin_user_id,
+        project_id=p.id,
+        action='update',
+        before=before,
+        after=after,
+        changed_fields=changed,
+    ))
+    db.commit()
+    db.refresh(p)
+
+    user_info = _get_user_info(db, p.user_id) or schemas.UserInfo(id=p.user_id or 0, login="(unknown)")
+    return _admin_project_to_out(p, user_info)
+
+
+def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bool:
+    """Удалить проект админом."""
+    p = db.get(models.Project, project_id)
+    if not p:
+        return False
+    before = _snapshot_project(p)
+    db.delete(p)
+    db.flush()
+    db.add(models.AuditEvent(
+        user_id=admin_user_id,
+        project_id=project_id,
+        action='delete',
+        before=before,
+        after=None,
+        changed_fields=list(before.keys()),
+    ))
+    db.commit()
+    return True
+
+
+def admin_list_all_leads(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+    offset: int,
+    limit: int,
+    user_id_filter: int | None = None,
+) -> schemas.AdminLeadsListOut:
+    """
+    Список всех лидов (для админа).
+    Опционально фильтрация по user_id владельца проекта.
+    """
+    # Собираем project_ids если нужна фильтрация по user
+    proj_ids: Optional[List[int]] = None
+    if user_id_filter is not None:
+        proj_ids = get_user_project_ids(db, user_id_filter)
+        if not proj_ids:
+            return schemas.AdminLeadsListOut(items=[], total=0)
+
+    base = select(models.Lead).where(
+        and_(models.Lead.created_at >= start_local, models.Lead.created_at < end_local)
+    )
+    if proj_ids is not None:
+        base = base.where(models.Lead.project_id.in_(proj_ids))
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = db.execute(base.order_by(models.Lead.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+
+    # Собираем user info для всех лидов через их проекты
+    project_ids_in_rows = set(r.project_id for r in rows)
+    projects_map: Dict[int, int] = {}  # project_id -> user_id
+    if project_ids_in_rows:
+        proj_rows = db.execute(
+            select(models.Project.id, models.Project.user_id)
+            .where(models.Project.id.in_(project_ids_in_rows))
+        ).all()
+        for pid, uid in proj_rows:
+            projects_map[pid] = uid
+
+    user_ids = set(projects_map.values())
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminLeadOut] = []
+    for r in rows:
+        uid = projects_map.get(r.project_id, 0)
+        user_info = users_map.get(uid, schemas.UserInfo(id=uid, login="(unknown)"))
+        items.append(schemas.AdminLeadOut(
+            ext_id=r.ext_id,
+            project_id=r.project_id,
+            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            phone=r.phone,
+            utm_campaign=r.utm_campaign,
+            user=user_info,
+        ))
+
+    return schemas.AdminLeadsListOut(items=items, total=total)
+
+
+def admin_list_all_blacklist(
+    db: Session,
+    offset: int,
+    limit: int,
+    q: str | None = None,
+    user_id_filter: int | None = None,
+) -> schemas.AdminBlacklistListOut:
+    """
+    Список всех записей черного списка (для админа).
+    """
+    stmt = select(models.BlacklistPhone)
+
+    if user_id_filter is not None:
+        stmt = stmt.where(models.BlacklistPhone.user_id == user_id_filter)
+
+    if q:
+        q = q.strip()
+        cond = models.BlacklistPhone.phone.contains(q)
+        # Поиск по user_id
+        try:
+            uid = int(q)
+            cond = or_(cond, models.BlacklistPhone.user_id == uid)
+        except Exception:
+            pass
+        stmt = stmt.where(cond)
+
+    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = db.execute(stmt.order_by(models.BlacklistPhone.id.desc()).offset(offset).limit(limit)).scalars().all()
+
+    user_ids = set(r.user_id for r in rows if r.user_id)
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminBlacklistPhoneOut] = []
+    for r in rows:
+        user_info = users_map.get(r.user_id, schemas.UserInfo(id=r.user_id or 0, login="(unknown)"))
+        items.append(schemas.AdminBlacklistPhoneOut(
+            id=r.id,
+            phone=r.phone,
+            createdAt=r.created_at.strftime('%Y-%m-%d'),
+            user=user_info,
+        ))
+
+    return schemas.AdminBlacklistListOut(items=items, total=total)
+
+
+def admin_list_all_reports(
+    db: Session,
+    offset: int,
+    limit: int,
+    user_id_filter: int | None = None,
+) -> schemas.AdminReportListOut:
+    """
+    Список всех отчётов (для админа).
+    """
+    stmt = select(models.ReportExport)
+
+    if user_id_filter is not None:
+        stmt = stmt.where(models.ReportExport.user_id == user_id_filter)
+
+    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    rows = db.execute(stmt.order_by(models.ReportExport.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+
+    user_ids = set(r.user_id for r in rows if r.user_id)
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminReportOut] = []
+    for r in rows:
+        user_info = users_map.get(r.user_id, schemas.UserInfo(id=r.user_id or 0, login="(unknown)"))
+        items.append(schemas.AdminReportOut(
+            id=r.id,
+            createdAt=r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            fromDate=r.from_date,
+            toDate=r.to_date,
+            projectIds=r.project_ids,
+            format=r.format,
+            user=user_info,
+        ))
+
+    return schemas.AdminReportListOut(items=items, total=total)
+
+
+def get_all_users(db: Session) -> List[schemas.UserInfo]:
+    """Получить список всех пользователей."""
+    users = db.execute(select(models.User).order_by(models.User.id)).scalars().all()
+    return [schemas.UserInfo(id=u.id, login=u.login) for u in users]

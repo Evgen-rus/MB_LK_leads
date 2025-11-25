@@ -286,3 +286,144 @@ export async function sendSupportMessage(payload: { phone: string; text: string 
   });
 }
 
+
+// =====================================================
+// =================== ADMIN API ======================
+// =====================================================
+
+export type UserInfo = {
+  id: number;
+  login: string;
+};
+
+export type AdminProject = Project & {
+  user: UserInfo;
+};
+
+export type AdminProjectListResp = {
+  items: AdminProject[];
+  total: number;
+};
+
+export type AdminProjectUpdate = {
+  name: string;
+  tag: string;
+  status: 'Активен' | 'На паузе';
+  deliveryStatus: 'Активна' | 'На модерации' | 'Отключена';
+  dataLimit: number;
+  regionMode: 'include' | 'exclude';
+  regions: string[];
+  sites?: string[];
+  phones?: string[];
+  smsSenderName?: string;
+  days: Day[];
+};
+
+export async function fetchAdminUsers(): Promise<UserInfo[]> {
+  return http<UserInfo[]>('/admin/users');
+}
+
+export async function fetchAdminProjects(params?: {
+  offset?: number;
+  limit?: number;
+  q?: string;
+  userId?: number;
+}): Promise<AdminProjectListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.q) q.set('q', params.q);
+  if (params?.userId != null) q.set('userId', String(params.userId));
+  const qs = q.toString();
+  return http<AdminProjectListResp>(`/admin/projects${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchAdminProject(id: number): Promise<AdminProject> {
+  return http<AdminProject>(`/admin/projects/${id}`);
+}
+
+export async function updateAdminProject(id: number, payload: AdminProjectUpdate): Promise<AdminProject> {
+  return http<AdminProject>(`/admin/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminProject(id: number): Promise<void> {
+  await http(`/admin/projects/${id}`, { method: 'DELETE' });
+}
+
+// -------- Админские лиды --------
+export type AdminLead = Lead & {
+  user: UserInfo;
+};
+
+export type AdminLeadsListResp = {
+  items: AdminLead[];
+  total: number;
+};
+
+export async function fetchAdminLeads(params: {
+  fromDate: string;
+  toDate: string;
+  userId?: number;
+  offset?: number;
+  limit?: number;
+}): Promise<AdminLeadsListResp> {
+  const q = new URLSearchParams({
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+  if (params.userId != null) q.set('userId', String(params.userId));
+  if (params.offset != null) q.set('offset', String(params.offset));
+  if (params.limit != null) q.set('limit', String(params.limit));
+  return http<AdminLeadsListResp>(`/admin/leads?${q.toString()}`);
+}
+
+// -------- Админский черный список --------
+export type AdminBlacklistPhone = BlacklistPhone & {
+  user: UserInfo;
+};
+
+export type AdminBlacklistListResp = {
+  items: AdminBlacklistPhone[];
+  total: number;
+};
+
+export async function fetchAdminBlacklist(params?: {
+  offset?: number;
+  limit?: number;
+  q?: string;
+  userId?: number;
+}): Promise<AdminBlacklistListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.q) q.set('q', params.q);
+  if (params?.userId != null) q.set('userId', String(params.userId));
+  const qs = q.toString();
+  return http<AdminBlacklistListResp>(`/admin/blacklist${qs ? `?${qs}` : ''}`);
+}
+
+// -------- Админские отчёты --------
+export type AdminReportItem = ReportItem & {
+  user: UserInfo;
+};
+
+export type AdminReportsListResp = {
+  items: AdminReportItem[];
+  total: number;
+};
+
+export async function fetchAdminReports(params?: {
+  offset?: number;
+  limit?: number;
+  userId?: number;
+}): Promise<AdminReportsListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.userId != null) q.set('userId', String(params.userId));
+  const qs = q.toString();
+  return http<AdminReportsListResp>(`/admin/reports${qs ? `?${qs}` : ''}`);
+}

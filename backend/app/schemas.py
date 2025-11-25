@@ -76,6 +76,38 @@ class ProjectListOut(BaseModel):
     total: int
 
 
+# -------- Админские схемы (все клиенты) --------
+class UserInfo(BaseModel):
+    """Информация о владельце для админских ответов."""
+    id: int
+    login: str
+
+
+class AdminProjectOut(ProjectOut):
+    """Проект с информацией о владельце (для админа)."""
+    user: UserInfo
+
+
+class AdminProjectListOut(BaseModel):
+    items: List[AdminProjectOut]
+    total: int
+
+
+class AdminProjectUpdate(BaseModel):
+    """Обновление проекта админом (включая delivery_status)."""
+    name: str
+    tag: str
+    status: ProjectStatus
+    deliveryStatus: DeliveryStatus
+    dataLimit: int
+    regionMode: Optional[Literal['include','exclude']] = None
+    regions: List[str] = []
+    sites: Optional[List[str]] = None
+    phones: Optional[List[str]] = None
+    smsSenderName: Optional[str] = None
+    days: List[Day]
+
+
 class ClientErrorIn(BaseModel):
     message: str = Field(..., description="Сообщение ошибки")
     stack: Optional[str] = Field(None, description="Стек ошибки")
@@ -102,6 +134,24 @@ class LeadsListOut(BaseModel):
     total: int
 
 
+# -------- Админские схемы для лидов --------
+class AdminLeadOut(BaseModel):
+    ext_id: int
+    project_id: int
+    created_at: str
+    phone: str
+    utm_campaign: Optional[str] = None
+    user: UserInfo
+
+    class Config:
+        from_attributes = True
+
+
+class AdminLeadsListOut(BaseModel):
+    items: List[AdminLeadOut]
+    total: int
+
+
 # -------- Черный список --------
 class BlacklistPhoneOut(BaseModel):
     id: int
@@ -118,6 +168,22 @@ class BlacklistAddIn(BaseModel):
 
 class BlacklistListOut(BaseModel):
     items: List[BlacklistPhoneOut]
+    total: int
+
+
+# -------- Админские схемы для черного списка --------
+class AdminBlacklistPhoneOut(BaseModel):
+    id: int
+    phone: str
+    createdAt: str
+    user: UserInfo
+
+    class Config:
+        from_attributes = True
+
+
+class AdminBlacklistListOut(BaseModel):
+    items: List[AdminBlacklistPhoneOut]
     total: int
 
 
@@ -141,6 +207,22 @@ class ReportOut(BaseModel):
 
 class ReportListOut(BaseModel):
     items: List[ReportOut]
+    total: int
+
+
+# -------- Админские схемы для отчётов --------
+class AdminReportOut(BaseModel):
+    id: int
+    createdAt: str
+    fromDate: str
+    toDate: str
+    projectIds: Optional[str] = None
+    format: str
+    user: UserInfo
+
+
+class AdminReportListOut(BaseModel):
+    items: List[AdminReportOut]
     total: int
 
 

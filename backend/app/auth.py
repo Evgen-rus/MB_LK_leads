@@ -30,11 +30,15 @@ def verify_password(plain: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, expires_delta: Optional[timedelta] = None) -> str:
-    """Создаёт JWT с полем user_id и временем жизни (по умолчанию 24 часа)."""
+def create_access_token(user_id: int, is_admin: bool = False, expires_delta: Optional[timedelta] = None) -> str:
+    """Создаёт JWT с полями user_id, is_admin и временем жизни (по умолчанию 24 часа)."""
     secret = os.getenv("AUTH_SECRET", "dev-secret-change-me")
     ttl = int(expires_delta.total_seconds()) if expires_delta else 24 * 60 * 60
-    payload = {"user_id": int(user_id), "exp": int(time.time()) + ttl}
+    payload = {
+        "user_id": int(user_id),
+        "is_admin": is_admin,
+        "exp": int(time.time()) + ttl,
+    }
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -45,5 +49,14 @@ def decode_access_token(token: str) -> Optional[int]:
         data = jwt.decode(token, secret, algorithms=["HS256"])
         uid = int(data.get("user_id"))
         return uid
+    except Exception:
+        return None
+
+
+def decode_token_payload(token: str) -> Optional[dict]:
+    """Возвращает полный payload из JWT или None, если токен невалиден/просрочен."""
+    try:
+        secret = os.getenv("AUTH_SECRET", "dev-secret-change-me")
+        return jwt.decode(token, secret, algorithms=["HS256"])
     except Exception:
         return None
