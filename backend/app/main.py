@@ -229,6 +229,32 @@ def logout():
     return {"ok": True}
 
 
+@app.post("/support-message")
+def support_message(
+    payload: schemas.SupportMessageIn,
+    current_user: models.User = Depends(require_auth),
+):
+    """
+    Сообщение в поддержку из ЛК. Сейчас просто пересылаем текст в тот же Telegram-чат,
+    куда приходят уведомления об изменениях проектов.
+    """
+    bot_token = settings["TELEGRAM_BOT_TOKEN"]
+    chat_id = settings["TELEGRAM_CHAT_ID"]
+
+    # Форматируем сообщение для оператора
+    text = (
+        "<b>[ЛК | Сообщение от клиента]</b>\n"
+        f"Пользователь: <code>{current_user.login}</code> (id={current_user.id})\n"
+        f"Телефон: <code>{payload.phone}</code>\n\n"
+        f"{payload.text}"
+    )
+
+    ok = telegram.send_text(bot_token, chat_id, text)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Не удалось отправить сообщение в Telegram")
+    return {"ok": True}
+
+
 # ----------------------- Лиды -----------------------
 @app.get("/leads", response_model=schemas.LeadsListOut)
 def list_leads(

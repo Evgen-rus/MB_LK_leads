@@ -142,3 +142,9 @@ class ReportOut(BaseModel):
 class ReportListOut(BaseModel):
     items: List[ReportOut]
     total: int
+
+
+# -------- Поддержка (сообщение в Telegram) --------
+class SupportMessageIn(BaseModel):
+    phone: str
+    text: str

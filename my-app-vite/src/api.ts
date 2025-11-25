@@ -277,3 +277,12 @@ export async function deleteFromBlacklist(id: number): Promise<void> {
   await http(`/blacklist/${id}`, { method: 'DELETE' });
 }
 
+
+// -------- Поддержка / чат --------
+export async function sendSupportMessage(payload: { phone: string; text: string }): Promise<void> {
+  await http('/support-message', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
