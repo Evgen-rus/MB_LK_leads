@@ -70,6 +70,30 @@
 .btn--primary { background: #6a5cff; border-color: #6a5cff; color: #fff; }
 .btn--ghost { background: transparent; }
 
+/* CTA-кнопка поддержки (Интеграции) */
+.support-cta-btn {
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #7A6AFD 0%, #5F48F5 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(89, 86, 233, 0.25);
+  padding: 10px 32px;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+.support-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(89, 86, 233, 0.28);
+}
+.support-cta-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 3px 10px rgba(89, 86, 233, 0.20);
+}
+
 /* Модалка: базовые стили под аккуратный UI */
 .modal-card input[type="text"],
 .modal-card input[type="number"],

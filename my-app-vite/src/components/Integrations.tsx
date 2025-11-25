@@ -55,17 +55,8 @@ function Integrations() {
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8, marginBottom: 16 }}>
           <button
             type="button"
-            className="btn btn--primary"
+            className="support-cta-btn"
             onClick={openChat}
-            style={{
-              paddingInline: 32,
-              paddingBlock: 10,
-              fontSize: '0.95rem',
-              borderRadius: 999,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
           >
             <span role="img" aria-hidden="true" style={{ fontSize: '0.9rem' }}>💬</span>
             Написать в поддержку
