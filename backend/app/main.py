@@ -182,6 +182,25 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
     return updated
 
 
+@app.get("/projects/{project_id}/history", response_model=List[schemas.ProjectHistoryItem])
+def project_history(
+    project_id: int,
+    limit: int = 100,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    История изменений проекта.
+
+    Сейчас клиент видит только свои изменения: фильтрация по user_id происходит в crud.list_project_history.
+    """
+    # Сначала убеждаемся, что проект принадлежит пользователю (или доступен ему)
+    project = crud.get_project(db_sess, project_id, user_id=current_user.id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return crud.list_project_history(db_sess, project_id=project_id, user_id=current_user.id, limit=limit)
+
+
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)

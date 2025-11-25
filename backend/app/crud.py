@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Any
 import os
 
 from sqlalchemy import select, func, or_, and_, text, inspect
@@ -43,6 +43,95 @@ def _project_to_out(p: models.Project) -> schemas.ProjectOut:
         sourcesCount=p.sources_count,
         createdAt=p.created_at.isoformat()[:10],
     )
+
+
+def _diff_dict(before: dict, after: dict) -> Dict[str, Tuple[Any, Any]]:
+    """
+    Утилита для вычисления отличий между снепшотами проекта.
+    Возвращает словарь {поле: (старое значение, новое значение)}.
+    """
+    diff: Dict[str, Tuple[Any, Any]] = {}
+    keys = set(before.keys()) | set(after.keys())
+    for k in keys:
+        if before.get(k) != after.get(k):
+            diff[k] = (before.get(k), after.get(k))
+    return diff
+
+
+def _format_changes_compact(diff: Dict[str, Tuple[Any, Any]]) -> str:
+    """
+    Компактное человекочитаемое описание изменений для фронтенда.
+
+    Здесь мы не используем HTML/эмодзи, только короткие фразы:
+    - Лимит: 100 → 200
+    - Регионы: 10 → 12 (+2)
+    и т.п.
+    """
+    # Человекочитаемые заголовки полей
+    mapping = {
+        "dataLimit": "Лимит",
+        "daysReceived": "Дни",
+        "tag": "Тег",
+        "status": "Статус проекта",
+        "regionMode": "Режим регионов",
+        "regions": "Регионы",
+        "sites": "Сайты",
+        "phones": "Телефоны",
+        "smsSenderName": "СМС отправитель",
+        "name": "Название",
+        "collectionSource": "Источник данных",
+        "dataSourceCode": "Код источника",
+        "sourcesCount": "Источники",
+    }
+
+    def _human_region_mode(v: Any) -> str:
+        if v == "include":
+            return "включить"
+        if v == "exclude":
+            return "исключить"
+        if v is None:
+            return "все"
+        return str(v)
+
+    def _fmt_list_change(before_v: Any, after_v: Any, title: str) -> str:
+        before_list = before_v or []
+        after_list = after_v or []
+        try:
+            before_set = set(before_list)
+            after_set = set(after_list)
+        except Exception:
+            # fallback: только длины
+            return f"{title}: {len(before_list)} → {len(after_list)}"
+        added = len(after_set - before_set)
+        removed = len(before_set - after_set)
+        extra: List[str] = []
+        if added:
+            extra.append(f"+{added}")
+        if removed:
+            extra.append(f"-{removed}")
+        extra_str = f" ({', '.join(extra)})" if extra else ""
+        return f"{title}: {len(before_list)} → {len(after_list)}{extra_str}"
+
+    parts: List[str] = []
+    for key, (before_v, after_v) in diff.items():
+        title = mapping.get(key, key)
+        if key in ("regions", "sites", "phones"):
+            parts.append(_fmt_list_change(before_v, after_v, title))
+        elif key == "regionMode":
+            parts.append(
+                f"{title}: {_human_region_mode(before_v)} → {_human_region_mode(after_v)}"
+            )
+        else:
+            parts.append(f"{title}: {before_v} → {after_v}")
+
+    # Чтобы строка не разрасталась бесконечно, ограничим 3–4 полями.
+    if not parts:
+        return "Обновлены параметры проекта"
+    max_items = 4
+    main = "; ".join(parts[:max_items])
+    if len(parts) > max_items:
+        main += "; …"
+    return main
 
 
 def ensure_notify_state(db: Session, window_minutes: int) -> None:
@@ -90,6 +179,74 @@ def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None,
     rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
     items = [_project_to_out(p) for p in rows]
     return schemas.ProjectListOut(items=items, total=total)
+
+
+def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistoryItem:
+    """
+    Преобразует AuditEvent в компактный элемент истории для фронтенда.
+    Здесь мы формируем человекочитаемое краткое описание изменения.
+    """
+    created_at_str = ev.created_at.strftime('%Y-%m-%d %H:%M:%S')
+    action = ev.action or 'update'
+
+    # Краткое текстовое описание
+    desc: str
+    if action == 'create':
+        name = None
+        try:
+            if isinstance(ev.after, dict):
+                name = ev.after.get("name")
+        except Exception:
+            name = None
+        if name:
+            desc = f'Создан проект "{name}"'
+        else:
+            desc = "Создан проект"
+    elif action == 'update':
+        # Пытаемся построить детальное описание изменений.
+        before = ev.before or {}
+        after = ev.after or {}
+        if isinstance(before, dict) and isinstance(after, dict):
+            diff = _diff_dict(before, after)
+            desc = _format_changes_compact(diff)
+        else:
+            fields = ev.changed_fields or []
+            if isinstance(fields, list) and fields:
+                fields_str = ", ".join(str(f) for f in fields)
+                desc = f"Обновлены поля: {fields_str}"
+            else:
+                desc = "Обновлены параметры проекта"
+    elif action == 'delete':
+        desc = "Проект удалён"
+    else:
+        # На будущее: другие типы событий (например, blacklist_*).
+        desc = action
+
+    return schemas.ProjectHistoryItem(
+        id=ev.id,
+        action=action,  # type: ignore[arg-type]
+        createdAt=created_at_str,
+        description=desc,
+    )
+
+
+def list_project_history(db: Session, project_id: int, user_id: int, limit: int = 100) -> List[schemas.ProjectHistoryItem]:
+    """
+    Возвращает историю изменений конкретного проекта для текущего пользователя.
+
+    Важно: клиент видит только свои изменения, поэтому фильтруем по user_id.
+    """
+    limit = max(1, min(500, limit))
+    stmt = (
+        select(models.AuditEvent)
+        .where(models.AuditEvent.project_id == project_id)
+        .where(models.AuditEvent.user_id == user_id)
+        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+        .order_by(models.AuditEvent.created_at.desc())
+        .limit(limit)
+    )
+    rows = db.execute(stmt).scalars().all()
+    return [_audit_event_to_history_item(ev) for ev in rows]
 
 def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)

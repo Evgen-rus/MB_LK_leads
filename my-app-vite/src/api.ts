@@ -194,6 +194,22 @@ export async function fetchLeads(params: { projectIds?: number[]; fromDate: stri
   return http<LeadsListResp>(`/leads?${q.toString()}`);
 }
 
+
+// -------- История изменений проектов --------
+export type ProjectHistoryItem = {
+  id: number;
+  action: 'create' | 'update' | 'delete';
+  createdAt: string;      // 'YYYY-MM-DD HH:MM:SS'
+  description: string;    // краткое текстовое описание изменения
+};
+
+export async function fetchProjectHistory(projectId: number, limit: number = 100): Promise<ProjectHistoryItem[]> {
+  const q = new URLSearchParams();
+  if (limit) q.set('limit', String(limit));
+  const qs = q.toString();
+  return http<ProjectHistoryItem[]>(`/projects/${projectId}/history${qs ? `?${qs}` : ''}`);
+}
+
 export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; }): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));

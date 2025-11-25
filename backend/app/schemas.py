@@ -119,3 +119,11 @@ class BlacklistAddIn(BaseModel):
 class BlacklistListOut(BaseModel):
     items: List[BlacklistPhoneOut]
     total: int
+
+
+# -------- История изменений проектов --------
+class ProjectHistoryItem(BaseModel):
+    id: int
+    action: Literal['create', 'update', 'delete']
+    createdAt: str
+    description: str

@@ -7,9 +7,10 @@ type ProjectsTableProps = {
   onDelete?: (ids: number[]) => void;
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
+  onHistory?: (row: Project) => void;
 };
 
-function ProjectsTable({ onDelete, onEdit, onCreate }: ProjectsTableProps) {
+function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
@@ -177,6 +178,14 @@ function ProjectsTable({ onDelete, onEdit, onCreate }: ProjectsTableProps) {
               <td>{row.sourcesCount}</td>
               <td className="muted">{row.createdAt}</td>
               <td>
+                <button
+                  className="icon-btn"
+                  title="История изменений"
+                  onClick={() => onHistory?.(row)}
+                  style={{ marginRight: 4 }}
+                >
+                  📜
+                </button>
                 <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
                 <button
                   className="icon-btn"

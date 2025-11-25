@@ -8,6 +8,7 @@ import Blacklist from './components/Blacklist';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
+import ProjectHistoryModal from './components/ProjectHistoryModal';
 import type { Project } from './types/project';
 import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete, logout as apiLogout } from './api';
 import Login from './components/Login';
@@ -17,6 +18,7 @@ function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
+  const [historyFor, setHistoryFor] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [view, setView] = useState<'projects'|'leads'|'integrations'|'blacklist'>('projects');
@@ -123,6 +125,7 @@ function App() {
               })();
             }}
             onEdit={(row) => setEditing(row)}
+            onHistory={(row) => setHistoryFor(row)}
           />
           ) : view === 'leads' ? (
             <LeadsTable projects={rows} />
@@ -164,6 +167,13 @@ function App() {
               }
             })();
           }}
+        />
+      )}
+      {historyFor && (
+        <ProjectHistoryModal
+          projectId={historyFor.id}
+          projectName={historyFor.name}
+          onClose={() => setHistoryFor(null)}
         />
       )}
     </div>
