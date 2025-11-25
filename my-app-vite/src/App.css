@@ -68,6 +68,7 @@
 /* Кнопки */
 .btn { border: 1px solid #dcdce6; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .btn--primary { background: #6a5cff; border-color: #6a5cff; color: #fff; }
+.btn--secondary { background: #ffffff; border-color: #6a5cff; color: #6a5cff; }
 .btn--ghost { background: transparent; }
 
 /* CTA-кнопка поддержки (Интеграции) */
