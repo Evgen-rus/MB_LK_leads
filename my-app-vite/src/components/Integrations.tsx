@@ -32,14 +32,109 @@ function Integrations() {
     }
   }
 
+  function openChat() {
+    setChatOpen(true);
+    setFormOpen(true);
+    setSuccess(null);
+    setError(null);
+  }
+
   return (
     <>
-      <div className="card" style={{ padding: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Интеграции</h3>
-        <p style={{ margin: 0, lineHeight: 1.6 }}>
-          Для подключения интеграций с CRM (amoCRM и др.) обратитесь в поддержку.
-          Мы подскажем оптимальную схему и поможем с настройкой.
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8 }}>Интеграции</h3>
+        <p style={{ marginTop: 0, marginBottom: 12, lineHeight: 1.6 }}>
+          Подключим amoCRM, Bitrix24 или другую CRM за вас. Никаких сложных настроек — просто напишите нам.
         </p>
+        <ol style={{ margin: '0 0 16px 18px', padding: 0, fontSize: '0.9rem', lineHeight: 1.5 }}>
+          <li>Нажмите на кнопку ниже.</li>
+          <li>Напишите, какую CRM хотите подключить и оставьте контакт.</li>
+          <li>Мы настроим интеграцию и пришлём результат.</li>
+        </ol>
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8, marginBottom: 16 }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={openChat}
+            style={{
+              paddingInline: 32,
+              paddingBlock: 10,
+              fontSize: '0.95rem',
+              borderRadius: 999,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <span role="img" aria-hidden="true">💬</span>
+            Написать в поддержку
+          </button>
+        </div>
+
+        <div style={{ fontSize: '0.85rem', color: '#555', marginBottom: 8 }}>Или выберите нужную CRM:</div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            gap: 12,
+          }}
+        >
+          <button
+            type="button"
+            onClick={openChat}
+            style={{
+              border: '1px solid #e0e0f0',
+              borderRadius: 12,
+              padding: 12,
+              textAlign: 'left',
+              cursor: 'pointer',
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>🔌 amoCRM</div>
+            <div style={{ fontSize: '0.85rem', color: '#555' }}>
+              Напишите нам — создадим ключи и поможем с подключением.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={openChat}
+            style={{
+              border: '1px solid #e0e0f0',
+              borderRadius: 12,
+              padding: 12,
+              textAlign: 'left',
+              cursor: 'pointer',
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>🔗 Bitrix24</div>
+            <div style={{ fontSize: '0.85rem', color: '#555' }}>
+              Подскажем, как правильно настроить webhook, каналы и статусы.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={openChat}
+            style={{
+              border: '1px solid #e0e0f0',
+              borderRadius: 12,
+              padding: 12,
+              textAlign: 'left',
+              cursor: 'pointer',
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>⚙️ Другая CRM</div>
+            <div style={{ fontSize: '0.85rem', color: '#555' }}>
+              Работаем с разными системами — подберём удобный способ интеграции.
+            </div>
+          </button>
+        </div>
+
         {success && (
           <p style={{ marginTop: 16, fontSize: '0.9rem', color: '#2e7d32' }}>{success}</p>
         )}
