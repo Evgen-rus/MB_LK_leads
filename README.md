@@ -40,6 +40,52 @@ npm run dev
 - **Фронтенд:** http://localhost:5173/
 - **Бэкенд API:** http://localhost:8000/
 
+
+## Правила портов в Linux/Windows:
+
+**Диапазон портов**: 0–65535 (всего 65536 портов)
+
+**Привилегированные порты (0–1023)**:
+- Требуют прав root/admin (sudo)
+- Примеры: 80 (HTTP), 443 (HTTPS), 22 (SSH), 21 (FTP)
+- Без root uvicorn выдаст ошибку: `Permission denied`
+
+**Пользовательские порты (1024–65535)**:
+- Можно использовать без root
+- Рекомендуется для разработки: 8000+, 3000+, 5000+
+- Ваши примеры (8001, 7999) — нормально
+
+## Примеры использования:
+
+```bash
+# Хорошо (пользовательские порты)
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8001
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 7999
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 3000
+
+# Плохо (привилегированные, нужен root)
+sudo uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 80
+
+# Может быть занято (проверьте)
+uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8080  # Часто занят
+```
+
+## Практические советы:
+
+1. **Проверьте занятость порта** перед запуском:
+   ```bash
+   netstat -tlnp | grep :8001  # Linux
+   netstat -ano | findstr :8001  # Windows
+   ```
+
+2. **Если порт занят** — uvicorn покажет ошибку `[Errno 98] Address already in use`
+
+3. **Для разработки**: используйте 8000–8999, это стандартно
+
+4. **Для продакшена**: обычно 80/443 (через nginx прокси) или 8000–9999
+
+
+
 ## 📋 Детальная настройка
 
 ### Node.js установка/обновление

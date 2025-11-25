@@ -5,7 +5,6 @@ import ProjectsTable from './components/ProjectsTable';
 import LeadsTable from './components/LeadsTable';
 import Integrations from './components/Integrations';
 import Blacklist from './components/Blacklist';
-import ChatWidget from './components/ChatWidget';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -134,7 +133,6 @@ function App() {
           )}
         </main>
       </div>
-      <ChatWidget />
       {isCreateOpen && (
         <CreateProjectModal
           onClose={() => setIsCreateOpen(false)}
