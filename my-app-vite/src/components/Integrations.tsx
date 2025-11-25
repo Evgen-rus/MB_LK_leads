@@ -42,9 +42,9 @@ function Integrations() {
   return (
     <>
       <div className="card" style={{ padding: 24 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 8 }}>Интеграции</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 4 }}>Интеграции</h3>
         <p style={{ marginTop: 0, marginBottom: 12, lineHeight: 1.6 }}>
-          Подключим amoCRM, Bitrix24 или другую CRM за вас. Никаких сложных настроек — просто напишите нам.
+          Подключим amoCRM, Bitrix24 или другую CRM за вас. Никаких сложных настроек - просто напишите нам.
         </p>
         <ol style={{ margin: '0 0 16px 18px', padding: 0, fontSize: '0.9rem', lineHeight: 1.5 }}>
           <li>Нажмите на кнопку ниже.</li>
@@ -67,7 +67,7 @@ function Integrations() {
               gap: 8,
             }}
           >
-            <span role="img" aria-hidden="true">💬</span>
+            <span role="img" aria-hidden="true" style={{ fontSize: '0.9rem' }}>💬</span>
             Написать в поддержку
           </button>
         </div>
@@ -90,11 +90,22 @@ function Integrations() {
               textAlign: 'left',
               cursor: 'pointer',
               background: '#fafbff',
+              transition: 'background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#f0f2ff';
+              e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#fafbff';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'none';
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>🔌 amoCRM</div>
             <div style={{ fontSize: '0.85rem', color: '#555' }}>
-              Напишите нам — создадим ключи и поможем с подключением.
+              Напишите нам - создадим ключи и поможем с подключением.
             </div>
           </button>
 
@@ -108,6 +119,17 @@ function Integrations() {
               textAlign: 'left',
               cursor: 'pointer',
               background: '#fafbff',
+              transition: 'background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#f0f2ff';
+              e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#fafbff';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'none';
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>🔗 Bitrix24</div>
@@ -126,11 +148,22 @@ function Integrations() {
               textAlign: 'left',
               cursor: 'pointer',
               background: '#fafbff',
+              transition: 'background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#f0f2ff';
+              e.currentTarget.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#fafbff';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.transform = 'none';
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>⚙️ Другая CRM</div>
             <div style={{ fontSize: '0.85rem', color: '#555' }}>
-              Работаем с разными системами — подберём удобный способ интеграции.
+              Работаем с разными системами - подберём удобный способ интеграции.
             </div>
           </button>
         </div>
