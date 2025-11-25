@@ -108,3 +108,24 @@ class BlacklistPhone(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     phone = Column(String, nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ReportExport(Base):
+    """
+    Лог экспортов отчётов (лидов) пользователем.
+
+    Мы НЕ храним файлы, только параметры запроса:
+    - период (from_date, to_date)
+    - список проектов (project_ids в виде строки "1,2,3")
+    - формат (csv/xlsx)
+    """
+    __tablename__ = "report_exports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    from_date = Column(String, nullable=False)  # YYYY-MM-DD
+    to_date = Column(String, nullable=False)    # YYYY-MM-DD
+    project_ids = Column(String, nullable=True)  # "1,2,3" или NULL (все проекты)
+    format = Column(String, nullable=False, default="csv")

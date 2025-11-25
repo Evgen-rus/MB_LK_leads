@@ -291,7 +291,8 @@ def export_leads(
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     format: Optional[str] = "csv",  # csv | xlsx
-    _: str = Depends(require_auth),
+    source: Optional[str] = "leads",
+    current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
     # Границы дат локальные (MSK)
@@ -318,6 +319,23 @@ def export_leads(
                 proj_ids = None
         except Exception:
             proj_ids = None
+
+    # Логируем экспорт отчёта (для вкладки "Отчёты").
+    # Повторные скачивания из раздела "Отчёты" помечаем source=reports и не логируем,
+    # чтобы не плодить дубли.
+    if (source or "leads") != "reports":
+        try:
+            crud.log_report_export(
+                db_sess,
+                user_id=current_user.id,
+                from_date=fromDate,
+                to_date=toDate,
+                project_ids=proj_ids,
+                fmt=(format or "csv"),
+            )
+        except Exception:
+            # Не блокируем выгрузку, если логирование по какой-то причине не удалось
+            logging.getLogger("app").exception("Failed to log report export")
 
     max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
     rows = crud.fetch_leads_for_export(db_sess, project_ids=proj_ids, start_local=start_local, end_local=end_local, max_rows=max_rows)
@@ -349,6 +367,21 @@ def export_leads(
         data = bio.getvalue()
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+
+
+@app.get("/reports", response_model=schemas.ReportListOut)
+def list_reports(
+    offset: int = 0,
+    limit: int = 50,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Вкладка «Отчёты»: история всех экспортов отчётов текущего пользователя.
+    """
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_reports_paginated(db_sess, user_id=current_user.id, offset=offset, limit=limit)
 
 
 # ----------------------- Черный список -----------------------

@@ -451,6 +451,71 @@ def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_lo
     return schemas.LeadsListOut(items=items, total=total)
 
 
+# -------- Отчёты (экспорт) --------
+def log_report_export(
+    db: Session,
+    user_id: int,
+    from_date: str,
+    to_date: str,
+    project_ids: Optional[List[int]],
+    fmt: str,
+) -> None:
+    """
+    Фиксирует факт экспорта отчёта.
+
+    Храним только параметры запроса, сам файл не сохраняем.
+    """
+    proj_str = ",".join(str(pid) for pid in project_ids) if project_ids else None
+    row = models.ReportExport(
+        user_id=user_id,
+        from_date=from_date,
+        to_date=to_date,
+        project_ids=proj_str,
+        format=fmt or "csv",
+    )
+    db.add(row)
+    db.commit()
+
+
+def list_reports_paginated(
+    db: Session,
+    user_id: int,
+    offset: int,
+    limit: int,
+) -> schemas.ReportListOut:
+    """
+    Возвращает историю экспортов отчётов конкретного пользователя.
+    """
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+
+    base = select(models.ReportExport).where(models.ReportExport.user_id == user_id)
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.ReportExport.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    items: List[schemas.ReportOut] = []
+    for r in rows:
+        items.append(
+            schemas.ReportOut(
+                id=r.id,
+                createdAt=r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                fromDate=r.from_date,
+                toDate=r.to_date,
+                projectIds=r.project_ids,
+                format=r.format,
+            )
+        )
+    return schemas.ReportListOut(items=items, total=total)
+
+
 # -------- Черный список --------
 def list_blacklist(db: Session, user_id: int) -> List[schemas.BlacklistPhoneOut]:
     rows = db.execute(select(models.BlacklistPhone).order_by(models.BlacklistPhone.id.desc())).scalars().all()

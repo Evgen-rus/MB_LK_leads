@@ -127,3 +127,18 @@ class ProjectHistoryItem(BaseModel):
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
+
+
+# -------- Отчёты (история экспортов) --------
+class ReportOut(BaseModel):
+    id: int
+    createdAt: str
+    fromDate: str
+    toDate: str
+    projectIds: Optional[str] = None
+    format: str
+
+
+class ReportListOut(BaseModel):
+    items: List[ReportOut]
+    total: int

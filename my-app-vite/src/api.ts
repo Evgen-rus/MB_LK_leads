@@ -210,9 +210,34 @@ export async function fetchProjectHistory(projectId: number, limit: number = 100
   return http<ProjectHistoryItem[]>(`/projects/${projectId}/history${qs ? `?${qs}` : ''}`);
 }
 
-export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; }): string {
+
+// -------- Отчёты (экспорт) --------
+export type ReportItem = {
+  id: number;
+  createdAt: string;
+  fromDate: string;
+  toDate: string;
+  projectIds?: string | null;
+  format: string;
+};
+
+export type ReportsListResp = {
+  items: ReportItem[];
+  total: number;
+};
+
+export async function fetchReports(params?: { offset?: number; limit?: number }): Promise<ReportsListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const qs = q.toString();
+  return http<ReportsListResp>(`/reports${qs ? `?${qs}` : ''}`);
+}
+
+export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; source?: 'leads' | 'reports'; }): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
+  if (params.source) q.set('source', params.source);
   // Добавляем токен авторизации в параметры запроса для экспорта
   const token = localStorage.getItem('access_token');
   if (token) q.set('token', token);
