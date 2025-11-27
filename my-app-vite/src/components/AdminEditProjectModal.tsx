@@ -2,7 +2,7 @@
 // Включает возможность изменять deliveryStatus
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { regions as allRegions } from '../data/regions';
-import type { ProjectStatus, DeliveryStatus, CollectionSource } from '../types/project';
+import type { ProjectStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
@@ -19,7 +19,6 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
   const [name, setName] = useState(project.name);
   const [tag, setTag] = useState(project.tag);
   const [status, setStatus] = useState<ProjectStatus>(project.status);
-  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>(project.deliveryStatus);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
@@ -96,7 +95,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
       name: name.trim(),
       tag: (tag.trim() || name.trim()),
       status,
-      deliveryStatus,
+      // Статус отгрузки больше не редактируем в модалке — отправляем текущее значение
+      deliveryStatus: project.deliveryStatus,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
       regions,
@@ -219,34 +219,13 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className="section-title">Статус проекта</span>
-                <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
-                  <option value="Активен">Активен</option>
-                  <option value="На паузе">На паузе</option>
-                </select>
-              </label>
-
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className="section-title">Статус отгрузки</span>
-                <select
-                  value={deliveryStatus}
-                  onChange={(e) => setDeliveryStatus(e.target.value as DeliveryStatus)}
-                  className={`delivery-select ${
-                    deliveryStatus === 'Активна'
-                      ? 'delivery-select--green'
-                      : deliveryStatus === 'На модерации'
-                      ? 'delivery-select--orange'
-                      : 'delivery-select--gray'
-                  }`}
-                >
-                  <option value="Активна">Активна</option>
-                  <option value="На модерации">На модерации</option>
-                  <option value="Отключена">Отключена</option>
-                </select>
-              </label>
-            </div>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">Статус проекта</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+                <option value="Активен">Активен</option>
+                <option value="На паузе">На паузе</option>
+              </select>
+            </label>
 
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title" title="Сбор данных не осуществляется в те дни, которые не отмечены галочкой">Дни получения номеров</span>

@@ -1,6 +1,6 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState } from 'react';
-import type { Project, DeliveryStatus, CollectionSource } from '../types/project';
+import type { Project, CollectionSource } from '../types/project';
 import { fetchProjects, deleteProject as apiDelete } from '../api';
 
 type ProjectsTableProps = {
@@ -15,7 +15,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [deliveryStatus, setDeliveryStatus] = useState<'Все' | DeliveryStatus>('Все');
   const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -41,14 +40,13 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesStatus = status === 'Все' ? true : row.status === status;
-      const matchesDelivery = deliveryStatus === 'Все' ? true : row.deliveryStatus === deliveryStatus;
       const matchesType = typeFilter === 'Все' ? true : row.collectionSource === typeFilter;
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit);
-      return matchesStatus && matchesDelivery && matchesType && matchesQuery;
+      return matchesStatus && matchesType && matchesQuery;
     });
-  }, [rows, search, status, deliveryStatus, typeFilter]);
+  }, [rows, search, status, typeFilter]);
 
   const availableTypes = useMemo<CollectionSource[]>(() => {
     const set = new Set<CollectionSource>();
@@ -86,12 +84,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value); }}}
           />
-          <select value={deliveryStatus} onChange={(e) => setDeliveryStatus(e.target.value as 'Все' | DeliveryStatus)}>
-            <option value="Все">Все статусы отгрузки</option>
-            <option value="Активна">Активна</option>
-            <option value="На модерации">На модерации</option>
-            <option value="Отключена">Отключена</option>
-          </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
             <option value="Все">Все статусы проекта</option>
             <option value="Активен">Активен</option>
@@ -119,9 +111,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                 onChange={toggleAllOnPage}
               />
             </th>
-            <th>ID</th>
-            <th>Статус отгрузки</th>
-            <th>Тег</th>
             <th>Название</th>
             <th>Статус проекта</th>
             <th>Источник сбора</th>
@@ -144,24 +133,9 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                   onChange={() => toggleRow(row.id)}
                 />
               </td>
-              <td className="muted">{row.id}</td>
-              <td>
-                <span
-                  className={
-                    row.deliveryStatus === 'Активна'
-                      ? 'badge badge--green'
-                      : row.deliveryStatus === 'На модерации'
-                      ? 'badge badge--orange'
-                      : 'badge badge--gray'
-                  }
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {row.deliveryStatus}
-                </span>
-              </td>
-              <td className="muted">{row.tag}</td>
               <td>
                 <div className="name">{row.name}</div>
+                <div className="sub muted">ID: {row.id}</div>
               </td>
               <td>
                 <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
