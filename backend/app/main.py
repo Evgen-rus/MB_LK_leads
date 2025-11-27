@@ -105,6 +105,7 @@ def startup_event():
         crud.ensure_projects_user_id_column(s)
         crud.ensure_audit_user_id_column(s)
         crud.ensure_blacklist_user_id_column(s)
+        crud.ensure_audit_admin_columns(s)
 
     # Start background notifier thread
     worker = threading.Thread(
@@ -605,3 +606,42 @@ def admin_list_reports(
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=userId)
+
+
+@app.get("/admin/changes/summary", response_model=schemas.AdminClientChangesSummaryListOut)
+def admin_changes_summary(
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Краткая сводка по количеству необработанных изменений по клиентам.
+    """
+    items = crud.admin_list_client_changes_summary(db_sess)
+    return schemas.AdminClientChangesSummaryListOut(items=items)
+
+
+@app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)
+def admin_client_changes(
+    client_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Подробный список необработанных изменений конкретного клиента.
+    """
+    return crud.admin_list_client_changes(db_sess, client_id=client_id)
+
+
+@app.post("/admin/changes/{event_id}/resolve")
+def admin_resolve_change(
+    event_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Помечает одно событие аудита как обработанное админом.
+    """
+    ok = crud.admin_mark_change_processed(db_sess, event_id=event_id, admin_user_id=current_admin.id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Change not found")
+    return {"ok": True}

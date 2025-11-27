@@ -195,6 +195,29 @@ class ProjectHistoryItem(BaseModel):
     description: str
 
 
+# -------- Админ: изменения клиентов --------
+class AdminChangeOut(BaseModel):
+    id: int
+    projectId: Optional[int] = None
+    projectName: Optional[str] = None
+    createdAt: str
+    description: str
+
+
+class AdminClientChangesOut(BaseModel):
+    user: UserInfo
+    items: List[AdminChangeOut]
+
+
+class AdminClientChangesSummaryItem(BaseModel):
+    user: UserInfo
+    pendingChanges: int
+
+
+class AdminClientChangesSummaryListOut(BaseModel):
+    items: List[AdminClientChangesSummaryItem]
+
+
 # -------- Отчёты (история экспортов) --------
 class ReportOut(BaseModel):
     id: int

@@ -4,10 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminUsers,
   fetchAdminProjects,
+  fetchAdminChangesSummary,
   type UserInfo,
   type AdminProject,
+  type AdminClientChangesSummaryListOut,
 } from '../api';
 import AdminClientProjects from './AdminClientProjects';
+import AdminClientChanges from './AdminClientChanges';
 
 type ClientStatus =
   | 'Активен'
@@ -24,6 +27,7 @@ type ClientRow = {
   status: ClientStatus;
   remaining: number;
   totalVolume: number;
+  pendingChanges: number;
 };
 
 const STATUS_COLORS: Record<ClientStatus, string> = {
@@ -78,6 +82,7 @@ function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow
       status,
       remaining,
       totalVolume: totalUsed,
+      pendingChanges: 0,
     };
   });
 }
@@ -91,17 +96,27 @@ function AdminClientsScreen() {
   const [pageSize, setPageSize] = useState(25);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [showProjectsForClientId, setShowProjectsForClientId] = useState<number | null>(null);
+  const [showChangesForClientId, setShowChangesForClientId] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const [users, projectsResp] = await Promise.all([
+        const [users, projectsResp, changesSummary] = await Promise.all([
           fetchAdminUsers(),
           fetchAdminProjects({ offset: 0, limit: 10000 }),
+          fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
         ]);
-        const rows = buildClientRows(users, projectsResp.items);
+        const rowsBase = buildClientRows(users, projectsResp.items);
+        const pendingMap: Record<number, number> = {};
+        changesSummary.items.forEach((i) => {
+          pendingMap[i.user.id] = i.pendingChanges;
+        });
+        const rows = rowsBase.map((r) => ({
+          ...r,
+          pendingChanges: pendingMap[r.id] ?? 0,
+        }));
         setClients(rows);
       } catch (e: any) {
         console.error(e);
@@ -203,11 +218,22 @@ function AdminClientsScreen() {
                     onClick={() => {
                       setSelectedClient(row);
                       setShowProjectsForClientId(null);
+                      setShowChangesForClientId(null);
                     }}
                   >
                     <td className="muted">{row.id}</td>
                     <td>
                       <div className="name">{row.name}</div>
+                      {row.pendingChanges > 0 && (
+                        <div className="sub" style={{ marginTop: 2 }}>
+                          <span
+                            className="badge badge--orange"
+                            style={{ fontWeight: 500 }}
+                          >
+                            Изменения: {row.pendingChanges}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td>{row.projectCount}</td>
                     <td>
@@ -241,6 +267,7 @@ function AdminClientsScreen() {
                           e.stopPropagation();
                           setSelectedClient(row);
                           setShowProjectsForClientId(null);
+                          setShowChangesForClientId(null);
                         }}
                       >
                         Открыть
@@ -313,8 +340,21 @@ function AdminClientsScreen() {
               <div className="sub">
                 {selectedClient.name} (id: {selectedClient.id})
               </div>
+              {selectedClient.pendingChanges > 0 && (
+                <div className="sub" style={{ marginTop: 4 }}>
+                  Необработанных изменений: {selectedClient.pendingChanges}
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => setShowChangesForClientId(selectedClient.id)}
+              >
+                Изменения клиента
+                {selectedClient.pendingChanges > 0 ? ` (${selectedClient.pendingChanges})` : ''}
+              </button>
               <button
                 type="button"
                 className="btn btn--secondary"
@@ -328,6 +368,7 @@ function AdminClientsScreen() {
                 onClick={() => {
                   setSelectedClient(null);
                   setShowProjectsForClientId(null);
+                  setShowChangesForClientId(null);
                 }}
               >
                 ← К списку клиентов
@@ -407,6 +448,27 @@ function AdminClientsScreen() {
 
       {selectedClient && showProjectsForClientId === selectedClient.id && (
         <AdminClientProjects clientId={selectedClient.id} clientName={selectedClient.name} />
+      )}
+
+      {selectedClient && showChangesForClientId === selectedClient.id && (
+        <AdminClientChanges
+          clientId={selectedClient.id}
+          clientName={selectedClient.name}
+          onResolvedChange={() => {
+            setClients((prev) =>
+              prev.map((c) =>
+                c.id === selectedClient.id
+                  ? { ...c, pendingChanges: Math.max(0, (c.pendingChanges ?? 0) - 1) }
+                  : c,
+              ),
+            );
+            setSelectedClient((prev) =>
+              prev
+                ? { ...prev, pendingChanges: Math.max(0, (prev.pendingChanges ?? 0) - 1) }
+                : prev,
+            );
+          }}
+        />
       )}
     </div>
   );

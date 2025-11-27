@@ -658,6 +658,119 @@ def ensure_audit_user_id_column(db: Session) -> None:
         db.commit()
 
 
+def ensure_audit_admin_columns(db: Session) -> None:
+    """
+    Добавляем служебные поля для отметки обработки изменений админом:
+    - admin_processed_at: когда админ обработал событие
+    - admin_processed_by: id админа, который обработал
+
+    Реализовано через простой ALTER TABLE для SQLite.
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("audit_events")]
+    changed = False
+    if "admin_processed_at" not in cols:
+        db.execute(text("ALTER TABLE audit_events ADD COLUMN admin_processed_at DATETIME"))
+        changed = True
+    if "admin_processed_by" not in cols:
+        db.execute(text("ALTER TABLE audit_events ADD COLUMN admin_processed_by INTEGER"))
+        changed = True
+    if changed:
+        db.commit()
+
+
+def admin_list_client_changes_summary(db: Session) -> List[schemas.AdminClientChangesSummaryItem]:
+    """
+    Краткая сводка по необработанным изменениям по клиентам.
+
+    Считаем только события, созданные НЕ админом (user_id != 1),
+    с action в ['create','update','delete'] и admin_processed_at IS NULL.
+    """
+    # Собираем пары (user_id, login, count)
+    rows = db.execute(
+        select(
+            models.User.id,
+            models.User.login,
+            func.count(models.AuditEvent.id),
+        )
+        .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+        .where(models.User.id != 1)
+        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+        .where(models.AuditEvent.admin_processed_at.is_(None))
+        .group_by(models.User.id, models.User.login)
+    ).all()
+
+    items: List[schemas.AdminClientChangesSummaryItem] = []
+    for uid, login, cnt in rows:
+        user_info = schemas.UserInfo(id=int(uid), login=login)
+        items.append(
+            schemas.AdminClientChangesSummaryItem(
+                user=user_info,
+                pendingChanges=int(cnt or 0),
+            )
+        )
+    return items
+
+
+def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClientChangesOut:
+    """
+    Подробный список необработанных изменений конкретного клиента (по всем его проектам).
+    """
+    user = db.get(models.User, client_id)
+    if not user:
+        # Возвращаем пустой список, чтобы фронт мог просто показать "нет изменений"
+        return schemas.AdminClientChangesOut(
+            user=schemas.UserInfo(id=client_id, login="(unknown)"),
+            items=[],
+        )
+
+    # Берём только "проектные" события клиента, которые ещё не обработаны админом
+    rows = db.execute(
+        select(models.AuditEvent, models.Project.name)
+        .outerjoin(models.Project, models.Project.id == models.AuditEvent.project_id)
+        .where(models.AuditEvent.user_id == client_id)
+        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+        .where(models.AuditEvent.admin_processed_at.is_(None))
+        .order_by(models.AuditEvent.created_at.desc())
+    ).all()
+
+    items: List[schemas.AdminChangeOut] = []
+    for ev, proj_name in rows:
+        # Используем уже существующую утилиту для человекочитаемого описания
+        hist_item = _audit_event_to_history_item(ev)
+        items.append(
+            schemas.AdminChangeOut(
+                id=ev.id,
+                projectId=ev.project_id,
+                projectName=proj_name,
+                createdAt=hist_item.createdAt,
+                description=hist_item.description,
+            )
+        )
+
+    return schemas.AdminClientChangesOut(
+        user=schemas.UserInfo(id=user.id, login=user.login),
+        items=items,
+    )
+
+
+def admin_mark_change_processed(db: Session, event_id: int, admin_user_id: int) -> bool:
+    """
+    Помечает событие аудита как обработанное админом.
+    """
+    ev = db.get(models.AuditEvent, event_id)
+    if not ev:
+        return False
+    if ev.admin_processed_at is not None:
+        # Уже обработано — считаем успехом
+        return True
+    ev.admin_processed_at = datetime.utcnow()
+    ev.admin_processed_by = admin_user_id
+    db.commit()
+    return True
+
+
 def ensure_blacklist_user_id_column(db: Session) -> None:
     engine = db.get_bind()
     insp = inspect(engine)

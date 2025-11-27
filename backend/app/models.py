@@ -62,6 +62,9 @@ class AuditEvent(Base):
     changed_fields = Column(JSON, nullable=True)  # list[str]
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     sent = Column(Boolean, default=False, nullable=False)
+    # Поля для админской отметки обработки изменений (review)
+    admin_processed_at = Column(DateTime, nullable=True)
+    admin_processed_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
 
 class NotifyState(Base):

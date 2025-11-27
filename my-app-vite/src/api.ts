@@ -427,3 +427,38 @@ export async function fetchAdminReports(params?: {
   const qs = q.toString();
   return http<AdminReportsListResp>(`/admin/reports${qs ? `?${qs}` : ''}`);
 }
+
+// -------- Админские изменения клиентов --------
+export type AdminChange = {
+  id: number;
+  projectId?: number | null;
+  projectName?: string | null;
+  createdAt: string;
+  description: string;
+};
+
+export type AdminClientChangesOut = {
+  user: UserInfo;
+  items: AdminChange[];
+};
+
+export type AdminClientChangesSummaryItem = {
+  user: UserInfo;
+  pendingChanges: number;
+};
+
+export type AdminClientChangesSummaryListOut = {
+  items: AdminClientChangesSummaryItem[];
+};
+
+export async function fetchAdminChangesSummary(): Promise<AdminClientChangesSummaryListOut> {
+  return http<AdminClientChangesSummaryListOut>('/admin/changes/summary');
+}
+
+export async function fetchAdminClientChanges(clientId: number): Promise<AdminClientChangesOut> {
+  return http<AdminClientChangesOut>(`/admin/changes/${clientId}`);
+}
+
+export async function resolveAdminChange(changeId: number): Promise<void> {
+  await http(`/admin/changes/${changeId}/resolve`, { method: 'POST' });
+}
