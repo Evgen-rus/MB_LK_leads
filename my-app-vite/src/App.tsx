@@ -9,7 +9,7 @@ import Blacklist from './components/Blacklist';
 import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
 import AdminReports from './components/AdminReports';
-import AdminClientsTable from './components/AdminClientsTable';
+import AdminClientsScreen from './components/AdminClientsScreen';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -130,7 +130,7 @@ function App() {
           </div>
           </div>
           {view === 'admin-clients' && isAdmin ? (
-            <AdminClientsTable />
+            <AdminClientsScreen />
           ) : view === 'projects' ? (
           <ProjectsTable
             onCreate={() => setIsCreateOpen(true)}
