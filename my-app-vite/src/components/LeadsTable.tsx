@@ -3,11 +3,13 @@ import { useEffect, useState } from 'react';
 import type { Project } from '../types/project';
 import { fetchLeads, buildLeadsExportUrl, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
+import DateRangeFilter from './DateRangeFilter';
 
 type Props = {
   projects: Project[];
 };
 
+// Формат для value инпута даты (YYYY-MM-DD)
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -55,34 +57,53 @@ function LeadsTable({ projects }: Props) {
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters">
-          <button className="btn" onClick={()=> setShowProjectFilter(v=>!v)}>
-            Проекты: {allProjects ? 'Все' : (projectIds.length || 0)} {showProjectFilter ? '▲' : '▼'}
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Универсальный выбор дат слева */}
+          <DateRangeFilter
+            from={fromDate}
+            to={toDate}
+            onChange={({ from, to }) => {
+              setFromDate(from);
+              setToDate(to);
+            }}
+          />
+
+          {/* Фильтр по проектам остаётся как был */}
+          <button className="btn" onClick={() => setShowProjectFilter((v) => !v)}>
+            Проекты: {allProjects ? 'Все' : projectIds.length || 0} {showProjectFilter ? '▲' : '▼'}
           </button>
           {showProjectFilter && (
             <div className="project-filter-panel">
-              <label style={{display:'inline-flex',alignItems:'center',gap:6}}>
-                <input type="checkbox" checked={allProjects} onChange={(e)=> setAllProjects(e.target.checked)} />
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={allProjects}
+                  onChange={(e) => setAllProjects(e.target.checked)}
+                />
                 Все проекты
               </label>
-              <select multiple size={Math.min(6, Math.max(3, projects.length))} disabled={allProjects}
-                      value={projectIds.map(String)}
-                      onChange={(e)=> {
-                        const opts = Array.from(e.currentTarget.selectedOptions).map(o=> Number(o.value));
-                        setProjectIds(opts);
-                      }}>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.id} — {p.name}</option>
+              <select
+                multiple
+                size={Math.min(6, Math.max(3, projects.length))}
+                disabled={allProjects}
+                value={projectIds.map(String)}
+                onChange={(e) => {
+                  const opts = Array.from(e.currentTarget.selectedOptions).map((o) =>
+                    Number(o.value),
+                  );
+                  setProjectIds(opts);
+                }}
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id} — {p.name}
+                  </option>
                 ))}
               </select>
             </div>
           )}
         </div>
-        <div className="actions" style={{display:'flex',alignItems:'center',gap:8}}>
-          <div className="date-range">
-            <input type="date" value={fromDate} onChange={(e)=> setFromDate(e.target.value)} />
-            <input type="date" value={toDate} onChange={(e)=> setToDate(e.target.value)} />
-          </div>
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {rows.length}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>

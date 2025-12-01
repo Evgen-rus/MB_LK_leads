@@ -31,7 +31,8 @@
 .sidebar.collapsed .nav-label { display: none; }
 
 /* Таблица */
-.table-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: hidden; }
+/* overflow: visible, чтобы выпадашки (даты, экспорт и т.п.) не обрезались по высоте карточки */
+.table-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: visible; }
 .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ececf2; }
 /* Улучшенные контролы в тулбаре */
@@ -41,6 +42,82 @@
 .actions .btn { padding: 6px 10px; }
 .date-range { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
 .date-range input[type="date"] { padding: 8px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
+.date-filter { position: relative; }
+.date-filter__toggle {
+  border: 1px solid #dcdce6;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  min-width: 150px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.date-filter__icon {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+.date-filter__popover {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid #ececf2;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 260px;
+}
+.date-filter__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.date-filter__preset {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.date-filter__preset:hover {
+  background: #f1f1f7;
+}
+.date-filter__preset--active {
+  background: #f1f1f7;
+  font-weight: 600;
+}
+.date-filter__inputs {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.date-filter__inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+.date-filter__inputs input[type="date"] {
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #dcdce6;
+}
+.date-filter__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
 .project-filter-panel select { min-width: 240px; }
 .table { width: 100%; border-collapse: collapse; min-width: 1100px; }

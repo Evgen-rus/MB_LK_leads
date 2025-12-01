@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, buildLeadsExportUrl, type AdminLead, type UserInfo } from '../api';
 import ExportDropdown from './ExportDropdown';
+import DateRangeFilter from './DateRangeFilter';
 
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
@@ -70,7 +71,18 @@ function AdminLeadsTable() {
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters">
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Выбор дат слева, как и в пользовательском ЛК */}
+          <DateRangeFilter
+            from={fromDate}
+            to={toDate}
+            onChange={({ from, to }) => {
+              setFromDate(from);
+              setToDate(to);
+            }}
+          />
+
+          {/* Фильтр по клиенту */}
           <select
             value={userIdFilter ?? ''}
             onChange={(e) => {
@@ -88,10 +100,6 @@ function AdminLeadsTable() {
           </select>
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="date-range">
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </div>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
