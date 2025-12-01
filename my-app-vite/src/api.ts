@@ -367,6 +367,7 @@ export async function fetchAdminLeads(params: {
   fromDate: string;
   toDate: string;
   userId?: number;
+  projectIds?: number[];
   offset?: number;
   limit?: number;
 }): Promise<AdminLeadsListResp> {
@@ -375,6 +376,9 @@ export async function fetchAdminLeads(params: {
     toDate: params.toDate,
   });
   if (params.userId != null) q.set('userId', String(params.userId));
+  if (params.projectIds && params.projectIds.length > 0) {
+    q.set('projectIds', params.projectIds.join(','));
+  }
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
   return http<AdminLeadsListResp>(`/admin/leads?${q.toString()}`);

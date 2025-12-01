@@ -1,7 +1,7 @@
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
 import { useEffect, useState } from 'react';
-import { fetchAdminLeads, fetchAdminUsers, buildLeadsExportUrl, type AdminLead, type UserInfo } from '../api';
+import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
 
@@ -15,6 +15,8 @@ function formatDateInput(d: Date) {
 function AdminLeadsTable() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
+  const [projects, setProjects] = useState<AdminProject[]>([]);
+  const [projectIds, setProjectIds] = useState<number[]>([]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<AdminLead[]>([]);
@@ -33,6 +35,12 @@ function AdminLeadsTable() {
   }
 
   async function load(p = page, s = pageSize) {
+    if (!userIdFilter) {
+      // Пока клиент не выбран — таблица пустая
+      setRows([]);
+      setTotal(0);
+      return;
+    }
     try {
       setLoading(true);
       const offset = (p - 1) * s;
@@ -40,6 +48,7 @@ function AdminLeadsTable() {
         fromDate,
         toDate,
         userId: userIdFilter ?? undefined,
+        projectIds: projectIds.length ? projectIds : undefined,
         offset,
         limit: s,
       });
@@ -58,13 +67,35 @@ function AdminLeadsTable() {
 
   useEffect(() => {
     load(1);
-  }, [fromDate, toDate, userIdFilter]);
+  }, [fromDate, toDate, userIdFilter, projectIds]);
+
+  // При выборе клиента подгружаем его проекты
+  useEffect(() => {
+    (async () => {
+      if (!userIdFilter) {
+        setProjects([]);
+        setProjectIds([]);
+        return;
+      }
+      try {
+        const resp = await fetchAdminProjects({ offset: 0, limit: 10000, userId: userIdFilter });
+        setProjects(resp.items);
+        setProjectIds([]);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, [userIdFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const handleExport = (format: 'csv' | 'xlsx') => {
-    // Экспорт через стандартный эндпоинт (все проекты, если не фильтруем)
-    const url = buildLeadsExportUrl({ projectIds: undefined, fromDate, toDate, format });
+    const url = buildLeadsExportUrl({
+      projectIds: projectIds.length ? projectIds : undefined,
+      fromDate,
+      toDate,
+      format,
+    });
     window.open(url, '_blank');
   };
 
@@ -91,13 +122,33 @@ function AdminLeadsTable() {
               setPage(1);
             }}
           >
-            <option value="">Все клиенты</option>
+            <option value="">Выберите клиента…</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.login} (id: {u.id})
               </option>
             ))}
           </select>
+
+          {/* Фильтр по проектам клиента (мультивыбор) */}
+          {userIdFilter && projects.length > 0 && (
+            <select
+              multiple
+              size={Math.min(6, Math.max(3, projects.length))}
+              value={projectIds.map(String)}
+              onChange={(e) => {
+                const ids = Array.from(e.currentTarget.selectedOptions).map((o) => Number(o.value));
+                setProjectIds(ids);
+                setPage(1);
+              }}
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id} — {p.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {total}</span>}
@@ -117,6 +168,20 @@ function AdminLeadsTable() {
             </tr>
           </thead>
           <tbody>
+            {!userIdFilter && !loading && (
+              <tr>
+                <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                  Выберите клиента, чтобы увидеть идентификации.
+                </td>
+              </tr>
+            )}
+            {userIdFilter && !loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                  Данных за выбранный период нет.
+                </td>
+              </tr>
+            )}
             {rows.map((r, idx) => (
               <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
                 <td className="muted">{r.ext_id}</td>
