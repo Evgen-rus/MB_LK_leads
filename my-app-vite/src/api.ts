@@ -441,12 +441,16 @@ export async function fetchAdminReports(params?: {
 }
 
 // -------- Админские изменения клиентов --------
+export type AdminChangeStatus = 'created' | 'in_progress' | 'done';
+
 export type AdminChange = {
   id: number;
   projectId?: number | null;
   projectName?: string | null;
   createdAt: string;
   description: string;
+  // Статус может прийти с бэка; по умолчанию считаем "created"
+  status?: AdminChangeStatus;
 };
 
 export type AdminClientChangesOut = {

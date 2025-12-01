@@ -1,7 +1,7 @@
 // Экран "Изменения клиента" для админа.
 // Показывает список необработанных изменений по проектам выбранного клиента.
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminClientChanges, resolveAdminChange, type AdminChange } from '../api';
+import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
 
 type AdminClientChangesProps = {
   clientId: number;
@@ -33,6 +33,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   const [items, setItems] = useState<AdminChange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localStatus, setLocalStatus] = useState<Record<number, AdminChangeStatus>>({});
 
   useEffect(() => {
     (async () => {
@@ -41,6 +42,13 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         setError(null);
         const resp = await fetchAdminClientChanges(clientId);
         setItems(resp.items);
+        // Инициализируем локальные статусы (если бэк вернёт статус — используем его)
+        const map: Record<number, AdminChangeStatus> = {};
+        resp.items.forEach((c) => {
+          const s = (c.status as AdminChangeStatus | undefined) ?? 'created';
+          map[c.id] = s;
+        });
+        setLocalStatus(map);
       } catch (e: any) {
         console.error(e);
         setError(e?.message || 'Не удалось загрузить изменения клиента');
@@ -51,6 +59,14 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   }, [clientId]);
 
   const grouped = useMemo(() => groupByProject(items), [items]);
+
+  function getStatus(c: AdminChange): AdminChangeStatus {
+    return localStatus[c.id] ?? ((c.status as AdminChangeStatus | undefined) ?? 'created');
+  }
+
+  function handleSetInProgress(id: number) {
+    setLocalStatus(prev => ({ ...prev, [id]: 'in_progress' }));
+  }
 
   async function handleResolve(id: number) {
     try {
@@ -131,9 +147,10 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             <table className="table" style={{ margin: 0 }}>
               <thead>
                 <tr>
-                  <th style={{ width: '30%' }}>Когда</th>
+                  <th style={{ width: '24%' }}>Когда</th>
                   <th>Описание изменения</th>
-                  <th style={{ width: 120 }}>Действия</th>
+                  <th style={{ width: '16%' }}>Статус</th>
+                  <th style={{ width: 160 }}>Действия</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,6 +159,34 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
                     <td>{c.description}</td>
                     <td>
+                      {(() => {
+                        const status = getStatus(c);
+                        const label =
+                          status === 'created'
+                            ? 'Создано'
+                            : status === 'in_progress'
+                            ? 'В работе'
+                            : 'Сделано';
+                        const cls =
+                          status === 'created'
+                            ? 'badge badge--gray'
+                            : status === 'in_progress'
+                            ? 'badge badge--orange'
+                            : 'badge badge--green';
+                        return <span className={cls}>{label}</span>;
+                      })()}
+                    </td>
+                    <td>
+                      {getStatus(c) === 'created' && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ marginRight: 6 }}
+                          onClick={() => handleSetInProgress(c.id)}
+                        >
+                          В работу
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn--secondary"
