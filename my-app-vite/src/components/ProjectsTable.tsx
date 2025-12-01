@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Project, CollectionSource } from '../types/project';
 import { fetchProjects, deleteProject as apiDelete } from '../api';
+import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
   onDelete?: (ids: number[]) => void;
@@ -10,20 +11,35 @@ type ProjectsTableProps = {
   onHistory?: (row: Project) => void;
 };
 
+function formatDateInput(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
+  const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
+  const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function load(p = page, s = pageSize, q = search) {
+  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate) {
     const offset = (p - 1) * s;
-    const resp = await fetchProjects({ offset, limit: s, q: q.trim() || undefined });
+    const resp = await fetchProjects({
+      offset,
+      limit: s,
+      q: q.trim() || undefined,
+      fromDate: from,
+      toDate: to,
+    });
     setRows(resp.items);
     setTotal(resp.total);
   }
@@ -34,7 +50,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     const h = () => load(page);
     window.addEventListener('projects-refresh', h as any);
     return () => window.removeEventListener('projects-refresh', h as any);
-  }, [page, pageSize, search]);
+  }, [page, pageSize, search, fromDate, toDate]);
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
@@ -76,13 +92,25 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters">
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Период для пересчёта показателей проектов */}
+          <DateRangeFilter
+            from={fromDate}
+            to={toDate}
+            onChange={({ from, to }) => {
+              setFromDate(from);
+              setToDate(to);
+              setPage(1);
+              load(1, pageSize, search, from, to);
+            }}
+          />
+
           <input
             type="search"
             placeholder="Поиск по названию/ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value); }}}
+            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate); }}}
           />
           <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
             <option value="Все">Все статусы проекта</option>
@@ -112,6 +140,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               />
             </th>
             <th>Название</th>
+            <th>Оператор</th>
             <th>Статус проекта</th>
             <th>Источник сбора</th>
             <th>Лимит</th>
@@ -137,6 +166,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                 <div className="name">{row.name}</div>
                 <div className="sub muted">ID: {row.id}</div>
               </td>
+              <td>{row.dataSourceCode}</td>
               <td>
                 <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
                       style={{ whiteSpace: 'nowrap' }}

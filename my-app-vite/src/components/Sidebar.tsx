@@ -1,7 +1,14 @@
 // Левое меню навигации по разделам личного кабинета
 import { useEffect, useState } from 'react';
 
-export type ViewType = 'projects' | 'leads' | 'reports' | 'integrations' | 'blacklist' | 'admin-clients';
+export type ViewType =
+  | 'projects'
+  | 'leads'
+  | 'reports'
+  | 'integrations'
+  | 'support'
+  | 'blacklist'
+  | 'admin-clients';
 
 type SidebarProps = {
   active: ViewType;
@@ -88,6 +95,17 @@ function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
               </svg>
             </span>
             <span className="nav-label">Отчеты</span>
+          </li>
+          <li className={active === 'support' ? 'active' : ''} onClick={() => onNavigate('support')}>
+            <span className="nav-icon" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 6.5C4 5.12 5.12 4 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-3.5 3.5V16H6.5A2.5 2.5 0 0 1 4 13.5v-7Z" />
+                <circle cx="9" cy="9.5" r="0.75" />
+                <circle cx="12.5" cy="9.5" r="0.75" />
+                <circle cx="16" cy="9.5" r="0.75" />
+              </svg>
+            </span>
+            <span className="nav-label">Техподдержка</span>
           </li>
           <li className={active === 'integrations' ? 'active' : ''} onClick={() => onNavigate('integrations')}>
             <span className="nav-icon" aria-hidden>

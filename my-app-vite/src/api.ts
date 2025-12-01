@@ -106,11 +106,19 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type ProjectListResp = { items: Project[]; total: number };
 
-export async function fetchProjects(params?: { offset?: number; limit?: number; q?: string }): Promise<ProjectListResp> {
+export async function fetchProjects(params?: {
+  offset?: number;
+  limit?: number;
+  q?: string;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<ProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
   if (params?.limit != null) q.set('limit', String(params.limit));
   if (params?.q) q.set('q', params.q);
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
   const qs = q.toString();
   return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }

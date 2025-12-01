@@ -5,6 +5,7 @@ import ProjectsTable from './components/ProjectsTable';
 import LeadsTable from './components/LeadsTable';
 import AdminLeadsTable from './components/AdminLeadsTable';
 import Integrations from './components/Integrations';
+import Support from './components/Support';
 import Blacklist from './components/Blacklist';
 import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
@@ -116,6 +117,8 @@ function App() {
                 ? 'Отчёты'
                 : view === 'integrations'
                 ? 'Интеграции'
+                : view === 'support'
+                ? 'Техподдержка'
                 : 'Черный список'}
             </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -155,6 +158,8 @@ function App() {
             isAdmin ? <AdminReports /> : <Reports />
           ) : view === 'integrations' ? (
             <Integrations />
+          ) : view === 'support' ? (
+            <Support />
           ) : (
             isAdmin ? <AdminBlacklist /> : <Blacklist />
           )}
