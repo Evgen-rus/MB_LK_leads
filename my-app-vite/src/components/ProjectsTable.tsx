@@ -1,7 +1,7 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState } from 'react';
 import type { Project, CollectionSource } from '../types/project';
-import { fetchProjects, deleteProject as apiDelete, updateProject as apiUpdateProject } from '../api';
+import { fetchProjects, deleteProject as apiDelete, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
@@ -87,12 +87,47 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     });
   }
 
+  // Восстанавливаем payload для updateProject из текущего объекта Project.
+  // Нужен полный набор полей, иначе бэкенд отвечает 422.
+  function buildUpdatePayloadFromRow(row: Project, patch: Partial<ProjectUpdatePayload>): ProjectUpdatePayload {
+    const map: Record<string, Day> = {
+      'Пн.': 'Пн',
+      'Вт.': 'Вт',
+      'Ср.': 'Ср',
+      'Чт.': 'Чт',
+      'Пт.': 'Пт',
+      'Сб.': 'Сб',
+      'Вс.': 'Вс',
+    };
+    const parts = (row.daysReceived || '').split(/\s+/).filter(Boolean);
+    const days: Day[] = [];
+    parts.forEach((p) => {
+      if (map[p]) days.push(map[p]);
+    });
+    const daysFinal: Day[] = days.length ? days : (['Вт', 'Ср', 'Чт', 'Пт', 'Сб'] as Day[]);
+
+    return {
+      name: row.name,
+      tag: row.tag || row.name,
+      status: row.status,
+      dataLimit: row.dataLimit,
+      regionMode: row.regionMode || 'include',
+      regions: row.regions || [],
+      sites: row.sites || undefined,
+      phones: row.phones || undefined,
+      smsSenderName: row.smsSenderName || undefined,
+      days: daysFinal,
+      ...patch,
+    };
+  }
+
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
-      const updated = await apiUpdateProject(row.id, { status: nextStatus } as any);
+      const payload = buildUpdatePayloadFromRow(row, { status: nextStatus });
+      const updated = await apiUpdateProject(row.id, payload);
       setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
       window.dispatchEvent(new CustomEvent('projects-refresh'));
     } catch (e) {
