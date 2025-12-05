@@ -56,6 +56,24 @@ function AdminReports() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // DEMO: формирование отчёта по конкретному клиенту без реального запроса к бэку.
+  // Сейчас просто показываем понятный алерт, чтобы заказчик видел сценарий.
+  function handleCreateClientReportDemo() {
+    if (userIdFilter == null) {
+      alert('Сначала выберите клиента в выпадающем списке выше. Это демо-кнопка, реальный запрос к бэку не отправляется.');
+      return;
+    }
+    const user = users.find((u) => u.id === userIdFilter);
+    if (!user) {
+      alert('Клиент не найден. Проверьте фильтр.');
+      return;
+    }
+    alert(
+      `Демо: здесь будет формирование нового отчёта для клиента "${user.login}" (id: ${user.id}).\n` +
+        'После доработки бэка сюда добавится реальный запрос и новый отчёт появится в списке.',
+    );
+  }
+
   return (
     <div className="table-card">
       <div className="table-toolbar">
@@ -77,8 +95,19 @@ function AdminReports() {
             ))}
           </select>
         </div>
-        <div className="actions">
-          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={handleCreateClientReportDemo}
+          >
+            Сформировать отчёт по клиенту (демо)
+          </button>
+          {loading ? (
+            <span className="sub">Загрузка…</span>
+          ) : (
+            <span className="sub">Всего отчётов: {total}</span>
+          )}
         </div>
       </div>
       <div className="table-scroll">

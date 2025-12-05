@@ -9,6 +9,7 @@ import {
   type AdminProject,
   type AdminClientChangesSummaryListOut,
 } from '../api';
+import DateRangeFilter from './DateRangeFilter';
 
 // Важно: начиная с разделения логики «Клиенты» / «Проекты»,
 // сам экран «Клиенты» НЕ занимается обработкой проектов и изменений.
@@ -36,8 +37,11 @@ type ClientRow = {
   name: string;
   projectCount: number;
   status: ClientStatus;
-  remaining: number;
-  totalVolume: number;
+  remaining: number;      // Остаток за выбранный период (демо)
+  totalVolume: number;    // Объём данных за выбранный период (демо)
+  // Базовые значения за "полный" период (используем для пересчёта при смене дат)
+  baseRemaining: number;
+  baseTotalVolume: number;
   pendingChanges: number;
 };
 
@@ -49,6 +53,26 @@ const STATUS_COLORS: Record<ClientStatus, string> = {
   Долг: '#F44336',
   Дожим: '#7E57C2',
 };
+
+type DateRange = {
+  from: string;
+  to: string;
+};
+
+// Вспомогательный хелпер: вернуть диапазон "сегодня"
+function getTodayRange(): DateRange {
+  const today = new Date().toISOString().slice(0, 10);
+  return { from: today, to: today };
+}
+
+// Кол-во дней в диапазоне (включая границы), минимум 1
+function getDaysInRange(range: DateRange): number {
+  const from = new Date(range.from);
+  const to = new Date(range.to);
+  const ms = to.getTime() - from.getTime();
+  const days = Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
+  return Number.isFinite(days) && days > 0 ? days : 1;
+}
 
 function groupProjectsByUser(projects: AdminProject[]): Map<number, AdminProject[]> {
   const map = new Map<number, AdminProject[]>();
@@ -62,6 +86,7 @@ function groupProjectsByUser(projects: AdminProject[]): Map<number, AdminProject
   return map;
 }
 
+// Базовый статус по проектам (без учёта биллинга)
 function deriveClientStatus(projects: AdminProject[]): ClientStatus {
   if (!projects.length) return 'Нет проектов';
   const anyActive = projects.some((p) => p.status === 'Активен');
@@ -72,9 +97,28 @@ function deriveClientStatus(projects: AdminProject[]): ClientStatus {
   if (allPaused) return 'На паузе';
   if (allDeliveryOff) return 'Отключен';
 
-  // Статусы «Долг» и «Дожим» сейчас не считаем автоматически — нет явных данных в БД.
-  // При появлении полей биллинга сюда можно добавить нужные правила.
   return 'Активен';
+}
+
+// DEMO-логика для статусов «Долг» и «Дожим» без реального биллинга.
+// ВАЖНО: это только фронтовая имитация для показа заказчику.
+function applyDemoDebtStatus(row: ClientRow): ClientRow {
+  // Не трогаем клиентов без проектов и явно отключённых
+  if (row.status === 'Нет проектов' || row.status === 'Отключен' || row.status === 'На паузе') {
+    return row;
+  }
+  const limit = row.baseRemaining + row.baseTotalVolume;
+  if (!limit) return row;
+
+  const remainingRatio = row.remaining / limit;
+
+  if (row.remaining <= 0) {
+    return { ...row, status: 'Долг' };
+  }
+  if (remainingRatio < 0.15) {
+    return { ...row, status: 'Дожим' };
+  }
+  return row;
 }
 
 function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow[] {
@@ -84,17 +128,20 @@ function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow
     const projectCount = list.length;
     const totalLimit = list.reduce((sum, p) => sum + (p.dataLimit || 0), 0);
     const totalUsed = list.reduce((sum, p) => sum + (p.numbersTotal || 0), 0);
-    const remaining = Math.max(0, totalLimit - totalUsed);
-    const status = deriveClientStatus(list);
-    return {
+    const remainingBase = Math.max(0, totalLimit - totalUsed);
+    const statusBase = deriveClientStatus(list);
+    const baseRow: ClientRow = {
       id: u.id,
       name: u.login,
       projectCount,
-      status,
-      remaining,
+      status: statusBase,
+      remaining: remainingBase,
       totalVolume: totalUsed,
+      baseRemaining: remainingBase,
+      baseTotalVolume: totalUsed,
       pendingChanges: 0,
     };
+    return applyDemoDebtStatus(baseRow);
   });
 }
 
@@ -102,13 +149,14 @@ function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
 }: AdminClientsScreenProps) {
-  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [range, setRange] = useState<DateRange>(() => getTodayRange());
 
   useEffect(() => {
     (async () => {
@@ -129,7 +177,7 @@ function AdminClientsScreen({
           ...r,
           pendingChanges: pendingMap[r.id] ?? 0,
         }));
-        setClients(rows);
+        setBaseClients(rows);
       } catch (e: any) {
         console.error(e);
         setError(e?.message || 'Не удалось загрузить клиентов');
@@ -138,6 +186,29 @@ function AdminClientsScreen({
       }
     })();
   }, []);
+
+  // Пересчёт значений клиентов под выбранный период (демо, только фронт)
+  const clients = useMemo(() => {
+    const days = getDaysInRange(range);
+    const DEMO_BASE_DAYS = 30; // условный базовый период для распределения
+
+    return baseClients.map((row) => {
+      const limit = row.baseRemaining + row.baseTotalVolume;
+      if (!limit || row.baseTotalVolume <= 0) {
+        // Нет данных — просто возвращаем базу
+        return applyDemoDebtStatus(row);
+      }
+      const usedPerDay = row.baseTotalVolume / DEMO_BASE_DAYS;
+      const demoUsed = Math.min(row.baseTotalVolume, Math.round(usedPerDay * days));
+      const demoRemaining = Math.max(0, limit - demoUsed);
+      const updated: ClientRow = {
+        ...row,
+        totalVolume: demoUsed,
+        remaining: demoRemaining,
+      };
+      return applyDemoDebtStatus(updated);
+    });
+  }, [baseClients, range]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -148,6 +219,27 @@ function AdminClientsScreen({
       return nameHit || idHit;
     });
   }, [clients, search]);
+
+  const totals = useMemo(() => {
+    let totalRemaining = 0;
+    let totalVolume = 0;
+    let totalProjects = 0;
+    filtered.forEach((c) => {
+      totalRemaining += c.remaining;
+      totalVolume += c.totalVolume;
+      totalProjects += c.projectCount;
+    });
+    return { totalRemaining, totalVolume, totalProjects };
+  }, [filtered]);
+
+  const selectedClient = useMemo(
+    () => (selectedClientId != null ? clients.find((c) => c.id === selectedClientId) ?? null : null),
+    [clients, selectedClientId],
+  );
+
+  function updateClientById(id: number, updater: (row: ClientRow) => ClientRow) {
+    setBaseClients((prev) => prev.map((c) => (c.id === id ? updater(c) : c)));
+  }
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -161,6 +253,14 @@ function AdminClientsScreen({
       <div className="table-card">
         <div className="table-toolbar">
           <div className="filters">
+            <DateRangeFilter
+              from={range.from}
+              to={range.to}
+              onChange={(next) => {
+                setRange(next);
+                setPage(1);
+              }}
+            />
             <input
               type="search"
               placeholder="Поиск по имени / ID клиента"
@@ -180,7 +280,9 @@ function AdminClientsScreen({
             {loading ? (
               <span className="sub">Загрузка…</span>
             ) : (
-              <span className="sub">Всего клиентов: {clients.length}</span>
+              <span className="sub">
+                Всего клиентов: {clients.length}. Период: {range.from} — {range.to}
+              </span>
             )}
           </div>
         </div>
@@ -228,7 +330,7 @@ function AdminClientsScreen({
                     className={idx % 2 === 0 ? 'row-alt' : ''}
                     style={{ cursor: 'pointer' }}
                     onClick={() => {
-                      setSelectedClient(row);
+                      setSelectedClientId(row.id);
                     }}
                   >
                     <td className="muted">{row.id}</td>
@@ -275,7 +377,7 @@ function AdminClientsScreen({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedClient(row);
+                          setSelectedClientId(row.id);
                         }}
                       >
                         Открыть
@@ -287,7 +389,7 @@ function AdminClientsScreen({
           </table>
         </div>
 
-        <div className="table-footer">
+      <div className="table-footer">
           Показано {pageRows.length} из {total}
           <div className="spacer" />
           <div className="pager">
@@ -329,6 +431,27 @@ function AdminClientsScreen({
               <option value={100}>100</option>
             </select>
           </div>
+        </div>
+        <div
+          style={{
+            padding: '8px 16px 12px',
+            borderTop: '1px dashed #eee',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 12,
+            fontSize: 13,
+          }}
+          className="sub"
+        >
+          <span>
+            Итого за период: клиентов {filtered.length}, проектов {totals.totalProjects}
+          </span>
+          <span>
+            Суммарный остаток: {totals.totalRemaining}, общий объём данных: {totals.totalVolume}
+          </span>
+          <span style={{ opacity: 0.7 }}>
+            Демонстрационный расчёт на фронтенде, без точных данных биллинга.
+          </span>
         </div>
       </div>
 
@@ -384,7 +507,7 @@ function AdminClientsScreen({
                 type="button"
                 className="btn btn--ghost"
                 onClick={() => {
-                  setSelectedClient(null);
+                  setSelectedClientId(null);
                 }}
               >
                 ← К списку клиентов
@@ -428,9 +551,124 @@ function AdminClientsScreen({
                 <div>{selectedClient.totalVolume}</div>
               </div>
             </div>
-            <div className="sub">
-              Фильтры периода («Сегодня», «Неделя» и т.п.) и отдельный список проектов клиента
-              можно будет добавить следующим шагом, когда согласуем расчёт метрик.
+            <div
+              style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid #eee',
+                display: 'grid',
+                gap: 8,
+              }}
+            >
+              <div className="sub">
+                Управление клиентом (демо, только на фронте — без сохранения на сервер):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    if (!selectedClient) return;
+                    const input = window.prompt(
+                      'На сколько данных увеличить остаток клиента? (демо, только фронтенд)',
+                    );
+                    if (!input) return;
+                    const amount = Number(input.replace(',', '.'));
+                    if (!Number.isFinite(amount) || amount <= 0) {
+                      alert('Введите положительное число');
+                      return;
+                    }
+                    updateClientById(selectedClient.id, (row) => ({
+                      ...row,
+                      baseRemaining: row.baseRemaining + amount,
+                    }));
+                  }}
+                >
+                  Начислить данные
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    if (!selectedClient) return;
+                    const input = window.prompt(
+                      'Сколько данных списать с клиента? (демо, только фронтенд)',
+                    );
+                    if (!input) return;
+                    const amount = Number(input.replace(',', '.'));
+                    if (!Number.isFinite(amount) || amount <= 0) {
+                      alert('Введите положительное число');
+                      return;
+                    }
+                    updateClientById(selectedClient.id, (row) => ({
+                      ...row,
+                      baseRemaining: Math.max(0, row.baseRemaining - amount),
+                    }));
+                  }}
+                >
+                  Списать данные
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    if (!selectedClient) return;
+                    const limitInput = window.prompt(
+                      'Установить новый тариф (общий лимит данных клиента)? (демо, только фронтенд)',
+                    );
+                    if (!limitInput) return;
+                    const newLimit = Number(limitInput.replace(',', '.'));
+                    if (!Number.isFinite(newLimit) || newLimit <= 0) {
+                      alert('Введите положительное число');
+                      return;
+                    }
+                    updateClientById(selectedClient.id, (row) => {
+                      const baseUsed = row.baseTotalVolume;
+                      const remaining = Math.max(0, newLimit - baseUsed);
+                      return {
+                        ...row,
+                        baseRemaining: remaining,
+                      };
+                    });
+                  }}
+                >
+                  Изменить тариф (лимит)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    if (!selectedClient) return;
+                    const next =
+                      selectedClient.status === 'На паузе' ? 'Активен' : 'На паузе';
+                    updateClientById(selectedClient.id, (row) => ({
+                      ...row,
+                      status: next,
+                    }));
+                  }}
+                >
+                  {selectedClient.status === 'На паузе'
+                    ? 'Снять с паузы (демо)'
+                    : 'Поставить на паузу (демо)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    if (!selectedClient) return;
+                    const confirmOff = window.confirm(
+                      'Отключить клиента? (демо, только фронтенд — без изменения реальных проектов)',
+                    );
+                    if (!confirmOff) return;
+                    updateClientById(selectedClient.id, (row) => ({
+                      ...row,
+                      status: 'Отключен',
+                    }));
+                  }}
+                >
+                  Отключить клиента (демо)
+                </button>
+              </div>
             </div>
           </div>
         </div>
