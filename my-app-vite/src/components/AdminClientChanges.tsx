@@ -6,7 +6,9 @@ import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type Adm
 type AdminClientChangesProps = {
   clientId: number;
   clientName: string;
-  onResolvedChange?: () => void;
+  // onResolvedChange вызывается после успешной отметки изменения как выполненного.
+  // Передаём всё изменение, чтобы родитель мог обновить счётчики по клиенту/проекту.
+  onResolvedChange?: (change: AdminChange) => void;
 };
 
 type GroupedChanges = {
@@ -65,14 +67,15 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   }
 
   function handleSetInProgress(id: number) {
-    setLocalStatus(prev => ({ ...prev, [id]: 'in_progress' }));
+    setLocalStatus((prev) => ({ ...prev, [id]: 'in_progress' }));
   }
 
-  async function handleResolve(id: number) {
+  async function handleResolve(change: AdminChange) {
+    const id = change.id;
     try {
       await resolveAdminChange(id);
       setItems((prev) => prev.filter((c) => c.id !== id));
-      onResolvedChange?.();
+      onResolvedChange?.(change);
     } catch (e) {
       console.error(e);
       alert('Не удалось отметить изменение как обработанное');
@@ -190,7 +193,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                       <button
                         type="button"
                         className="btn btn--secondary"
-                        onClick={() => handleResolve(c.id)}
+                        onClick={() => handleResolve(c)}
                       >
                         Отметить выполненным
                       </button>

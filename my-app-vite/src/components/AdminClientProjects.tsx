@@ -7,9 +7,11 @@ import AdminEditProjectModal from './AdminEditProjectModal';
 type AdminClientProjectsProps = {
   clientId: number;
   clientName: string;
+  // Количество необработанных изменений по каждому проекту (projectId -> count)
+  projectChanges?: Record<number, number>;
 };
 
-function AdminClientProjects({ clientId, clientName }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -168,6 +170,16 @@ function AdminClientProjects({ clientId, clientName }: AdminClientProjectsProps)
                   <td>
                     <div className="name">{row.name}</div>
                     <div className="sub muted">ID: {row.id}</div>
+                    {!!projectChanges?.[row.id] && projectChanges[row.id]! > 0 && (
+                      <div className="sub" style={{ marginTop: 2 }}>
+                        <span
+                          className="badge badge--orange"
+                          style={{ fontWeight: 500 }}
+                        >
+                          Изменения: {projectChanges[row.id]}
+                        </span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     <span

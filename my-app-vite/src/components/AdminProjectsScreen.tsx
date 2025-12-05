@@ -12,7 +12,13 @@
 // сюда можно будет добавить отдельные фильтры и прокинуть их дальше.
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminUsers, type UserInfo } from '../api';
+import {
+  fetchAdminUsers,
+  fetchAdminClientChanges,
+  type UserInfo,
+  type AdminChange,
+  type AdminChangeStatus,
+} from '../api';
 import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';
 
@@ -39,6 +45,7 @@ function AdminProjectsScreen({
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientsError, setClientsError] = useState<string | null>(null);
+  const [projectChanges, setProjectChanges] = useState<Record<number, number>>({});
 
   const [selectedClientId, setSelectedClientId] = useState<number | null>(
     initialClientId ?? null,
@@ -90,6 +97,29 @@ function AdminProjectsScreen({
     return `${found.name} (id: ${found.id})`;
   }, [hasSelectedClient, selectedClientId, selectedClientName, clients]);
 
+  // Загрузка изменений клиента для подсветки проектов с изменениями
+  useEffect(() => {
+    if (!selectedClientId) {
+      setProjectChanges({});
+      return;
+    }
+    (async () => {
+      try {
+        const resp = await fetchAdminClientChanges(selectedClientId);
+        const map: Record<number, number> = {};
+        resp.items.forEach((c: AdminChange) => {
+          if (c.projectId == null) return;
+          const status = (c.status as AdminChangeStatus | undefined) ?? 'created';
+          if (status === 'done') return;
+          map[c.projectId] = (map[c.projectId] ?? 0) + 1;
+        });
+        setProjectChanges(map);
+      } catch (e: any) {
+        console.error(e);
+      }
+    })();
+  }, [selectedClientId]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="table-card">
@@ -125,7 +155,14 @@ function AdminProjectsScreen({
               </span>
             )}
             {!clientsError && hasSelectedClient && (
-              <span className="sub">Выбран клиент: {selectedClientLabel}</span>
+              <span className="sub">
+                Выбран клиент: {selectedClientLabel}
+                {Object.keys(projectChanges).length > 0 && (
+                  <span style={{ marginLeft: 8 }}>
+                    · Есть изменения по проектам
+                  </span>
+                )}
+              </span>
             )}
           </div>
         </div>
@@ -179,7 +216,11 @@ function AdminProjectsScreen({
         <>
           {/* Основная работа с проектами клиента */}
           {(!focus || focus === 'projects') && (
-            <AdminClientProjects clientId={selectedClientId} clientName={selectedClientName} />
+            <AdminClientProjects
+              clientId={selectedClientId}
+              clientName={selectedClientName}
+              projectChanges={projectChanges}
+            />
           )}
 
           {/* Работа с изменениями клиента — теперь внутри вкладки «Проекты», а не на экране «Клиенты» */}
@@ -187,13 +228,17 @@ function AdminProjectsScreen({
             <AdminClientChanges
               clientId={selectedClientId}
               clientName={selectedClientName}
-              // Здесь можно было бы обновлять какие‑то счётчики на уровне лэйаута,
-              // но пока у нас нет единого стора — просто оставляем заглушку.
-              onResolvedChange={() => {
-                // Заглушка: при необходимости можно прокинуть событие наверх
-                // и обновлять количество изменений по клиенту.
-                // Например, через кастомный event:
-                // window.dispatchEvent(new CustomEvent('admin-client-change-resolved', { detail: { clientId: selectedClientId } }));
+              onResolvedChange={(change) => {
+                if (!change.projectId) return;
+                const projectId = change.projectId;
+                setProjectChanges((prev) => {
+                  const prevCount = prev[projectId] ?? 0;
+                  if (prevCount <= 1) {
+                    const { [projectId]: _omit, ...rest } = prev;
+                    return rest;
+                  }
+                  return { ...prev, [projectId]: prevCount - 1 };
+                });
               }}
             />
           )}
