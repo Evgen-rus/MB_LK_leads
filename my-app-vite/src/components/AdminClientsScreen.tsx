@@ -9,8 +9,19 @@ import {
   type AdminProject,
   type AdminClientChangesSummaryListOut,
 } from '../api';
-import AdminClientProjects from './AdminClientProjects';
-import AdminClientChanges from './AdminClientChanges';
+
+// Важно: начиная с разделения логики «Клиенты» / «Проекты»,
+// сам экран «Клиенты» НЕ занимается обработкой проектов и изменений.
+// Он только показывает агрегированный дашборд по клиентам и
+// даёт быстрый переход во вкладку «Проекты».
+//
+// Для этого сюда прокидываются коллбеки onOpenClientProjects / onOpenClientChanges
+// из корневого лэйаута (App.tsx).
+
+export type AdminClientsScreenProps = {
+  onOpenClientProjects?: (clientId: number, clientName: string) => void;
+  onOpenClientChanges?: (clientId: number, clientName: string) => void;
+};
 
 type ClientStatus =
   | 'Активен'
@@ -87,7 +98,10 @@ function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow
   });
 }
 
-function AdminClientsScreen() {
+function AdminClientsScreen({
+  onOpenClientProjects,
+  onOpenClientChanges,
+}: AdminClientsScreenProps) {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +109,6 @@ function AdminClientsScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
-  const [showProjectsForClientId, setShowProjectsForClientId] = useState<number | null>(null);
-  const [showChangesForClientId, setShowChangesForClientId] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -217,8 +229,6 @@ function AdminClientsScreen() {
                     style={{ cursor: 'pointer' }}
                     onClick={() => {
                       setSelectedClient(row);
-                      setShowProjectsForClientId(null);
-                      setShowChangesForClientId(null);
                     }}
                   >
                     <td className="muted">{row.id}</td>
@@ -266,8 +276,6 @@ function AdminClientsScreen() {
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedClient(row);
-                          setShowProjectsForClientId(null);
-                          setShowChangesForClientId(null);
                         }}
                       >
                         Открыть
@@ -347,28 +355,36 @@ function AdminClientsScreen() {
               )}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={() => setShowChangesForClientId(selectedClient.id)}
-              >
-                Изменения клиента
-                {selectedClient.pendingChanges > 0 ? ` (${selectedClient.pendingChanges})` : ''}
-              </button>
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={() => setShowProjectsForClientId(selectedClient.id)}
-              >
-                Перейти к проектам клиента
-              </button>
+              {onOpenClientChanges && (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    onOpenClientChanges(selectedClient.id, selectedClient.name)
+                  }
+                >
+                  Изменения клиента
+                  {selectedClient.pendingChanges > 0
+                    ? ` (${selectedClient.pendingChanges})`
+                    : ''}
+                </button>
+              )}
+              {onOpenClientProjects && (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() =>
+                    onOpenClientProjects(selectedClient.id, selectedClient.name)
+                  }
+                >
+                  Перейти к проектам клиента
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn--ghost"
                 onClick={() => {
                   setSelectedClient(null);
-                  setShowProjectsForClientId(null);
-                  setShowChangesForClientId(null);
                 }}
               >
                 ← К списку клиентов
@@ -446,30 +462,6 @@ function AdminClientsScreen() {
         </div>
       )}
 
-      {selectedClient && showProjectsForClientId === selectedClient.id && (
-        <AdminClientProjects clientId={selectedClient.id} clientName={selectedClient.name} />
-      )}
-
-      {selectedClient && showChangesForClientId === selectedClient.id && (
-        <AdminClientChanges
-          clientId={selectedClient.id}
-          clientName={selectedClient.name}
-          onResolvedChange={() => {
-            setClients((prev) =>
-              prev.map((c) =>
-                c.id === selectedClient.id
-                  ? { ...c, pendingChanges: Math.max(0, (c.pendingChanges ?? 0) - 1) }
-                  : c,
-              ),
-            );
-            setSelectedClient((prev) =>
-              prev
-                ? { ...prev, pendingChanges: Math.max(0, (prev.pendingChanges ?? 0) - 1) }
-                : prev,
-            );
-          }}
-        />
-      )}
     </div>
   );
 }

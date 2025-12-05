@@ -11,6 +11,9 @@ import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
 import AdminReports from './components/AdminReports';
 import AdminClientsScreen from './components/AdminClientsScreen';
+import AdminProjectsScreen, {
+  type AdminProjectsFocus,
+} from './components/AdminProjectsScreen';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -29,6 +32,10 @@ function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [view, setView] = useState<ViewType>('projects');
   const [isAdmin, setIsAdmin] = useState(false);
+  // Состояние только для админов: какой клиент выбран во вкладке «Проекты»
+  const [adminProjectsClientId, setAdminProjectsClientId] = useState<number | null>(null);
+  const [adminProjectsClientName, setAdminProjectsClientName] = useState<string | null>(null);
+  const [adminProjectsFocus, setAdminProjectsFocus] = useState<AdminProjectsFocus>('projects');
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -103,7 +110,15 @@ function App() {
   return (
     <div className="layout">
       <div className="content">
-        <Sidebar active={view} onNavigate={setView} isAdmin={isAdmin} />
+        <Sidebar
+          active={view}
+          onNavigate={(next) => {
+            setView(next);
+            // При переключении вкладок не трогаем выбранного клиента,
+            // чтобы можно было вернуться обратно в «Проекты» с тем же контекстом.
+          }}
+          isAdmin={isAdmin}
+        />
         <main className="main">
           <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between', position:'relative'}}>
             <span>
@@ -133,25 +148,48 @@ function App() {
           </div>
           </div>
           {view === 'admin-clients' && isAdmin ? (
-            <AdminClientsScreen />
+            <AdminClientsScreen
+              // Переход к проектам клиента из вкладки «Клиенты»
+              onOpenClientProjects={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('projects');
+                setView('projects');
+              }}
+              // Быстрый переход к изменениям клиента во вкладке «Проекты»
+              onOpenClientChanges={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('changes');
+                setView('projects');
+              }}
+            />
           ) : view === 'projects' ? (
-          <ProjectsTable
-            onCreate={() => setIsCreateOpen(true)}
-            onDelete={(ids) => {
-              if (!ids.length) return;
-              (async () => {
-                try {
-                  await Promise.all(ids.map((id) => apiDelete(id)));
-                  setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
-                  window.dispatchEvent(new CustomEvent('projects-refresh'));
-                } catch (e) {
-                  console.error(e);
-                }
-              })();
-            }}
-            onEdit={(row) => setEditing(row)}
-            onHistory={(row) => setHistoryFor(row)}
-          />
+            isAdmin ? (
+              <AdminProjectsScreen
+                initialClientId={adminProjectsClientId ?? undefined}
+                initialClientName={adminProjectsClientName ?? undefined}
+                initialFocus={adminProjectsFocus}
+              />
+            ) : (
+              <ProjectsTable
+                onCreate={() => setIsCreateOpen(true)}
+                onDelete={(ids) => {
+                  if (!ids.length) return;
+                  (async () => {
+                    try {
+                      await Promise.all(ids.map((id) => apiDelete(id)));
+                      setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
+                      window.dispatchEvent(new CustomEvent('projects-refresh'));
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  })();
+                }}
+                onEdit={(row) => setEditing(row)}
+                onHistory={(row) => setHistoryFor(row)}
+              />
+            )
           ) : view === 'leads' ? (
             isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} />
           ) : view === 'reports' ? (
