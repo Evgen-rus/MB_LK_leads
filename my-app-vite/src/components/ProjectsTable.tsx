@@ -1,7 +1,7 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState } from 'react';
 import type { Project, CollectionSource } from '../types/project';
-import { fetchProjects, deleteProject as apiDelete } from '../api';
+import { fetchProjects, deleteProject as apiDelete, updateProject as apiUpdateProject } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
@@ -87,6 +87,20 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     });
   }
 
+  // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
+  // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
+  async function handleToggleStatus(row: Project) {
+    const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
+    try {
+      const updated = await apiUpdateProject(row.id, { status: nextStatus } as any);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+    } catch (e) {
+      console.error(e);
+      alert('Не удалось изменить статус проекта');
+    }
+  }
+
   // Удаление из тулбара не используется — по просьбе отключено
 
   return (
@@ -168,8 +182,11 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               </td>
               <td>{row.dataSourceCode}</td>
               <td>
-                <span className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
-                      style={{ whiteSpace: 'nowrap' }}
+                <span
+                  className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
+                  style={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
+                  title="Нажмите, чтобы переключить статус проекта"
+                  onClick={() => handleToggleStatus(row)}
                 >
                   {row.status}
                 </span>

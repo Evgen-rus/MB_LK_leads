@@ -101,6 +101,12 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
     }
   }
 
+  // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
+  async function handleToggleStatus(project: AdminProject) {
+    const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
+    await applyUpdate(project, { status: nextStatus });
+  }
+
   return (
     <div className="table-card">
       <div className="table-toolbar">
@@ -184,7 +190,9 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
                   <td>
                     <span
                       className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
-                      style={{ whiteSpace: 'nowrap' }}
+                      style={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
+                      title="Нажмите, чтобы переключить статус проекта"
+                      onClick={() => handleToggleStatus(row)}
                     >
                       {row.status}
                     </span>
