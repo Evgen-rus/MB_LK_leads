@@ -189,7 +189,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               />
             </th>
             <th>Название</th>
-            <th>Оператор</th>
+            <th>Источник</th>
             <th>Статус проекта</th>
             <th>Источник сбора</th>
             <th>Лимит</th>
