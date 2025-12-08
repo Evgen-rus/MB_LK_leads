@@ -92,6 +92,9 @@ class Lead(Base):
     # Номер телефона (как есть из таблицы)
     phone = Column(String, nullable=False)
 
+    # Источник (столбец D)
+    source = Column(String, nullable=True)
+
     # UTM-метка может отсутствовать
     utm_campaign = Column(String, nullable=True)
 

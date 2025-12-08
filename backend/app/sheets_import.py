@@ -2,7 +2,7 @@
 Импорт лидов из Google Sheets в таблицу `leads`.
 
 Источник: лист "Данные" со столбцами:
-  A=ID, B=Дата (MSK), C=Номера (phone), D=Номер лида (игнорируем), E=UTM_CAMPAIGN (optional)
+  A=ID, B=Дата (MSK), C=Номера (phone), D=Источник (source), E=UTM_CAMPAIGN (optional)
 
 Окно импорта: последние N дней (LEADS_IMPORT_LOOKBACK_DAYS, по умолчанию 3).
 Дедупликация: по ext_id (уникальный внешний ID из столбца A).
@@ -89,14 +89,14 @@ def _fetch_rows(service, spreadsheet_id: str, sheet_name: str) -> List[List[str]
     return values
 
 
-def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[Tuple[int, datetime, str, str | None]]:
+def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[Tuple[int, datetime, str, str | None, str | None]]:
     """Оставляем строки за последние `days` дней.
-    Возвращаем кортежи: (ext_id, created_at_utc, phone, utm)
+    Возвращаем кортежи: (ext_id, created_at_utc, phone, source, utm)
     """
     from zoneinfo import ZoneInfo
     now_local = datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
     threshold_local = now_local - timedelta(days=days)
-    out: List[Tuple[int, datetime, str, str | None]] = []
+    out: List[Tuple[int, datetime, str, str | None, str | None]] = []
     for row in rows:
         # Ожидаем как минимум A, B, C
         if len(row) < 3:
@@ -104,6 +104,7 @@ def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[T
         ext_id_str = str(row[0]).strip()
         dt_str = str(row[1]).strip()
         phone = str(row[2]).strip()
+        source = (str(row[3]).strip() if len(row) >= 4 and str(row[3]).strip() != "" else None)
         utm = (str(row[4]).strip() if len(row) >= 5 and str(row[4]).strip() != "" else None)
 
         if not ext_id_str or not dt_str or not phone:
@@ -117,7 +118,7 @@ def _filter_recent(rows: Iterable[List[str]], tz_name: str, days: int) -> List[T
             continue
         if dt_local < threshold_local:
             continue
-        out.append((ext_id, dt_local, phone, utm))
+        out.append((ext_id, dt_local, phone, source, utm))
     return out
 
 
@@ -155,16 +156,17 @@ def import_all():
             try:
                 rows = _fetch_rows(service, spreadsheet_id, sheet_name)
                 filtered = _filter_recent(rows, tz_name, lookback_days)
-                ext_ids = [e for (e, _, _, _) in filtered]
+                ext_ids = [e for (e, _, _, _, _) in filtered]
                 existing = _load_existing_ext_ids(s, ext_ids)
                 to_insert = [t for t in filtered if t[0] not in existing]
 
-                for ext_id, created_at_utc, phone, utm in to_insert:
+                for ext_id, created_at_utc, phone, source, utm in to_insert:
                     lead = models.Lead(
                         ext_id=ext_id,
                         project_id=project_id,
                         created_at=created_at_utc,
                         phone=phone,
+                        source=source,
                         utm_campaign=utm,
                         spreadsheet_id=spreadsheet_id,
                         sheet_name=sheet_name,
