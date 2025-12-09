@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from .time_utils import now_msk
 from typing import Dict, Iterable, List, Optional, Tuple, Any
 import os
 
@@ -150,7 +151,7 @@ def schedule_debounce(db: Session, minutes: int) -> None:
         db.add(state)
         db.flush()
     state.window_minutes = minutes
-    state.next_send_at = datetime.utcnow() + timedelta(minutes=minutes)
+    state.next_send_at = now_msk() + timedelta(minutes=minutes)
     db.commit()
 
 
@@ -300,7 +301,7 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
 
 def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id: int) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
-    now = datetime.utcnow()
+    now = now_msk()
     for it in items:
         sites = it.sites or None
         phones = it.phones or None
@@ -370,7 +371,7 @@ def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate, 
     p.sms_sender_name = update.smsSenderName or None
     p.days_received = _join_days(update.days)
     p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)
-    p.updated_at = datetime.utcnow()
+    p.updated_at = now_msk()
 
     after = _snapshot_project(p)
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
@@ -422,7 +423,7 @@ def fetch_pending_events(db: Session) -> Tuple[Optional[models.NotifyState], Lis
     state = db.get(models.NotifyState, 1)
     if not state or not state.next_send_at:
         return state, []
-    now = datetime.utcnow()
+    now = now_msk()
     if now < state.next_send_at:
         return state, []
     rows = db.execute(select(models.AuditEvent).where(models.AuditEvent.sent == False).order_by(models.AuditEvent.created_at.asc())).scalars().all()  # noqa: E712
@@ -570,7 +571,7 @@ def list_blacklist(db: Session, user_id: int) -> List[schemas.BlacklistPhoneOut]
 
 def add_to_blacklist(db: Session, user_id: int, phones: List[str]) -> List[schemas.BlacklistPhoneOut]:
     created: List[schemas.BlacklistPhoneOut] = []
-    now = datetime.utcnow()
+    now = now_msk()
     normalized_seen = set()
     for p in phones:
         # нормализация: только цифры, 11 символов, привести 8 к 7
@@ -808,7 +809,7 @@ def admin_mark_change_processed(db: Session, event_id: int, admin_user_id: int) 
     if ev.admin_processed_at is not None:
         # Уже обработано — считаем успехом
         return True
-    ev.admin_processed_at = datetime.utcnow()
+    ev.admin_processed_at = now_msk()
     ev.admin_processed_by = admin_user_id
     db.commit()
     return True
@@ -981,7 +982,7 @@ def admin_update_project(
     p.sms_sender_name = update.smsSenderName or None
     p.days_received = _join_days(update.days)
     p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)
-    p.updated_at = datetime.utcnow()
+    p.updated_at = now_msk()
 
     after = _snapshot_project(p)
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]

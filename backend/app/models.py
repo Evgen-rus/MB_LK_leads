@@ -3,6 +3,7 @@
 Назначение: ORM-модели БД (Project, AuditEvent, NotifyState, Lead).
 """
 from datetime import datetime
+from .time_utils import now_msk
 from typing import Optional
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey
@@ -19,7 +20,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     login = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
 
 
 class Project(Base):
@@ -46,8 +47,8 @@ class Project(Base):
     days_received = Column(String, nullable=False, default='')  # "Вт. Ср. ..."
     sources_count = Column(Integer, nullable=False, default=0)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
 
 
 class AuditEvent(Base):
@@ -60,7 +61,7 @@ class AuditEvent(Base):
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)
     changed_fields = Column(JSON, nullable=True)  # list[str]
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
     sent = Column(Boolean, default=False, nullable=False)
     # Поля для админской отметки обработки изменений (review)
     admin_processed_at = Column(DateTime, nullable=True)
@@ -104,7 +105,7 @@ class Lead(Base):
     # Служебные поля источника импорта
     spreadsheet_id = Column(String, nullable=False)
     sheet_name = Column(String, nullable=False, default="Данные")
-    imported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    imported_at = Column(DateTime, nullable=False, default=now_msk)
 
 
 class BlacklistPhone(Base):
@@ -116,7 +117,7 @@ class BlacklistPhone(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     phone = Column(String, nullable=False, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=now_msk)
 
 
 class ReportExport(Base):
@@ -132,7 +133,7 @@ class ReportExport(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=now_msk)
 
     from_date = Column(String, nullable=False)  # YYYY-MM-DD
     to_date = Column(String, nullable=False)    # YYYY-MM-DD

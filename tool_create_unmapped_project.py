@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime, timezone
+from backend.app.time_utils import now_msk
 
 from backend.app import db as db_mod
 from backend.app import models
@@ -35,7 +35,7 @@ def get_or_create_unmapped(db_url: str, name: str, tag: str, user_id: int | None
             print(f"Проект уже существует: id={existing.id}, name={existing.name}, tag={existing.tag}")
             return existing
 
-        now = datetime.now(timezone.utc)
+        now = now_msk()
         proj = models.Project(
             user_id=user_id,
             name=name,

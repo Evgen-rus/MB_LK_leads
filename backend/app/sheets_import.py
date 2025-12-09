@@ -17,6 +17,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from .time_utils import now_msk
 from typing import Dict, Iterable, List, Tuple
 
 from dotenv import load_dotenv
@@ -184,6 +185,9 @@ def import_all():
                 to_insert_raw = [t for t in filtered if t[0] not in existing]
 
                 resolved: List[models.Lead] = []
+                # Время импорта фиксируем в MSK (aware)
+                imported_at_local = now_msk()
+
                 for ext_id, created_at_utc, phone, source, utm in to_insert_raw:
                     # Ищем внутренний project_id по маппингу (external_id из env mapping)
                     internal_pid = project_map.get((project_id, source)) or project_map.get((project_id, None))
@@ -217,7 +221,7 @@ def import_all():
                         utm_campaign=utm,
                         spreadsheet_id=spreadsheet_id,
                         sheet_name=sheet_name,
-                        imported_at=datetime.utcnow(),
+                        imported_at=imported_at_local,
                     )
                     resolved.append(lead)
 
