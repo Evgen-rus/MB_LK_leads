@@ -35,6 +35,13 @@ function LeadsTable({ projects }: Props) {
     return m;
   }, [projects]);
 
+  // По умолчанию — все проекты
+  useEffect(() => {
+    if (projects.length && projectIds.length === 0) {
+      setProjectIds(projects.map((p) => p.id));
+    }
+  }, [projects, projectIds.length]);
+
   async function load(p = page, s = pageSize) {
     try {
       setLoading(true);
@@ -63,6 +70,13 @@ function LeadsTable({ projects }: Props) {
     });
     return Array.from(set).sort();
   }, [rows]);
+
+  // По умолчанию — все источники
+  useEffect(() => {
+    if (sourcesList.length && sources.length === 0) {
+      setSources(sourcesList);
+    }
+  }, [sourcesList, sources.length]);
 
   const handleExport = (format: 'csv' | 'xlsx') => {
     const url = buildLeadsExportUrl({ projectIds, sources, fromDate, toDate, format });

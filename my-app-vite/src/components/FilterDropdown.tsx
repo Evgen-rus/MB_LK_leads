@@ -6,13 +6,12 @@ type Props = {
   label: string;
   options: Option[];
   selected: string[];
-  placeholder?: string;
   allLabel?: string;
   onApply: (values: string[]) => void;
   disabled?: boolean;
 };
 
-function FilterDropdown({ label, options, selected, placeholder = 'Пусто = все', allLabel = 'Все', onApply, disabled }: Props) {
+function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply, disabled }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState<string[]>(selected);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -45,11 +44,14 @@ function FilterDropdown({ label, options, selected, placeholder = 'Пусто = 
     setIsOpen(false);
   };
 
-  const handleClear = () => {
-    setLocalSelected([]);
+  const handleSelectAll = () => {
+    setLocalSelected(options.map((o) => o.value));
   };
 
-  const summary = selected.length ? `${label}: ${selected.length}` : `${label}: все`;
+  const summary =
+    selected.length === options.length || options.length === 0
+      ? `${label}: все`
+      : `${label}: ${selected.length}`;
 
   return (
     <div className="export-dropdown" ref={dropdownRef} style={{ opacity: disabled ? 0.6 : 1 }}>
@@ -63,7 +65,6 @@ function FilterDropdown({ label, options, selected, placeholder = 'Пусто = 
       </button>
       {isOpen && (
         <div className="export-dropdown__menu" style={{ minWidth: 240 }}>
-          <div className="sub" style={{ padding: '6px 8px' }}>{placeholder}</div>
           <div style={{ maxHeight: 200, overflowY: 'auto', padding: '4px 0' }}>
             {options.map((opt) => (
               <label
@@ -87,7 +88,7 @@ function FilterDropdown({ label, options, selected, placeholder = 'Пусто = 
             )}
           </div>
           <div style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={handleClear} type="button">
+            <button className="btn" onClick={handleSelectAll} type="button">
               {allLabel}
             </button>
             <button className="btn" onClick={handleApply} type="button">

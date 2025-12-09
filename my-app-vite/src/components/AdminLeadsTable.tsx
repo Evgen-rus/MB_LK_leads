@@ -33,6 +33,13 @@ function AdminLeadsTable() {
     return m;
   }, [projects]);
 
+  // По умолчанию — все проекты клиента
+  useEffect(() => {
+    if (projects.length && projectIds.length === 0) {
+      setProjectIds(projects.map((p) => p.id));
+    }
+  }, [projects, projectIds.length]);
+
   async function loadUsers() {
     try {
       const list = await fetchAdminUsers();
@@ -106,6 +113,13 @@ function AdminLeadsTable() {
     });
     return Array.from(set).sort();
   }, [rows]);
+
+  // По умолчанию — все источники
+  useEffect(() => {
+    if (sourcesList.length && sources.length === 0) {
+      setSources(sourcesList);
+    }
+  }, [sourcesList, sources.length]);
 
   const handleExport = (format: 'csv' | 'xlsx') => {
     const url = buildLeadsExportUrl({

@@ -136,7 +136,7 @@ function AdminProjectsScreen({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="table-card">
         <div className="table-toolbar">
-          <div className="filters">
+          <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <select
               value={selectedClientId ?? ''}
               onChange={(e) => {
