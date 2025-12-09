@@ -25,6 +25,7 @@ export interface Project {
   dataLimit: number; // отображается как «Лимит»
   numbersToday: number; // «Номеров получено сегодня»
   numbersTotal: number; // «Номеров получено всего»
+  numbersPeriod: number; // «Номеров за период» (выбранный в календаре)
   daysReceived: string; // «Дни получения номеров», например: "Вт. Ср. Чт. Пт. Сб."
   sourcesCount: number; // «Доменов/номеров»: сколько источников используем для сбора
   createdAt: string; // «Дата создания проекта», формат YYYY-MM-DD

@@ -22,7 +22,7 @@ def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]],
     return (len(sites or [])) + (len(phones or [])) + (1 if sms_sender_name else 0)
 
 
-def _project_to_out(p: models.Project) -> schemas.ProjectOut:
+def _project_to_out(p: models.Project, numbers_period: int = 0) -> schemas.ProjectOut:
     return schemas.ProjectOut(
         id=p.id,
         status=p.status,  # type: ignore
@@ -39,6 +39,7 @@ def _project_to_out(p: models.Project) -> schemas.ProjectOut:
         dataLimit=p.data_limit,
         numbersToday=p.numbers_today,
         numbersTotal=p.numbers_total,
+        numbersPeriod=numbers_period,
         daysReceived=p.days_received,
         sourcesCount=p.sources_count,
         createdAt=p.created_at.isoformat()[:10],
@@ -158,7 +159,15 @@ def list_projects(db: Session) -> List[schemas.ProjectOut]:
     return [_project_to_out(p) for p in rows]
 
 
-def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None, user_id: int) -> schemas.ProjectListOut:
+def list_projects_paginated(
+    db: Session,
+    offset: int,
+    limit: int,
+    q: str | None,
+    user_id: int,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+) -> schemas.ProjectListOut:
     stmt = select(models.Project).where(models.Project.user_id == user_id)
     if q:
         q = q.strip()
@@ -177,7 +186,24 @@ def list_projects_paginated(db: Session, offset: int, limit: int, q: str | None,
             stmt = stmt.where(cond)
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
-    items = [_project_to_out(p) for p in rows]
+    # Подсчёт лидов за период, если диапазон задан
+    counts_map: Dict[int, int] = {}
+    if start_local and end_local and rows:
+        proj_ids = [p.id for p in rows]
+        cnt_rows = (
+            db.execute(
+                select(models.Lead.project_id, func.count())
+                .where(
+                    models.Lead.project_id.in_(proj_ids),
+                    models.Lead.created_at >= start_local,
+                    models.Lead.created_at <= end_local,
+                )
+                .group_by(models.Lead.project_id)
+            ).all()
+        )
+        counts_map = {int(pid): int(cnt) for pid, cnt in cnt_rows}
+
+    items = [_project_to_out(p, numbers_period=counts_map.get(p.id, 0)) for p in rows]
     return schemas.ProjectListOut(items=items, total=total)
 
 

@@ -193,7 +193,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
             <th>Статус проекта</th>
             <th>Источник сбора</th>
             <th>Лимит</th>
-            <th>Номеров получено сегодня</th>
+            <th>Номеров за период</th>
             <th>Номеров получено всего</th>
             <th>Дни получения номеров</th>
             <th>Доменов/номеров</th>
@@ -228,7 +228,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               </td>
               <td>{row.collectionSource}</td>
               <td>{row.dataLimit}</td>
-              <td>{row.numbersToday}</td>
+              <td>{row.numbersPeriod ?? row.numbersToday}</td>
               <td>{row.numbersTotal}</td>
               <td className="muted">{row.daysReceived}</td>
               <td>{row.sourcesCount}</td>

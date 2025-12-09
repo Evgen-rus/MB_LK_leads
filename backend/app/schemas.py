@@ -63,6 +63,7 @@ class ProjectOut(BaseModel):
     dataLimit: int
     numbersToday: int
     numbersTotal: int
+    numbersPeriod: int = 0
     daysReceived: str
     sourcesCount: int
     createdAt: str
