@@ -453,3 +453,38 @@ nginx -t && systemctl reload nginx
 ```bash
 python -m backend.app.sheets_import
 ```
+
+## 🆕 Утилиты и настройка маппинга лидов (внешние ID → внутренние проекты)
+
+- Служебный проект для несопоставленных лидов (fallback):
+  ```bash
+  python create_unmapped_project.py --user-id 1  # создаёт/находит проект с tag=UNMAPPED, выводит id
+  ```
+  В `.env` указать `UNMAPPED_PROJECT_ID=<id_из_вывода>` — тогда лиды без маппинга будут складываться в этот проект.
+
+- Маппинг внешнего project_id и source (B1/B2/B3/B4) во внутренний `projects.id`:
+  ```bash
+  # добавить/обновить связь
+  python map_projects.py set --external 128 --source B1 --project 1
+
+  # показать все связи
+  python map_projects.py list
+
+  # показать пары (external_id, source) из leads без маппинга
+  python map_projects.py unmapped
+
+  # применить маппинг к уже загруженным лидам (переназначить project_id)
+  python map_projects.py apply --dry-run
+  python map_projects.py apply
+  ```
+
+- Поведение импорта (`python -m backend.app.sheets_import`):
+  - Ищет соответствие в `project_id_map` по паре (external project_id из `SHEETS_MAP`, source из столбца D).
+  - Если нет соответствия и задан `UNMAPPED_PROJECT_ID` — кладёт лид в этот проект, сохраняя `external_project_id` и `source`.
+  - Если `UNMAPPED_PROJECT_ID` пустой — несопоставленные лиды пропускаются (логируется warning).
+
+- Быстрый просмотр БД:
+  ```bash
+  python inspect_db.py               # все projects; по 5 первых/последних leads для min/max project_id
+  python inspect_db.py --db app.db
+  ```

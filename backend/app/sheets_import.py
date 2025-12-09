@@ -24,7 +24,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from . import db, models, logging_setup
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
@@ -129,6 +129,25 @@ def _load_existing_ext_ids(db_sess, ext_ids: List[int]) -> set[int]:
     return {int(r[0]) for r in rows}
 
 
+def _load_project_map(db_sess) -> Dict[tuple[int, str | None], int]:
+    """
+    Читает таблицу project_id_map: (external_id, source) -> project_id.
+    source может быть NULL; в словаре используется ключ (external_id, None).
+    """
+    mapping: Dict[tuple[int, str | None], int] = {}
+    try:
+        rows = db_sess.execute(text("SELECT external_id, source, project_id FROM project_id_map")).fetchall()
+        for r in rows:
+            external_id = int(r.external_id)
+            src = r.source if r.source is not None else None
+            pid = int(r.project_id)
+            mapping[(external_id, src)] = pid
+    except Exception:
+        # Если таблицы нет — вернём пустой маппинг
+        return {}
+    return mapping
+
+
 def import_all():
     log = logging.getLogger("app.import")
 
@@ -137,6 +156,7 @@ def import_all():
     sheet_name = _get_env("SHEETS_SHEET_NAMES", "Данные").split(",")[0].strip() or "Данные"
     lookback_days = int(_get_env("LEADS_IMPORT_LOOKBACK_DAYS", "3"))
     mapping = _parse_map(_get_env("SHEETS_MAP", ""))
+    fallback_project_id = int(_get_env("UNMAPPED_PROJECT_ID", "0") or "0") or None
 
     if not credentials_file or not os.path.exists(credentials_file):
         log.error("GOOGLE_CREDENTIALS_FILE not found: %s", credentials_file)
@@ -151,19 +171,46 @@ def import_all():
     models.Base.metadata.create_all(bind=engine)
 
     total_created = 0
+    total_skipped_unmapped = 0
+    total_fallback = 0
     with SessionLocal() as s:
+        project_map = _load_project_map(s)
         for spreadsheet_id, project_id in mapping.items():
             try:
                 rows = _fetch_rows(service, spreadsheet_id, sheet_name)
                 filtered = _filter_recent(rows, tz_name, lookback_days)
                 ext_ids = [e for (e, _, _, _, _) in filtered]
                 existing = _load_existing_ext_ids(s, ext_ids)
-                to_insert = [t for t in filtered if t[0] not in existing]
+                to_insert_raw = [t for t in filtered if t[0] not in existing]
 
-                for ext_id, created_at_utc, phone, source, utm in to_insert:
+                resolved: List[models.Lead] = []
+                for ext_id, created_at_utc, phone, source, utm in to_insert_raw:
+                    # Ищем внутренний project_id по маппингу (external_id из env mapping)
+                    internal_pid = project_map.get((project_id, source)) or project_map.get((project_id, None))
+                    if internal_pid is None:
+                        if fallback_project_id:
+                            internal_pid = fallback_project_id
+                            total_fallback += 1
+                            log.info(
+                                "Fallback lead ext_id=%s: external project_id=%s, source=%s -> fallback project_id=%s",
+                                ext_id,
+                                project_id,
+                                source,
+                                fallback_project_id,
+                            )
+                        else:
+                            total_skipped_unmapped += 1
+                            log.warning(
+                                "Skip lead ext_id=%s: no mapping for external project_id=%s, source=%s",
+                                ext_id,
+                                project_id,
+                                source,
+                            )
+                            continue
                     lead = models.Lead(
                         ext_id=ext_id,
-                        project_id=project_id,
+                        project_id=internal_pid,
+                        external_project_id=project_id,
                         created_at=created_at_utc,
                         phone=phone,
                         source=source,
@@ -172,15 +219,27 @@ def import_all():
                         sheet_name=sheet_name,
                         imported_at=datetime.utcnow(),
                     )
-                    s.add(lead)
+                    resolved.append(lead)
+
+                s.add_all(resolved)
                 s.commit()
-                total_created += len(to_insert)
-                log.info("Imported %d new leads (sheet=%s, project=%d)", len(to_insert), spreadsheet_id, project_id)
+                total_created += len(resolved)
+                log.info(
+                    "Imported %d new leads (sheet=%s, external_project=%d)",
+                    len(resolved),
+                    spreadsheet_id,
+                    project_id,
+                )
             except Exception:
                 # Глотаем и продолжаем, логируем ошибку
                 log.exception("Import failed for sheet %s (project %d)", spreadsheet_id, project_id)
 
-    log.info("Total new leads: %d", total_created)
+    log.info(
+        "Total new leads: %d (fallback used: %d, skipped unmapped: %d)",
+        total_created,
+        total_fallback,
+        total_skipped_unmapped,
+    )
 
 
 def main():

@@ -83,6 +83,9 @@ class Lead(Base):
     # Внешний ID из Google Sheets (столбец A: "ID")
     ext_id = Column(BigInteger, nullable=False, unique=True, index=True)
 
+    # Внешний project_id (из источника/Sheets), для контроля
+    external_project_id = Column(Integer, nullable=True, index=True)
+
     # Привязка к проекту (Project.id)
     project_id = Column(Integer, nullable=False, index=True)
 
