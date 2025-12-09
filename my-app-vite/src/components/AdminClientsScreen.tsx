@@ -250,9 +250,12 @@ function AdminClientsScreen({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="table-card">
+        <div className="table-card">
         <div className="table-toolbar">
-          <div className="filters">
+          <div
+            className="filters"
+            style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}
+          >
             <DateRangeFilter
               from={range.from}
               to={range.to}
@@ -274,6 +277,7 @@ function AdminClientsScreen({
                   setPage(1);
                 }
               }}
+              style={{ minWidth: 240, marginLeft: 'auto' }}
             />
           </div>
           <div className="actions">

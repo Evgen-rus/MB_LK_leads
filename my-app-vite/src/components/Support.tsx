@@ -66,7 +66,7 @@ function Support() {
           <div className="sub" style={{ marginBottom: 6 }}>
             Заявка на звонок
           </div>
-          <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 10 }}>
+          <form onSubmit={handleSubmit} className="support-form" style={{ display: 'grid', gap: 10 }}>
             <label style={{ display: 'grid', gap: 4, fontSize: '0.85rem' }}>
               Ваш телефон
               <input
