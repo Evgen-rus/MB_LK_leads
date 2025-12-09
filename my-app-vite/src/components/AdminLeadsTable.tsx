@@ -168,7 +168,6 @@ function AdminLeadsTable() {
             label="Проекты"
             options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
             selected={projectIds.map(String)}
-            placeholder="Пусто = все проекты"
             allLabel="Все проекты"
             disabled={!userIdFilter}
             onApply={(vals) => {
@@ -182,7 +181,6 @@ function AdminLeadsTable() {
             label="Источники"
             options={sourcesList.map((s) => ({ value: s, label: s }))}
             selected={sources}
-            placeholder="Пусто = все источники"
             allLabel="Все источники"
             onApply={(vals) => {
               setSources(vals);

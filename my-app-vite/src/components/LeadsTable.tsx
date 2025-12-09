@@ -101,7 +101,6 @@ function LeadsTable({ projects }: Props) {
             label="Проекты"
             options={projects.map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
             selected={projectIds.map(String)}
-            placeholder="Пусто = все проекты"
             allLabel="Все проекты"
             onApply={(vals) => {
               setProjectIds(vals.map(Number));
@@ -113,7 +112,6 @@ function LeadsTable({ projects }: Props) {
             label="Источники"
             options={sourcesList.map((s) => ({ value: s, label: s }))}
             selected={sources}
-            placeholder="Пусто = все источники"
             allLabel="Все источники"
             onApply={(vals) => {
               setSources(vals);

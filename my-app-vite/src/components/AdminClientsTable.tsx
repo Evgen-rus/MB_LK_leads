@@ -5,11 +5,9 @@ import type { CollectionSource } from '../types/project';
 import {
   fetchAdminProjects,
   fetchAdminUsers,
-  updateAdminProject,
   deleteAdminProject,
   type AdminProject,
   type UserInfo,
-  type AdminProjectUpdate,
 } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 
