@@ -16,7 +16,7 @@ export interface Project {
   name: string;
   tag: string;
   collectionSource: CollectionSource; // «Источник сбора»
-  dataSourceCode: 'B1' | 'B2' | 'B3' | 'B4';
+  dataSourceCode: 'B1' | 'B2' | 'B3' | 'B4' | 'UNMAPPED';
   regionMode?: 'include' | 'exclude';
   regions?: string[];
   sites?: string[];

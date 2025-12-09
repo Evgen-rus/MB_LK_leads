@@ -12,7 +12,7 @@ Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
 ProjectStatus = Literal['Активен', 'На паузе']
 DeliveryStatus = Literal['Активна', 'На модерации', 'Отключена']
 CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение']
-DataSourceCode = Literal['B1','B2','B3','B4']
+DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
 
 
 class CreateProjectItem(BaseModel):
