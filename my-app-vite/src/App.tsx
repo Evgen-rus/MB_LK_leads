@@ -23,6 +23,8 @@ import { createProjects as apiCreate, fetchProjects as apiList, updateProject as
 import Login from './components/Login';
 import { isJwtValid, isAdminFromToken } from './utils/jwt';
 
+const STORAGE_VIEW_KEY = 'last_view';
+
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [rows, setRows] = useState<Project[]>([]);
@@ -30,7 +32,25 @@ function App() {
   const [historyFor, setHistoryFor] = useState<Project | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const [view, setView] = useState<ViewType>('projects');
+  const [view, setView] = useState<ViewType>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_VIEW_KEY);
+      if (
+        saved === 'projects' ||
+        saved === 'leads' ||
+        saved === 'reports' ||
+        saved === 'integrations' ||
+        saved === 'support' ||
+        saved === 'blacklist' ||
+        saved === 'admin-clients'
+      ) {
+        return saved as ViewType;
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'projects';
+  });
   const [isAdmin, setIsAdmin] = useState(false);
   // Состояние только для админов: какой клиент выбран во вкладке «Проекты»
   const [adminProjectsClientId, setAdminProjectsClientId] = useState<number | null>(null);
@@ -64,6 +84,37 @@ function App() {
       setAuthChecked(true);
     }
   }, []);
+
+  // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
+  useEffect(() => {
+    if (!authChecked || needLogin) return;
+    if (!isAdmin && view === 'admin-clients') {
+      setView('projects');
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    // если вдруг сохранённая вкладка невалидная, откатываем
+    if (
+      view !== 'projects' &&
+      view !== 'leads' &&
+      view !== 'reports' &&
+      view !== 'integrations' &&
+      view !== 'support' &&
+      view !== 'blacklist' &&
+      view !== 'admin-clients'
+    ) {
+      setView('projects');
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [authChecked, needLogin, isAdmin, view]);
 
   // Загрузка данных после подтверждённой авторизации
   useEffect(() => {
@@ -114,6 +165,11 @@ function App() {
           active={view}
           onNavigate={(next) => {
             setView(next);
+            try {
+              localStorage.setItem(STORAGE_VIEW_KEY, next);
+            } catch {
+              /* ignore */
+            }
             // При переключении вкладок не трогаем выбранного клиента,
             // чтобы можно было вернуться обратно в «Проекты» с тем же контекстом.
           }}
