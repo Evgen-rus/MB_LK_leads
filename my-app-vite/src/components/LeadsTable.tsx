@@ -1,5 +1,5 @@
 // Таблица лидов с фильтрами по проекту и дате
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Project } from '../types/project';
 import { fetchLeads, buildLeadsExportUrl, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
@@ -28,6 +28,12 @@ function LeadsTable({ projects }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+
+  const projectNameMap = useMemo(() => {
+    const m = new Map<number, string>();
+    projects.forEach((p) => m.set(p.id, p.name));
+    return m;
+  }, [projects]);
 
   async function load(p = page, s = pageSize) {
     try {
@@ -113,7 +119,8 @@ function LeadsTable({ projects }: Props) {
         <thead>
           <tr>
             <th>ext_id</th>
-            <th>project_id</th>
+            <th>Проект</th>
+            <th>Источник</th>
             <th>Дата</th>
             <th>Телефон</th>
             <th>UTM_CAMPAIGN</th>
@@ -123,8 +130,12 @@ function LeadsTable({ projects }: Props) {
           {rows.map((r, idx) => (
             <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
               <td className="muted">{r.ext_id}</td>
-              <td className="muted">{r.project_id}</td>
-              <td>{r.created_at}</td>
+              <td>
+                <div className="name">{projectNameMap.get(r.project_id) ?? '—'}</div>
+                <div className="sub">id: {r.project_id}</div>
+              </td>
+              <td className="muted">{r.source ?? ''}</td>
+              <td>{r.imported_at}</td>
               <td>{r.phone}</td>
               <td className="muted">{r.utm_campaign ?? ''}</td>
             </tr>

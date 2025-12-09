@@ -182,9 +182,11 @@ export async function logout(): Promise<void> {
 export type Lead = {
   ext_id: number;
   project_id: number;
-  created_at: string; // ISO string
+  created_at: string; // ISO string (время из источника)
+  imported_at: string; // ISO string (время попадания в БД)
   phone: string;
   utm_campaign?: string | null;
+  source?: string | null;
 };
 
 export type LeadsListResp = { items: Lead[]; total: number };
@@ -367,6 +369,7 @@ export async function deleteAdminProject(id: number): Promise<void> {
 
 // -------- Админские лиды --------
 export type AdminLead = Lead & {
+  project_name?: string | null;
   user: UserInfo;
 };
 

@@ -123,8 +123,10 @@ class LeadOut(BaseModel):
     ext_id: int
     project_id: int
     created_at: str
+    imported_at: str
     phone: str
     utm_campaign: Optional[str] = None
+    source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -140,8 +142,11 @@ class AdminLeadOut(BaseModel):
     ext_id: int
     project_id: int
     created_at: str
+    imported_at: str
     phone: str
     utm_campaign: Optional[str] = None
+    source: Optional[str] = None
+    project_name: Optional[str] = None
     user: UserInfo
 
     class Config:

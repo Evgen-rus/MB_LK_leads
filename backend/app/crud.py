@@ -442,9 +442,9 @@ def mark_events_sent_and_clear(db: Session, events: List[models.AuditEvent]) -> 
 def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, limit: int = 1000) -> List[schemas.LeadOut]:
     stmt = (
         select(models.Lead)
-        .where(models.Lead.created_at >= start_local)
-        .where(models.Lead.created_at < end_local)
-        .order_by(models.Lead.created_at.desc())
+        .where(models.Lead.imported_at >= start_local)
+        .where(models.Lead.imported_at < end_local)
+        .order_by(models.Lead.imported_at.desc())
         .limit(limit)
     )
     if project_ids:
@@ -456,8 +456,10 @@ def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datet
             ext_id=r.ext_id,
             project_id=r.project_id,
             created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=r.phone,
             utm_campaign=r.utm_campaign,
+            source=r.source,
         ))
     return out
 
@@ -477,20 +479,22 @@ def fetch_leads_for_export(db: Session, project_ids: Optional[List[int]], start_
 
 def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int) -> schemas.LeadsListOut:
     base = select(models.Lead).where(
-        and_(models.Lead.created_at >= start_local, models.Lead.created_at < end_local)
+        and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
     )
     if project_ids:
         base = base.where(models.Lead.project_id.in_(project_ids))
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
-    rows = db.execute(base.order_by(models.Lead.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()
     items: List[schemas.LeadOut] = []
     for r in rows:
         items.append(schemas.LeadOut(
             ext_id=r.ext_id,
             project_id=r.project_id,
             created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=r.phone,
             utm_campaign=r.utm_campaign,
+            source=r.source,
         ))
     return schemas.LeadsListOut(items=items, total=total)
 
@@ -1041,26 +1045,26 @@ def admin_list_all_leads(
             return schemas.AdminLeadsListOut(items=[], total=0)
 
     base = select(models.Lead).where(
-        and_(models.Lead.created_at >= start_local, models.Lead.created_at < end_local)
+        and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
     )
     if proj_ids is not None:
         base = base.where(models.Lead.project_id.in_(proj_ids))
 
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
-    rows = db.execute(base.order_by(models.Lead.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()
 
     # Собираем user info для всех лидов через их проекты
     project_ids_in_rows = set(r.project_id for r in rows)
-    projects_map: Dict[int, int] = {}  # project_id -> user_id
+    projects_map: Dict[int, Tuple[int, str]] = {}  # project_id -> (user_id, name)
     if project_ids_in_rows:
         proj_rows = db.execute(
-            select(models.Project.id, models.Project.user_id)
+            select(models.Project.id, models.Project.user_id, models.Project.name)
             .where(models.Project.id.in_(project_ids_in_rows))
         ).all()
-        for pid, uid in proj_rows:
-            projects_map[pid] = uid
+        for pid, uid, name in proj_rows:
+            projects_map[pid] = (uid, name)
 
-    user_ids = set(projects_map.values())
+    user_ids = set(uid for uid, _ in projects_map.values())
     users_map: Dict[int, schemas.UserInfo] = {}
     if user_ids:
         users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
@@ -1069,14 +1073,17 @@ def admin_list_all_leads(
 
     items: List[schemas.AdminLeadOut] = []
     for r in rows:
-        uid = projects_map.get(r.project_id, 0)
+        uid, pname = projects_map.get(r.project_id, (0, "(unknown)"))
         user_info = users_map.get(uid, schemas.UserInfo(id=uid, login="(unknown)"))
         items.append(schemas.AdminLeadOut(
             ext_id=r.ext_id,
             project_id=r.project_id,
             created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=r.phone,
             utm_campaign=r.utm_campaign,
+            source=r.source,
+            project_name=pname,
             user=user_info,
         ))
 

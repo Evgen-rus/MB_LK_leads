@@ -1,6 +1,6 @@
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
@@ -24,6 +24,12 @@ function AdminLeadsTable() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+
+  const projectNameMap = useMemo(() => {
+    const m = new Map<number, string>();
+    projects.forEach((p) => m.set(p.id, p.name));
+    return m;
+  }, [projects]);
 
   async function loadUsers() {
     try {
@@ -159,9 +165,10 @@ function AdminLeadsTable() {
         <table className="table">
           <thead>
             <tr>
-              <th>ext_id</th>
               <th>Клиент</th>
-              <th>project_id</th>
+              <th>ext_id</th>
+              <th>Проект</th>
+              <th>Источник</th>
               <th>Дата</th>
               <th>Телефон</th>
               <th>UTM_CAMPAIGN</th>
@@ -170,27 +177,31 @@ function AdminLeadsTable() {
           <tbody>
             {!userIdFilter && !loading && (
               <tr>
-                <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Выберите клиента, чтобы увидеть идентификации.
                 </td>
               </tr>
             )}
             {userIdFilter && !loading && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Данных за выбранный период нет.
                 </td>
               </tr>
             )}
             {rows.map((r, idx) => (
               <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
-                <td className="muted">{r.ext_id}</td>
                 <td>
                   <div className="name">{r.user.login}</div>
                   <div className="sub">id: {r.user.id}</div>
                 </td>
-                <td className="muted">{r.project_id}</td>
-                <td>{r.created_at}</td>
+                <td className="muted">{r.ext_id}</td>
+                <td>
+                  <div className="name">{r.project_name ?? projectNameMap.get(r.project_id) ?? '—'}</div>
+                  <div className="sub">id: {r.project_id}</div>
+                </td>
+                <td className="muted">{r.source ?? ''}</td>
+                <td>{r.imported_at}</td>
                 <td>{r.phone}</td>
                 <td className="muted">{r.utm_campaign ?? ''}</td>
               </tr>
