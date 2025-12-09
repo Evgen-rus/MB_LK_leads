@@ -22,7 +22,7 @@ def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]],
     return (len(sites or [])) + (len(phones or [])) + (1 if sms_sender_name else 0)
 
 
-def _project_to_out(p: models.Project, numbers_period: int = 0) -> schemas.ProjectOut:
+def _project_to_out(p: models.Project, numbers_period: int = 0, numbers_total: Optional[int] = None) -> schemas.ProjectOut:
     return schemas.ProjectOut(
         id=p.id,
         status=p.status,  # type: ignore
@@ -38,7 +38,7 @@ def _project_to_out(p: models.Project, numbers_period: int = 0) -> schemas.Proje
         smsSenderName=p.sms_sender_name,  # type: ignore
         dataLimit=p.data_limit,
         numbersToday=p.numbers_today,
-        numbersTotal=p.numbers_total,
+        numbersTotal=p.numbers_total if numbers_total is None else numbers_total,
         numbersPeriod=numbers_period,
         daysReceived=p.days_received,
         sourcesCount=p.sources_count,
@@ -187,10 +187,11 @@ def list_projects_paginated(
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
     # Подсчёт лидов за период, если диапазон задан
-    counts_map: Dict[int, int] = {}
+    counts_period_map: Dict[int, int] = {}
+    counts_total_map: Dict[int, int] = {}
     if start_local and end_local and rows:
         proj_ids = [p.id for p in rows]
-        cnt_rows = (
+        cnt_rows_period = (
             db.execute(
                 select(models.Lead.project_id, func.count())
                 .where(
@@ -201,9 +202,25 @@ def list_projects_paginated(
                 .group_by(models.Lead.project_id)
             ).all()
         )
-        counts_map = {int(pid): int(cnt) for pid, cnt in cnt_rows}
+        counts_period_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_period}
 
-    items = [_project_to_out(p, numbers_period=counts_map.get(p.id, 0)) for p in rows]
+        cnt_rows_total = (
+            db.execute(
+                select(models.Lead.project_id, func.count())
+                .where(models.Lead.project_id.in_(proj_ids))
+                .group_by(models.Lead.project_id)
+            ).all()
+        )
+        counts_total_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_total}
+
+    items = [
+        _project_to_out(
+            p,
+            numbers_period=counts_period_map.get(p.id, 0),
+            numbers_total=counts_total_map.get(p.id),
+        )
+        for p in rows
+    ]
     return schemas.ProjectListOut(items=items, total=total)
 
 
@@ -820,9 +837,14 @@ def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
     return schemas.UserInfo(id=user.id, login=user.login)
 
 
-def _admin_project_to_out(p: models.Project, user_info: schemas.UserInfo) -> schemas.AdminProjectOut:
+def _admin_project_to_out(
+    p: models.Project,
+    user_info: schemas.UserInfo,
+    numbers_period: int = 0,
+    numbers_total: Optional[int] = None,
+) -> schemas.AdminProjectOut:
     """Преобразует Project в AdminProjectOut (включая user info)."""
-    base = _project_to_out(p)
+    base = _project_to_out(p, numbers_period=numbers_period, numbers_total=numbers_total)
     return schemas.AdminProjectOut(
         **base.dict(),
         user=user_info,
@@ -835,6 +857,8 @@ def admin_list_all_projects(
     limit: int,
     q: str | None,
     user_id_filter: int | None = None,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
 ) -> schemas.AdminProjectListOut:
     """
     Список всех проектов всех пользователей (для админа).
@@ -879,10 +903,43 @@ def admin_list_all_projects(
         for u in users:
             users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
 
+    counts_period_map: Dict[int, int] = {}
+    counts_total_map: Dict[int, int] = {}
+    if start_local and end_local and rows:
+        proj_ids = [p.id for p in rows]
+        cnt_rows_period = (
+            db.execute(
+                select(models.Lead.project_id, func.count())
+                .where(
+                    models.Lead.project_id.in_(proj_ids),
+                    models.Lead.created_at >= start_local,
+                    models.Lead.created_at <= end_local,
+                )
+                .group_by(models.Lead.project_id)
+            ).all()
+        )
+        counts_period_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_period}
+
+        cnt_rows_total = (
+            db.execute(
+                select(models.Lead.project_id, func.count())
+                .where(models.Lead.project_id.in_(proj_ids))
+                .group_by(models.Lead.project_id)
+            ).all()
+        )
+        counts_total_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_total}
+
     items: List[schemas.AdminProjectOut] = []
     for p in rows:
         user_info = users_map.get(p.user_id, schemas.UserInfo(id=p.user_id or 0, login="(unknown)"))
-        items.append(_admin_project_to_out(p, user_info))
+        items.append(
+            _admin_project_to_out(
+                p,
+                user_info,
+                numbers_period=counts_period_map.get(p.id, 0),
+                numbers_total=counts_total_map.get(p.id),
+            )
+        )
 
     return schemas.AdminProjectListOut(items=items, total=total)
 

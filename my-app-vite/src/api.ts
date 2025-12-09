@@ -336,12 +336,16 @@ export async function fetchAdminProjects(params?: {
   limit?: number;
   q?: string;
   userId?: number;
+  fromDate?: string;
+  toDate?: string;
 }): Promise<AdminProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
   if (params?.limit != null) q.set('limit', String(params.limit));
   if (params?.q) q.set('q', params.q);
   if (params?.userId != null) q.set('userId', String(params.userId));
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
   const qs = q.toString();
   return http<AdminProjectListResp>(`/admin/projects${qs ? `?${qs}` : ''}`);
 }

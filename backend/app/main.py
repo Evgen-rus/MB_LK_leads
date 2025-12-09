@@ -525,13 +525,45 @@ def admin_list_projects(
     limit: int = 50,
     q: str | None = None,
     userId: int | None = None,
+    fromDate: Optional[str] = None,  # YYYY-MM-DD
+    toDate: Optional[str] = None,    # YYYY-MM-DD
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    """Список всех проектов всех клиентов."""
+    """Список всех проектов всех клиентов с поддержкой периода для подсчёта лидов."""
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
-    return crud.admin_list_all_projects(db_sess, offset=offset, limit=limit, q=q, user_id_filter=userId)
+
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+
+    start_naive = start_local.replace(tzinfo=None)
+    end_naive = end_local.replace(tzinfo=None)
+
+    return crud.admin_list_all_projects(
+        db_sess,
+        offset=offset,
+        limit=limit,
+        q=q,
+        user_id_filter=userId,
+        start_local=start_naive,
+        end_local=end_naive,
+    )
 
 
 @app.get("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)

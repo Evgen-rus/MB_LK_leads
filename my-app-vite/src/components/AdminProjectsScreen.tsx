@@ -21,6 +21,7 @@ import {
 } from '../api';
 import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';
+import DateRangeFilter from './DateRangeFilter';
 
 export type AdminProjectsFocus = 'projects' | 'changes' | null;
 
@@ -36,6 +37,16 @@ type ClientOption = {
   id: number;
   name: string;
 };
+
+type DateRange = {
+  from: string;
+  to: string;
+};
+
+function getTodayRange(): DateRange {
+  const today = new Date().toISOString().slice(0, 10);
+  return { from: today, to: today };
+}
 
 function AdminProjectsScreen({
   initialClientId = null,
@@ -55,6 +66,7 @@ function AdminProjectsScreen({
   );
 
   const [focus, setFocus] = useState<AdminProjectsFocus>(initialFocus ?? 'projects');
+  const [range, setRange] = useState<DateRange>(() => getTodayRange());
 
   // Загрузка списка клиентов для селекта
   useEffect(() => {
@@ -147,6 +159,13 @@ function AdminProjectsScreen({
                 </option>
               ))}
             </select>
+            <DateRangeFilter
+              from={range.from}
+              to={range.to}
+              onChange={(r) => {
+                setRange(r);
+              }}
+            />
           </div>
           <div className="actions">
             {clientsError && (
@@ -219,6 +238,8 @@ function AdminProjectsScreen({
             <AdminClientProjects
               clientId={selectedClientId}
               clientName={selectedClientName}
+                  fromDate={range.from}
+                  toDate={range.to}
               projectChanges={projectChanges}
             />
           )}

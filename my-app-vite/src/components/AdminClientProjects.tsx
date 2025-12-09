@@ -7,11 +7,13 @@ import AdminEditProjectModal from './AdminEditProjectModal';
 type AdminClientProjectsProps = {
   clientId: number;
   clientName: string;
+  fromDate: string;
+  toDate: string;
   // Количество необработанных изменений по каждому проекту (projectId -> count)
   projectChanges?: Record<number, number>;
 };
 
-function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -21,7 +23,7 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminProject | null>(null);
 
-  async function load(p = page, s = pageSize, q = search) {
+  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate) {
     try {
       setLoading(true);
       setError(null);
@@ -31,6 +33,8 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
         limit: s,
         q: q.trim() || undefined,
         userId: clientId,
+        fromDate: from,
+        toDate: to,
       });
       setRows(resp.items);
       setTotal(resp.total);
@@ -43,9 +47,9 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
   }
 
   useEffect(() => {
-    load(1);
+    load(1, pageSize, search, fromDate, toDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId]);
+  }, [clientId, fromDate, toDate]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -142,8 +146,8 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
               <th>Лимит</th>
               <th>Остаток</th>
               <th>Источник</th>
-              <th>Сегодня</th>
-              <th>Всего</th>
+              <th>Номеров за период</th>
+              <th>Номеров всего</th>
               <th>Действия</th>
             </tr>
           </thead>
@@ -200,7 +204,7 @@ function AdminClientProjects({ clientId, clientName, projectChanges }: AdminClie
                   <td>{row.dataLimit}</td>
                   <td>{calcRemaining(row)}</td>
                   <td>{row.collectionSource}</td>
-                  <td>{row.numbersToday}</td>
+                  <td>{row.numbersPeriod ?? row.numbersToday}</td>
                   <td>{row.numbersTotal}</td>
                   <td>
                     <button
