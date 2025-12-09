@@ -65,15 +65,6 @@ function getTodayRange(): DateRange {
   return { from: today, to: today };
 }
 
-// Кол-во дней в диапазоне (включая границы), минимум 1
-function getDaysInRange(range: DateRange): number {
-  const from = new Date(range.from);
-  const to = new Date(range.to);
-  const ms = to.getTime() - from.getTime();
-  const days = Math.floor(ms / (1000 * 60 * 60 * 24)) + 1;
-  return Number.isFinite(days) && days > 0 ? days : 1;
-}
-
 function groupProjectsByUser(projects: AdminProject[]): Map<number, AdminProject[]> {
   const map = new Map<number, AdminProject[]>();
   projects.forEach((p) => {
@@ -127,18 +118,22 @@ function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow
     const list = byUser.get(u.id) ?? [];
     const projectCount = list.length;
     const totalLimit = list.reduce((sum, p) => sum + (p.dataLimit || 0), 0);
-    const totalUsed = list.reduce((sum, p) => sum + (p.numbersTotal || 0), 0);
-    const remainingBase = Math.max(0, totalLimit - totalUsed);
+    // Реальные данные за выбранный период: numbersPeriod, если нет — numbersTotal
+    const totalUsedPeriod = list.reduce(
+      (sum, p) => sum + (p.numbersPeriod ?? p.numbersTotal ?? 0),
+      0,
+    );
     const statusBase = deriveClientStatus(list);
+    const remainingBase = Math.max(0, totalLimit - totalUsedPeriod);
     const baseRow: ClientRow = {
       id: u.id,
       name: u.login,
       projectCount,
       status: statusBase,
       remaining: remainingBase,
-      totalVolume: totalUsed,
+      totalVolume: totalUsedPeriod,
       baseRemaining: remainingBase,
-      baseTotalVolume: totalUsed,
+      baseTotalVolume: totalUsedPeriod,
       pendingChanges: 0,
     };
     return applyDemoDebtStatus(baseRow);
@@ -165,7 +160,7 @@ function AdminClientsScreen({
         setError(null);
         const [users, projectsResp, changesSummary] = await Promise.all([
           fetchAdminUsers(),
-          fetchAdminProjects({ offset: 0, limit: 10000 }),
+          fetchAdminProjects({ offset: 0, limit: 10000, fromDate: range.from, toDate: range.to }),
           fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
         ]);
         const rowsBase = buildClientRows(users, projectsResp.items);
@@ -178,6 +173,7 @@ function AdminClientsScreen({
           pendingChanges: pendingMap[r.id] ?? 0,
         }));
         setBaseClients(rows);
+        setPage(1);
       } catch (e: any) {
         console.error(e);
         setError(e?.message || 'Не удалось загрузить клиентов');
@@ -185,30 +181,9 @@ function AdminClientsScreen({
         setLoading(false);
       }
     })();
-  }, []);
+  }, [range]);
 
-  // Пересчёт значений клиентов под выбранный период (демо, только фронт)
-  const clients = useMemo(() => {
-    const days = getDaysInRange(range);
-    const DEMO_BASE_DAYS = 30; // условный базовый период для распределения
-
-    return baseClients.map((row) => {
-      const limit = row.baseRemaining + row.baseTotalVolume;
-      if (!limit || row.baseTotalVolume <= 0) {
-        // Нет данных — просто возвращаем базу
-        return applyDemoDebtStatus(row);
-      }
-      const usedPerDay = row.baseTotalVolume / DEMO_BASE_DAYS;
-      const demoUsed = Math.min(row.baseTotalVolume, Math.round(usedPerDay * days));
-      const demoRemaining = Math.max(0, limit - demoUsed);
-      const updated: ClientRow = {
-        ...row,
-        totalVolume: demoUsed,
-        remaining: demoRemaining,
-      };
-      return applyDemoDebtStatus(updated);
-    });
-  }, [baseClients, range]);
+  const clients = useMemo(() => baseClients, [baseClients]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -300,7 +275,7 @@ function AdminClientsScreen({
                 <th>Кол-во проектов</th>
                 <th>Статус клиента</th>
                 <th>Остаток</th>
-                <th>Общий объём данных</th>
+                <th>Общий объём данных за период</th>
                 <th>Действия</th>
               </tr>
             </thead>
@@ -551,7 +526,7 @@ function AdminClientsScreen({
                 <div>{selectedClient.remaining}</div>
               </div>
               <div>
-                <div className="sub">Общий объём данных</div>
+                <div className="sub">Общий объём данных за период</div>
                 <div>{selectedClient.totalVolume}</div>
               </div>
             </div>
