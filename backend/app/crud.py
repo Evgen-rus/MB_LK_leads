@@ -439,7 +439,7 @@ def mark_events_sent_and_clear(db: Session, events: List[models.AuditEvent]) -> 
     db.commit()
 
 
-def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, limit: int = 1000) -> List[schemas.LeadOut]:
+def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, limit: int = 1000, sources: Optional[List[str]] = None) -> List[schemas.LeadOut]:
     stmt = (
         select(models.Lead)
         .where(models.Lead.imported_at >= start_local)
@@ -449,6 +449,8 @@ def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datet
     )
     if project_ids:
         stmt = stmt.where(models.Lead.project_id.in_(project_ids))
+    if sources:
+        stmt = stmt.where(models.Lead.source.in_(sources))
     rows = db.execute(stmt).scalars().all()
     out: List[schemas.LeadOut] = []
     for r in rows:
@@ -464,25 +466,60 @@ def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datet
     return out
 
 
-def fetch_leads_for_export(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, max_rows: int) -> List[models.Lead]:
+def fetch_leads_for_export(
+    db: Session,
+    project_ids: Optional[List[int]],
+    start_local: datetime,
+    end_local: datetime,
+    max_rows: int,
+    sources: Optional[List[str]] = None,
+    current_user_id: Optional[int] = None,
+) -> List[dict]:
     stmt = (
-        select(models.Lead)
-        .where(models.Lead.created_at >= start_local)
-        .where(models.Lead.created_at < end_local)
-        .order_by(models.Lead.created_at.asc())
+        select(
+            models.Lead,
+            models.Project.name.label("project_name"),
+            models.Project.user_id.label("project_user_id"),
+            models.User.login.label("user_login"),
+        )
+        .join(models.Project, models.Project.id == models.Lead.project_id)
+        .join(models.User, models.User.id == models.Project.user_id, isouter=True)
+        .where(models.Lead.imported_at >= start_local)
+        .where(models.Lead.imported_at < end_local)
+        .order_by(models.Lead.imported_at.asc())
         .limit(max_rows)
     )
     if project_ids:
         stmt = stmt.where(models.Lead.project_id.in_(project_ids))
-    return db.execute(stmt).scalars().all()
+    if sources:
+        stmt = stmt.where(models.Lead.source.in_(sources))
+    rows = db.execute(stmt).all()
+    out: List[dict] = []
+    for lead, proj_name, proj_user_id, user_login in rows:
+        out.append(
+            {
+                "ext_id": lead.ext_id,
+                "project_id": lead.project_id,
+                "project_name": proj_name or "",
+                "source": lead.source,
+                "imported_at": lead.imported_at.strftime("%Y-%m-%d %H:%M:%S") if lead.imported_at else "",
+                "phone": lead.phone,
+                "utm_campaign": lead.utm_campaign,
+                "user_login": user_login or "",
+                "user_id": proj_user_id or "",
+            }
+        )
+    return out
 
 
-def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int) -> schemas.LeadsListOut:
+def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int, sources: Optional[List[str]] = None) -> schemas.LeadsListOut:
     base = select(models.Lead).where(
         and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
     )
     if project_ids:
         base = base.where(models.Lead.project_id.in_(project_ids))
+    if sources:
+        base = base.where(models.Lead.source.in_(sources))
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()
     items: List[schemas.LeadOut] = []
@@ -1032,6 +1069,8 @@ def admin_list_all_leads(
     offset: int,
     limit: int,
     user_id_filter: int | None = None,
+    project_ids_filter: Optional[List[int]] = None,
+    sources_filter: Optional[List[str]] = None,
 ) -> schemas.AdminLeadsListOut:
     """
     Список всех лидов (для админа).
@@ -1043,12 +1082,21 @@ def admin_list_all_leads(
         proj_ids = get_user_project_ids(db, user_id_filter)
         if not proj_ids:
             return schemas.AdminLeadsListOut(items=[], total=0)
+    if project_ids_filter is not None:
+        if proj_ids is None:
+            proj_ids = project_ids_filter
+        else:
+            proj_ids = [pid for pid in proj_ids if pid in project_ids_filter]
+        if not proj_ids:
+            return schemas.AdminLeadsListOut(items=[], total=0)
 
     base = select(models.Lead).where(
         and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
     )
     if proj_ids is not None:
         base = base.where(models.Lead.project_id.in_(proj_ids))
+    if sources_filter:
+        base = base.where(models.Lead.source.in_(sources_filter))
 
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()

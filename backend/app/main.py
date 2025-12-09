@@ -301,6 +301,7 @@ def support_message(
 @app.get("/leads", response_model=schemas.LeadsListOut)
 def list_leads(
     projectIds: Optional[str] = None,  # "1,2,3"; если нет — все
+    sources: Optional[str] = None,     # "B1,B2"; если нет — все
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     offset: int = 0,
@@ -342,20 +343,42 @@ def list_leads(
         except Exception:
             proj_ids = None
 
+    # Ограничиваем проектами пользователя (для клиентского ЛК)
+    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+    if proj_ids is None:
+        proj_ids = list(allowed_ids)
+    else:
+        proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
+
     # Пересекаем с разрешёнными
     if proj_ids is None:
         proj_ids = list(allowed_ids)
     else:
         proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
 
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip() for s in sources.split(",") if s.strip()]
+        if not src_list:
+            src_list = None
+
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
-    return crud.list_leads_paginated(db_sess, project_ids=proj_ids, start_local=start_naive, end_local=end_naive, offset=offset, limit=limit)
+    return crud.list_leads_paginated(
+        db_sess,
+        project_ids=proj_ids,
+        start_local=start_naive,
+        end_local=end_naive,
+        offset=offset,
+        limit=limit,
+        sources=src_list,
+    )
 
 
 @app.get("/leads/export")
 def export_leads(
     projectIds: Optional[str] = None,
+    sources: Optional[str] = None,
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     format: Optional[str] = "csv",  # csv | xlsx
@@ -388,6 +411,12 @@ def export_leads(
         except Exception:
             proj_ids = None
 
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip() for s in sources.split(",") if s.strip()]
+        if not src_list:
+            src_list = None
+
     # Логируем экспорт отчёта (для вкладки "Отчёты").
     # Повторные скачивания из раздела "Отчёты" помечаем source=reports и не логируем,
     # чтобы не плодить дубли.
@@ -406,16 +435,23 @@ def export_leads(
             logging.getLogger("app").exception("Failed to log report export")
 
     max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
-    rows = crud.fetch_leads_for_export(db_sess, project_ids=proj_ids, start_local=start_local, end_local=end_local, max_rows=max_rows)
+    rows = crud.fetch_leads_for_export(
+        db_sess,
+        project_ids=proj_ids,
+        start_local=start_local,
+        end_local=end_local,
+        max_rows=max_rows,
+        sources=src_list,
+        current_user_id=current_user.id,
+    )
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
     if (format or "csv").lower() == "csv":
         def gen():
-            # заголовки
-            yield ("ext_id;project_id;created_at;phone;utm_campaign\n").encode('utf-8-sig')
+            yield ("ext_id;project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
             for r in rows:
-                utm = r.utm_campaign or ""
-                line = f"{r.ext_id};{r.project_id};{r.created_at.strftime('%Y-%m-%d %H:%M:%S')};{r.phone};{utm}\n"
+                utm = r["utm_campaign"] or ""
+                line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
                 yield line.encode('utf-8')
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return StreamingResponse(gen(), media_type="text/csv; charset=utf-8", headers=headers)
@@ -427,9 +463,19 @@ def export_leads(
         wb = Workbook()
         ws = wb.active
         ws.title = "leads"
-        ws.append(["ext_id", "project_id", "created_at", "phone", "utm_campaign"])
+        ws.append(["ext_id", "project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
         for r in rows:
-            ws.append([r.ext_id, r.project_id, r.created_at.strftime('%Y-%m-%d %H:%M:%S'), r.phone, r.utm_campaign or ""])
+            ws.append([
+                r["ext_id"],
+                r["project_id"],
+                r["project_name"],
+                r["source"] or "",
+                r["imported_at"],
+                r["phone"],
+                r["utm_campaign"] or "",
+                r["user_login"],
+                r["user_id"],
+            ])
         bio = io.BytesIO()
         wb.save(bio)
         data = bio.getvalue()
@@ -613,6 +659,8 @@ def admin_list_leads(
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     userId: int | None = None,
+    projectIds: Optional[str] = None,
+    sources: Optional[str] = None,
     offset: int = 0,
     limit: int = 50,
     current_admin: models.User = Depends(require_admin),
@@ -637,6 +685,21 @@ def admin_list_leads(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
 
+    proj_ids: Optional[List[int]] = None
+    if projectIds:
+        try:
+            proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
+            if not proj_ids:
+                proj_ids = None
+        except Exception:
+            proj_ids = None
+
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip() for s in sources.split(",") if s.strip()]
+        if not src_list:
+            src_list = None
+
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
 
@@ -647,6 +710,8 @@ def admin_list_leads(
         offset=offset,
         limit=limit,
         user_id_filter=userId,
+        project_ids_filter=proj_ids,
+        sources_filter=src_list,
     )
 
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
+import FilterDropdown from './FilterDropdown';
 
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
@@ -17,6 +18,7 @@ function AdminLeadsTable() {
   const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
   const [projects, setProjects] = useState<AdminProject[]>([]);
   const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<AdminLead[]>([]);
@@ -55,6 +57,7 @@ function AdminLeadsTable() {
         toDate,
         userId: userIdFilter ?? undefined,
         projectIds: projectIds.length ? projectIds : undefined,
+        sources: sources.length ? sources : undefined,
         offset,
         limit: s,
       });
@@ -73,7 +76,7 @@ function AdminLeadsTable() {
 
   useEffect(() => {
     load(1);
-  }, [fromDate, toDate, userIdFilter, projectIds]);
+  }, [fromDate, toDate, userIdFilter, projectIds, sources]);
 
   // При выборе клиента подгружаем его проекты
   useEffect(() => {
@@ -95,9 +98,19 @@ function AdminLeadsTable() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const sourcesList = useMemo(() => {
+    const preset = ['B1', 'B2', 'B3', 'B4'];
+    const set = new Set<string>(preset);
+    rows.forEach((r) => {
+      if (r.source) set.add(r.source);
+    });
+    return Array.from(set).sort();
+  }, [rows]);
+
   const handleExport = (format: 'csv' | 'xlsx') => {
     const url = buildLeadsExportUrl({
       projectIds: projectIds.length ? projectIds : undefined,
+      sources: sources.length ? sources : undefined,
       fromDate,
       toDate,
       format,
@@ -137,24 +150,31 @@ function AdminLeadsTable() {
           </select>
 
           {/* Фильтр по проектам клиента (мультивыбор) */}
-          {userIdFilter && projects.length > 0 && (
-            <select
-              multiple
-              size={Math.min(6, Math.max(3, projects.length))}
-              value={projectIds.map(String)}
-              onChange={(e) => {
-                const ids = Array.from(e.currentTarget.selectedOptions).map((o) => Number(o.value));
-                setProjectIds(ids);
-                setPage(1);
-              }}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id} — {p.name}
-                </option>
-              ))}
-            </select>
-          )}
+          <FilterDropdown
+            label="Проекты"
+            options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
+            selected={projectIds.map(String)}
+            placeholder="Пусто = все проекты"
+            allLabel="Все проекты"
+            disabled={!userIdFilter}
+            onApply={(vals) => {
+              setProjectIds(vals.map(Number));
+              setPage(1);
+            }}
+          />
+
+          {/* Фильтр по источникам */}
+          <FilterDropdown
+            label="Источники"
+            options={sourcesList.map((s) => ({ value: s, label: s }))}
+            selected={sources}
+            placeholder="Пусто = все источники"
+            allLabel="Все источники"
+            onApply={(vals) => {
+              setSources(vals);
+              setPage(1);
+            }}
+          />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {total}</span>}

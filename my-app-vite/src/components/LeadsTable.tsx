@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Project } from '../types/project';
 import { fetchLeads, buildLeadsExportUrl, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
+import FilterDropdown from './FilterDropdown';
 import DateRangeFilter from './DateRangeFilter';
 
 type Props = {
@@ -18,13 +19,12 @@ function formatDateInput(d: Date) {
 }
 
 function LeadsTable({ projects }: Props) {
-  const [allProjects, setAllProjects] = useState<boolean>(true);
   const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showProjectFilter, setShowProjectFilter] = useState<boolean>(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
@@ -39,7 +39,7 @@ function LeadsTable({ projects }: Props) {
     try {
       setLoading(true);
       const offset = (p - 1) * s;
-      const resp = await fetchLeads({ projectIds: allProjects ? [] : projectIds, fromDate, toDate, offset, limit: s });
+      const resp = await fetchLeads({ projectIds, sources, fromDate, toDate, offset, limit: s });
       setRows(resp.items);
       setTotal(resp.total);
     } catch (e) {
@@ -51,12 +51,21 @@ function LeadsTable({ projects }: Props) {
 
   useEffect(() => {
     load(1);
-  }, [allProjects, projectIds, fromDate, toDate]);
+  }, [projectIds, sources, fromDate, toDate]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const sourcesList = useMemo(() => {
+    const preset = ['B1', 'B2', 'B3', 'B4'];
+    const set = new Set<string>(preset);
+    rows.forEach((r) => {
+      if (r.source) set.add(r.source);
+    });
+    return Array.from(set).sort();
+  }, [rows]);
+
   const handleExport = (format: 'csv' | 'xlsx') => {
-    const url = buildLeadsExportUrl({ projectIds: allProjects ? undefined : projectIds, fromDate, toDate, format });
+    const url = buildLeadsExportUrl({ projectIds, sources, fromDate, toDate, format });
     window.open(url, '_blank');
   };
 
@@ -74,40 +83,29 @@ function LeadsTable({ projects }: Props) {
             }}
           />
 
-          {/* Фильтр по проектам остаётся как был */}
-          <button className="btn" onClick={() => setShowProjectFilter((v) => !v)}>
-            Проекты: {allProjects ? 'Все' : projectIds.length || 0} {showProjectFilter ? '▲' : '▼'}
-          </button>
-          {showProjectFilter && (
-            <div className="project-filter-panel">
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={allProjects}
-                  onChange={(e) => setAllProjects(e.target.checked)}
-                />
-                Все проекты
-              </label>
-              <select
-                multiple
-                size={Math.min(6, Math.max(3, projects.length))}
-                disabled={allProjects}
-                value={projectIds.map(String)}
-                onChange={(e) => {
-                  const opts = Array.from(e.currentTarget.selectedOptions).map((o) =>
-                    Number(o.value),
-                  );
-                  setProjectIds(opts);
-                }}
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.id} — {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <FilterDropdown
+            label="Проекты"
+            options={projects.map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
+            selected={projectIds.map(String)}
+            placeholder="Пусто = все проекты"
+            allLabel="Все проекты"
+            onApply={(vals) => {
+              setProjectIds(vals.map(Number));
+              setPage(1);
+            }}
+          />
+
+          <FilterDropdown
+            label="Источники"
+            options={sourcesList.map((s) => ({ value: s, label: s }))}
+            selected={sources}
+            placeholder="Пусто = все источники"
+            allLabel="Все источники"
+            onApply={(vals) => {
+              setSources(vals);
+              setPage(1);
+            }}
+          />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {rows.length}</span>}

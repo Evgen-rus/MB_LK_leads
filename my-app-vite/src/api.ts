@@ -191,13 +191,16 @@ export type Lead = {
 
 export type LeadsListResp = { items: Lead[]; total: number };
 
-export async function fetchLeads(params: { projectIds?: number[]; fromDate: string; toDate: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
+export async function fetchLeads(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
   const q = new URLSearchParams({
     fromDate: params.fromDate,
     toDate: params.toDate,
   });
   if (params.projectIds && params.projectIds.length > 0) {
     q.set('projectIds', params.projectIds.join(','));
+  }
+  if (params.sources && params.sources.length > 0) {
+    q.set('sources', params.sources.join(','));
   }
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
@@ -244,9 +247,10 @@ export async function fetchReports(params?: { offset?: number; limit?: number })
   return http<ReportsListResp>(`/reports${qs ? `?${qs}` : ''}`);
 }
 
-export function buildLeadsExportUrl(params: { projectIds?: number[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; source?: 'leads' | 'reports'; }): string {
+export function buildLeadsExportUrl(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; source?: 'leads' | 'reports'; }): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
+  if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
   if (params.source) q.set('source', params.source);
   // Добавляем токен авторизации в параметры запроса для экспорта
   const token = localStorage.getItem('access_token');
@@ -383,6 +387,7 @@ export async function fetchAdminLeads(params: {
   toDate: string;
   userId?: number;
   projectIds?: number[];
+  sources?: string[];
   offset?: number;
   limit?: number;
 }): Promise<AdminLeadsListResp> {
@@ -393,6 +398,9 @@ export async function fetchAdminLeads(params: {
   if (params.userId != null) q.set('userId', String(params.userId));
   if (params.projectIds && params.projectIds.length > 0) {
     q.set('projectIds', params.projectIds.join(','));
+  }
+  if (params.sources && params.sources.length > 0) {
+    q.set('sources', params.sources.join(','));
   }
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
