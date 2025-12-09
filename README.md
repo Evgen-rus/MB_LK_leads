@@ -178,20 +178,20 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ### Управление пользователями (CLI)
 
 - Пользователи для первого запуска создаются из `.env` (пары `USER_1_LOGIN` / `USER_1_PASSWORD` и т.д.) **только если БД пустая**.
-- Для дальнейшего управления логинами/паролями используйте скрипт `user_tools.py` в корне проекта:
+- Для дальнейшего управления логинами/паролями используйте скрипт `tool_user_tools.py` в корне проекта:
 
 ```bash
 cd /opt/MB_LK_leads
 source venv/bin/activate
 
 # Показать пользователей
-python user_tools.py list
+python tool_user_tools.py list
 
 # Создать нового пользователя
-python user_tools.py create --login <логин>
+python tool_user_tools.py create --login <логин>
 
 # Сменить пароль существующему пользователю
-python user_tools.py set-password --login <логин>
+python tool_user_tools.py set-password --login <логин>
 ```
 
 При смене пароля скрипт дополнительно записывает логин и новый пароль в локальный файл `users.txt` (он добавлен в `.gitignore` и не попадает в репозиторий).
@@ -458,24 +458,24 @@ python -m backend.app.sheets_import
 
 - Служебный проект для несопоставленных лидов (fallback):
   ```bash
-  python create_unmapped_project.py --user-id 1  # создаёт/находит проект с tag=UNMAPPED, выводит id
+  python tool_create_unmapped_project.py --user-id 1  # создаёт/находит проект с tag=UNMAPPED, выводит id
   ```
   В `.env` указать `UNMAPPED_PROJECT_ID=<id_из_вывода>` — тогда лиды без маппинга будут складываться в этот проект.
 
 - Маппинг внешнего project_id и source (B1/B2/B3/B4) во внутренний `projects.id`:
   ```bash
   # добавить/обновить связь
-  python map_projects.py set --external 128 --source B1 --project 1
+  python tool_map_projects.py set --external 128 --source B1 --project 1
 
   # показать все связи
-  python map_projects.py list
+  python tool_map_projects.py list
 
   # показать пары (external_id, source) из leads без маппинга
-  python map_projects.py unmapped
+  python tool_map_projects.py unmapped
 
   # применить маппинг к уже загруженным лидам (переназначить project_id)
-  python map_projects.py apply --dry-run
-  python map_projects.py apply
+  python tool_map_projects.py apply --dry-run
+  python tool_map_projects.py apply
   ```
 
 - Поведение импорта (`python -m backend.app.sheets_import`):
@@ -485,6 +485,6 @@ python -m backend.app.sheets_import
 
 - Быстрый просмотр БД:
   ```bash
-  python inspect_db.py               # все projects; по 5 первых/последних leads для min/max project_id
-  python inspect_db.py --db app.db
+  python tool_inspect_db.py               # все projects; по 5 первых/последних leads для min/max project_id
+  python tool_inspect_db.py --db app.db
   ```
