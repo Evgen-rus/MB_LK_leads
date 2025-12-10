@@ -2,6 +2,8 @@
 // Показывает список необработанных изменений по проектам выбранного клиента.
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
+import AdminProjectHistoryModal from './AdminProjectHistoryModal';
+import ChangeProjectDiffModal from './ChangeProjectDiffModal';
 
 type AdminClientChangesProps = {
   clientId: number;
@@ -35,6 +37,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   const [items, setItems] = useState<AdminChange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [snapshotFor, setSnapshotFor] = useState<AdminChange | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -135,15 +138,19 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
               <thead>
                 <tr>
                   <th style={{ width: '24%' }}>Когда</th>
+                  <th style={{ width: '14%' }}>Действие</th>
                   <th>Описание изменения</th>
                   <th style={{ width: '16%' }}>Статус</th>
-                  <th style={{ width: 160 }}>Действия</th>
+                  <th style={{ width: 210 }}>Действия</th>
                 </tr>
               </thead>
               <tbody>
                 {g.items.map((c) => (
                   <tr key={c.id}>
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
+                    <td className="muted">
+                      {c.action === 'create' ? 'Создание' : c.action === 'delete' ? 'Удаление' : 'Изменение'}
+                    </td>
                     <td>{c.description}</td>
                     <td>
                       {(() => {
@@ -167,18 +174,16 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                       >
                         Отметить выполненным
                       </button>
-                      {c.projectSnapshot && (
-                        <button
-                          type="button"
-                          className="btn"
-                          style={{ marginLeft: 6 }}
-                          onClick={() => {
-                            navigator.clipboard?.writeText(JSON.stringify(c.projectSnapshot, null, 2));
-                          }}
-                        >
-                          Копировать данные
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="btn"
+                        style={{ marginLeft: 6 }}
+                        onClick={() => setSnapshotFor(c)}
+                        disabled={!c.projectSnapshot}
+                        title={c.projectSnapshot ? 'Открыть карточку' : 'Нет данных карточки'}
+                      >
+                        Карточка
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -187,6 +192,13 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           </div>
         ))}
       </div>
+
+      {snapshotFor && (
+        <ChangeProjectDiffModal
+          change={snapshotFor}
+          onClose={() => setSnapshotFor(null)}
+        />
+      )}
     </div>
   );
 }

@@ -463,9 +463,12 @@ export type AdminChange = {
   projectId?: number | null;
   projectName?: string | null;
   createdAt: string;
+  action: 'create' | 'update' | 'delete';
   description: string;
   status?: AdminChangeStatus;
   projectSnapshot?: Record<string, any> | null;
+  beforeSnapshot?: Record<string, any> | null;
+  changedFields?: string[] | null;
 };
 
 export type AdminClientChangesOut = {

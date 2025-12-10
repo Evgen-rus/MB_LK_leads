@@ -1,0 +1,332 @@
+import React, { useMemo } from 'react';
+import type { AdminChange } from '../api';
+
+type Props = {
+  change: AdminChange;
+  onClose: () => void;
+};
+
+type FieldKey =
+  | 'name'
+  | 'tag'
+  | 'collectionSource'
+  | 'dataSourceCode'
+  | 'dataLimit'
+  | 'status'
+  | 'deliveryStatus'
+  | 'regionMode'
+  | 'regions'
+  | 'sites'
+  | 'phones'
+  | 'smsSenderName'
+  | 'daysReceived';
+
+const fieldLabels: Record<FieldKey, string> = {
+  name: 'Название',
+  tag: 'Тег',
+  collectionSource: 'Источник сбора',
+  dataSourceCode: 'Источник данных',
+  dataLimit: 'Лимит',
+  status: 'Статус проекта',
+  deliveryStatus: 'Статус отгрузки',
+  regionMode: 'Режим регионов',
+  regions: 'Регионы',
+  sites: 'Сайты',
+  phones: 'Телефоны',
+  smsSenderName: 'СМС отправитель',
+  daysReceived: 'Дни получения',
+};
+
+function ChangeProjectDiffModal({ change, onClose }: Props) {
+  const after = (change.projectSnapshot || {}) as Record<string, any>;
+  const before = (change.beforeSnapshot || {}) as Record<string, any>;
+  const changed = useMemo(() => new Set(change.changedFields || []), [change.changedFields]);
+
+  const changedList = useMemo(
+    () => (change.changedFields && change.changedFields.length ? change.changedFields : []),
+    [change.changedFields],
+  );
+
+  const isChanged = (key: FieldKey) => changed.has(key);
+
+  const pill = (text: string, color = '#ececff', fg = '#363568') => (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        borderRadius: 999,
+        background: color,
+        color: fg,
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      {text}
+    </span>
+  );
+
+  function renderText(key: FieldKey, value: any) {
+    if (Array.isArray(value)) return value.join(', ');
+    if (value == null) return '—';
+    return String(value);
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1100,
+        padding: 16,
+      }}
+    >
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        style={{
+          background: '#fff',
+          borderRadius: 10,
+          width: '100%',
+          maxWidth: 720,
+          maxHeight: '90vh',
+          overflow: 'hidden',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div style={{ padding: 16, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>
+              Карточка проекта ({change.action === 'create' ? 'Создание' : change.action === 'delete' ? 'Удаление' : 'Изменение'})
+            </div>
+            <div className="sub">
+              {change.projectName || 'Проект'}
+              {change.projectId ? ` (id: ${change.projectId})` : ''}
+            </div>
+            <div className="sub">Создано: {change.createdAt}</div>
+            {changedList.length > 0 && (
+              <div className="sub">
+                Изменений: {changedList.length}{' '}
+                {changedList.length ? '— ' + changedList.map((f) => fieldLabels[f as FieldKey] || f).join(', ') : ''}
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                try {
+                  navigator.clipboard?.writeText(JSON.stringify(change.projectSnapshot || {}, null, 2));
+                } catch (e) {
+                  console.error(e);
+                }
+              }}
+            >
+              Копировать JSON
+            </button>
+            <button className="btn btn--secondary" onClick={onClose} type="button">
+              Закрыть
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding: 16, overflowY: 'auto' }}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="section-title">Название</span>
+                <input
+                  readOnly
+                  value={renderText('name', after.name)}
+                  style={isChanged('name' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                />
+                {isChanged('name' as FieldKey) && before.name && (
+                  <span className="sub">Было: {renderText('name', before.name)}</span>
+                )}
+              </label>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="section-title">Тег</span>
+                <input
+                  readOnly
+                  value={renderText('tag', after.tag)}
+                  style={isChanged('tag' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                />
+                {isChanged('tag' as FieldKey) && before.tag && (
+                  <span className="sub">Было: {renderText('tag', before.tag)}</span>
+                )}
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="section-title">Источник сбора</span>
+                <input readOnly value={renderText('collectionSource', after.collectionSource)} />
+              </label>
+              <label style={{ display: 'grid', gap: 4 }}>
+                <span className="section-title">Лимит</span>
+                <input
+                  readOnly
+                  value={renderText('dataLimit', after.dataLimit)}
+                  style={isChanged('dataLimit' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                />
+                {isChanged('dataLimit' as FieldKey) && before.dataLimit != null && (
+                  <span className="sub">Было: {renderText('dataLimit', before.dataLimit)}</span>
+                )}
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span className="section-title">Источник данных</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {(['B1', 'B2', 'B3', 'B4'] as const).map((code) => {
+                  const active = after.dataSourceCode === code;
+                  const changedCode = isChanged('dataSourceCode' as FieldKey);
+                  return (
+                    <span
+                      key={code}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        border: '1px solid',
+                        borderColor: active ? '#6a5cff' : '#dcdce6',
+                        background: active ? '#6a5cff' : '#fff',
+                        color: active ? '#fff' : '#1d1d1f',
+                        opacity: active ? 1 : 0.6,
+                        boxShadow: changedCode && active ? '0 0 0 2px rgba(106,92,255,0.25)' : undefined,
+                      }}
+                    >
+                      {code}
+                    </span>
+                  );
+                })}
+              </div>
+              {isChanged('dataSourceCode' as FieldKey) && before.dataSourceCode && (
+                <span className="sub">Было: {renderText('dataSourceCode', before.dataSourceCode)}</span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span className="section-title">Статус проекта</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {pill(renderText('status', after.status), isChanged('status' as FieldKey) ? '#f5f4ff' : '#f4f4f7', '#24223f')}
+                {pill(renderText('deliveryStatus', after.deliveryStatus), isChanged('deliveryStatus' as FieldKey) ? '#f5f4ff' : '#f4f4f7', '#3b3a5a')}
+              </div>
+              {(isChanged('status' as FieldKey) || isChanged('deliveryStatus' as FieldKey)) && (
+                <span className="sub">
+                  Было: {before.status || '—'} / {before.deliveryStatus || '—'}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span className="section-title">Регионы</span>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {pill(after.regionMode === 'exclude' ? 'Исключить' : 'Включить', isChanged('regionMode' as FieldKey) ? '#f5f4ff' : '#f4f4f7')}
+                <span className="sub">Всего: {(after.regions || []).length}</span>
+              </div>
+              <div
+                style={{
+                  border: isChanged('regions' as FieldKey) ? '1px solid #6a5cff' : '1px solid #eee',
+                  borderRadius: 8,
+                  padding: 8,
+                  background: isChanged('regions' as FieldKey) ? '#f5f4ff' : '#fafafa',
+                  maxHeight: 140,
+                  overflow: 'auto',
+                }}
+              >
+                {(after.regions || []).length
+                  ? (after.regions as string[]).map((r: string) => (
+                      <span key={r} className="badge badge--secondary" style={{ margin: 4, display: 'inline-block' }}>
+                        {r}
+                      </span>
+                    ))
+                  : <span className="muted">Не заданы</span>}
+              </div>
+              {isChanged('regions' as FieldKey) && (before.regions || []).length > 0 && (
+                <span className="sub">Было: {(before.regions as string[]).join(', ') || '—'}</span>
+              )}
+            </div>
+
+            {(after.sites || after.phones || after.smsSenderName) && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {after.sites && (
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span className="section-title">Сайты</span>
+                    <textarea
+                      readOnly
+                      rows={6}
+                      value={(after.sites as string[]).join('\n')}
+                      style={{
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                        background: isChanged('sites' as FieldKey) ? '#f5f4ff' : undefined,
+                        borderColor: isChanged('sites' as FieldKey) ? '#6a5cff' : undefined,
+                      }}
+                    />
+                    {isChanged('sites' as FieldKey) && before.sites && (
+                      <span className="sub">Было: {(before.sites as string[]).join(', ') || '—'}</span>
+                    )}
+                  </label>
+                )}
+
+                {after.phones && (
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span className="section-title">Телефоны</span>
+                    <textarea
+                      readOnly
+                      rows={6}
+                      value={(after.phones as string[]).join('\n')}
+                      style={{
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                        background: isChanged('phones' as FieldKey) ? '#f5f4ff' : undefined,
+                        borderColor: isChanged('phones' as FieldKey) ? '#6a5cff' : undefined,
+                      }}
+                    />
+                    {isChanged('phones' as FieldKey) && before.phones && (
+                      <span className="sub">Было: {(before.phones as string[]).join(', ') || '—'}</span>
+                    )}
+                  </label>
+                )}
+
+                {after.smsSenderName != null && (
+                  <label style={{ display: 'grid', gap: 4 }}>
+                    <span className="section-title">СМС отправитель</span>
+                    <input
+                      readOnly
+                      value={renderText('smsSenderName', after.smsSenderName)}
+                      style={isChanged('smsSenderName' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                    />
+                    {isChanged('smsSenderName' as FieldKey) && before.smsSenderName && (
+                      <span className="sub">Было: {renderText('smsSenderName', before.smsSenderName)}</span>
+                    )}
+                  </label>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gap: 4 }}>
+              <span className="section-title">Дни получения</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {(after.daysReceived || '').split(/\s+/).filter(Boolean).map((d: string) => pill(d, isChanged('daysReceived' as FieldKey) ? '#f5f4ff' : '#f4f4f7'))}
+              </div>
+              {isChanged('daysReceived' as FieldKey) && before.daysReceived && (
+                <span className="sub">Было: {renderText('daysReceived', before.daysReceived)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default ChangeProjectDiffModal;
+

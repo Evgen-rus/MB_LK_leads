@@ -351,6 +351,7 @@ def admin_list_project_history(
                 description=hist_item.description,
                 user=users_map.get(ev.user_id) if ev.user_id else None,
                 status=status_val,  # type: ignore[arg-type]
+                projectSnapshot=ev.after or ev.before,
             )
         )
 
@@ -1004,9 +1005,12 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
                 projectId=ev.project_id,
                 projectName=proj_name,
                 createdAt=hist_item.createdAt,
+                action=ev.action or "update",  # type: ignore[arg-type]
                 description=hist_item.description,
                 status=status,  # type: ignore[arg-type]
                 projectSnapshot=snapshot,
+                beforeSnapshot=ev.before,
+                changedFields=ev.changed_fields if isinstance(ev.changed_fields, list) else None,
             )
         )
 

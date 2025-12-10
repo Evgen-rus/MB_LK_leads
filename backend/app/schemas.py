@@ -208,6 +208,7 @@ class AdminProjectHistoryItem(BaseModel):
     description: str
     user: Optional[UserInfo] = None
     status: Literal['pending', 'done'] = 'pending'
+    projectSnapshot: Optional[dict] = None
 
 
 class AdminProjectHistoryListOut(BaseModel):
@@ -221,9 +222,12 @@ class AdminChangeOut(BaseModel):
     projectId: Optional[int] = None
     projectName: Optional[str] = None
     createdAt: str
+    action: Literal['create', 'update', 'delete'] = 'update'
     description: str
     status: Literal['pending', 'done'] = 'pending'
     projectSnapshot: Optional[dict] = None
+    beforeSnapshot: Optional[dict] = None
+    changedFields: Optional[List[str]] = None
 
 
 class AdminClientChangesOut(BaseModel):
