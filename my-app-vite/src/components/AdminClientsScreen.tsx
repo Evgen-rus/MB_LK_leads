@@ -348,10 +348,7 @@ function AdminClientsScreen({
           </span>
           <span>
             Суммарный остаток: {totals.totalRemaining}, общий объём данных: {totals.totalVolume}
-          </span>
-          <span style={{ opacity: 0.7 }}>
-            Демонстрационный расчёт на фронтенде, без точных данных биллинга.
-          </span>
+          </span>          
         </div>
       </div>
 
