@@ -67,11 +67,24 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     </span>
   );
 
-  function renderText(key: FieldKey, value: any) {
+  function renderText(_key: FieldKey, value: any) {
     if (Array.isArray(value)) return value.join(', ');
     if (value == null) return '—';
     return String(value);
   }
+
+  const baseInputStyle: React.CSSProperties = {
+    borderRadius: 10,
+    border: '1px solid #dcdce6',
+    padding: '10px 12px',
+    background: '#f9f9ff',
+  };
+
+  const highlight: React.CSSProperties = {
+    borderColor: '#f05b6c',
+    background: '#fff1f3',
+    boxShadow: '0 0 0 2px rgba(240,91,108,0.2)',
+  };
 
   return (
     <div
@@ -147,7 +160,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <input
                   readOnly
                   value={renderText('name', after.name)}
-                  style={isChanged('name' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                  style={isChanged('name' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('name' as FieldKey) && before.name && (
                   <span className="sub">Было: {renderText('name', before.name)}</span>
@@ -158,7 +171,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <input
                   readOnly
                   value={renderText('tag', after.tag)}
-                  style={isChanged('tag' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                  style={isChanged('tag' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('tag' as FieldKey) && before.tag && (
                   <span className="sub">Было: {renderText('tag', before.tag)}</span>
@@ -169,14 +182,18 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label style={{ display: 'grid', gap: 4 }}>
                 <span className="section-title">Источник сбора</span>
-                <input readOnly value={renderText('collectionSource', after.collectionSource)} />
+                <input
+                  readOnly
+                  value={renderText('collectionSource', after.collectionSource)}
+                  style={isChanged('collectionSource' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
+                />
               </label>
               <label style={{ display: 'grid', gap: 4 }}>
                 <span className="section-title">Лимит</span>
                 <input
                   readOnly
                   value={renderText('dataLimit', after.dataLimit)}
-                  style={isChanged('dataLimit' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                  style={isChanged('dataLimit' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('dataLimit' as FieldKey) && before.dataLimit != null && (
                   <span className="sub">Было: {renderText('dataLimit', before.dataLimit)}</span>
@@ -217,13 +234,14 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Статус проекта</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {pill(renderText('status', after.status), isChanged('status' as FieldKey) ? '#f5f4ff' : '#f4f4f7', '#24223f')}
-                {pill(renderText('deliveryStatus', after.deliveryStatus), isChanged('deliveryStatus' as FieldKey) ? '#f5f4ff' : '#f4f4f7', '#3b3a5a')}
+                {pill(
+                  renderText('status', after.status),
+                  isChanged('status' as FieldKey) ? '#ece8ff' : '#f4f4f7',
+                  '#24223f',
+                )}
               </div>
-              {(isChanged('status' as FieldKey) || isChanged('deliveryStatus' as FieldKey)) && (
-                <span className="sub">
-                  Было: {before.status || '—'} / {before.deliveryStatus || '—'}
-                </span>
+              {isChanged('status' as FieldKey) && (
+                <span className="sub">Было: {before.status || '—'}</span>
               )}
             </div>
 
@@ -238,7 +256,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                   border: isChanged('regions' as FieldKey) ? '1px solid #6a5cff' : '1px solid #eee',
                   borderRadius: 8,
                   padding: 8,
-                  background: isChanged('regions' as FieldKey) ? '#f5f4ff' : '#fafafa',
+                  background: isChanged('regions' as FieldKey) ? '#f0ecff' : '#fafafa',
                   maxHeight: 140,
                   overflow: 'auto',
                 }}
@@ -267,8 +285,9 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                       value={(after.sites as string[]).join('\n')}
                       style={{
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                        background: isChanged('sites' as FieldKey) ? '#f5f4ff' : undefined,
+                        background: isChanged('sites' as FieldKey) ? '#f0ecff' : undefined,
                         borderColor: isChanged('sites' as FieldKey) ? '#6a5cff' : undefined,
+                        borderRadius: 10,
                       }}
                     />
                     {isChanged('sites' as FieldKey) && before.sites && (
@@ -286,8 +305,9 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                       value={(after.phones as string[]).join('\n')}
                       style={{
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                        background: isChanged('phones' as FieldKey) ? '#f5f4ff' : undefined,
+                        background: isChanged('phones' as FieldKey) ? '#f0ecff' : undefined,
                         borderColor: isChanged('phones' as FieldKey) ? '#6a5cff' : undefined,
+                        borderRadius: 10,
                       }}
                     />
                     {isChanged('phones' as FieldKey) && before.phones && (
@@ -302,7 +322,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                     <input
                       readOnly
                       value={renderText('smsSenderName', after.smsSenderName)}
-                      style={isChanged('smsSenderName' as FieldKey) ? { borderColor: '#6a5cff', background: '#f5f4ff' } : {}}
+                      style={isChanged('smsSenderName' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                     />
                     {isChanged('smsSenderName' as FieldKey) && before.smsSenderName && (
                       <span className="sub">Было: {renderText('smsSenderName', before.smsSenderName)}</span>

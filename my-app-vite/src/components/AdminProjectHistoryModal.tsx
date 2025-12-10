@@ -9,9 +9,13 @@ type Props = {
 };
 
 function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [fromDate, setFromDate] = useState<string>(today);
-  const [toDate, setToDate] = useState<string>(today);
+  const formatDate = (date: Date) => date.toISOString().slice(0, 10);
+  const today = new Date();
+  const monthAgo = new Date(today.getTime());
+  monthAgo.setDate(today.getDate() - 30);
+
+  const [fromDate, setFromDate] = useState<string>(formatDate(monthAgo));
+  const [toDate, setToDate] = useState<string>(formatDate(today));
   const [status, setStatus] = useState<'all' | 'pending' | 'done'>('all');
   const [userId, setUserId] = useState<string>('');
   const [items, setItems] = useState<AdminProjectHistoryItem[]>([]);
