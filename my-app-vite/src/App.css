@@ -7,9 +7,9 @@
 /* Хедер */
 .header { height: 56px; background: #ffffff; border-bottom: 1px solid #ececf2; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; position: sticky; top: 0; z-index: 10; }
 .header__left { display: flex; align-items: center; gap: 12px; }
-.brand { font-weight: 700; text-transform: none; display: flex; align-items: center; gap: 4px; }
-.brand__name { font-size: 1.25rem; }
-.brand__pill { display: inline-block; background: #6a5cff; color: #fff; border-radius: 10px; padding: 0 6px; margin-left: 4px; font-size: 1.25rem; }
+.brand { font-weight: 700; text-transform: none; display: flex; align-items: center; gap: 6px; font-size: 1.05rem; letter-spacing: 0.01em; }
+.brand__name { font-size: 1.05rem; }
+.brand__pill { display: inline-block; background: #6f63ff; color: #fff; border-radius: 12px; padding: 4px 10px; margin-left: 2px; font-size: 0.95rem; font-weight: 700; }
 .divider { width: 1px; height: 22px; background: #e6e6ee; }
 .header__right { display: flex; align-items: center; gap: 8px; }
 
