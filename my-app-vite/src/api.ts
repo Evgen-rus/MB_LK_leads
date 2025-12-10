@@ -456,7 +456,7 @@ export async function fetchAdminReports(params?: {
 }
 
 // -------- Админские изменения клиентов --------
-export type AdminChangeStatus = 'created' | 'in_progress' | 'done';
+export type AdminChangeStatus = 'pending' | 'done';
 
 export type AdminChange = {
   id: number;
@@ -464,8 +464,8 @@ export type AdminChange = {
   projectName?: string | null;
   createdAt: string;
   description: string;
-  // Статус может прийти с бэка; по умолчанию считаем "created"
   status?: AdminChangeStatus;
+  projectSnapshot?: Record<string, any> | null;
 };
 
 export type AdminClientChangesOut = {
@@ -492,4 +492,68 @@ export async function fetchAdminClientChanges(clientId: number): Promise<AdminCl
 
 export async function resolveAdminChange(changeId: number): Promise<void> {
   await http(`/admin/changes/${changeId}/resolve`, { method: 'POST' });
+}
+
+// -------- Сводка по клиентам --------
+export type AdminClientSummaryItem = {
+  user: UserInfo;
+  projectCount: number;
+  totalLimit: number;
+  usedTotal: number;
+  usedPeriod: number;
+  remaining: number;
+  pendingChanges: number;
+};
+
+export type AdminClientsSummaryOut = {
+  items: AdminClientSummaryItem[];
+  totals: {
+    clients: number;
+    projects: number;
+    totalLimit: number;
+    usedTotal: number;
+    usedPeriod: number;
+    remaining: number;
+  };
+};
+
+export async function fetchAdminClientsSummary(params: { fromDate: string; toDate: string }): Promise<AdminClientsSummaryOut> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  return http<AdminClientsSummaryOut>(`/admin/clients/summary?${q.toString()}`);
+}
+
+// -------- История проекта (админ) --------
+export type AdminProjectHistoryItem = {
+  id: number;
+  action: 'create' | 'update' | 'delete';
+  createdAt: string;
+  description: string;
+  user?: UserInfo;
+  status: AdminChangeStatus;
+};
+
+export type AdminProjectHistoryResp = {
+  items: AdminProjectHistoryItem[];
+  total: number;
+};
+
+export async function fetchAdminProjectHistory(projectId: number, params: { fromDate: string; toDate: string; limit?: number; userId?: number; status?: 'pending' | 'done' | 'all'; }): Promise<AdminProjectHistoryResp> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  if (params.limit != null) q.set('limit', String(params.limit));
+  if (params.userId != null) q.set('userId', String(params.userId));
+  if (params.status) q.set('status', params.status);
+  return http<AdminProjectHistoryResp>(`/admin/projects/${projectId}/history?${q.toString()}`);
+}
+
+// -------- Создание отчёта админом --------
+export async function createAdminReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; }): Promise<AdminReportItem> {
+  return http<AdminReportItem>('/admin/reports', {
+    method: 'POST',
+    body: JSON.stringify({
+      fromDate: payload.fromDate,
+      toDate: payload.toDate,
+      projectIds: payload.projectIds,
+      format: payload.format,
+    }),
+  });
 }

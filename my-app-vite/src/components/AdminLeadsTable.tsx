@@ -189,7 +189,7 @@ function AdminLeadsTable() {
           />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {total}</span>}
+          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
       </div>

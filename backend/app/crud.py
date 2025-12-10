@@ -292,6 +292,70 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
     rows = db.execute(stmt).scalars().all()
     return [_audit_event_to_history_item(ev) for ev in rows]
 
+
+def admin_list_project_history(
+    db: Session,
+    project_id: int,
+    limit: int = 100,
+    user_id_filter: Optional[int] = None,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+    status: Optional[str] = None,
+) -> schemas.AdminProjectHistoryListOut:
+    """
+    История изменений проекта для админа с возможностью фильтровать по менеджеру, дате и статусу (pending/done/all).
+    """
+    limit = max(1, min(500, limit))
+    base = (
+        select(models.AuditEvent)
+        .where(models.AuditEvent.project_id == project_id)
+        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+    )
+    if user_id_filter:
+        base = base.where(models.AuditEvent.user_id == user_id_filter)
+    if start_local:
+        base = base.where(models.AuditEvent.created_at >= start_local)
+    if end_local:
+        base = base.where(models.AuditEvent.created_at <= end_local)
+    if status == "pending":
+        base = base.where(models.AuditEvent.admin_processed_at.is_(None))
+    elif status == "done":
+        base = base.where(models.AuditEvent.admin_processed_at.is_not(None))
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.AuditEvent.created_at.desc()).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    # Собираем user info
+    user_ids = {ev.user_id for ev in rows if ev.user_id}
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminProjectHistoryItem] = []
+    for ev in rows:
+        hist_item = _audit_event_to_history_item(ev)
+        status_val = "done" if ev.admin_processed_at is not None else "pending"
+        items.append(
+            schemas.AdminProjectHistoryItem(
+                id=hist_item.id,
+                action=hist_item.action,
+                createdAt=hist_item.createdAt,
+                description=hist_item.description,
+                user=users_map.get(ev.user_id) if ev.user_id else None,
+                status=status_val,  # type: ignore[arg-type]
+            )
+        )
+
+    return schemas.AdminProjectHistoryListOut(items=items, total=total)
+
 def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
     if not p or p.user_id != user_id:
@@ -544,7 +608,7 @@ def log_report_export(
     to_date: str,
     project_ids: Optional[List[int]],
     fmt: str,
-) -> None:
+) -> models.ReportExport:
     """
     Фиксирует факт экспорта отчёта.
 
@@ -560,6 +624,8 @@ def log_report_export(
     )
     db.add(row)
     db.commit()
+    db.refresh(row)
+    return row
 
 
 def list_reports_paginated(
@@ -798,6 +864,108 @@ def admin_list_client_changes_summary(db: Session) -> List[schemas.AdminClientCh
     return items
 
 
+def admin_clients_summary(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+) -> schemas.AdminClientsSummaryOut:
+    """
+    Агрегированная сводка по клиентам: количество проектов, лимит, использовано и остаток,
+    плюс usage за выбранный период и количество необработанных изменений.
+    """
+    # Базовые данные по проектам
+    proj_rows = db.execute(
+        select(
+            models.Project.user_id,
+            func.count(models.Project.id),
+            func.coalesce(func.sum(models.Project.data_limit), 0),
+        ).group_by(models.Project.user_id)
+    ).all()
+    by_user: Dict[int, Dict[str, int]] = {}
+    for uid, cnt, limit_sum in proj_rows:
+        if uid is None:
+            continue
+        by_user[int(uid)] = {
+            "projects": int(cnt or 0),
+            "limit": int(limit_sum or 0),
+            "used_total": 0,
+            "used_period": 0,
+        }
+
+    # Использование за все время
+    used_total_rows = db.execute(
+        select(models.Project.user_id, func.count())
+        .join(models.Lead, models.Lead.project_id == models.Project.id)
+        .group_by(models.Project.user_id)
+    ).all()
+    for uid, cnt in used_total_rows:
+        if uid is None:
+            continue
+        by_user.setdefault(int(uid), {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0})
+        by_user[int(uid)]["used_total"] = int(cnt or 0)
+
+    # Использование за период (по imported_at, локальное время без tz)
+    used_period_rows = db.execute(
+        select(models.Project.user_id, func.count())
+        .join(models.Lead, models.Lead.project_id == models.Project.id)
+        .where(models.Lead.imported_at >= start_local)
+        .where(models.Lead.imported_at <= end_local)
+        .group_by(models.Project.user_id)
+    ).all()
+    for uid, cnt in used_period_rows:
+        if uid is None:
+            continue
+        by_user.setdefault(int(uid), {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0})
+        by_user[int(uid)]["used_period"] = int(cnt or 0)
+
+    # Карта pending изменений
+    pending_map = {item.user.id: item.pendingChanges for item in admin_list_client_changes_summary(db)}
+
+    # Собираем user info
+    user_ids = list(by_user.keys())
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if user_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.AdminClientSummaryItem] = []
+    totals_projects = 0
+    totals_limit = 0
+    totals_used = 0
+    totals_used_period = 0
+    for uid, stats in by_user.items():
+        info = users_map.get(uid)
+        if not info:
+            continue
+        remaining = max(0, int(stats["limit"]) - int(stats["used_total"]))
+        item = schemas.AdminClientSummaryItem(
+            user=info,
+            projectCount=int(stats["projects"]),
+            totalLimit=int(stats["limit"]),
+            usedTotal=int(stats["used_total"]),
+            usedPeriod=int(stats["used_period"]),
+            remaining=remaining,
+            pendingChanges=pending_map.get(uid, 0),
+        )
+        totals_projects += item.projectCount
+        totals_limit += item.totalLimit
+        totals_used += item.usedTotal
+        totals_used_period += item.usedPeriod
+        items.append(item)
+
+    totals = schemas.AdminClientSummaryTotals(
+        clients=len(items),
+        projects=totals_projects,
+        totalLimit=totals_limit,
+        usedTotal=totals_used,
+        usedPeriod=totals_used_period,
+        remaining=max(0, totals_limit - totals_used),
+    )
+
+    return schemas.AdminClientsSummaryOut(items=items, totals=totals)
+
+
 def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClientChangesOut:
     """
     Подробный список необработанных изменений конкретного клиента (по всем его проектам).
@@ -824,6 +992,12 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
     for ev, proj_name in rows:
         # Используем уже существующую утилиту для человекочитаемого описания
         hist_item = _audit_event_to_history_item(ev)
+        snapshot = None
+        try:
+            snapshot = ev.after or ev.before
+        except Exception:
+            snapshot = None
+        status = "done" if ev.admin_processed_at is not None else "pending"
         items.append(
             schemas.AdminChangeOut(
                 id=ev.id,
@@ -831,6 +1005,8 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
                 projectName=proj_name,
                 createdAt=hist_item.createdAt,
                 description=hist_item.description,
+                status=status,  # type: ignore[arg-type]
+                projectSnapshot=snapshot,
             )
         )
 

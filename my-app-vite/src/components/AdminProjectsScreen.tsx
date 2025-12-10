@@ -121,7 +121,7 @@ function AdminProjectsScreen({
         const map: Record<number, number> = {};
         resp.items.forEach((c: AdminChange) => {
           if (c.projectId == null) return;
-          const status = (c.status as AdminChangeStatus | undefined) ?? 'created';
+          const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
           if (status === 'done') return;
           map[c.projectId] = (map[c.projectId] ?? 0) + 1;
         });

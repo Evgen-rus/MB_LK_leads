@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminProjects, updateAdminProject, deleteAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
+import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 
 type AdminClientProjectsProps = {
   clientId: number;
@@ -22,6 +23,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminProject | null>(null);
+  const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
 
   async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate) {
     try {
@@ -216,6 +218,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     </button>
                     <button
                       className="icon-btn"
+                      title="История изменений"
+                      onClick={() => setHistoryFor(row)}
+                    >
+                      🕘
+                    </button>
+                    <button
+                      className="icon-btn"
                       title="Удалить проект"
                       onClick={() => handleDelete(row.id)}
                     >
@@ -283,6 +292,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
             setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
             setEditing(null);
           }}
+        />
+      )}
+      {historyFor && (
+        <AdminProjectHistoryModal
+          projectId={historyFor.id}
+          projectName={historyFor.name}
+          onClose={() => setHistoryFor(null)}
         />
       )}
     </div>

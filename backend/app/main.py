@@ -446,12 +446,19 @@ def export_leads(
     )
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
+    is_admin = current_user.id == 1
     if (format or "csv").lower() == "csv":
         def gen():
-            yield ("ext_id;project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
+            if is_admin:
+                yield ("ext_id;project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
+            else:
+                yield ("project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
             for r in rows:
                 utm = r["utm_campaign"] or ""
-                line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                if is_admin:
+                    line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                else:
+                    line = f"{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
                 yield line.encode('utf-8')
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return StreamingResponse(gen(), media_type="text/csv; charset=utf-8", headers=headers)
@@ -463,10 +470,12 @@ def export_leads(
         wb = Workbook()
         ws = wb.active
         ws.title = "leads"
-        ws.append(["ext_id", "project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
+        if is_admin:
+            ws.append(["ext_id", "project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
+        else:
+            ws.append(["project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
         for r in rows:
-            ws.append([
-                r["ext_id"],
+            row = [
                 r["project_id"],
                 r["project_name"],
                 r["source"] or "",
@@ -475,7 +484,10 @@ def export_leads(
                 r["utm_campaign"] or "",
                 r["user_login"],
                 r["user_id"],
-            ])
+            ]
+            if is_admin:
+                row.insert(0, r["ext_id"])
+            ws.append(row)
         bio = io.BytesIO()
         wb.save(bio)
         data = bio.getvalue()
@@ -625,6 +637,49 @@ def admin_get_project(
     return project
 
 
+@app.get("/admin/projects/{project_id}/history", response_model=schemas.AdminProjectHistoryListOut)
+def admin_project_history(
+    project_id: int,
+    limit: int = 100,
+    userId: int | None = None,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    status: Optional[str] = None,  # pending|done|all
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+
+    status = status or "all"
+    if status not in ("pending", "done", "all"):
+        status = "all"
+
+    return crud.admin_list_project_history(
+        db_sess,
+        project_id=project_id,
+        limit=limit,
+        user_id_filter=userId,
+        start_local=start_local,
+        end_local=end_local,
+        status=status if status != "all" else None,
+    )
+
+
 @app.patch("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)
 def admin_update_project(
     project_id: int,
@@ -744,6 +799,32 @@ def admin_list_reports(
     return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=userId)
 
 
+@app.post("/admin/reports", response_model=schemas.AdminReportOut)
+def admin_create_report(
+    payload: schemas.AdminCreateReportIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    proj_ids = payload.projectIds or None
+    row = crud.log_report_export(
+        db_sess,
+        user_id=current_admin.id,
+        from_date=payload.fromDate,
+        to_date=payload.toDate,
+        project_ids=proj_ids,
+        fmt=payload.format,
+    )
+    return schemas.AdminReportOut(
+        id=row.id,
+        createdAt=row.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        fromDate=row.from_date,
+        toDate=row.to_date,
+        projectIds=row.project_ids,
+        format=row.format,
+        user=schemas.UserInfo(id=current_admin.id, login=current_admin.login),
+    )
+
+
 @app.get("/admin/changes/summary", response_model=schemas.AdminClientChangesSummaryListOut)
 def admin_changes_summary(
     current_admin: models.User = Depends(require_admin),
@@ -754,6 +835,38 @@ def admin_changes_summary(
     """
     items = crud.admin_list_client_changes_summary(db_sess)
     return schemas.AdminClientChangesSummaryListOut(items=items)
+
+
+@app.get("/admin/clients/summary", response_model=schemas.AdminClientsSummaryOut)
+def admin_clients_summary(
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+
+    return crud.admin_clients_summary(
+        db_sess,
+        start_local=start_local,
+        end_local=end_local,
+    )
 
 
 @app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)

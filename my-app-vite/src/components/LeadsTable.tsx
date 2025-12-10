@@ -120,7 +120,7 @@ function LeadsTable({ projects }: Props) {
           />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Найдено: {rows.length}</span>}
+          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
       </div>
@@ -128,7 +128,6 @@ function LeadsTable({ projects }: Props) {
       <table className="table">
         <thead>
           <tr>
-            <th>ext_id</th>
             <th>Проект</th>
             <th>Источник</th>
             <th>Дата</th>
@@ -139,7 +138,6 @@ function LeadsTable({ projects }: Props) {
         <tbody>
           {rows.map((r, idx) => (
             <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
-              <td className="muted">{r.ext_id}</td>
               <td>
                 <div className="name">{projectNameMap.get(r.project_id) ?? '—'}</div>
                 <div className="sub">id: {r.project_id}</div>

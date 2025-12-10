@@ -2,11 +2,9 @@
 // Логика максимально простая и прозрачная, без лишних сущностей.
 import { useEffect, useMemo, useState } from 'react';
 import {
-  fetchAdminUsers,
-  fetchAdminProjects,
+  fetchAdminClientsSummary,
   fetchAdminChangesSummary,
-  type UserInfo,
-  type AdminProject,
+  type AdminClientSummaryItem,
   type AdminClientChangesSummaryListOut,
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
@@ -24,40 +22,28 @@ export type AdminClientsScreenProps = {
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
 };
 
-type ClientStatus =
-  | 'Активен'
-  | 'На паузе'
-  | 'Отключен'
-  | 'Нет проектов'
-  | 'Долг'
-  | 'Дожим';
+type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
 
 type ClientRow = {
   id: number;
   name: string;
   projectCount: number;
   status: ClientStatus;
-  remaining: number;      // Остаток за выбранный период (демо)
-  totalVolume: number;    // Объём данных за выбранный период (демо)
-  // Базовые значения за "полный" период (используем для пересчёта при смене дат)
-  baseRemaining: number;
-  baseTotalVolume: number;
+  remaining: number;      // Остаток по лимиту
+  totalVolume: number;    // Использовано за период
+  totalLimit: number;
+  usedTotal: number;
   pendingChanges: number;
 };
 
 const STATUS_COLORS: Record<ClientStatus, string> = {
   Активен: '#4CAF50',
-  'На паузе': '#FFC107',
-  Отключен: '#9E9E9E',
   'Нет проектов': '#03A9F4',
   Долг: '#F44336',
   Дожим: '#7E57C2',
 };
 
-type DateRange = {
-  from: string;
-  to: string;
-};
+type DateRange = { from: string; to: string };
 
 // Вспомогательный хелпер: вернуть диапазон "сегодня"
 function getTodayRange(): DateRange {
@@ -65,79 +51,12 @@ function getTodayRange(): DateRange {
   return { from: today, to: today };
 }
 
-function groupProjectsByUser(projects: AdminProject[]): Map<number, AdminProject[]> {
-  const map = new Map<number, AdminProject[]>();
-  projects.forEach((p) => {
-    const uid = p.user.id;
-    if (!map.has(uid)) {
-      map.set(uid, []);
-    }
-    map.get(uid)!.push(p);
-  });
-  return map;
-}
-
-// Базовый статус по проектам (без учёта биллинга)
-function deriveClientStatus(projects: AdminProject[]): ClientStatus {
-  if (!projects.length) return 'Нет проектов';
-  const anyActive = projects.some((p) => p.status === 'Активен');
-  const allPaused = projects.every((p) => p.status === 'На паузе');
-  const allDeliveryOff = projects.length > 0 && projects.every((p) => p.deliveryStatus === 'Отключена');
-
-  if (anyActive) return 'Активен';
-  if (allPaused) return 'На паузе';
-  if (allDeliveryOff) return 'Отключен';
-
+function deriveStatus(row: ClientRow): ClientStatus {
+  if (row.projectCount === 0) return 'Нет проектов';
+  if (row.remaining <= 0) return 'Долг';
+  const limit = row.totalLimit || 0;
+  if (limit > 0 && row.remaining / limit < 0.15) return 'Дожим';
   return 'Активен';
-}
-
-// DEMO-логика для статусов «Долг» и «Дожим» без реального биллинга.
-// ВАЖНО: это только фронтовая имитация для показа заказчику.
-function applyDemoDebtStatus(row: ClientRow): ClientRow {
-  // Не трогаем клиентов без проектов и явно отключённых
-  if (row.status === 'Нет проектов' || row.status === 'Отключен' || row.status === 'На паузе') {
-    return row;
-  }
-  const limit = row.baseRemaining + row.baseTotalVolume;
-  if (!limit) return row;
-
-  const remainingRatio = row.remaining / limit;
-
-  if (row.remaining <= 0) {
-    return { ...row, status: 'Долг' };
-  }
-  if (remainingRatio < 0.15) {
-    return { ...row, status: 'Дожим' };
-  }
-  return row;
-}
-
-function buildClientRows(users: UserInfo[], projects: AdminProject[]): ClientRow[] {
-  const byUser = groupProjectsByUser(projects);
-  return users.map((u) => {
-    const list = byUser.get(u.id) ?? [];
-    const projectCount = list.length;
-    const totalLimit = list.reduce((sum, p) => sum + (p.dataLimit || 0), 0);
-    // Реальные данные за выбранный период: numbersPeriod, если нет — numbersTotal
-    const totalUsedPeriod = list.reduce(
-      (sum, p) => sum + (p.numbersPeriod ?? p.numbersTotal ?? 0),
-      0,
-    );
-    const statusBase = deriveClientStatus(list);
-    const remainingBase = Math.max(0, totalLimit - totalUsedPeriod);
-    const baseRow: ClientRow = {
-      id: u.id,
-      name: u.login,
-      projectCount,
-      status: statusBase,
-      remaining: remainingBase,
-      totalVolume: totalUsedPeriod,
-      baseRemaining: remainingBase,
-      baseTotalVolume: totalUsedPeriod,
-      pendingChanges: 0,
-    };
-    return applyDemoDebtStatus(baseRow);
-  });
 }
 
 function AdminClientsScreen({
@@ -158,20 +77,26 @@ function AdminClientsScreen({
       try {
         setLoading(true);
         setError(null);
-        const [users, projectsResp, changesSummary] = await Promise.all([
-          fetchAdminUsers(),
-          fetchAdminProjects({ offset: 0, limit: 10000, fromDate: range.from, toDate: range.to }),
+        const [summary, changesSummary] = await Promise.all([
+          fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
           fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
         ]);
-        const rowsBase = buildClientRows(users, projectsResp.items);
         const pendingMap: Record<number, number> = {};
-        changesSummary.items.forEach((i) => {
-          pendingMap[i.user.id] = i.pendingChanges;
+        changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
+        const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
+          const row: ClientRow = {
+            id: it.user.id,
+            name: it.user.login,
+            projectCount: it.projectCount,
+            remaining: it.remaining,
+            totalVolume: it.usedPeriod,
+            totalLimit: it.totalLimit,
+            usedTotal: it.usedTotal,
+            pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
+            status: 'Активен',
+          };
+          return { ...row, status: deriveStatus(row) };
         });
-        const rows = rowsBase.map((r) => ({
-          ...r,
-          pendingChanges: pendingMap[r.id] ?? 0,
-        }));
         setBaseClients(rows);
         setPage(1);
       } catch (e: any) {
@@ -211,10 +136,6 @@ function AdminClientsScreen({
     () => (selectedClientId != null ? clients.find((c) => c.id === selectedClientId) ?? null : null),
     [clients, selectedClientId],
   );
-
-  function updateClientById(id: number, updater: (row: ClientRow) => ClientRow) {
-    setBaseClients((prev) => prev.map((c) => (c.id === id ? updater(c) : c)));
-  }
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -529,124 +450,9 @@ function AdminClientsScreen({
                 <div className="sub">Общий объём данных за период</div>
                 <div>{selectedClient.totalVolume}</div>
               </div>
-            </div>
-            <div
-              style={{
-                marginTop: 8,
-                paddingTop: 8,
-                borderTop: '1px solid #eee',
-                display: 'grid',
-                gap: 8,
-              }}
-            >
-              <div className="sub">
-                Управление клиентом (демо, только на фронте — без сохранения на сервер):
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => {
-                    if (!selectedClient) return;
-                    const input = window.prompt(
-                      'На сколько данных увеличить остаток клиента? (демо, только фронтенд)',
-                    );
-                    if (!input) return;
-                    const amount = Number(input.replace(',', '.'));
-                    if (!Number.isFinite(amount) || amount <= 0) {
-                      alert('Введите положительное число');
-                      return;
-                    }
-                    updateClientById(selectedClient.id, (row) => ({
-                      ...row,
-                      baseRemaining: row.baseRemaining + amount,
-                    }));
-                  }}
-                >
-                  Начислить данные
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => {
-                    if (!selectedClient) return;
-                    const input = window.prompt(
-                      'Сколько данных списать с клиента? (демо, только фронтенд)',
-                    );
-                    if (!input) return;
-                    const amount = Number(input.replace(',', '.'));
-                    if (!Number.isFinite(amount) || amount <= 0) {
-                      alert('Введите положительное число');
-                      return;
-                    }
-                    updateClientById(selectedClient.id, (row) => ({
-                      ...row,
-                      baseRemaining: Math.max(0, row.baseRemaining - amount),
-                    }));
-                  }}
-                >
-                  Списать данные
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => {
-                    if (!selectedClient) return;
-                    const limitInput = window.prompt(
-                      'Установить новый тариф (общий лимит данных клиента)? (демо, только фронтенд)',
-                    );
-                    if (!limitInput) return;
-                    const newLimit = Number(limitInput.replace(',', '.'));
-                    if (!Number.isFinite(newLimit) || newLimit <= 0) {
-                      alert('Введите положительное число');
-                      return;
-                    }
-                    updateClientById(selectedClient.id, (row) => {
-                      const baseUsed = row.baseTotalVolume;
-                      const remaining = Math.max(0, newLimit - baseUsed);
-                      return {
-                        ...row,
-                        baseRemaining: remaining,
-                      };
-                    });
-                  }}
-                >
-                  Изменить тариф (лимит)
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => {
-                    if (!selectedClient) return;
-                    const next =
-                      selectedClient.status === 'На паузе' ? 'Активен' : 'На паузе';
-                    updateClientById(selectedClient.id, (row) => ({
-                      ...row,
-                      status: next,
-                    }));
-                  }}
-                >
-                  {selectedClient.status === 'На паузе'
-                    ? 'Снять с паузы (демо)'
-                    : 'Поставить на паузу (демо)'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => {
-                    if (!selectedClient) return;
-                    const confirmOff = window.confirm(
-                      'Отключить клиента? (демо, только фронтенд — без изменения реальных проектов)',
-                    );
-                    if (!confirmOff) return;
-                    updateClientById(selectedClient.id, (row) => ({
-                      ...row,
-                      status: 'Отключен',
-                    }));
-                  }}
-                >
-                  Отключить клиента (демо)
-                </button>
+              <div>
+                <div className="sub">Израсходовано всего</div>
+                <div>{selectedClient.usedTotal}</div>
               </div>
             </div>
           </div>

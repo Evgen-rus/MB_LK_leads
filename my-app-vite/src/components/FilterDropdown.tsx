@@ -48,6 +48,10 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
     setLocalSelected(options.map((o) => o.value));
   };
 
+  const handleClearAll = () => {
+    setLocalSelected([]);
+  };
+
   const summary =
     selected.length === options.length || options.length === 0
       ? `${label}: все`
@@ -88,6 +92,9 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
             )}
           </div>
           <div style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={handleClearAll} type="button">
+              Снять выбор
+            </button>
             <button className="btn" onClick={handleSelectAll} type="button">
               {allLabel}
             </button>

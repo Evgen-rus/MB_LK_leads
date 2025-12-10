@@ -201,6 +201,20 @@ class ProjectHistoryItem(BaseModel):
     description: str
 
 
+class AdminProjectHistoryItem(BaseModel):
+    id: int
+    action: Literal['create', 'update', 'delete']
+    createdAt: str
+    description: str
+    user: Optional[UserInfo] = None
+    status: Literal['pending', 'done'] = 'pending'
+
+
+class AdminProjectHistoryListOut(BaseModel):
+    items: List[AdminProjectHistoryItem]
+    total: int
+
+
 # -------- Админ: изменения клиентов --------
 class AdminChangeOut(BaseModel):
     id: int
@@ -208,6 +222,8 @@ class AdminChangeOut(BaseModel):
     projectName: Optional[str] = None
     createdAt: str
     description: str
+    status: Literal['pending', 'done'] = 'pending'
+    projectSnapshot: Optional[dict] = None
 
 
 class AdminClientChangesOut(BaseModel):
@@ -222,6 +238,31 @@ class AdminClientChangesSummaryItem(BaseModel):
 
 class AdminClientChangesSummaryListOut(BaseModel):
     items: List[AdminClientChangesSummaryItem]
+
+
+# -------- Сводка по клиентам --------
+class AdminClientSummaryItem(BaseModel):
+    user: UserInfo
+    projectCount: int
+    totalLimit: int
+    usedTotal: int
+    usedPeriod: int
+    remaining: int
+    pendingChanges: int = 0
+
+
+class AdminClientSummaryTotals(BaseModel):
+    clients: int
+    projects: int
+    totalLimit: int
+    usedTotal: int
+    usedPeriod: int
+    remaining: int
+
+
+class AdminClientsSummaryOut(BaseModel):
+    items: List[AdminClientSummaryItem]
+    totals: AdminClientSummaryTotals
 
 
 # -------- Отчёты (история экспортов) --------
@@ -253,6 +294,13 @@ class AdminReportOut(BaseModel):
 class AdminReportListOut(BaseModel):
     items: List[AdminReportOut]
     total: int
+
+
+class AdminCreateReportIn(BaseModel):
+    fromDate: str
+    toDate: str
+    projectIds: Optional[List[int]] = None
+    format: str = "csv"
 
 
 # -------- Поддержка (сообщение в Telegram) --------
