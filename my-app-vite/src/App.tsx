@@ -16,6 +16,7 @@ import AdminProjectsScreen, {
 } from './components/AdminProjectsScreen';
 import AdminBalance from './components/AdminBalance';
 import ClientBalance from './components/ClientBalance';
+import React from 'react';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -45,7 +46,9 @@ function App() {
         saved === 'support' ||
         saved === 'blacklist' ||
         saved === 'admin-clients' ||
-        saved === 'balance'
+        saved === 'balance' ||
+        saved === 'education' ||
+        saved === 'onboarding'
       ) {
         return saved as ViewType;
       }
@@ -112,7 +115,9 @@ function App() {
       view !== 'support' &&
       view !== 'blacklist' &&
       view !== 'admin-clients' &&
-      view !== 'balance'
+      view !== 'balance' &&
+      view !== 'education' &&
+      view !== 'onboarding'
     ) {
       setView('projects');
       try {
@@ -199,6 +204,10 @@ function App() {
                 ? 'Интеграции'
                 : view === 'support'
                 ? 'Техподдержка'
+                : view === 'education'
+                ? 'Обучение'
+                : view === 'onboarding'
+                ? 'Онбординг'
                 : 'Черный список'}
             </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -273,6 +282,14 @@ function App() {
           ) : (
             <ClientBalance />
           )
+        ) : view === 'education' ? (
+          <div className="table-card" style={{ padding: 16 }}>
+            Раздел «Обучение» в разработке.
+          </div>
+        ) : view === 'onboarding' ? (
+          <div className="table-card" style={{ padding: 16 }}>
+            Раздел «Онбординг» в разработке.
+          </div>
           ) : view === 'integrations' ? (
             <Integrations />
           ) : view === 'support' ? (

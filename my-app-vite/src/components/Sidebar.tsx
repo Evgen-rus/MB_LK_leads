@@ -9,7 +9,9 @@ export type ViewType =
   | 'support'
   | 'blacklist'
   | 'admin-clients'
-  | 'balance';
+  | 'balance'
+  | 'education'
+  | 'onboarding';
 
 type SidebarProps = {
   active: ViewType;
@@ -139,7 +141,7 @@ function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
             </span>
             <span className="nav-label">Интеграции</span>
           </li>
-          <li>
+          <li className={active === 'education' ? 'active' : ''} onClick={() => onNavigate('education')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 19V7a2 2 0 0 1 2-2h6" />
@@ -149,7 +151,7 @@ function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
             </span>
             <span className="nav-label">Обучение</span>
           </li>
-          <li>
+          <li className={active === 'onboarding' ? 'active' : ''} onClick={() => onNavigate('onboarding')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12h16l-3 6H7l-3-6Z" />
