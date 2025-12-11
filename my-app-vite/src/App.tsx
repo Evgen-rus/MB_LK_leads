@@ -22,7 +22,14 @@ import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
 import ProjectHistoryModal from './components/ProjectHistoryModal';
 import type { Project } from './types/project';
-import { createProjects as apiCreate, fetchProjects as apiList, updateProject as apiUpdate, deleteProject as apiDelete, logout as apiLogout } from './api';
+import {
+  createProjects as apiCreate,
+  fetchProjects as apiList,
+  updateProject as apiUpdate,
+  deleteProject as apiDelete,
+  logout as apiLogout,
+  fetchClientBalanceSummary,
+} from './api';
 import Login from './components/Login';
 import { isJwtValid, isAdminFromToken } from './utils/jwt';
 
@@ -65,6 +72,8 @@ function App() {
   // Состояние для баланса: выбранный клиент и какая модалка открыть
   const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
+  // Клиентский баланс для шапки
+  const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -149,6 +158,20 @@ function App() {
     })();
   }, [authChecked, needLogin]);
 
+  // Подтягиваем баланс клиента для шапки (только для клиентской роли)
+  useEffect(() => {
+    if (!authChecked || needLogin || isAdmin) return;
+    (async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const data = await fetchClientBalanceSummary({ fromDate: today, toDate: today });
+        setClientBalance({ remaining: data.remaining, debt: data.debt });
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, [authChecked, needLogin, isAdmin]);
+
   // Пауза до завершения первичной проверки, чтобы избежать «мигания»
   if (!authChecked) {
     return <div style={{display:'grid',placeItems:'center',height:'100vh'}}>Загрузка…</div>;
@@ -211,6 +234,12 @@ function App() {
                 : 'Черный список'}
             </span>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {!isAdmin && clientBalance && (
+              <div style={{ textAlign: 'right', lineHeight: 1.3, color: clientBalance.debt ? '#d23' : '#111' }}>
+                <div style={{ fontWeight: 600 }}>Текущий остаток: {clientBalance.remaining}</div>
+                {clientBalance.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
+              </div>
+            )}
             <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
               setRows([]);
