@@ -21,8 +21,6 @@ function formatDateInput(d: Date) {
 function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
-  const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
-  const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
@@ -54,20 +52,12 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
-      const matchesStatus = status === 'Все' ? true : row.status === status;
-      const matchesType = typeFilter === 'Все' ? true : row.collectionSource === typeFilter;
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit);
-      return matchesStatus && matchesType && matchesQuery;
+      return matchesQuery;
     });
-  }, [rows, search, status, typeFilter]);
-
-  const availableTypes = useMemo<CollectionSource[]>(() => {
-    const set = new Set<CollectionSource>();
-    rows.forEach(r => set.add(r.collectionSource));
-    return Array.from(set);
-  }, [rows]);
+  }, [rows, search]);
 
   // Восстанавливаем payload для updateProject из текущего объекта Project.
   // Нужен полный набор полей, иначе бэкенд отвечает 422.
@@ -143,17 +133,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate); }}}
           />
-          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
-            <option value="Все">Все статусы проекта</option>
-            <option value="Активен">Активен</option>
-            <option value="На паузе">На паузе</option>
-          </select>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'Все' | CollectionSource)}>
-            <option value="Все">Все источники</option>
-            {availableTypes.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
         </div>
         <div className="actions">
           <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
@@ -166,11 +145,11 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
             <th>Название</th>
             <th>Источник</th>
             <th>Статус проекта</th>
-            <th>Источник сбора</th>
             <th>Лимит</th>
             <th>Номеров за период</th>
             <th>Номеров получено всего</th>
             <th>Дни получения номеров</th>
+            <th>Источник сбора</th>
             <th>Доменов/номеров</th>
             <th>Дата создания</th>
             <th>Настройки</th>
@@ -194,11 +173,11 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                   {row.status}
                 </span>
               </td>
-              <td>{row.collectionSource}</td>
               <td>{row.dataLimit}</td>
               <td>{row.numbersPeriod ?? row.numbersToday}</td>
               <td>{row.numbersTotal}</td>
               <td className="muted">{row.daysReceived}</td>
+              <td>{row.collectionSource}</td>
               <td>{row.sourcesCount}</td>
               <td className="muted">{row.createdAt}</td>
               <td>
