@@ -4,14 +4,6 @@ import { useEffect, useState } from 'react';
 import { fetchAdminReports, fetchAdminUsers, buildLeadsExportUrl, createAdminReport, type AdminReportItem, type UserInfo } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
-function parseProjectIds(projectIds?: string | null): number[] | undefined {
-  if (!projectIds) return undefined;
-  const parts = projectIds.split(',').map(p => p.trim()).filter(Boolean);
-  if (!parts.length) return undefined;
-  const nums = parts.map(p => Number(p)).filter(n => Number.isFinite(n));
-  return nums.length ? nums : undefined;
-}
-
 function AdminReports() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
@@ -62,10 +54,10 @@ function AdminReports() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  function parseProjectIds(): number[] | undefined {
-    const raw = projectIdsInput.trim();
-    if (!raw) return undefined;
-    const parts = raw.split(',').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n));
+  function parseProjectIdsString(raw?: string | null): number[] | undefined {
+    const source = (raw ?? '').trim();
+    if (!source) return undefined;
+    const parts = source.split(',').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n));
     return parts.length ? parts : undefined;
   }
 
@@ -74,7 +66,7 @@ function AdminReports() {
       alert('Выберите клиента для отчёта');
       return;
     }
-    const projIds = parseProjectIds();
+    const projIds = parseProjectIdsString(projectIdsInput);
     createAdminReport({
       fromDate: range.from,
       toDate: range.to,
@@ -166,7 +158,7 @@ function AdminReports() {
               </tr>
             )}
             {items.map((r, idx) => {
-              const projectIds = parseProjectIds(r.projectIds);
+              const projectIds = parseProjectIdsString(r.projectIds);
               return (
                 <tr key={r.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
                   <td>
