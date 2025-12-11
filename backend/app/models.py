@@ -128,11 +128,13 @@ class ReportExport(Base):
     - период (from_date, to_date)
     - список проектов (project_ids в виде строки "1,2,3")
     - формат (csv/xlsx)
+    - target_client_id (для какого клиента формировали отчёт админ)
     """
     __tablename__ = "report_exports"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    target_client_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=now_msk)
 
     from_date = Column(String, nullable=False)  # YYYY-MM-DD

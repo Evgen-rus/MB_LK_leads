@@ -106,6 +106,7 @@ def startup_event():
         crud.ensure_audit_user_id_column(s)
         crud.ensure_blacklist_user_id_column(s)
         crud.ensure_audit_admin_columns(s)
+        crud.ensure_report_client_id_column(s)
 
     # Start background notifier thread
     worker = threading.Thread(
@@ -789,14 +790,14 @@ def admin_list_blacklist(
 def admin_list_reports(
     offset: int = 0,
     limit: int = 50,
-    userId: int | None = None,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех отчётов (для админа)."""
     limit = max(1, min(500, limit))
     offset = max(0, offset)
-    return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=userId)
+    # Показываем только отчёты, сформированные текущим админом
+    return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=current_admin.id)
 
 
 @app.post("/admin/reports", response_model=schemas.AdminReportOut)
@@ -806,9 +807,12 @@ def admin_create_report(
     db_sess: Session = Depends(get_db),
 ):
     proj_ids = payload.projectIds or None
+    client_id = payload.clientId
+    client_user = db_sess.get(models.User, client_id)
     row = crud.log_report_export(
         db_sess,
         user_id=current_admin.id,
+        client_id=client_id,
         from_date=payload.fromDate,
         to_date=payload.toDate,
         project_ids=proj_ids,
@@ -822,6 +826,7 @@ def admin_create_report(
         projectIds=row.project_ids,
         format=row.format,
         user=schemas.UserInfo(id=current_admin.id, login=current_admin.login),
+        client=schemas.UserInfo(id=client_id, login=client_user.login if client_user else str(client_id)),
     )
 
 

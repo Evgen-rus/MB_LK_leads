@@ -435,6 +435,7 @@ export async function fetchAdminBlacklist(params?: {
 // -------- Админские отчёты --------
 export type AdminReportItem = ReportItem & {
   user: UserInfo;
+  client?: UserInfo | null;
 };
 
 export type AdminReportsListResp = {
@@ -445,12 +446,10 @@ export type AdminReportsListResp = {
 export async function fetchAdminReports(params?: {
   offset?: number;
   limit?: number;
-  userId?: number;
 }): Promise<AdminReportsListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
   if (params?.limit != null) q.set('limit', String(params.limit));
-  if (params?.userId != null) q.set('userId', String(params.userId));
   const qs = q.toString();
   return http<AdminReportsListResp>(`/admin/reports${qs ? `?${qs}` : ''}`);
 }
@@ -624,7 +623,7 @@ export async function fetchAdminProjectHistory(projectId: number, params: { from
 }
 
 // -------- Создание отчёта админом --------
-export async function createAdminReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; }): Promise<AdminReportItem> {
+export async function createAdminReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; clientId: number; }): Promise<AdminReportItem> {
   return http<AdminReportItem>('/admin/reports', {
     method: 'POST',
     body: JSON.stringify({
@@ -632,6 +631,7 @@ export async function createAdminReport(payload: { fromDate: string; toDate: str
       toDate: payload.toDate,
       projectIds: payload.projectIds,
       format: payload.format,
+      clientId: payload.clientId,
     }),
   });
 }

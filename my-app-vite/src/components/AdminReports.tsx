@@ -1,10 +1,20 @@
 // Отчёты всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
 import { useEffect, useState } from 'react';
-import { fetchAdminReports, buildLeadsExportUrl, type AdminReportItem } from '../api';
+import {
+  fetchAdminReports,
+  fetchAdminUsers,
+  buildLeadsExportUrl,
+  createAdminReport,
+  type AdminReportItem,
+  type UserInfo,
+} from '../api';
 import DateRangeFilter from './DateRangeFilter';
+import ExportDropdown from './ExportDropdown';
 
 function AdminReports() {
+  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
   const [items, setItems] = useState<AdminReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,6 +25,16 @@ function AdminReports() {
     const today = new Date().toISOString().slice(0, 10);
     return { from: today, to: today };
   });
+  async function loadUsers() {
+    try {
+      const list = await fetchAdminUsers();
+      setUsers(list);
+      // автоподстановка первого клиента по умолчанию не делаем — надо выбрать явно
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   async function load(p = page, s = pageSize) {
     try {
       setLoading(true);
@@ -34,6 +54,7 @@ function AdminReports() {
   }
 
   useEffect(() => {
+    loadUsers();
     load(1);
   }, []);
 
@@ -46,10 +67,47 @@ function AdminReports() {
     return parts.length ? parts : undefined;
   }
 
+  function handleCreateReport(format: 'csv' | 'xlsx') {
+    if (userIdFilter == null) {
+      alert('Выберите клиента для отчёта');
+      return;
+    }
+    createAdminReport({
+      fromDate: range.from,
+      toDate: range.to,
+      projectIds: undefined,
+      format,
+      clientId: userIdFilter,
+    })
+      .then(() => {
+        load(1, pageSize);
+        alert('Запрос на отчёт создан. Скачайте файл в списке ниже после готовности.');
+      })
+      .catch((e: any) => {
+        alert(e?.message || 'Не удалось создать отчёт');
+      });
+  }
+
   return (
     <div className="table-card">
       <div className="table-toolbar">
         <div className="filters">
+          <select
+            value={userIdFilter ?? ''}
+            onChange={(e) => {
+              const val = e.target.value ? Number(e.target.value) : null;
+              setUserIdFilter(val);
+              setPage(1);
+              load(1, pageSize);
+            }}
+          >
+            <option value="">Выберите клиента</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.login} (id: {u.id})
+              </option>
+            ))}
+          </select>
           <DateRangeFilter
             from={range.from}
             to={range.to}
@@ -57,17 +115,18 @@ function AdminReports() {
           />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {loading ? (
-            <span className="sub">Загрузка…</span>
-          ) : (
-            <span className="sub">Всего отчётов: {total}</span>
-          )}
+          <ExportDropdown
+            buttonText="Отчёт за период"
+            onExport={(fmt) => handleCreateReport(fmt)}
+          />
+          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
       </div>
       <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
+              <th>Сформировал</th>
               <th>Клиент</th>
               <th>Дата создания</th>
               <th>Период</th>
@@ -98,6 +157,10 @@ function AdminReports() {
                   <td>
                     <div className="name">{r.user.login}</div>
                     <div className="sub">id: {r.user.id}</div>
+                  </td>
+                  <td>
+                    <div className="name">{r.client?.login || '—'}</div>
+                    {r.client && <div className="sub">id: {r.client.id}</div>}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.createdAt}</td>
                   <td className="muted">{r.fromDate} — {r.toDate}</td>

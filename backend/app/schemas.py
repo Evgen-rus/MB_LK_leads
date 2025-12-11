@@ -336,7 +336,8 @@ class AdminReportOut(BaseModel):
     toDate: str
     projectIds: Optional[str] = None
     format: str
-    user: UserInfo
+    user: UserInfo                # кто сформировал
+    client: Optional[UserInfo] = None  # для какого клиента
 
 
 class AdminReportListOut(BaseModel):
@@ -349,6 +350,7 @@ class AdminCreateReportIn(BaseModel):
     toDate: str
     projectIds: Optional[List[int]] = None
     format: str = "csv"
+    clientId: int
 
 
 # -------- Поддержка (сообщение в Telegram) --------

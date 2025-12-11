@@ -605,6 +605,7 @@ def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_lo
 def log_report_export(
     db: Session,
     user_id: int,
+    client_id: Optional[int],
     from_date: str,
     to_date: str,
     project_ids: Optional[List[int]],
@@ -618,6 +619,7 @@ def log_report_export(
     proj_str = ",".join(str(pid) for pid in project_ids) if project_ids else None
     row = models.ReportExport(
         user_id=user_id,
+        target_client_id=client_id,
         from_date=from_date,
         to_date=to_date,
         project_ids=proj_str,
@@ -1212,6 +1214,18 @@ def ensure_blacklist_user_id_column(db: Session) -> None:
         db.commit()
 
 
+def ensure_report_client_id_column(db: Session) -> None:
+    """
+    Добавляем колонку target_client_id в report_exports, если её нет.
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("report_exports")]
+    if "target_client_id" not in cols:
+        db.execute(text("ALTER TABLE report_exports ADD COLUMN target_client_id INTEGER"))
+        db.commit()
+
+
 # =====================================================
 # =================== ADMIN CRUD ======================
 # =====================================================
@@ -1549,16 +1563,21 @@ def admin_list_all_reports(
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.ReportExport.created_at.desc()).offset(offset).limit(limit)).scalars().all()
 
-    user_ids = set(r.user_id for r in rows if r.user_id)
+    creator_ids = set(r.user_id for r in rows if r.user_id)
+    client_ids = set(r.target_client_id for r in rows if r.target_client_id)
     users_map: Dict[int, schemas.UserInfo] = {}
-    if user_ids:
-        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
+    ids_to_fetch = list(creator_ids.union(client_ids))
+    if ids_to_fetch:
+        users = db.execute(select(models.User).where(models.User.id.in_(ids_to_fetch))).scalars().all()
         for u in users:
             users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
 
     items: List[schemas.AdminReportOut] = []
     for r in rows:
         user_info = users_map.get(r.user_id, schemas.UserInfo(id=r.user_id or 0, login="(unknown)"))
+        client_info = None
+        if r.target_client_id:
+            client_info = users_map.get(r.target_client_id, schemas.UserInfo(id=r.target_client_id, login="(unknown client)"))
         items.append(schemas.AdminReportOut(
             id=r.id,
             createdAt=r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1567,6 +1586,7 @@ def admin_list_all_reports(
             projectIds=r.project_ids,
             format=r.format,
             user=user_info,
+            client=client_info,
         ))
 
     return schemas.AdminReportListOut(items=items, total=total)
