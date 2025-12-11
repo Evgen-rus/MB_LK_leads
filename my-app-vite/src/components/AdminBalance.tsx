@@ -79,6 +79,13 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
               required
+              style={{
+                border: '1px solid #dfe3eb',
+                borderRadius: 8,
+                padding: '10px 12px',
+                width: '100%',
+                outline: 'none',
+              }}
             />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
@@ -87,6 +94,15 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               rows={3}
+              style={{
+                border: '1px solid #dfe3eb',
+                borderRadius: 8,
+                padding: '10px 12px',
+                width: '100%',
+                outline: 'none',
+                resize: 'vertical',
+                minHeight: 96,
+              }}
             />
           </label>
           {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
@@ -214,10 +230,11 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
       )}
 
       {hasClient && summary && (
-        <div
-          className="table-card"
-          style={{ border: '1px solid #eee', padding: 16, display: 'grid', gap: 12 }}
-        >
+        <div style={{ overflowX: 'auto' }}>
+          <div
+            className="table-card"
+            style={{ display: 'grid', gap: 12, minWidth: 720, padding: '12px 16px' }}
+          >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
@@ -259,99 +276,102 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
               <div>{summary.usedPeriod}</div>
             </div>
           </div>
+          </div>
         </div>
       )}
 
       {hasClient && (
-        <div className="table-card" style={{ marginTop: 4 }}>
-          <div className="table-toolbar">
-            <div className="filters">
-              <span className="sub">Операции</span>
+        <div style={{ overflowX: 'auto' }}>
+          <div className="table-card" style={{ minWidth: 860, padding: '0 8px 8px' }}>
+            <div className="table-toolbar">
+              <div className="filters">
+                <span className="sub">Операции</span>
+              </div>
+              <div className="actions">
+                {loadingOps ? <span className="sub">Загрузка…</span> : <span className="sub">Всего: {totalOps}</span>}
+              </div>
             </div>
-            <div className="actions">
-              {loadingOps ? <span className="sub">Загрузка…</span> : <span className="sub">Всего: {totalOps}</span>}
-            </div>
-          </div>
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Дата</th>
-                  <th>Тип</th>
-                  <th>Количество</th>
-                  <th>Комментарий</th>
-                  <th>Создал</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!loadingOps && ops.length === 0 && (
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
                   <tr>
-                    <td colSpan={5} className="muted" style={{ padding: 16 }}>Операций нет.</td>
+                    <th>Дата</th>
+                    <th>Тип</th>
+                    <th>Количество</th>
+                    <th>Комментарий</th>
+                    <th>Создал</th>
                   </tr>
-                )}
-                {ops.map((op, idx) => (
-                  <tr key={op.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{op.createdAt}</td>
-                    <td>
-                      <span
-                        className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'}
-                        style={{ textTransform: 'capitalize' }}
-                      >
-                        {op.type === 'credit' ? 'Начисление' : 'Списание'}
-                      </span>
-                    </td>
-                    <td>{op.amount}</td>
-                    <td>{op.comment || '—'}</td>
-                    <td className="muted">{op.createdBy.login} (id: {op.createdBy.id})</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-footer">
-            Показано {ops.length} из {totalOps}
-            <div className="spacer" />
-            <div className="pager">
-              <button
-                className="pager__btn"
-                disabled={page <= 1}
-                onClick={() => {
-                  const p = Math.max(1, page - 1);
-                  setPage(p);
-                  if (selectedClientId != null) loadOps(selectedClientId, p);
-                }}
-              >
-                ‹
-              </button>
-              <span className="pager__info">
-                {page} / {totalPages}
-              </span>
-              <button
-                className="pager__btn"
-                disabled={page >= totalPages}
-                onClick={() => {
-                  const p = Math.min(totalPages, page + 1);
-                  setPage(p);
-                  if (selectedClientId != null) loadOps(selectedClientId, p);
-                }}
-              >
-                ›
-              </button>
-              <select
-                className="pager__size"
-                value={pageSize}
-                onChange={(e) => {
-                  const s = Number(e.target.value);
-                  setPageSize(s);
-                  setPage(1);
-                  if (selectedClientId != null) loadOps(selectedClientId, 1, s);
-                }}
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
+                </thead>
+                <tbody>
+                  {!loadingOps && ops.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="muted" style={{ padding: 16 }}>Операций нет.</td>
+                    </tr>
+                  )}
+                  {ops.map((op, idx) => (
+                    <tr key={op.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+                      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{op.createdAt}</td>
+                      <td>
+                        <span
+                          className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'}
+                          style={{ textTransform: 'capitalize' }}
+                        >
+                          {op.type === 'credit' ? 'Начисление' : 'Списание'}
+                        </span>
+                      </td>
+                      <td>{op.amount}</td>
+                      <td>{op.comment || '—'}</td>
+                      <td className="muted">{op.createdBy.login} (id: {op.createdBy.id})</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="table-footer">
+              Показано {ops.length} из {totalOps}
+              <div className="spacer" />
+              <div className="pager">
+                <button
+                  className="pager__btn"
+                  disabled={page <= 1}
+                  onClick={() => {
+                    const p = Math.max(1, page - 1);
+                    setPage(p);
+                    if (selectedClientId != null) loadOps(selectedClientId, p);
+                  }}
+                >
+                  ‹
+                </button>
+                <span className="pager__info">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  className="pager__btn"
+                  disabled={page >= totalPages}
+                  onClick={() => {
+                    const p = Math.min(totalPages, page + 1);
+                    setPage(p);
+                    if (selectedClientId != null) loadOps(selectedClientId, p);
+                  }}
+                >
+                  ›
+                </button>
+                <select
+                  className="pager__size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    const s = Number(e.target.value);
+                    setPageSize(s);
+                    setPage(1);
+                    if (selectedClientId != null) loadOps(selectedClientId, 1, s);
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
