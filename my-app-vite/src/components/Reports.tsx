@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchReports, type ReportItem, buildLeadsExportUrl } from '../api';
+import { fetchReports, createReport, type ReportItem, buildLeadsExportUrl } from '../api';
+import DateRangeFilter from './DateRangeFilter';
+import ExportDropdown from './ExportDropdown';
 
 function parseProjectIds(projectIds?: string | null): number[] | undefined {
   if (!projectIds) return undefined;
@@ -9,6 +11,13 @@ function parseProjectIds(projectIds?: string | null): number[] | undefined {
   return nums.length ? nums : undefined;
 }
 
+function formatDateInput(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function Reports() {
   const [items, setItems] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -16,6 +25,8 @@ function Reports() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
+  const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
+  const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
 
   async function load(p = page, s = pageSize) {
     try {
@@ -34,17 +45,45 @@ function Reports() {
 
   useEffect(() => {
     load(1);
-  }, []);
+  }, [fromDate, toDate]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  async function handleExport(format: 'csv' | 'xlsx') {
+    try {
+      await createReport({
+        fromDate,
+        toDate,
+        projectIds: undefined,
+        format,
+      });
+      load(1, pageSize);
+    } catch (e) {
+      console.error('Не удалось зафиксировать экспорт отчёта', e);
+    }
+  }
+
   return (
-    <div className="table-card">
+      <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters" />
-        <div className="actions">
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <DateRangeFilter
+            from={fromDate}
+            to={toDate}
+            onChange={({ from, to }) => {
+              setFromDate(from);
+              setToDate(to);
+              setPage(1);
+            }}
+          />
+        </div>
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <ExportDropdown buttonText="Отчёт за период" onExport={handleExport} />
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
+      </div>
+      <div className="sub" style={{ padding: '0 16px 8px' }}>
+        Отчёт формируется по всем вашим проектам за выбранный период.
       </div>
       <div className="table-scroll">
         <table className="table">

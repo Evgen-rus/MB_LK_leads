@@ -353,6 +353,13 @@ class AdminCreateReportIn(BaseModel):
     clientId: int
 
 
+class ClientCreateReportIn(BaseModel):
+    fromDate: str
+    toDate: str
+    projectIds: Optional[List[int]] = None
+    format: str = "csv"
+
+
 # -------- Поддержка (сообщение в Telegram) --------
 class SupportMessageIn(BaseModel):
     phone: str

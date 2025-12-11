@@ -511,6 +511,34 @@ def list_reports(
     return crud.list_reports_paginated(db_sess, user_id=current_user.id, offset=offset, limit=limit)
 
 
+@app.post("/reports", response_model=schemas.ReportOut)
+def create_report(
+    payload: schemas.ClientCreateReportIn,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Логирует запрос на экспорт отчёта для текущего клиента.
+    """
+    proj_ids = payload.projectIds or None
+    row = crud.log_report_export(
+        db_sess,
+        user_id=current_user.id,
+        client_id=current_user.id,
+        from_date=payload.fromDate,
+        to_date=payload.toDate,
+        project_ids=proj_ids,
+        fmt=payload.format,
+    )
+    return schemas.ReportOut(
+        id=row.id,
+        createdAt=row.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        fromDate=row.from_date,
+        toDate=row.to_date,
+        projectIds=row.project_ids,
+        format=row.format,
+    )
+
 # ----------------------- Черный список -----------------------
 @app.get("/blacklist", response_model=schemas.BlacklistListOut)
 def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):

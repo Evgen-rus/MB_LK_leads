@@ -247,6 +247,13 @@ export async function fetchReports(params?: { offset?: number; limit?: number })
   return http<ReportsListResp>(`/reports${qs ? `?${qs}` : ''}`);
 }
 
+export async function createReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; }): Promise<ReportItem> {
+  return http<ReportItem>('/reports', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function buildLeadsExportUrl(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; source?: 'leads' | 'reports'; }): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));

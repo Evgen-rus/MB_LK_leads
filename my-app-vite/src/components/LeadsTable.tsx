@@ -1,7 +1,7 @@
 // Таблица лидов с фильтрами по проекту и дате
 import { useEffect, useMemo, useState } from 'react';
 import type { Project } from '../types/project';
-import { fetchLeads, buildLeadsExportUrl, type Lead } from '../api';
+import { fetchLeads, buildLeadsExportUrl, createReport, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
 import FilterDropdown from './FilterDropdown';
 import DateRangeFilter from './DateRangeFilter';
@@ -78,7 +78,17 @@ function LeadsTable({ projects }: Props) {
     }
   }, [sourcesList, sources.length]);
 
-  const handleExport = (format: 'csv' | 'xlsx') => {
+  const handleExport = async (format: 'csv' | 'xlsx') => {
+    try {
+      await createReport({
+        fromDate,
+        toDate,
+        projectIds: projectIds.length ? projectIds : undefined,
+        format,
+      });
+    } catch (e) {
+      console.error('Не удалось зафиксировать экспорт отчёта', e);
+    }
     const url = buildLeadsExportUrl({ projectIds, sources, fromDate, toDate, format });
     window.open(url, '_blank');
   };
