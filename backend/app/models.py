@@ -139,3 +139,19 @@ class ReportExport(Base):
     to_date = Column(String, nullable=False)    # YYYY-MM-DD
     project_ids = Column(String, nullable=True)  # "1,2,3" или NULL (все проекты)
     format = Column(String, nullable=False, default="csv")
+
+
+class ClientBalanceOperation(Base):
+    """
+    Операции по номерам (идентификациям) на уровне клиента.
+    Хранит только ручные начисления/списания; фактическое использование считаем по лидам.
+    """
+    __tablename__ = "client_balance_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    amount = Column(Integer, nullable=False)  # целое количество номеров
+    op_type = Column(String, nullable=False)  # 'credit' | 'debit'
+    comment = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=now_msk)

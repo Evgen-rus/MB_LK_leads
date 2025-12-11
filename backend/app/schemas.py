@@ -253,6 +253,12 @@ class AdminClientSummaryItem(BaseModel):
     usedPeriod: int
     remaining: int
     pendingChanges: int = 0
+    # Новые поля по номерам
+    numbersCredited: int | None = None
+    numbersDebited: int | None = None
+    numbersBalance: int | None = None
+    numbersUsed: int | None = None
+    numbersUsedPeriod: int | None = None
 
 
 class AdminClientSummaryTotals(BaseModel):
@@ -267,6 +273,44 @@ class AdminClientSummaryTotals(BaseModel):
 class AdminClientsSummaryOut(BaseModel):
     items: List[AdminClientSummaryItem]
     totals: AdminClientSummaryTotals
+
+
+# -------- Баланс по номерам (идентификациям) --------
+BalanceOpType = Literal['credit', 'debit']
+
+
+class BalanceOperationOut(BaseModel):
+    id: int
+    clientId: int
+    amount: int
+    type: BalanceOpType
+    comment: Optional[str] = None
+    createdAt: str
+    createdBy: UserInfo
+
+
+class BalanceOperationCreateIn(BaseModel):
+    amount: int
+    type: BalanceOpType
+    comment: Optional[str] = None
+
+
+class ClientBalanceSummaryOut(BaseModel):
+    clientId: int
+    credited: int
+    debited: int
+    manualBalance: int
+    usedTotal: int
+    usedPeriod: int
+    remaining: int
+    debt: bool
+    periodFrom: str
+    periodTo: str
+
+
+class ClientBalanceOpsListOut(BaseModel):
+    items: List[BalanceOperationOut]
+    total: int
 
 
 # -------- Отчёты (история экспортов) --------

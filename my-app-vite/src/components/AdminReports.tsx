@@ -2,6 +2,7 @@
 // Включает столбец "Клиент" с логином и id
 import { useEffect, useState } from 'react';
 import { fetchAdminReports, fetchAdminUsers, buildLeadsExportUrl, createAdminReport, type AdminReportItem, type UserInfo } from '../api';
+import DateRangeFilter from './DateRangeFilter';
 
 function parseProjectIds(projectIds?: string | null): number[] | undefined {
   if (!projectIds) return undefined;
@@ -20,6 +21,11 @@ function AdminReports() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
+  const [range, setRange] = useState<{ from: string; to: string }>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return { from: today, to: today };
+  });
+  const [projectIdsInput, setProjectIdsInput] = useState('');
 
   async function loadUsers() {
     try {
@@ -56,22 +62,28 @@ function AdminReports() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // DEMO: формирование отчёта по конкретному клиенту без реального запроса к бэку.
-  function handleCreateClientReportDemo() {
+  function parseProjectIds(): number[] | undefined {
+    const raw = projectIdsInput.trim();
+    if (!raw) return undefined;
+    const parts = raw.split(',').map((p) => Number(p.trim())).filter((n) => Number.isFinite(n));
+    return parts.length ? parts : undefined;
+  }
+
+  function handleCreateReport() {
     if (userIdFilter == null) {
-      alert('Сначала выберите клиента.');
+      alert('Выберите клиента для отчёта');
       return;
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const projIds = parseProjectIds();
     createAdminReport({
-      fromDate: today,
-      toDate: today,
-      projectIds: undefined,
+      fromDate: range.from,
+      toDate: range.to,
+      projectIds: projIds,
       format: 'csv',
     })
       .then(() => {
         load(1, pageSize, userIdFilter);
-        alert('Запрос на формирование отчёта создан. Используйте список ниже для скачивания.');
+        alert('Запрос на отчёт создан. Скачайте файл в списке ниже после готовности.');
       })
       .catch((e: any) => {
         alert(e?.message || 'Не удалось создать отчёт');
@@ -98,14 +110,26 @@ function AdminReports() {
               </option>
             ))}
           </select>
+          <DateRangeFilter
+            from={range.from}
+            to={range.to}
+            onChange={(r) => setRange(r)}
+          />
+          <input
+            type="text"
+            placeholder="ID проектов через запятую (опционально)"
+            value={projectIdsInput}
+            onChange={(e) => setProjectIdsInput(e.target.value)}
+            style={{ minWidth: 240 }}
+          />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             type="button"
             className="btn btn--secondary"
-            onClick={handleCreateClientReportDemo}
+            onClick={handleCreateReport}
           >
-            Сформировать отчёт по клиенту (демо)
+            Сформировать отчёт по клиенту
           </button>
           {loading ? (
             <span className="sub">Загрузка…</span>

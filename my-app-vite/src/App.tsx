@@ -14,6 +14,7 @@ import AdminClientsScreen from './components/AdminClientsScreen';
 import AdminProjectsScreen, {
   type AdminProjectsFocus,
 } from './components/AdminProjectsScreen';
+import AdminBalance from './components/AdminBalance';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -42,7 +43,8 @@ function App() {
         saved === 'integrations' ||
         saved === 'support' ||
         saved === 'blacklist' ||
-        saved === 'admin-clients'
+        saved === 'admin-clients' ||
+        saved === 'balance'
       ) {
         return saved as ViewType;
       }
@@ -105,7 +107,8 @@ function App() {
       view !== 'integrations' &&
       view !== 'support' &&
       view !== 'blacklist' &&
-      view !== 'admin-clients'
+      view !== 'admin-clients' &&
+      view !== 'balance'
     ) {
       setView('projects');
       try {
@@ -250,6 +253,8 @@ function App() {
             isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} />
           ) : view === 'reports' ? (
             isAdmin ? <AdminReports /> : <Reports />
+        ) : view === 'balance' ? (
+          isAdmin ? <AdminBalance /> : <div className="table-card" style={{padding:16}}>Раздел доступен только администратору.</div>
           ) : view === 'integrations' ? (
             <Integrations />
           ) : view === 'support' ? (

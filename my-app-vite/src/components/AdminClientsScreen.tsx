@@ -6,6 +6,7 @@ import {
   fetchAdminChangesSummary,
   type AdminClientSummaryItem,
   type AdminClientChangesSummaryListOut,
+  createAdminClientBalanceOp,
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
@@ -71,6 +72,7 @@ function AdminClientsScreen({
   const [pageSize, setPageSize] = useState(25);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -136,6 +138,57 @@ function AdminClientsScreen({
     () => (selectedClientId != null ? clients.find((c) => c.id === selectedClientId) ?? null : null),
     [clients, selectedClientId],
   );
+
+  async function reloadSummary() {
+    try {
+      setLoading(true);
+      const [summary, changesSummary] = await Promise.all([
+        fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
+        fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
+      ]);
+      const pendingMap: Record<number, number> = {};
+      changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
+      const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
+        const row: ClientRow = {
+          id: it.user.id,
+          name: it.user.login,
+          projectCount: it.projectCount,
+          remaining: it.remaining,
+          totalVolume: it.usedPeriod,
+          totalLimit: it.totalLimit,
+          usedTotal: it.usedTotal,
+          pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
+          status: 'Активен',
+        };
+        return { ...row, status: deriveStatus(row) };
+      });
+      setBaseClients(rows);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleBalanceOperation(clientId: number, type: 'credit' | 'debit', clientName: string) {
+    const amountStr = window.prompt(`Сколько номеров ${type === 'credit' ? 'начислить' : 'списать'} клиенту ${clientName}?`, '0');
+    if (!amountStr) return;
+    const amount = Number(amountStr);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert('Введите положительное число.');
+      return;
+    }
+    const comment = window.prompt('Комментарий (необязательно):', '') || undefined;
+    try {
+      setActionLoading(true);
+      await createAdminClientBalanceOp(clientId, { amount, type, comment });
+      await reloadSummary();
+    } catch (e: any) {
+      alert(e?.message || 'Не удалось выполнить операцию');
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -402,6 +455,22 @@ function AdminClientsScreen({
               )}
               <button
                 type="button"
+                className="btn btn--primary"
+                disabled={actionLoading}
+                onClick={() => handleBalanceOperation(selectedClient.id, 'credit', selectedClient.name)}
+              >
+                Начислить номера
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                disabled={actionLoading}
+                onClick={() => handleBalanceOperation(selectedClient.id, 'debit', selectedClient.name)}
+              >
+                Списать номера
+              </button>
+              <button
+                type="button"
                 className="btn btn--ghost"
                 onClick={() => {
                   setSelectedClientId(null);
@@ -441,7 +510,12 @@ function AdminClientsScreen({
               </div>
               <div>
                 <div className="sub">Остаток</div>
-                <div>{selectedClient.remaining}</div>
+                <div style={{ color: selectedClient.remaining < 0 ? '#d23' : undefined, fontWeight: 600 }}>
+                  {selectedClient.remaining}
+                </div>
+                {selectedClient.remaining < 0 && (
+                  <div className="sub" style={{ color: '#d23' }}>Долг</div>
+                )}
               </div>
               <div>
                 <div className="sub">Общий объём данных за период</div>
@@ -450,6 +524,10 @@ function AdminClientsScreen({
               <div>
                 <div className="sub">Израсходовано всего</div>
                 <div>{selectedClient.usedTotal}</div>
+              </div>
+              <div>
+                <div className="sub">Начислено номеров</div>
+                <div>{(clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal}</div>
               </div>
             </div>
           </div>

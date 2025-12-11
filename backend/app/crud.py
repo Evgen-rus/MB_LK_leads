@@ -871,8 +871,8 @@ def admin_clients_summary(
     end_local: datetime,
 ) -> schemas.AdminClientsSummaryOut:
     """
-    Агрегированная сводка по клиентам: количество проектов, лимит, использовано и остаток,
-    плюс usage за выбранный период и количество необработанных изменений.
+    Агрегированная сводка по клиентам: проекты, использование номеров и остаток
+    (начисления/списания − использовано по лидам).
     """
     # Базовые данные по проектам
     proj_rows = db.execute(
@@ -922,6 +922,20 @@ def admin_clients_summary(
     # Карта pending изменений
     pending_map = {item.user.id: item.pendingChanges for item in admin_list_client_changes_summary(db)}
 
+    # Начисления/списания по номерам
+    balance_rows = db.execute(
+        select(
+            models.ClientBalanceOperation.client_id,
+            models.ClientBalanceOperation.op_type,
+            func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0),
+        ).group_by(models.ClientBalanceOperation.client_id, models.ClientBalanceOperation.op_type)
+    ).all()
+    balance_map: Dict[int, Dict[str, int]] = {}
+    for client_id, op_type, total_amt in balance_rows:
+        cid = int(client_id)
+        balance_map.setdefault(cid, {"credit": 0, "debit": 0})
+        balance_map[cid][str(op_type)] = int(total_amt or 0)
+
     # Собираем user info
     user_ids = list(by_user.keys())
     users_map: Dict[int, schemas.UserInfo] = {}
@@ -935,24 +949,36 @@ def admin_clients_summary(
     totals_limit = 0
     totals_used = 0
     totals_used_period = 0
+    totals_remaining = 0
     for uid, stats in by_user.items():
         info = users_map.get(uid)
         if not info:
             continue
-        remaining = max(0, int(stats["limit"]) - int(stats["used_total"]))
+        credit = balance_map.get(uid, {}).get("credit", 0)
+        debit = balance_map.get(uid, {}).get("debit", 0)
+        manual_balance = credit - debit
+        used_total = int(stats["used_total"])
+        used_period = int(stats["used_period"])
+        remaining = manual_balance - used_total
         item = schemas.AdminClientSummaryItem(
             user=info,
             projectCount=int(stats["projects"]),
             totalLimit=int(stats["limit"]),
-            usedTotal=int(stats["used_total"]),
-            usedPeriod=int(stats["used_period"]),
+            usedTotal=used_total,
+            usedPeriod=used_period,
             remaining=remaining,
             pendingChanges=pending_map.get(uid, 0),
+            numbersCredited=credit,
+            numbersDebited=debit,
+            numbersBalance=manual_balance,
+            numbersUsed=used_total,
+            numbersUsedPeriod=used_period,
         )
         totals_projects += item.projectCount
         totals_limit += item.totalLimit
         totals_used += item.usedTotal
         totals_used_period += item.usedPeriod
+        totals_remaining += item.remaining
         items.append(item)
 
     totals = schemas.AdminClientSummaryTotals(
@@ -961,7 +987,7 @@ def admin_clients_summary(
         totalLimit=totals_limit,
         usedTotal=totals_used,
         usedPeriod=totals_used_period,
-        remaining=max(0, totals_limit - totals_used),
+        remaining=totals_remaining,
     )
 
     return schemas.AdminClientsSummaryOut(items=items, totals=totals)
@@ -1018,6 +1044,145 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
         user=schemas.UserInfo(id=user.id, login=user.login),
         items=items,
     )
+
+
+# -------- Баланс номеров по клиенту --------
+def _client_leads_usage(
+    db: Session,
+    client_id: int,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+) -> int:
+    """
+    Количество выданных номеров (лидов) по всем проектам клиента.
+    """
+    stmt = (
+        select(func.count())
+        .select_from(models.Lead)
+        .join(models.Project, models.Project.id == models.Lead.project_id)
+        .where(models.Project.user_id == client_id)
+    )
+    if start_local:
+        stmt = stmt.where(models.Lead.imported_at >= start_local)
+    if end_local:
+        stmt = stmt.where(models.Lead.imported_at <= end_local)
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def get_client_balance_summary(
+    db: Session,
+    client_id: int,
+    start_local: datetime,
+    end_local: datetime,
+) -> schemas.ClientBalanceSummaryOut:
+    credits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == client_id,
+            models.ClientBalanceOperation.op_type == "credit",
+        )
+    ).scalar_one()
+    debits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == client_id,
+            models.ClientBalanceOperation.op_type == "debit",
+        )
+    ).scalar_one()
+    manual_balance = int(credits or 0) - int(debits or 0)
+    used_total = _client_leads_usage(db, client_id)
+    used_period = _client_leads_usage(db, client_id, start_local=start_local, end_local=end_local)
+    remaining = manual_balance - used_total
+    return schemas.ClientBalanceSummaryOut(
+        clientId=client_id,
+        credited=int(credits or 0),
+        debited=int(debits or 0),
+        manualBalance=manual_balance,
+        usedTotal=used_total,
+        usedPeriod=used_period,
+        remaining=remaining,
+        debt=remaining < 0,
+        periodFrom=start_local.strftime("%Y-%m-%d"),
+        periodTo=end_local.strftime("%Y-%m-%d"),
+    )
+
+
+def create_client_balance_operation(
+    db: Session,
+    client_id: int,
+    admin_id: int,
+    amount: int,
+    op_type: str,
+    comment: Optional[str],
+) -> schemas.BalanceOperationOut:
+    op = models.ClientBalanceOperation(
+        client_id=client_id,
+        amount=amount,
+        op_type=op_type,
+        comment=comment,
+        created_by=admin_id,
+        created_at=now_msk(),
+    )
+    db.add(op)
+    db.commit()
+    db.refresh(op)
+
+    creator = db.get(models.User, admin_id)
+    creator_info = schemas.UserInfo(id=creator.id, login=creator.login) if creator else schemas.UserInfo(id=admin_id, login="unknown")
+    return schemas.BalanceOperationOut(
+        id=op.id,
+        clientId=client_id,
+        amount=op.amount,
+        type=op.op_type,  # type: ignore
+        comment=op.comment,
+        createdAt=op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        createdBy=creator_info,
+    )
+
+
+def list_client_balance_operations(
+    db: Session,
+    client_id: int,
+    offset: int,
+    limit: int,
+    start_local: Optional[datetime],
+    end_local: Optional[datetime],
+) -> schemas.ClientBalanceOpsListOut:
+    base = select(models.ClientBalanceOperation).where(models.ClientBalanceOperation.client_id == client_id)
+    if start_local:
+        base = base.where(models.ClientBalanceOperation.created_at >= start_local)
+    if end_local:
+        base = base.where(models.ClientBalanceOperation.created_at <= end_local)
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.ClientBalanceOperation.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        ).scalars().all()
+    )
+
+    creator_ids = {r.created_by for r in rows if r.created_by}
+    creators_map: Dict[int, schemas.UserInfo] = {}
+    if creator_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(creator_ids))).scalars().all()
+        for u in users:
+            creators_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.BalanceOperationOut] = []
+    for r in rows:
+        creator_info = creators_map.get(r.created_by) or schemas.UserInfo(id=r.created_by, login="unknown")
+        items.append(
+            schemas.BalanceOperationOut(
+                id=r.id,
+                clientId=r.client_id,
+                amount=r.amount,
+                type=r.op_type,  # type: ignore
+                comment=r.comment,
+                createdAt=r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                createdBy=creator_info,
+            )
+        )
+
+    return schemas.ClientBalanceOpsListOut(items=items, total=total)
 
 
 def admin_mark_change_processed(db: Session, event_id: int, admin_user_id: int) -> bool:

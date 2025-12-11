@@ -506,6 +506,11 @@ export type AdminClientSummaryItem = {
   usedPeriod: number;
   remaining: number;
   pendingChanges: number;
+  numbersCredited?: number | null;
+  numbersDebited?: number | null;
+  numbersBalance?: number | null;
+  numbersUsed?: number | null;
+  numbersUsedPeriod?: number | null;
 };
 
 export type AdminClientsSummaryOut = {
@@ -523,6 +528,62 @@ export type AdminClientsSummaryOut = {
 export async function fetchAdminClientsSummary(params: { fromDate: string; toDate: string }): Promise<AdminClientsSummaryOut> {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
   return http<AdminClientsSummaryOut>(`/admin/clients/summary?${q.toString()}`);
+}
+
+// -------- Баланс по номерам --------
+export type BalanceOpType = 'credit' | 'debit';
+
+export type BalanceOperation = {
+  id: number;
+  clientId: number;
+  amount: number;
+  type: BalanceOpType;
+  comment?: string | null;
+  createdAt: string;
+  createdBy: UserInfo;
+};
+
+export type ClientBalanceSummary = {
+  clientId: number;
+  credited: number;
+  debited: number;
+  manualBalance: number;
+  usedTotal: number;
+  usedPeriod: number;
+  remaining: number;
+  debt: boolean;
+  periodFrom: string;
+  periodTo: string;
+};
+
+export type ClientBalanceOpsList = {
+  items: BalanceOperation[];
+  total: number;
+};
+
+export async function fetchAdminClientBalanceSummary(clientId: number, params: { fromDate: string; toDate: string }): Promise<ClientBalanceSummary> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  return http<ClientBalanceSummary>(`/admin/clients/${clientId}/balance?${q.toString()}`);
+}
+
+export async function fetchAdminClientBalanceOps(
+  clientId: number,
+  params: { fromDate: string; toDate: string; offset?: number; limit?: number },
+): Promise<ClientBalanceOpsList> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  if (params.offset != null) q.set('offset', String(params.offset));
+  if (params.limit != null) q.set('limit', String(params.limit));
+  return http<ClientBalanceOpsList>(`/admin/clients/${clientId}/balance/ops?${q.toString()}`);
+}
+
+export async function createAdminClientBalanceOp(
+  clientId: number,
+  payload: { amount: number; type: BalanceOpType; comment?: string },
+): Promise<BalanceOperation> {
+  return http<BalanceOperation>(`/admin/clients/${clientId}/balance/ops`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 // -------- История проекта (админ) --------

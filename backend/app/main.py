@@ -869,6 +869,96 @@ def admin_clients_summary(
     )
 
 
+@app.get("/admin/clients/{client_id}/balance", response_model=schemas.ClientBalanceSummaryOut)
+def admin_client_balance_summary(
+    client_id: int,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+
+    return crud.get_client_balance_summary(db_sess, client_id=client_id, start_local=start_local, end_local=end_local)
+
+
+@app.get("/admin/clients/{client_id}/balance/ops", response_model=schemas.ClientBalanceOpsListOut)
+def admin_client_balance_ops(
+    client_id: int,
+    offset: int = 0,
+    limit: int = 50,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_client_balance_operations(
+        db_sess,
+        client_id=client_id,
+        offset=offset,
+        limit=limit,
+        start_local=start_local,
+        end_local=end_local,
+    )
+
+
+@app.post("/admin/clients/{client_id}/balance/ops", response_model=schemas.BalanceOperationOut)
+def admin_create_balance_op(
+    client_id: int,
+    payload: schemas.BalanceOperationCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    if payload.type not in ("credit", "debit"):
+        raise HTTPException(status_code=400, detail="type must be credit or debit")
+    return crud.create_client_balance_operation(
+        db_sess,
+        client_id=client_id,
+        admin_id=current_admin.id,
+        amount=payload.amount,
+        op_type=payload.type,
+        comment=payload.comment,
+    )
+
+
 @app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)
 def admin_client_changes(
     client_id: int,
