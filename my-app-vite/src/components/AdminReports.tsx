@@ -91,7 +91,7 @@ function AdminReports() {
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters">
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <select
             value={userIdFilter ?? ''}
             onChange={(e) => {
@@ -121,6 +121,9 @@ function AdminReports() {
           />
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
+      </div>
+      <div className="sub" style={{ padding: '0 16px 8px' }}>
+        Для формирования отчёта выберите клиента и период — выгрузится отчёт по всем его проектам за выбранные даты.
       </div>
       <div className="table-scroll">
         <table className="table">
