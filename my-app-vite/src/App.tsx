@@ -58,6 +58,9 @@ function App() {
   const [adminProjectsClientId, setAdminProjectsClientId] = useState<number | null>(null);
   const [adminProjectsClientName, setAdminProjectsClientName] = useState<string | null>(null);
   const [adminProjectsFocus, setAdminProjectsFocus] = useState<AdminProjectsFocus>('projects');
+  // Состояние для баланса: выбранный клиент и какая модалка открыть
+  const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
+  const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -90,7 +93,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && view === 'admin-clients') {
+    if (!isAdmin && (view === 'admin-clients' || view === 'balance')) {
       setView('projects');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
@@ -189,6 +192,8 @@ function App() {
                 ? 'Идентификации'
                 : view === 'reports'
                 ? 'Отчёты'
+                : view === 'balance'
+                ? 'Баланс'
                 : view === 'integrations'
                 ? 'Интеграции'
                 : view === 'support'
@@ -222,6 +227,11 @@ function App() {
                 setAdminProjectsFocus('changes');
                 setView('projects');
               }}
+              onOpenClientBalance={(clientId, clientName, action) => {
+                setAdminBalanceClientId(clientId);
+                setAdminBalanceModalType(action);
+                setView('balance');
+              }}
             />
           ) : view === 'projects' ? (
             isAdmin ? (
@@ -254,7 +264,14 @@ function App() {
           ) : view === 'reports' ? (
             isAdmin ? <AdminReports /> : <Reports />
         ) : view === 'balance' ? (
-          isAdmin ? <AdminBalance /> : <div className="table-card" style={{padding:16}}>Раздел доступен только администратору.</div>
+          isAdmin ? (
+            <AdminBalance
+              initialClientId={adminBalanceClientId ?? undefined}
+              initialModalType={adminBalanceModalType ?? undefined}
+            />
+          ) : (
+            <div className="table-card" style={{padding:16}}>Раздел доступен только администратору.</div>
+          )
           ) : view === 'integrations' ? (
             <Integrations />
           ) : view === 'support' ? (

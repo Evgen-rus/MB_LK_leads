@@ -11,6 +11,11 @@ import {
   type ClientBalanceSummary,
 } from '../api';
 
+type AdminBalanceProps = {
+  initialClientId?: number | null;
+  initialModalType?: 'credit' | 'debit' | null;
+};
+
 type DateRange = { from: string; to: string };
 
 function getTodayRange(): DateRange {
@@ -51,14 +56,21 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
 
   return (
     <div className="modal-backdrop">
-      <div className="modal">
-        <div className="modal__header">
+      <div
+        className="modal"
+        style={{
+          maxWidth: 460,
+          borderRadius: 12,
+          padding: 0,
+          overflow: 'hidden',
+        }}
+      >
+        <div className="modal__header" style={{ padding: '14px 16px', borderBottom: '1px solid #eee' }}>
           <div style={{ fontWeight: 600 }}>
             {type === 'credit' ? 'Начислить номера' : 'Списать номера'}
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Закрыть">✕</button>
         </div>
-        <form onSubmit={handleSubmit} className="modal__body" style={{ display: 'grid', gap: 12 }}>
+        <form onSubmit={handleSubmit} className="modal__body" style={{ display: 'grid', gap: 12, padding: '16px 16px 12px' }}>
           <label style={{ display: 'grid', gap: 6 }}>
             <span className="sub">Количество номеров</span>
             <input
@@ -78,7 +90,7 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
             />
           </label>
           {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
             <button type="button" className="btn btn--ghost" onClick={onClose}>Отмена</button>
             <button type="submit" className="btn btn--primary" disabled={submitting}>
               {submitting ? 'Сохранение…' : 'Сохранить'}
@@ -90,9 +102,9 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
   );
 }
 
-function AdminBalance() {
+function AdminBalance({ initialClientId = null, initialModalType = null }: AdminBalanceProps) {
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(initialClientId ?? null);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
   const [ops, setOps] = useState<BalanceOperation[]>([]);
@@ -102,7 +114,7 @@ function AdminBalance() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingOps, setLoadingOps] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | { type: 'credit' | 'debit' }>(null);
+  const [modal, setModal] = useState<null | { type: 'credit' | 'debit' }>(initialModalType ? { type: initialModalType } : null);
 
   useEffect(() => {
     (async () => {
@@ -114,6 +126,16 @@ function AdminBalance() {
       }
     })();
   }, []);
+
+  // Применяем стартовое значение клиента при смене пропсов
+  useEffect(() => {
+    if (initialClientId != null) {
+      setSelectedClientId(initialClientId);
+    }
+    if (initialModalType) {
+      setModal({ type: initialModalType });
+    }
+  }, [initialClientId, initialModalType]);
 
   const hasClient = selectedClientId != null;
 

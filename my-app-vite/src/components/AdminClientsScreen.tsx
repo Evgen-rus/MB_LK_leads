@@ -6,7 +6,6 @@ import {
   fetchAdminChangesSummary,
   type AdminClientSummaryItem,
   type AdminClientChangesSummaryListOut,
-  createAdminClientBalanceOp,
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
@@ -21,6 +20,7 @@ import DateRangeFilter from './DateRangeFilter';
 export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
+  onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit') => void;
 };
 
 type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
@@ -63,6 +63,7 @@ function deriveStatus(row: ClientRow): ClientStatus {
 function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
+  onOpenClientBalance,
 }: AdminClientsScreenProps) {
   const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -72,7 +73,6 @@ function AdminClientsScreen({
   const [pageSize, setPageSize] = useState(25);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
-  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -139,56 +139,7 @@ function AdminClientsScreen({
     [clients, selectedClientId],
   );
 
-  async function reloadSummary() {
-    try {
-      setLoading(true);
-      const [summary, changesSummary] = await Promise.all([
-        fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
-        fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
-      ]);
-      const pendingMap: Record<number, number> = {};
-      changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
-      const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
-        const row: ClientRow = {
-          id: it.user.id,
-          name: it.user.login,
-          projectCount: it.projectCount,
-          remaining: it.remaining,
-          totalVolume: it.usedPeriod,
-          totalLimit: it.totalLimit,
-          usedTotal: it.usedTotal,
-          pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
-          status: 'Активен',
-        };
-        return { ...row, status: deriveStatus(row) };
-      });
-      setBaseClients(rows);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleBalanceOperation(clientId: number, type: 'credit' | 'debit', clientName: string) {
-    const amountStr = window.prompt(`Сколько номеров ${type === 'credit' ? 'начислить' : 'списать'} клиенту ${clientName}?`, '0');
-    if (!amountStr) return;
-    const amount = Number(amountStr);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert('Введите положительное число.');
-      return;
-    }
-    const comment = window.prompt('Комментарий (необязательно):', '') || undefined;
-    try {
-      setActionLoading(true);
-      await createAdminClientBalanceOp(clientId, { amount, type, comment });
-      await reloadSummary();
-    } catch (e: any) {
-      alert(e?.message || 'Не удалось выполнить операцию');
-    } finally {
-      setActionLoading(false);
-    }
-  }
+  // перезагрузка сводки при переходе обратно будет происходить через эффект range
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -456,16 +407,14 @@ function AdminClientsScreen({
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={actionLoading}
-                onClick={() => handleBalanceOperation(selectedClient.id, 'credit', selectedClient.name)}
+                onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
               >
                 Начислить номера
               </button>
               <button
                 type="button"
                 className="btn btn--secondary"
-                disabled={actionLoading}
-                onClick={() => handleBalanceOperation(selectedClient.id, 'debit', selectedClient.name)}
+                onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
               >
                 Списать номера
               </button>
