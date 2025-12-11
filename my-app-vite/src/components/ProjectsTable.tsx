@@ -22,7 +22,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [status, setStatus] = useState<'Все' | 'Активен' | 'На паузе'>('Все');
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [typeFilter, setTypeFilter] = useState<'Все' | CollectionSource>('Все');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
@@ -69,23 +68,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     rows.forEach(r => set.add(r.collectionSource));
     return Array.from(set);
   }, [rows]);
-
-  const filteredIds = useMemo<number[]>(() => filteredRows.map(r => r.id), [filteredRows]);
-  const allOnPageSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
-
-  function toggleRow(id: number) {
-    setSelectedIds((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  }
-
-  function toggleAllOnPage() {
-    setSelectedIds((prev) => {
-      if (allOnPageSelected) {
-        return prev.filter(id => !filteredIds.includes(id));
-      }
-      const union = new Set([...prev, ...filteredIds]);
-      return Array.from(union);
-    });
-  }
 
   // Восстанавливаем payload для updateProject из текущего объекта Project.
   // Нужен полный набор полей, иначе бэкенд отвечает 422.
@@ -181,13 +163,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
       <table className="table">
         <thead>
           <tr>
-            <th style={{width: 32}}>
-              <input
-                type="checkbox"
-                checked={allOnPageSelected}
-                onChange={toggleAllOnPage}
-              />
-            </th>
             <th>Название</th>
             <th>Источник</th>
             <th>Статус проекта</th>
@@ -204,13 +179,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
         <tbody>
           {filteredRows.map((row, index) => (
             <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
-              <td>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(row.id)}
-                  onChange={() => toggleRow(row.id)}
-                />
-              </td>
               <td>
                 <div className="name">{row.name}</div>
                 <div className="sub muted">ID: {row.id}</div>
@@ -256,7 +224,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                           await apiDelete(row.id);
                         }
                         window.dispatchEvent(new CustomEvent('projects-refresh'));
-                        setSelectedIds((prev) => prev.filter((id) => id !== row.id));
                       } catch (e) {
                         console.error(e);
                       }
