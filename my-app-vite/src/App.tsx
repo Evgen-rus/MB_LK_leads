@@ -15,6 +15,7 @@ import AdminProjectsScreen, {
   type AdminProjectsFocus,
 } from './components/AdminProjectsScreen';
 import AdminBalance from './components/AdminBalance';
+import ClientBalance from './components/ClientBalance';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -93,7 +94,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && (view === 'admin-clients' || view === 'balance')) {
+    if (!isAdmin && view === 'admin-clients') {
       setView('projects');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
@@ -270,7 +271,7 @@ function App() {
               initialModalType={adminBalanceModalType ?? undefined}
             />
           ) : (
-            <div className="table-card" style={{padding:16}}>Раздел доступен только администратору.</div>
+            <ClientBalance />
           )
           ) : view === 'integrations' ? (
             <Integrations />

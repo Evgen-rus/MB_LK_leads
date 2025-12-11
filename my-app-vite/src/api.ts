@@ -530,6 +530,20 @@ export async function fetchAdminClientsSummary(params: { fromDate: string; toDat
   return http<AdminClientsSummaryOut>(`/admin/clients/summary?${q.toString()}`);
 }
 
+export async function fetchClientBalanceSummary(params: { fromDate: string; toDate: string }): Promise<ClientBalanceSummary> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  return http<ClientBalanceSummary>(`/balance?${q.toString()}`);
+}
+
+export async function fetchClientBalanceOps(
+  params: { fromDate: string; toDate: string; offset?: number; limit?: number },
+): Promise<ClientBalanceOpsList> {
+  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
+  if (params.offset != null) q.set('offset', String(params.offset));
+  if (params.limit != null) q.set('limit', String(params.limit));
+  return http<ClientBalanceOpsList>(`/balance/ops?${q.toString()}`);
+}
+
 // -------- Баланс по номерам --------
 export type BalanceOpType = 'credit' | 'debit';
 
