@@ -1,5 +1,3 @@
-import React from 'react';
-
 type Props = {
   snapshot: Record<string, any>;
   projectName?: string;

@@ -1,6 +1,6 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState } from 'react';
-import type { Project, CollectionSource } from '../types/project';
+import type { Project } from '../types/project';
 import { fetchProjects, deleteProject as apiDelete, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 

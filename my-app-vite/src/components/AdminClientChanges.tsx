@@ -2,7 +2,6 @@
 // Показывает список необработанных изменений по проектам выбранного клиента.
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
-import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import ChangeProjectDiffModal from './ChangeProjectDiffModal';
 
 type AdminClientChangesProps = {

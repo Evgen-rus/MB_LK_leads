@@ -16,7 +16,6 @@ import AdminProjectsScreen, {
 } from './components/AdminProjectsScreen';
 import AdminBalance from './components/AdminBalance';
 import ClientBalance from './components/ClientBalance';
-import React from 'react';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -266,7 +265,7 @@ function App() {
                 setAdminProjectsFocus('changes');
                 setView('projects');
               }}
-              onOpenClientBalance={(clientId, clientName, action) => {
+              onOpenClientBalance={(clientId, _clientName, action) => {
                 setAdminBalanceClientId(clientId);
                 setAdminBalanceModalType(action);
                 setView('balance');
