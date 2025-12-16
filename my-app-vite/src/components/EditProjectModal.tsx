@@ -45,7 +45,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     const parts = (project.daysReceived || '').split(/\s+/).filter(Boolean);
     const out: DayAbbrev[] = [];
     parts.forEach(p => { if (map[p]) out.push(map[p]); });
-    return (out.length ? out : ['Вт','Ср','Чт','Пт','Сб']);
+    // Важно: не подставляем "дефолтные дни" за пользователя.
+    // Иначе простое открытие модалки + "Сохранить" создаёт изменение, даже если пользователь ничего не трогал.
+    return out;
   });
 
   function parseList(text: string): string[] {
@@ -100,9 +102,111 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   }
 
+  const weekOrder: Record<DayAbbrev, number> = { 'Пн': 1, 'Вт': 2, 'Ср': 3, 'Чт': 4, 'Пт': 5, 'Сб': 6, 'Вс': 7 };
+
+  function normalizeString(value: string | undefined | null): string {
+    return (value ?? '').trim();
+  }
+
+  function normalizeOptionalString(value: string | undefined | null): string | undefined {
+    const v = normalizeString(value);
+    return v ? v : undefined;
+  }
+
+  function normalizeStringArray(value: unknown): string[] {
+    const arr = Array.isArray(value) ? (value as unknown[]) : [];
+    const out = arr
+      .map((x) => normalizeString(typeof x === 'string' ? x : String(x ?? '')))
+      .filter(Boolean);
+    return Array.from(new Set(out)).sort();
+  }
+
+  function normalizeDays(value: DayAbbrev[]): DayAbbrev[] {
+    const unique = Array.from(new Set(value));
+    unique.sort((a, b) => (weekOrder[a] ?? 999) - (weekOrder[b] ?? 999));
+    return unique;
+  }
+
+  function arraysEqual(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  function daysEqual(a: DayAbbrev[], b: DayAbbrev[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  const isDirty = useMemo(() => {
+    const sourceNow: CollectionSource = project.collectionSource;
+
+    const original = {
+      name: normalizeString(project.name),
+      status: project.status,
+      dataLimit: Number.isFinite(project.dataLimit) ? project.dataLimit : 0,
+      regionMode: (project.regionMode || 'include') as 'include' | 'exclude',
+      regions: normalizeStringArray(project.regions || []),
+      sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(project.sites || [])
+        : [],
+      phones: (sourceNow === 'Звонки' || sourceNow === 'Ретрозвонки' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(project.phones || [])
+        : [],
+      smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
+        ? normalizeOptionalString(project.smsSenderName)
+        : undefined,
+      days: normalizeDays(days), // days уже проинициализированы из project.daysReceived
+    };
+
+    // Текущее состояние формы → нормализованный вид (как уйдёт в payload)
+    let phonesNow: string[] = [];
+    if (sourceNow === 'Звонки' || sourceNow === 'Ретрозвонки' || sourceNow === 'Пересечение') {
+      const res = normalizePhonesMultiline(phonesText);
+      phonesNow = normalizeStringArray(res.normalized);
+    }
+
+    const current = {
+      name: normalizeString(name),
+      status,
+      dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
+      regionMode,
+      regions: normalizeStringArray(regions),
+      sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(uniqueList(sitesParsed))
+        : [],
+      phones: phonesNow,
+      smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
+        ? normalizeOptionalString(smsSenderName)
+        : undefined,
+      days: normalizeDays(days),
+    };
+
+    // Сравнение
+    if (original.name !== current.name) return true;
+    if (original.status !== current.status) return true;
+    if (original.dataLimit !== current.dataLimit) return true;
+    if (original.regionMode !== current.regionMode) return true;
+    if (!arraysEqual(original.regions, current.regions)) return true;
+    if (!arraysEqual(original.sites, current.sites)) return true;
+    if (!arraysEqual(original.phones, current.phones)) return true;
+    if (original.smsSenderName !== current.smsSenderName) return true;
+    if (!daysEqual(original.days, current.days)) return true;
+    return false;
+  // project — стабильный объект на время жизни модалки; если родитель перерисует project,
+  // модалка обычно закрывается/открывается заново.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, status, dataLimit, regionMode, regions, sitesParsed, phonesText, smsSenderName, days, project.collectionSource]);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (!isDirty) return;
     if (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') {
       const digits = (smsSenderName || '').replace(/\D+/g, '');
       if (!smsSenderName.trim() || digits.length >= 10) return;
@@ -123,7 +227,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     }
     const update: SubmitUpdate = {
       name: name.trim(),
-      tag: name.trim(),
+      // tag пользователь не редактирует в модалке — сохраняем текущий tag проекта.
+      // Это предотвращает "ложные изменения" при нажатии Сохранить без правок.
+      tag: project.tag,
       status,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
@@ -269,7 +375,14 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary">Сохранить</button>
+            {!isDirty && (
+              <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
+                Нет изменений
+              </span>
+            )}
+            <button type="submit" className="btn btn--primary" disabled={!isDirty}>
+              Сохранить
+            </button>
           </div>
         </form>
       </div>
