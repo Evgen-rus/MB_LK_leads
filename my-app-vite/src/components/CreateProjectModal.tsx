@@ -49,6 +49,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
+  const hasName = name.trim().length > 0;
+
   const baseRegionIndex = useMemo(() => {
     const m = new Map<string, number>();
     allRegions.forEach((r, i) => m.set(r, i));
@@ -266,33 +268,50 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
+              {!hasName && (
+                <span className="hint" style={{ color: '#666' }}>
+                  Сначала введите название проекта — затем станут доступны остальные настройки.
+                </span>
+              )}
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
-                <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
-                  <option value="Звонки">Звонки</option>
-                  <option value="Сайты">Сайты</option>
-                  <option value="СМС">СМС</option>
-                  <option value="Ретрозвонки">Ретрозвонки</option>
-                  <option value="Ретросайты">Ретросайты</option>
-                  <option value="Пересечение">Пересечение</option>
-                </select>
-              </label>
+            <fieldset
+              disabled={!hasName}
+              style={{
+                border: 0,
+                padding: 0,
+                margin: 0,
+                display: 'grid',
+                gap: 12,
+                opacity: hasName ? 1 : 0.55,
+              }}
+              aria-disabled={!hasName}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
+                  <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
+                    <option value="Звонки">Звонки</option>
+                    <option value="Сайты">Сайты</option>
+                    <option value="СМС">СМС</option>
+                    <option value="Ретрозвонки">Ретрозвонки</option>
+                    <option value="Ретросайты">Ретросайты</option>
+                    <option value="Пересечение">Пересечение</option>
+                  </select>
+                </label>
 
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span style={{ fontSize: '0.75rem', color: '#666' }}>Лимит</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={dataLimit}
-                  onChange={(e) => setDataLimit(Number(e.target.value))}
-                />
-              </label>
-            </div>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span style={{ fontSize: '0.75rem', color: '#666' }}>Лимит</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={dataLimit}
+                    onChange={(e) => setDataLimit(Number(e.target.value))}
+                  />
+                </label>
+              </div>
 
-            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div className="sub" style={{ color: '#666' }}>
                 Можно выбрать одного или нескольких поставщиков. Для каждого выбранного будет создан отдельный проект с префиксом поставщика (B1/B2/B3/B4).
@@ -333,9 +352,9 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   ? `Будет создано ${effectiveCodesPreview.length} проектов. Лимит ${dataLimit} / день распределится между ними: ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
                   : 'Выберите источники данных'}
               </div>
-            </div>
+              </div>
 
-            {(collectionSource === 'Сайты' || collectionSource === 'Ретросайты' || collectionSource === 'Пересечение') && (
+              {(collectionSource === 'Сайты' || collectionSource === 'Ретросайты' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список сайтов</span>
                 <span className="hint">По одному в строке</span>
@@ -351,7 +370,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               </label>
             )}
 
-            {(collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
+              {(collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Телефоны конкурентов/целевых компаний</span>
                 <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
@@ -375,7 +394,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               </label>
             )}
 
-            {(collectionSource === 'СМС' || collectionSource === 'Пересечение') && (
+              {(collectionSource === 'СМС' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Наименование отправителя (СМС)</span>
                 <input
@@ -387,7 +406,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               </label>
             )}
 
-            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Регионы</span>
               <div className="hint">Если ничего не выбрано, сбор идет по всей РФ</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
@@ -409,17 +428,17 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                     ? `Итог: Вся РФ, исключая: ${regions.join(', ')}`
                     : `Итог: Только: ${regions.join(', ')}`}
               </div>
-            </div>
+              </div>
 
-            <label style={{ display: 'grid', gap: 6 }}>
+              <label style={{ display: 'grid', gap: 6 }}>
               <span style={{ fontSize: '0.75rem', color: '#666' }}>Статус проекта</span>
               <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
               </select>
-            </label>
+              </label>
 
-            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Дни сбора</span>
               <div className="hint">
                 Галочки — это дни сбора. Данные приходят за предыдущий день (пример: Пн включен → во Вт получите данные за Пн).
@@ -431,12 +450,13 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   </label>
                 ))}
               </div>
-            </div>
+              </div>
+            </fieldset>
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary">Создать</button>
+            <button type="submit" className="btn btn--primary" disabled={!hasName}>Создать</button>
           </div>
         </form>
       </div>
