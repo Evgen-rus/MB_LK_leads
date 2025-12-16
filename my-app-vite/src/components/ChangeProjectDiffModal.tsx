@@ -86,6 +86,18 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     boxShadow: '0 0 0 2px rgba(240,91,108,0.2)',
   };
 
+  // Унифицированная подсветка изменённых полей: в одном цвете для всех типов контролов.
+  const baseBoxStyle: React.CSSProperties = {
+    borderRadius: 10,
+    border: '1px solid #dcdce6',
+    padding: '10px 12px',
+    background: '#f9f9ff',
+  };
+
+  function boxStyleFor(key: FieldKey): React.CSSProperties {
+    return isChanged(key) ? { ...baseBoxStyle, ...highlight } : baseBoxStyle;
+  }
+
   return (
     <div
       style={{
@@ -203,10 +215,9 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
 
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Источник данных</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ ...boxStyleFor('dataSourceCode'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {(['B1', 'B2', 'B3', 'B4'] as const).map((code) => {
                   const active = after.dataSourceCode === code;
-                  const changedCode = isChanged('dataSourceCode' as FieldKey);
                   return (
                     <span
                       key={code}
@@ -218,7 +229,6 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                         background: active ? '#6a5cff' : '#fff',
                         color: active ? '#fff' : '#1d1d1f',
                         opacity: active ? 1 : 0.6,
-                        boxShadow: changedCode && active ? '0 0 0 2px rgba(106,92,255,0.25)' : undefined,
                       }}
                     >
                       {code}
@@ -233,10 +243,10 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
 
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Статус проекта</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ ...boxStyleFor('status'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {pill(
                   renderText('status', after.status),
-                  isChanged('status' as FieldKey) ? '#ece8ff' : '#f4f4f7',
+                  '#f4f4f7',
                   '#24223f',
                 )}
               </div>
@@ -248,15 +258,13 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Регионы</span>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                {pill(after.regionMode === 'exclude' ? 'Исключить' : 'Включить', isChanged('regionMode' as FieldKey) ? '#f5f4ff' : '#f4f4f7')}
+                {pill(after.regionMode === 'exclude' ? 'Исключить' : 'Включить', '#f4f4f7')}
                 <span className="sub">Всего: {(after.regions || []).length}</span>
               </div>
               <div
                 style={{
-                  border: isChanged('regions' as FieldKey) ? '1px solid #6a5cff' : '1px solid #eee',
-                  borderRadius: 8,
+                  ...boxStyleFor('regions'),
                   padding: 8,
-                  background: isChanged('regions' as FieldKey) ? '#f0ecff' : '#fafafa',
                   maxHeight: 140,
                   overflow: 'auto',
                 }}
@@ -284,9 +292,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                       rows={6}
                       value={(after.sites as string[]).join('\n')}
                       style={{
+                        ...(isChanged('sites' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle),
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                        background: isChanged('sites' as FieldKey) ? '#f0ecff' : undefined,
-                        borderColor: isChanged('sites' as FieldKey) ? '#6a5cff' : undefined,
                         borderRadius: 10,
                       }}
                     />
@@ -304,9 +311,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                       rows={6}
                       value={(after.phones as string[]).join('\n')}
                       style={{
+                        ...(isChanged('phones' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle),
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                        background: isChanged('phones' as FieldKey) ? '#f0ecff' : undefined,
-                        borderColor: isChanged('phones' as FieldKey) ? '#6a5cff' : undefined,
                         borderRadius: 10,
                       }}
                     />
@@ -334,8 +340,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
 
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Дни получения</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(after.daysReceived || '').split(/\s+/).filter(Boolean).map((d: string) => pill(d, isChanged('daysReceived' as FieldKey) ? '#f5f4ff' : '#f4f4f7'))}
+              <div style={{ ...boxStyleFor('daysReceived'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {(after.daysReceived || '').split(/\s+/).filter(Boolean).map((d: string) => pill(d, '#f4f4f7'))}
               </div>
               {isChanged('daysReceived' as FieldKey) && before.daysReceived && (
                 <span className="sub">Было: {renderText('daysReceived', before.daysReceived)}</span>
