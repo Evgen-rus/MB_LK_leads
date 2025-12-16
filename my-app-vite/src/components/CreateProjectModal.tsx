@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { regions as allRegions } from '../data/regions';
 import type { CollectionSource, ProjectStatus } from '../types/project';
+import { normalizePhonesMultiline } from '../utils/phones';
 
 type SubmitItem = {
   name: string;
@@ -26,7 +27,6 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState('');
-  const [tag, setTag] = useState('');
   const [collectionSource, setCollectionSource] = useState<CollectionSource>('Звонки');
   const [dataLimit, setDataLimit] = useState<number>(100);
   const [status, setStatus] = useState<ProjectStatus>('Активен');
@@ -42,13 +42,10 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
   const [sitesText, setSitesText] = useState('');
   const [phonesText, setPhonesText] = useState('');
+  const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState('');
 
   const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Вт','Ср','Чт','Пт','Сб']);
-
-  useEffect(() => {
-    setTag(name);
-  }, [name]);
 
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
@@ -126,8 +123,18 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   }
 
   function sanitizePhones() {
-    const unique = uniqueList(parseList(phonesText));
-    setPhonesText(unique.join('\n'));
+    const res = normalizePhonesMultiline(phonesText);
+    setPhonesText(res.displayText);
+
+    if (res.errors.length > 0) {
+      const examples = res.errors.slice(0, 5).map((e) => `строка ${e.lineNumber}: "${e.raw}" (${e.reason})`);
+      const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+      setPhonesError(
+        `Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`,
+      );
+    } else {
+      setPhonesError(null);
+    }
   }
 
   function allowedCodesForSource(src: CollectionSource): ('B1'|'B2'|'B3'|'B4')[] {
@@ -177,9 +184,20 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
     const sites = collectionSource === 'Сайты' || collectionSource === 'Ретросайты' || collectionSource === 'Пересечение'
       ? parseList(sitesText)
       : undefined;
-    const phones = collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение'
-      ? parseList(phonesText)
-      : undefined;
+
+    let phones: string[] | undefined;
+    if (collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') {
+      const res = normalizePhonesMultiline(phonesText);
+      setPhonesText(res.displayText);
+      if (res.errors.length > 0) {
+        const examples = res.errors.slice(0, 5).map((er) => `строка ${er.lineNumber}: "${er.raw}" (${er.reason})`);
+        const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
+        return;
+      }
+      setPhonesError(null);
+      phones = res.normalized.length > 0 ? res.normalized : undefined;
+    }
 
     const totalLimit = Number.isFinite(dataLimit) ? dataLimit : 0;
     const n = effectiveCodes.length;
@@ -189,7 +207,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
     const items: SubmitItem[] = effectiveCodes.map((code, idx) => ({
       name: `${code}_${name.trim()}`,
-      tag: `${code}_${(tag.trim() || name.trim())}`,
+      tag: `${code}_${name.trim()}`,
       collectionSource,
       dataSourceCode: code,
       dataLimit: perCodeLimits[idx],
@@ -250,16 +268,6 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               />
             </label>
 
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: '0.75rem', color: '#666' }}>Тег</span>
-              <input
-                type="text"
-                placeholder="По умолчанию как название"
-                value={tag}
-                onChange={(e) => setTag(e.target.value)}
-              />
-            </label>
-
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
@@ -286,6 +294,9 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
+              <div className="sub" style={{ color: '#666' }}>
+                Можно выбрать одного или нескольких поставщиков. Для каждого выбранного будет создан отдельный проект с префиксом поставщика (B1/B2/B3/B4).
+              </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {(['B1','B2','B3','B4'] as const).map(code => {
                   const allowed = allowedCodes.includes(code);
@@ -319,7 +330,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               </div>
               <div style={{ fontSize: '0.75rem', color: '#666' }}>
                 {effectiveCodesPreview.length > 0
-                  ? `Будет создано: ${effectiveCodesPreview.length} — ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
+                  ? `Будет создано ${effectiveCodesPreview.length} проектов. Лимит ${dataLimit} / день распределится между ними: ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
                   : 'Выберите источники данных'}
               </div>
             </div>
@@ -342,17 +353,25 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
             {(collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className="section-title">Список телефонов</span>
-                <span className="hint">По одному в строке</span>
+                <span className="section-title">Телефоны конкурентов/целевых компаний</span>
+                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
                 <textarea
                   rows={8}
-                  placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."}
+                  placeholder={"79231234567\n74951234567"}
                   value={phonesText}
-                  onChange={(e) => setPhonesText(e.target.value)}
+                  onChange={(e) => {
+                    setPhonesText(e.target.value);
+                    setPhonesError(null);
+                  }}
                   onBlur={sanitizePhones}
                   style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
                 />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
+                {phonesError && (
+                  <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
+                    {phonesError}
+                  </div>
+                )}
               </label>
             )}
 
@@ -370,6 +389,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Регионы</span>
+              <div className="hint">Если ничего не выбрано, сбор идет по всей РФ</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
                 <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
@@ -382,6 +402,13 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   </label>
                 ))}
               </div>
+              <div className="sub" style={{ color: '#666' }}>
+                {regions.length === 0
+                  ? 'Итог: Вся РФ'
+                  : regionMode === 'exclude'
+                    ? `Итог: Вся РФ, исключая: ${regions.join(', ')}`
+                    : `Итог: Только: ${regions.join(', ')}`}
+              </div>
             </div>
 
             <label style={{ display: 'grid', gap: 6 }}>
@@ -393,7 +420,10 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
             </label>
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title" title="Сбор данных не осуществляется в те дни, которые не отмечены галочкой">Дни получения номеров</span>
+              <span className="section-title">Дни сбора</span>
+              <div className="hint">
+                Галочки — это дни сбора. Данные приходят за предыдущий день (пример: Пн включен → во Вт получите данные за Пн).
+              </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
                   <label key={d}>

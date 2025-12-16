@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { regions as allRegions } from '../data/regions';
 import type { Project, ProjectStatus, CollectionSource } from '../types/project';
+import { normalizePhonesMultiline } from '../utils/phones';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -27,7 +28,6 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(project.name);
-  const [tag, setTag] = useState(project.tag);
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
 
@@ -37,6 +37,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
+  const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
 
   const [days, setDays] = useState<DayAbbrev[]>(() => {
@@ -46,8 +47,6 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     parts.forEach(p => { if (map[p]) out.push(map[p]); });
     return (out.length ? out : ['Вт','Ср','Чт','Пт','Сб']);
   });
-
-  useEffect(() => { setTag(name); }, [name]);
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -59,7 +58,20 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const sitesParsed = useMemo(() => parseList(sitesText), [sitesText]);
   const phonesParsed = useMemo(() => parseList(phonesText), [phonesText]);
   function sanitizeSites() { setSitesText(uniqueList(parseList(sitesText)).join('\n')); }
-  function sanitizePhones() { setPhonesText(uniqueList(parseList(phonesText)).join('\n')); }
+  function sanitizePhones() {
+    const res = normalizePhonesMultiline(phonesText);
+    setPhonesText(res.displayText);
+
+    if (res.errors.length > 0) {
+      const examples = res.errors.slice(0, 5).map((e) => `строка ${e.lineNumber}: "${e.raw}" (${e.reason})`);
+      const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+      setPhonesError(
+        `Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`,
+      );
+    } else {
+      setPhonesError(null);
+    }
+  }
 
   const baseRegionIndex = useMemo(() => {
     const m = new Map<string, number>();
@@ -95,15 +107,29 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       const digits = (smsSenderName || '').replace(/\D+/g, '');
       if (!smsSenderName.trim() || digits.length >= 10) return;
     }
+
+    let phones: string[] | undefined;
+    if (project.collectionSource === 'Звонки' || project.collectionSource === 'Ретрозвонки' || project.collectionSource === 'Пересечение') {
+      const res = normalizePhonesMultiline(phonesText);
+      setPhonesText(res.displayText);
+      if (res.errors.length > 0) {
+        const examples = res.errors.slice(0, 5).map((er) => `строка ${er.lineNumber}: "${er.raw}" (${er.reason})`);
+        const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
+        return;
+      }
+      setPhonesError(null);
+      phones = res.normalized.length > 0 ? res.normalized : undefined;
+    }
     const update: SubmitUpdate = {
       name: name.trim(),
-      tag: (tag.trim() || name.trim()),
+      tag: name.trim(),
       status,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
       regions,
       sites: (project.collectionSource === 'Сайты' || project.collectionSource === 'Ретросайты' || project.collectionSource === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
-      phones: (project.collectionSource === 'Звонки' || project.collectionSource === 'Ретрозвонки' || project.collectionSource === 'Пересечение') ? uniqueList(phonesParsed) : undefined,
+      phones,
       smsSenderName: (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
       days,
     };
@@ -127,11 +153,6 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title">Тег</span>
-              <input type="text" value={tag} onChange={(e) => setTag(e.target.value)} />
             </label>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -170,10 +191,25 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
             {(source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
-                <span className="section-title">Список телефонов</span>
-                <span className="hint">По одному в строке</span>
-                <textarea rows={8} placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
+                <span className="section-title">Телефоны конкурентов/целевых компаний</span>
+                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
+                <textarea
+                  rows={8}
+                  placeholder={"79231234567\n74951234567"}
+                  value={phonesText}
+                  onChange={(e) => {
+                    setPhonesText(e.target.value);
+                    setPhonesError(null);
+                  }}
+                  onBlur={sanitizePhones}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
+                {phonesError && (
+                  <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
+                    {phonesError}
+                  </div>
+                )}
               </label>
             )}
 
@@ -186,6 +222,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Регионы</span>
+              <div className="hint">Если ничего не выбрано, сбор идет по всей РФ</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
                 <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
@@ -198,6 +235,13 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                   </label>
                 ))}
               </div>
+              <div className="sub" style={{ color: '#666' }}>
+                {regions.length === 0
+                  ? 'Итог: Вся РФ'
+                  : regionMode === 'exclude'
+                    ? `Итог: Вся РФ, исключая: ${regions.join(', ')}`
+                    : `Итог: Только: ${regions.join(', ')}`}
+              </div>
             </div>
 
             <label style={{ display: 'grid', gap: 6 }}>
@@ -209,7 +253,10 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             </label>
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title" title="Сбор данных не осуществляется в те дни, которые не отмечены галочкой">Дни получения номеров</span>
+              <span className="section-title">Дни сбора</span>
+              <div className="hint">
+                Галочки — это дни сбора. Данные приходят за предыдущий день (пример: Пн включен → во Вт получите данные за Пн).
+              </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
                   <label key={d}>

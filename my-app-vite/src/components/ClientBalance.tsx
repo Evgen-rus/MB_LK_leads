@@ -107,6 +107,11 @@ function ClientBalance() {
                   {summary.remaining}
                 </div>
                 {summary.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
+                {summary.debt && (
+                  <div className="sub" style={{ color: '#666', maxWidth: 520 }}>
+                    Отрицательный остаток означает долг. Чтобы продолжить получать номера, нужно пополнить баланс.
+                  </div>
+                )}
               </div>
               <div>
                 <div className="sub">Начислено всего</div>
