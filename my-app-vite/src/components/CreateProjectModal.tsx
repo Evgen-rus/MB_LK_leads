@@ -244,7 +244,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               <input
                 autoFocus
                 type="text"
-                placeholder="Например, [LR172] тест6"
+                placeholder="Название проекта"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
