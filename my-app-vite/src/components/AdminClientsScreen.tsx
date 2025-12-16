@@ -348,10 +348,10 @@ function AdminClientsScreen({
           className="sub"
         >
           <span>
-            Итого за период: клиентов {filtered.length}, проектов {totals.totalProjects}
+            Итого: клиентов {filtered.length}, проектов {totals.totalProjects}
           </span>
           <span>
-            Суммарный остаток: {totals.totalRemaining}, общий объём данных: {totals.totalVolume}
+            Суммарный остаток: {totals.totalRemaining}, общий объём данных за период: {totals.totalVolume}
           </span>          
         </div>
       </div>

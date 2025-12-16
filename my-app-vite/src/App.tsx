@@ -181,7 +181,18 @@ function App() {
       // после успешного входа переключаем URL и загружаем данные
       window.history.replaceState(null, '', '/');
       const token = localStorage.getItem('access_token') || '';
-      setIsAdmin(isAdminFromToken(token));
+      const admin = isAdminFromToken(token);
+      setIsAdmin(admin);
+
+      // Требование: дефолтная вкладка выставляется ТОЛЬКО после ввода логина/пароля.
+      // При обычном обновлении страницы остаёмся на last_view.
+      const nextView: ViewType = admin ? 'admin-clients' : 'leads';
+      setView(nextView);
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, nextView);
+      } catch {
+        /* ignore */
+      }
       setNeedLogin(false);
       (async () => {
         try {
