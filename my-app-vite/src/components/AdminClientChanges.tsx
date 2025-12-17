@@ -133,64 +133,66 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                 Изменений: {g.items.length}
               </div>
             </div>
-            <table className="table" style={{ margin: 0 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '24%' }}>Когда</th>
-                  <th style={{ width: '14%' }}>Действие</th>
-                  <th>Описание изменения</th>
-                  <th style={{ width: '16%' }}>Статус</th>
-                  <th style={{ width: 210 }}>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.items.map((c) => (
-                  <tr key={c.id}>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
-                    <td className="muted">
-                      {c.action === 'create' ? 'Создание' : c.action === 'delete' ? 'Удаление' : 'Изменение'}
-                    </td>
-                    <td>{c.description}</td>
-                    <td>
-                      {(() => {
-                        const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
-                        const label =
-                          status === 'pending'
-                            ? 'Не выполнено'
-                            : 'Выполнено';
-                        const cls =
-                          status === 'pending'
-                            ? 'badge badge--gray'
-                            : 'badge badge--green';
-                        return <span className={cls}>{label}</span>;
-                      })()}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
-                          style={{ width: '100%' }}
-                          onClick={() => handleResolve(c)}
-                        >
-                          Отметить выполненным
-                        </button>
-                        <button
-                          type="button"
-                          className="btn"
-                          style={{ width: '100%' }}
-                          onClick={() => setSnapshotFor(c)}
-                          disabled={!c.projectSnapshot}
-                          title={c.projectSnapshot ? 'Открыть карточку' : 'Нет данных карточки'}
-                        >
-                          Карточка
-                        </button>
-                      </div>
-                    </td>
+            <div className="table-scroll">
+              <table className="table" style={{ margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '24%' }}>Когда</th>
+                    <th style={{ width: '14%' }}>Действие</th>
+                    <th>Описание изменения</th>
+                    <th style={{ width: '16%' }}>Статус</th>
+                    <th style={{ width: 210 }}>Действия</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {g.items.map((c) => (
+                    <tr key={c.id}>
+                      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
+                      <td className="muted">
+                        {c.action === 'create' ? 'Создание' : c.action === 'delete' ? 'Удаление' : 'Изменение'}
+                      </td>
+                      <td>{c.description}</td>
+                      <td>
+                        {(() => {
+                          const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
+                          const label =
+                            status === 'pending'
+                              ? 'Не выполнено'
+                              : 'Выполнено';
+                          const cls =
+                            status === 'pending'
+                              ? 'badge badge--gray'
+                              : 'badge badge--green';
+                          return <span className={cls}>{label}</span>;
+                        })()}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn btn--secondary"
+                            style={{ width: '100%' }}
+                            onClick={() => handleResolve(c)}
+                          >
+                            Отметить выполненным
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            style={{ width: '100%' }}
+                            onClick={() => setSnapshotFor(c)}
+                            disabled={!c.projectSnapshot}
+                            title={c.projectSnapshot ? 'Открыть карточку' : 'Нет данных карточки'}
+                          >
+                            Карточка
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ))}
       </div>
