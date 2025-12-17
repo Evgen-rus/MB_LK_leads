@@ -1,11 +1,11 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState } from 'react';
 import type { Project } from '../types/project';
-import { fetchProjects, deleteProject as apiDelete, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
+import { fetchProjects, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
-  onDelete?: (ids: number[]) => void;
+  onDelete?: (ids: number[]) => void; // оставляем для совместимости, но не используем (кнопку удалили)
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
   onHistory?: (row: Project) => void;
@@ -190,27 +190,6 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                   📜
                 </button>
                 <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
-                <button
-                  className="icon-btn"
-                  title="Удалить"
-                  onClick={() => {
-                    if (!window.confirm(`Удалить проект ${row.id}?`)) return;
-                    (async () => {
-                      try {
-                        if (onDelete) {
-                          onDelete([row.id]);
-                        } else {
-                          await apiDelete(row.id);
-                        }
-                        window.dispatchEvent(new CustomEvent('projects-refresh'));
-                      } catch (e) {
-                        console.error(e);
-                      }
-                    })();
-                  }}
-                >
-                  🗑️
-                </button>
               </td>
             </tr>
           ))}
