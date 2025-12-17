@@ -25,7 +25,6 @@ import {
   createProjects as apiCreate,
   fetchProjects as apiList,
   updateProject as apiUpdate,
-  deleteProject as apiDelete,
   logout as apiLogout,
   fetchClientBalanceSummary,
 } from './api';
@@ -292,18 +291,6 @@ function App() {
             ) : (
               <ProjectsTable
                 onCreate={() => setIsCreateOpen(true)}
-                onDelete={(ids) => {
-                  if (!ids.length) return;
-                  (async () => {
-                    try {
-                      await Promise.all(ids.map((id) => apiDelete(id)));
-                      setRows((prev) => prev.filter((p) => !ids.includes(p.id)));
-                      window.dispatchEvent(new CustomEvent('projects-refresh'));
-                    } catch (e) {
-                      console.error(e);
-                    }
-                  })();
-                }}
                 onEdit={(row) => setEditing(row)}
                 onHistory={(row) => setHistoryFor(row)}
               />
