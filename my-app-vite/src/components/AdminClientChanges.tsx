@@ -166,23 +166,26 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                       })()}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => handleResolve(c)}
-                      >
-                        Отметить выполненным
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        style={{ marginLeft: 6 }}
-                        onClick={() => setSnapshotFor(c)}
-                        disabled={!c.projectSnapshot}
-                        title={c.projectSnapshot ? 'Открыть карточку' : 'Нет данных карточки'}
-                      >
-                        Карточка
-                      </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button
+                          type="button"
+                          className="btn btn--secondary"
+                          style={{ width: '100%' }}
+                          onClick={() => handleResolve(c)}
+                        >
+                          Отметить выполненным
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ width: '100%' }}
+                          onClick={() => setSnapshotFor(c)}
+                          disabled={!c.projectSnapshot}
+                          title={c.projectSnapshot ? 'Открыть карточку' : 'Нет данных карточки'}
+                        >
+                          Карточка
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
