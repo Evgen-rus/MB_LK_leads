@@ -109,6 +109,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
 
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
+    if (project.status === 'Удалён') return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     await applyUpdate(project, { status: nextStatus });
   }

@@ -168,8 +168,11 @@ def list_projects_paginated(
     user_id: int,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
+    include_deleted: bool = False,
 ) -> schemas.ProjectListOut:
     stmt = select(models.Project).where(models.Project.user_id == user_id)
+    if not include_deleted:
+        stmt = stmt.where(models.Project.status != 'Удалён')
     if q:
         q = q.strip()
         if q:
@@ -460,15 +463,17 @@ def delete_project(db: Session, project_id: int, user_id: int) -> bool:
     if p.user_id != user_id:
         return False
     before = _snapshot_project(p)
-    db.delete(p)
+    p.status = 'Удалён'  # мягкое удаление
+    p.updated_at = now_msk()
     db.flush()
+    after = _snapshot_project(p)
     db.add(models.AuditEvent(
         user_id=user_id,
         project_id=project_id,
         action='delete',
         before=before,
-        after=None,
-        changed_fields=list(before.keys()),
+        after=after,
+        changed_fields=['status'],
     ))
     db.commit()
     return True
@@ -1260,6 +1265,7 @@ def admin_list_all_projects(
     user_id_filter: int | None = None,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
+    include_deleted: bool = True,
 ) -> schemas.AdminProjectListOut:
     """
     Список всех проектов всех пользователей (для админа).
@@ -1270,6 +1276,10 @@ def admin_list_all_projects(
     # Фильтр по user_id
     if user_id_filter is not None:
         stmt = stmt.where(models.Project.user_id == user_id_filter)
+
+    # По умолчанию админ видит всё, но можно скрыть удалённые
+    if not include_deleted:
+        stmt = stmt.where(models.Project.status != 'Удалён')
 
     # Текстовый поиск
     if q:
@@ -1407,15 +1417,17 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
     if not p:
         return False
     before = _snapshot_project(p)
-    db.delete(p)
+    p.status = 'Удалён'
+    p.updated_at = now_msk()
     db.flush()
+    after = _snapshot_project(p)
     db.add(models.AuditEvent(
         user_id=admin_user_id,
         project_id=project_id,
         action='delete',
         before=before,
-        after=None,
-        changed_fields=list(before.keys()),
+        after=after,
+        changed_fields=['status'],
     ))
     db.commit()
     return True

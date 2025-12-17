@@ -224,6 +224,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
+                <option value="Удалён">Удалён</option>
               </select>
             </label>
 

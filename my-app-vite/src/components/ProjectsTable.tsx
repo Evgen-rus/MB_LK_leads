@@ -5,7 +5,6 @@ import { fetchProjects, updateProject as apiUpdateProject, type ProjectUpdatePay
 import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
-  onDelete?: (ids: number[]) => void; // оставляем для совместимости, но не используем (кнопку удалили)
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
   onHistory?: (row: Project) => void;
@@ -18,7 +17,7 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableProps) {
+function ProjectsTable({ onEdit, onCreate, onHistory }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
@@ -26,9 +25,10 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate) {
+  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) {
     const offset = (p - 1) * s;
     const resp = await fetchProjects({
       offset,
@@ -36,6 +36,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
       q: q.trim() || undefined,
       fromDate: from,
       toDate: to,
+      includeDeleted: withDeleted,
     });
     setRows(resp.items);
     setTotal(resp.total);
@@ -44,10 +45,10 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   useEffect(() => { load(1); }, []);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page);
+    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted);
     window.addEventListener('projects-refresh', h as any);
     return () => window.removeEventListener('projects-refresh', h as any);
-  }, [page, pageSize, search, fromDate, toDate]);
+  }, [page, pageSize, search, fromDate, toDate, includeDeleted]);
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
@@ -96,6 +97,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
+    if (row.status === 'Удалён') return;
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
       const payload = buildUpdatePayloadFromRow(row, { status: nextStatus });
@@ -108,12 +110,25 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
     }
   }
 
+  async function handleSoftDelete(row: Project) {
+    if (!window.confirm(`Пометить проект ${row.id} как удалённый?`)) return;
+    try {
+      const payload = buildUpdatePayloadFromRow(row, { status: 'Удалён' });
+      const updated = await apiUpdateProject(row.id, payload);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+    } catch (e) {
+      console.error(e);
+      alert('Не удалось пометить проект как удалённый');
+    }
+  }
+
   // Удаление из тулбара не используется — по просьбе отключено
 
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {/* Период для пересчёта показателей проектов */}
           <DateRangeFilter
             from={fromDate}
@@ -122,7 +137,7 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               setFromDate(from);
               setToDate(to);
               setPage(1);
-              load(1, pageSize, search, from, to);
+              load(1, pageSize, search, from, to, includeDeleted);
             }}
           />
 
@@ -131,8 +146,21 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
             placeholder="Поиск по названию/ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate); }}}
+            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted); }}}
           />
+          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeDeleted}
+              onChange={(e) => {
+                const val = e.target.checked;
+                setIncludeDeleted(val);
+                setPage(1);
+                load(1, pageSize, search, fromDate, toDate, val);
+              }}
+            />
+            Показывать удалённые
+          </label>
         </div>
         <div className="actions">
           <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
@@ -165,10 +193,19 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
               <td>{row.dataSourceCode}</td>
               <td>
                 <span
-                  className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
-                  style={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
-                  title="Нажмите, чтобы переключить статус проекта"
-                  onClick={() => handleToggleStatus(row)}
+                  className={
+                    row.status === 'Активен'
+                      ? 'badge badge--green'
+                      : row.status === 'На паузе'
+                        ? 'badge badge--orange'
+                        : 'badge badge--gray'
+                  }
+                  style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
+                  title={row.status === 'Удалён' ? 'Проект помечен как удалённый' : 'Нажмите, чтобы переключить статус проекта'}
+                  onClick={() => {
+                    if (row.status === 'Удалён') return;
+                    handleToggleStatus(row);
+                  }}
                 >
                   {row.status}
                 </span>
@@ -190,6 +227,16 @@ function ProjectsTable({ onDelete, onEdit, onCreate, onHistory }: ProjectsTableP
                   📜
                 </button>
                 <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
+                <button
+                  className="icon-btn"
+                  title={row.status === 'Удалён' ? 'Проект уже помечен как удалённый' : 'Пометить проект как удалённый'}
+                  onClick={() => {
+                    if (row.status === 'Удалён') return;
+                    handleSoftDelete(row);
+                  }}
+                >
+                  🗑️
+                </button>
               </td>
             </tr>
           ))}

@@ -27,7 +27,7 @@ export type CreateProjectItem = {
   collectionSource: CollectionSource;
   dataSourceCode: 'B1'|'B2'|'B3'|'B4';
   dataLimit: number;
-  status: 'Активен'|'На паузе';
+  status: 'Активен'|'На паузе'|'Удалён';
   regionMode: 'include'|'exclude';
   regions: string[];
   sites?: string[];
@@ -39,7 +39,7 @@ export type CreateProjectItem = {
 export type ProjectUpdatePayload = {
   name: string;
   tag: string;
-  status: 'Активен'|'На паузе';
+  status: 'Активен'|'На паузе'|'Удалён';
   dataLimit: number;
   regionMode: 'include'|'exclude';
   regions: string[];
@@ -112,6 +112,7 @@ export async function fetchProjects(params?: {
   q?: string;
   fromDate?: string;
   toDate?: string;
+  includeDeleted?: boolean;
 }): Promise<ProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -119,6 +120,7 @@ export async function fetchProjects(params?: {
   if (params?.q) q.set('q', params.q);
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.includeDeleted) q.set('includeDeleted', 'true');
   const qs = q.toString();
   return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }
@@ -329,7 +331,7 @@ export type AdminProjectListResp = {
 export type AdminProjectUpdate = {
   name: string;
   tag: string;
-  status: 'Активен' | 'На паузе';
+  status: 'Активен' | 'На паузе' | 'Удалён';
   deliveryStatus: 'Активна' | 'На модерации' | 'Отключена';
   dataLimit: number;
   regionMode: 'include' | 'exclude';

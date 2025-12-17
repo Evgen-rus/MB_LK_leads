@@ -160,6 +160,7 @@ def list_projects(
     q: str | None = None,
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
+    includeDeleted: bool = False,
     current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
@@ -196,6 +197,7 @@ def list_projects(
         user_id=current_user.id,
         start_local=start_naive,
         end_local=end_naive,
+        include_deleted=includeDeleted,
     )
 
 

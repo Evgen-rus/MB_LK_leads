@@ -1,5 +1,5 @@
 // Типы и интерфейсы данных проектов (страница «Проекты и каналы»)
-export type ProjectStatus = 'Активен' | 'На паузе';
+export type ProjectStatus = 'Активен' | 'На паузе' | 'Удалён';
 export type DeliveryStatus = 'Активна' | 'На модерации' | 'Отключена';
 export type CollectionSource =
   | 'Сайты'
