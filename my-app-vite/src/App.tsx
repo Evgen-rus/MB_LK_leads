@@ -79,26 +79,39 @@ function App() {
 
   // Предварительная проверка токена до любых запросов + установка URL
   useEffect(() => {
-    try {
-      const token = localStorage.getItem('access_token') || '';
-      const valid = token ? isJwtValid(token) : false;
-      if (!valid) {
-        try { localStorage.removeItem('access_token'); } catch {}
-        setNeedLogin(true);
-        setIsAdmin(false);
-        if (window.location.pathname !== '/login') {
-          window.history.replaceState(null, '', '/login');
+    const applyToken = () => {
+      try {
+        const token = localStorage.getItem('access_token') || '';
+        const valid = token ? isJwtValid(token) : false;
+        if (!valid) {
+          try { localStorage.removeItem('access_token'); } catch {}
+          setNeedLogin(true);
+          setIsAdmin(false);
+          if (window.location.pathname !== '/login') {
+            window.history.replaceState(null, '', '/login');
+          }
+        } else {
+          setNeedLogin(false);
+          setIsAdmin(isAdminFromToken(token));
+          if (window.location.pathname === '/login') {
+            window.history.replaceState(null, '', '/');
+          }
         }
-      } else {
-        setNeedLogin(false);
-        setIsAdmin(isAdminFromToken(token));
-        if (window.location.pathname === '/login') {
-          window.history.replaceState(null, '', '/');
-        }
+      } finally {
+        setAuthChecked(true);
       }
-    } finally {
-      setAuthChecked(true);
-    }
+    };
+
+    applyToken();
+
+    // Обработчик смены токена (имперсонация из другой вкладки)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'access_token') {
+        applyToken();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateAdminClient, type AdminClientUpdateResp } from '../api';
+import { updateAdminClient, impersonateClient, type AdminClientUpdateResp } from '../api';
 
 type AdminClientCardModalProps = {
   clientId: number;
@@ -36,17 +36,34 @@ function AdminClientCardModal({
 
   const hasCredChanges = login.trim() !== initialLogin || password.trim() !== '';
 
-  function handleOpenClientCabinet() {
-    // Открываем ЛК клиента в новой вкладке, чтобы не сбивать сессию администратора.
+  async function handleOpenClientCabinet() {
     if (!clientId) return;
+    setError(null);
+    setLoading(true);
     try {
-      const url = new URL(clientCabinetBase, window.location.origin);
-      if (login) {
-        url.searchParams.set('login', login);
+      // 1) Запрашиваем короткий токен имперсонации
+      const resp = await impersonateClient(clientId);
+
+      // 2) Сохраняем токен сразу, чтобы новая вкладка увидела его из localStorage
+      try {
+        localStorage.setItem('access_token', resp.access_token);
+        sessionStorage.setItem('access_token', resp.access_token);
+      } catch {
+        /* ignore */
       }
-      window.open(url.toString(), '_blank', 'noopener');
-    } catch (e) {
-      console.error('Не удалось открыть ЛК клиента', e);
+
+      // 3) Формируем URL портала
+      const targetUrl = new URL(clientCabinetBase, window.location.origin).toString();
+
+      // 4) Пытаемся открыть в новой вкладке; если блокируется — уходим в эту же вкладку
+      const newWindow = window.open(targetUrl, '_blank', 'noopener');
+      if (!newWindow) {
+        window.location.href = targetUrl;
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Не удалось открыть ЛК клиента');
+    } finally {
+      setLoading(false);
     }
   }
 

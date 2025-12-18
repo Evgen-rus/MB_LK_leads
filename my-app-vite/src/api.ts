@@ -179,6 +179,13 @@ export async function logout(): Promise<void> {
   try { localStorage.removeItem('access_token'); } catch {}
 }
 
+// -------- Имперсонация клиента админом --------
+export async function impersonateClient(clientId: number): Promise<{ access_token: string; ttl_minutes: number }> {
+  return http<{ access_token: string; ttl_minutes: number }>(`/admin/clients/${clientId}/impersonate`, {
+    method: 'POST',
+  });
+}
+
 
 // -------- Лиды --------
 export type Lead = {

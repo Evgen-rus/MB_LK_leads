@@ -600,6 +600,17 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
     return user
 
 
+def create_impersonation_token(client_user_id: int, ttl_minutes: int = 15) -> str:
+    """Генерируем короткоживущий JWT для входа под клиентом (без флага is_admin)."""
+    from datetime import timedelta
+
+    return auth.create_access_token(
+        user_id=client_user_id,
+        is_admin=False,
+        expires_delta=timedelta(minutes=max(1, ttl_minutes)),
+    )
+
+
 @app.post("/admin/clients", response_model=schemas.AdminClientCreateOut)
 def admin_create_client(
     payload: schemas.AdminClientCreateIn,
@@ -618,6 +629,24 @@ def admin_create_client(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/admin/clients/{client_id}/impersonate")
+def admin_impersonate_client(
+    client_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Выдаёт короткоживущий токен (15 минут) для входа в ЛК клиента.
+    Токен имеет payload user_id клиента, без is_admin.
+    """
+    client_user = db_sess.get(models.User, client_id)
+    if not client_user:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    token = create_impersonation_token(client_user.id, ttl_minutes=15)
+    return {"access_token": token, "ttl_minutes": 15}
 
 
 @app.patch("/admin/clients/{client_id}", response_model=schemas.AdminClientUpdateOut)
