@@ -39,6 +39,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>('include');
   const [regionQuery, setRegionQuery] = useState('');
   const [regions, setRegions] = useState<string[]>([]);
+  const [regionsOpen, setRegionsOpen] = useState(false);
 
   const [sitesText, setSitesText] = useState('');
   const [phonesText, setPhonesText] = useState('');
@@ -408,19 +409,33 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
               <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Регионы</span>
-              <div className="hint">Если ничего не выбрано, сбор идет по всей РФ</div>
+              <div className="hint">Если ничего не выбрано, сбор идет по всей РФ. Чтобы выбрать регион — кликните в поле поиска.</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
                 <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
-                <input type="search" placeholder="Поиск по регионам" value={regionQuery} onChange={(e) => setRegionQuery(e.target.value)} />
+                <input
+                  type="search"
+                  placeholder="Поиск по регионам"
+                  value={regionQuery}
+                  onFocus={() => setRegionsOpen(true)}
+                  onClick={() => setRegionsOpen(true)}
+                  onChange={(e) => {
+                    setRegionsOpen(true);
+                    setRegionQuery(e.target.value);
+                  }}
+                />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                {displayRegions.map(r => (
-                  <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
-                  </label>
-                ))}
-              </div>
+              {regionsOpen ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
+                  {displayRegions.map(r => (
+                    <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="hint" style={{ color: '#666' }}>Список скрыт. Нажмите в поле поиска, чтобы открыть.</div>
+              )}
               <div className="sub" style={{ color: '#666' }}>
                 {regions.length === 0
                   ? 'Итог: Вся РФ'

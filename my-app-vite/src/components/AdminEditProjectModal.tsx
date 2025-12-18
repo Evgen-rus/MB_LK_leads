@@ -1,9 +1,10 @@
 // Модальное окно редактирования проекта для админа
 // Включает возможность изменять deliveryStatus
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { regions as allRegions } from '../data/regions';
 import type { ProjectStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
+import { normalizePhonesMultiline } from '../utils/phones';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -17,30 +18,30 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(project.name);
-  const [tag, setTag] = useState(project.tag);
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
   const [regionQuery, setRegionQuery] = useState('');
   const [regions, setRegions] = useState<string[]>(project.regions || []);
+  const [regionsOpen, setRegionsOpen] = useState(false);
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
+  const [phonesError, setPhonesError] = useState<string | null>(null);
 
   const [days, setDays] = useState<DayAbbrev[]>(() => {
     const map: Record<string, DayAbbrev> = { 'Пн.':'Пн','Вт.':'Вт','Ср.':'Ср','Чт.':'Чт','Пт.':'Пт','Сб.':'Сб','Вс.':'Вс' };
     const parts = (project.daysReceived || '').split(/\s+/).filter(Boolean);
     const out: DayAbbrev[] = [];
     parts.forEach(p => { if (map[p]) out.push(map[p]); });
-    return (out.length ? out : ['Вт','Ср','Чт','Пт','Сб']);
+    // Не подставляем дефолтные дни, чтобы не создавать лишние изменения
+    return out;
   });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => { setTag(name); }, [name]);
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -52,7 +53,20 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
   const sitesParsed = useMemo(() => parseList(sitesText), [sitesText]);
   const phonesParsed = useMemo(() => parseList(phonesText), [phonesText]);
   function sanitizeSites() { setSitesText(uniqueList(parseList(sitesText)).join('\n')); }
-  function sanitizePhones() { setPhonesText(uniqueList(parseList(phonesText)).join('\n')); }
+  function sanitizePhones() {
+    const res = normalizePhonesMultiline(phonesText);
+    setPhonesText(res.displayText);
+
+    if (res.errors.length > 0) {
+      const examples = res.errors.slice(0, 5).map((e) => `строка ${e.lineNumber}: "${e.raw}" (${e.reason})`);
+      const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+      setPhonesError(
+        `Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`,
+      );
+    } else {
+      setPhonesError(null);
+    }
+  }
 
   const baseRegionIndex = useMemo(() => {
     const m = new Map<string, number>();
@@ -81,9 +95,107 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   }
 
+  const weekOrder: Record<DayAbbrev, number> = { 'Пн': 1, 'Вт': 2, 'Ср': 3, 'Чт': 4, 'Пт': 5, 'Сб': 6, 'Вс': 7 };
+
+  function normalizeString(value: string | undefined | null): string {
+    return (value ?? '').trim();
+  }
+
+  function normalizeOptionalString(value: string | undefined | null): string | undefined {
+    const v = normalizeString(value);
+    return v ? v : undefined;
+  }
+
+  function normalizeStringArray(value: unknown): string[] {
+    const arr = Array.isArray(value) ? (value as unknown[]) : [];
+    const out = arr
+      .map((x) => normalizeString(typeof x === 'string' ? x : String(x ?? '')))
+      .filter(Boolean);
+    return Array.from(new Set(out)).sort();
+  }
+
+  function normalizeDays(value: DayAbbrev[]): DayAbbrev[] {
+    const unique = Array.from(new Set(value));
+    unique.sort((a, b) => (weekOrder[a] ?? 999) - (weekOrder[b] ?? 999));
+    return unique;
+  }
+
+  function arraysEqual(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  function daysEqual(a: DayAbbrev[], b: DayAbbrev[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  const isDirty = useMemo(() => {
+    const sourceNow: CollectionSource = project.collectionSource;
+
+    const original = {
+      name: normalizeString(project.name),
+      status: project.status,
+      dataLimit: Number.isFinite(project.dataLimit) ? project.dataLimit : 0,
+      regionMode: (project.regionMode || 'include') as 'include' | 'exclude',
+      regions: normalizeStringArray(project.regions || []),
+      sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(project.sites || [])
+        : [],
+      phones: (sourceNow === 'Звонки' || sourceNow === 'Ретрозвонки' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(project.phones || [])
+        : [],
+      smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
+        ? normalizeOptionalString(project.smsSenderName)
+        : undefined,
+      days: normalizeDays(days),
+    };
+
+    let phonesNow: string[] = [];
+    if (sourceNow === 'Звонки' || sourceNow === 'Ретрозвонки' || sourceNow === 'Пересечение') {
+      const res = normalizePhonesMultiline(phonesText);
+      phonesNow = normalizeStringArray(res.normalized);
+    }
+
+    const current = {
+      name: normalizeString(name),
+      status,
+      dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
+      regionMode,
+      regions: normalizeStringArray(regions),
+      sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
+        ? normalizeStringArray(uniqueList(sitesParsed))
+        : [],
+      phones: phonesNow,
+      smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
+        ? normalizeOptionalString(smsSenderName)
+        : undefined,
+      days: normalizeDays(days),
+    };
+
+    if (original.name !== current.name) return true;
+    if (original.status !== current.status) return true;
+    if (original.dataLimit !== current.dataLimit) return true;
+    if (original.regionMode !== current.regionMode) return true;
+    if (!arraysEqual(original.regions, current.regions)) return true;
+    if (!arraysEqual(original.sites, current.sites)) return true;
+    if (!arraysEqual(original.phones, current.phones)) return true;
+    if (original.smsSenderName !== current.smsSenderName) return true;
+    if (!daysEqual(original.days, current.days)) return true;
+    return false;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, status, dataLimit, regionMode, regions, sitesParsed, phonesText, smsSenderName, days, project.collectionSource]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (!isDirty) return;
 
     const source: CollectionSource = project.collectionSource;
     if (source === 'СМС' || source === 'Пересечение') {
@@ -91,9 +203,23 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
       if (!smsSenderName.trim() || digits.length >= 10) return;
     }
 
+    let phones: string[] | undefined;
+    if (source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') {
+      const res = normalizePhonesMultiline(phonesText);
+      setPhonesText(res.displayText);
+      if (res.errors.length > 0) {
+        const examples = res.errors.slice(0, 5).map((er) => `строка ${er.lineNumber}: "${er.raw}" (${er.reason})`);
+        const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
+        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
+        return;
+      }
+      setPhonesError(null);
+      phones = res.normalized.length > 0 ? res.normalized : undefined;
+    }
+
     const payload: AdminProjectUpdate = {
       name: name.trim(),
-      tag: (tag.trim() || name.trim()),
+      tag: project.tag,
       status,
       // Статус отгрузки больше не редактируем в модалке — отправляем текущее значение
       deliveryStatus: project.deliveryStatus,
@@ -101,7 +227,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
       regionMode,
       regions,
       sites: (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
-      phones: (source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') ? uniqueList(phonesParsed) : undefined,
+      phones,
       smsSenderName: (source === 'СМС' || source === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
       days,
     };
@@ -148,11 +274,6 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
             </label>
 
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title">Тег</span>
-              <input type="text" value={tag} onChange={(e) => setTag(e.target.value)} />
-            </label>
-
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Источник сбора</span>
@@ -190,8 +311,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
             {(source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список телефонов</span>
-                <span className="hint">По одному в строке</span>
-                <textarea rows={8} placeholder={"Вставьте номера по одному в строке. Допустимые форматы: 79..., 7 495..., +7 ..."} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
+                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
+                <textarea rows={8} placeholder={"79231234567\n74951234567"} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
               </label>
             )}
@@ -205,17 +326,39 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
 
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Регионы</span>
+              <div className="hint">Если ничего не выбрано, сбор идет по всей РФ. Чтобы выбрать регион — кликните в поле поиска.</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
                 <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
-                <input type="search" placeholder="Поиск по регионам" value={regionQuery} onChange={(e) => setRegionQuery(e.target.value)} />
+                <input
+                  type="search"
+                  placeholder="Поиск по регионам"
+                  value={regionQuery}
+                  onFocus={() => setRegionsOpen(true)}
+                  onClick={() => setRegionsOpen(true)}
+                  onChange={(e) => {
+                    setRegionsOpen(true);
+                    setRegionQuery(e.target.value);
+                  }}
+                />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                {displayRegions.map(r => (
-                  <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
-                  </label>
-                ))}
+              {regionsOpen ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
+                  {displayRegions.map(r => (
+                    <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="hint" style={{ color: '#666' }}>Список скрыт. Нажмите в поле поиска, чтобы открыть.</div>
+              )}
+              <div className="sub" style={{ color: '#666' }}>
+                {regions.length === 0
+                  ? 'Итог: Вся РФ'
+                  : regionMode === 'exclude'
+                    ? `Итог: Вся РФ, исключая: ${regions.join(', ')}`
+                    : `Итог: Только: ${regions.join(', ')}`}
               </div>
             </div>
 
@@ -242,7 +385,12 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose} disabled={saving}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={saving}>
+            {!isDirty && (
+              <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
+                Нет изменений
+              </span>
+            )}
+            <button type="submit" className="btn btn--primary" disabled={!isDirty || saving}>
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
           </div>
