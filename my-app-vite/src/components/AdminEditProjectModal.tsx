@@ -314,6 +314,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
                 <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
                 <textarea rows={8} placeholder={"79231234567\n74951234567"} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
+                {phonesError && (
+                  <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
+                    {phonesError}
+                  </div>
+                )}
               </label>
             )}
 
