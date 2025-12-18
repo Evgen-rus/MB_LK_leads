@@ -6,8 +6,11 @@ import {
   fetchAdminChangesSummary,
   type AdminClientSummaryItem,
   type AdminClientChangesSummaryListOut,
+  type ClientProfile,
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
+import AdminCreateClientModal from './AdminCreateClientModal';
+import AdminClientCardModal from './AdminClientCardModal';
 
 // Важно: начиная с разделения логики «Клиенты» / «Проекты»,
 // сам экран «Клиенты» НЕ занимается обработкой проектов и изменений.
@@ -28,6 +31,7 @@ type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 
 type ClientRow = {
   id: number;
   name: string;
+  login: string;
   projectCount: number;
   status: ClientStatus;
   remaining: number;      // Остаток по лимиту
@@ -35,6 +39,8 @@ type ClientRow = {
   totalLimit: number;
   usedTotal: number;
   pendingChanges: number;
+  inn?: string | null;
+  phone?: string | null;
 };
 
 const STATUS_COLORS: Record<ClientStatus, string> = {
@@ -73,6 +79,16 @@ function AdminClientsScreen({
   const [pageSize, setPageSize] = useState(25);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
+  const [createOpen, setCreateOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [cardClientId, setCardClientId] = useState<number | null>(null);
+  const [cardClientData, setCardClientData] = useState<{
+    name: string;
+    inn?: string | null;
+    phone?: string | null;
+    contact?: string | null;
+    login: string;
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -86,15 +102,20 @@ function AdminClientsScreen({
         const pendingMap: Record<number, number> = {};
         changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
+          const profile: ClientProfile | null | undefined = it.profile;
+          const displayName = profile?.name?.trim() || it.user.login;
           const row: ClientRow = {
             id: it.user.id,
-            name: it.user.login,
+            name: displayName,
+            login: it.user.login,
             projectCount: it.projectCount,
             remaining: it.remaining,
             totalVolume: it.usedPeriod,
             totalLimit: it.totalLimit,
             usedTotal: it.usedTotal,
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
+            inn: profile?.inn,
+            phone: profile?.phone,
             status: 'Активен',
           };
           return { ...row, status: deriveStatus(row) };
@@ -108,7 +129,7 @@ function AdminClientsScreen({
         setLoading(false);
       }
     })();
-  }, [range]);
+  }, [range, refreshKey]);
 
   const clients = useMemo(() => baseClients, [baseClients]);
 
@@ -149,12 +170,29 @@ function AdminClientsScreen({
   const pageRows = filtered.slice(start, end);
 
   return (
+    <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="table-card">
-        <div className="table-toolbar">
+        <div
+          className="table-toolbar"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
           <div
             className="filters"
-            style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', width: '100%' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flex: 1,
+              minWidth: 0,
+              flexWrap: 'wrap',
+            }}
           >
             <DateRangeFilter
               from={range.from}
@@ -177,10 +215,19 @@ function AdminClientsScreen({
                   setPage(1);
                 }
               }}
-              style={{ minWidth: 240, marginLeft: 'auto' }}
+              style={{ minWidth: 220, flex: 1 }}
             />
           </div>
-          <div className="actions">
+          <div
+            className="actions"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexShrink: 0,
+              justifyContent: 'flex-end',
+            }}
+          >
             {loading ? (
               <span className="sub">Загрузка…</span>
             ) : (
@@ -188,6 +235,13 @@ function AdminClientsScreen({
                 Всего клиентов: {clients.length}. Период: {range.from} — {range.to}
               </span>
             )}
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => setCreateOpen(true)}
+            >
+              + Новый клиент
+            </button>
           </div>
         </div>
 
@@ -276,16 +330,35 @@ function AdminClientsScreen({
                     <td>{row.remaining}</td>
                     <td>{row.totalVolume}</td>
                     <td>
-                      <button
-                        className="btn btn--secondary"
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedClientId(row.id);
-                        }}
-                      >
-                        Открыть
-                      </button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className="btn btn--secondary"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedClientId(row.id);
+                      }}
+                    >
+                      Открыть
+                    </button>
+                    <button
+                      className="btn btn--primary"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCardClientId(row.id);
+                        setCardClientData({
+                          name: row.name,
+                          inn: row.inn,
+                          phone: row.phone,
+                          contact: undefined,
+                          login: row.login,
+                        });
+                      }}
+                    >
+                      Карточка
+                    </button>
+                  </div>
                     </td>
                   </tr>
                 ))}
@@ -510,6 +583,32 @@ function AdminClientsScreen({
       )}
 
     </div>
+    {createOpen && (
+      <AdminCreateClientModal
+        onClose={() => setCreateOpen(false)}
+        onCreated={(created) => {
+          setRefreshKey((x) => x + 1);
+          setCreateOpen(false);
+          setSelectedClientId(created.user.id);
+        }}
+      />
+    )}
+    {cardClientId && cardClientData && (
+      <AdminClientCardModal
+        clientId={cardClientId}
+        initialName={cardClientData.name}
+        initialInn={cardClientData.inn || undefined}
+        initialPhone={cardClientData.phone || undefined}
+        initialContact={cardClientData.contact || undefined}
+        initialLogin={cardClientData.login}
+        onClose={() => setCardClientId(null)}
+        onUpdated={() => {
+          setRefreshKey((x) => x + 1);
+          setCardClientId(null);
+        }}
+      />
+    )}
+    </>
   );
 }
 

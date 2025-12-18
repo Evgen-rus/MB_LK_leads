@@ -84,6 +84,48 @@ class UserInfo(BaseModel):
     login: str
 
 
+class ClientProfileOut(BaseModel):
+    name: str
+    inn: str
+    phone: str
+    contact: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AdminClientCreateIn(BaseModel):
+    name: str
+    inn: str
+    phone: str
+    contact: Optional[str] = None
+    login: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AdminClientCreateOut(BaseModel):
+    user: UserInfo
+    profile: ClientProfileOut
+    login: str
+    password: str
+
+
+class AdminClientUpdateIn(BaseModel):
+    name: Optional[str] = None
+    inn: Optional[str] = None
+    phone: Optional[str] = None
+    contact: Optional[str] = None
+    login: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AdminClientUpdateOut(BaseModel):
+    user: UserInfo
+    profile: ClientProfileOut
+    login: str
+    password: Optional[str] = None
+
+
 class AdminProjectOut(ProjectOut):
     """Проект с информацией о владельце (для админа)."""
     user: UserInfo
@@ -247,6 +289,7 @@ class AdminClientChangesSummaryListOut(BaseModel):
 # -------- Сводка по клиентам --------
 class AdminClientSummaryItem(BaseModel):
     user: UserInfo
+    profile: Optional[ClientProfileOut] = None
     projectCount: int
     totalLimit: int
     usedTotal: int

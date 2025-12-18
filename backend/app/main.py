@@ -107,6 +107,7 @@ def startup_event():
         crud.ensure_blacklist_user_id_column(s)
         crud.ensure_audit_admin_columns(s)
         crud.ensure_report_client_id_column(s)
+        crud.ensure_client_profile_contact_column(s)
 
     # Start background notifier thread
     worker = threading.Thread(
@@ -597,6 +598,48 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return user
+
+
+@app.post("/admin/clients", response_model=schemas.AdminClientCreateOut)
+def admin_create_client(
+    payload: schemas.AdminClientCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        return crud.admin_create_client(
+            db_sess,
+            name=payload.name,
+            inn=payload.inn,
+            phone=payload.phone,
+            contact=payload.contact,
+            login=payload.login,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/admin/clients/{client_id}", response_model=schemas.AdminClientUpdateOut)
+def admin_update_client(
+    client_id: int,
+    payload: schemas.AdminClientUpdateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        return crud.admin_update_client(
+            db_sess,
+            client_id=client_id,
+            name=payload.name,
+            inn=payload.inn,
+            phone=payload.phone,
+            contact=payload.contact,
+            login=payload.login,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/admin/users", response_model=List[schemas.UserInfo])

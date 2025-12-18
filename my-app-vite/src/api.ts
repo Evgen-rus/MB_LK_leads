@@ -319,6 +319,12 @@ export type UserInfo = {
   login: string;
 };
 
+export type ClientProfile = {
+  name: string;
+  inn: string;
+  phone: string;
+};
+
 export type AdminProject = Project & {
   user: UserInfo;
 };
@@ -510,6 +516,7 @@ export async function resolveAdminChange(changeId: number): Promise<void> {
 // -------- Сводка по клиентам --------
 export type AdminClientSummaryItem = {
   user: UserInfo;
+  profile?: ClientProfile | null;
   projectCount: number;
   totalLimit: number;
   usedTotal: number;
@@ -535,9 +542,55 @@ export type AdminClientsSummaryOut = {
   };
 };
 
+export type AdminClientCreatePayload = {
+  name: string;
+  inn: string;
+  phone: string;
+  contact?: string;
+  login?: string;
+  password?: string;
+};
+
+export type AdminClientCreateResp = {
+  user: UserInfo;
+  profile: ClientProfile;
+  login: string;
+  password: string;
+};
+
+export type AdminClientUpdatePayload = {
+  name?: string;
+  inn?: string;
+  phone?: string;
+  contact?: string;
+  login?: string;
+  password?: string;
+};
+
+export type AdminClientUpdateResp = {
+  user: UserInfo;
+  profile: ClientProfile;
+  login: string;
+  password?: string | null;
+};
+
 export async function fetchAdminClientsSummary(params: { fromDate: string; toDate: string }): Promise<AdminClientsSummaryOut> {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
   return http<AdminClientsSummaryOut>(`/admin/clients/summary?${q.toString()}`);
+}
+
+export async function createAdminClient(payload: AdminClientCreatePayload): Promise<AdminClientCreateResp> {
+  return http<AdminClientCreateResp>('/admin/clients', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminClient(clientId: number, payload: AdminClientUpdatePayload): Promise<AdminClientUpdateResp> {
+  return http<AdminClientUpdateResp>(`/admin/clients/${clientId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function fetchClientBalanceSummary(params: { fromDate: string; toDate: string }): Promise<ClientBalanceSummary> {

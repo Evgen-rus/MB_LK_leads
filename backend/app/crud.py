@@ -8,6 +8,9 @@ from datetime import datetime, timedelta, timezone
 from .time_utils import now_msk
 from typing import Dict, Iterable, List, Optional, Tuple, Any
 import os
+import re
+import secrets
+import string
 
 from sqlalchemy import select, func, or_, and_, text, inspect
 from sqlalchemy.orm import Session
@@ -766,6 +769,204 @@ def create_user(db: Session, login: str, password_plain: str) -> models.User:
     return user
 
 
+def _translit_login_base(text: str) -> str:
+    mapping = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e",
+        "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k",
+        "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+        "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
+        "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya",
+    }
+    cleaned = []
+    for ch in text.lower():
+        if ch.isalnum():
+            cleaned.append(mapping.get(ch, ch))
+        elif ch in (" ", "-", "_", "."):
+            cleaned.append("-")
+    base = "".join(cleaned)
+    base = re.sub(r"-{2,}", "-", base).strip("-")
+    if not base:
+        return "client"
+    return base[:40]
+
+
+def _random_suffix(length: int = 4) -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _generate_password(length: int = 12) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _ensure_unique_login(db: Session, preferred: str) -> str:
+    base = preferred or "client"
+    base = re.sub(r"[^a-z0-9_-]", "", base.lower()).strip("-_") or "client"
+    base = base[:40]
+    for attempt in range(20):
+        candidate = base if attempt == 0 else f"{base}-{_random_suffix(4)}"
+        exists = db.execute(select(func.count()).where(models.User.login == candidate)).scalar_one()
+        if not exists:
+            return candidate
+    raise ValueError("Не удалось сгенерировать уникальный логин, попробуйте вручную.")
+
+
+def admin_create_client(
+    db: Session,
+    name: str,
+    inn: str,
+    phone: str,
+    contact: Optional[str],
+    login: Optional[str],
+    password: Optional[str],
+) -> schemas.AdminClientCreateOut:
+    now = now_msk()
+    name_clean = (name or "").strip()
+    if not name_clean:
+        raise ValueError("Имя клиента не может быть пустым.")
+
+    inn_digits = re.sub(r"\D+", "", inn or "")
+    if len(inn_digits) not in (10, 12):
+        raise ValueError("ИНН должен содержать 10 или 12 цифр.")
+    existing_by_inn = db.execute(
+        select(models.ClientProfile).where(models.ClientProfile.inn == inn_digits)
+    ).scalar_one_or_none()
+    if existing_by_inn:
+        raise ValueError("Клиент с таким ИНН уже существует.")
+
+    phone_clean = (phone or "").strip()
+    phone_digits = re.sub(r"\D+", "", phone_clean)
+    if len(phone_digits) < 10:
+        raise ValueError("Телефон должен содержать минимум 10 цифр.")
+
+    if login:
+        preferred_login = (login or "").strip().lower()
+    else:
+        preferred_login = _translit_login_base(name_clean)
+    final_login = _ensure_unique_login(db, preferred_login)
+
+    raw_password = password.strip() if password else _generate_password()
+    user = models.User(
+        login=final_login,
+        password_hash=auth.hash_password(raw_password),
+        created_at=now,
+    )
+    db.add(user)
+    db.flush()
+
+    profile = models.ClientProfile(
+        user_id=user.id,
+        name=name_clean,
+        inn=inn_digits,
+        phone=phone_clean,
+        contact=(contact or "").strip() or None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(user)
+    db.refresh(profile)
+
+    return schemas.AdminClientCreateOut(
+        user=schemas.UserInfo(id=user.id, login=user.login),
+        profile=schemas.ClientProfileOut.from_orm(profile),
+        login=final_login,
+        password=raw_password,
+    )
+
+
+def admin_update_client(
+    db: Session,
+    client_id: int,
+    name: Optional[str],
+    inn: Optional[str],
+    phone: Optional[str],
+    contact: Optional[str],
+    login: Optional[str],
+    password: Optional[str],
+) -> schemas.AdminClientUpdateOut:
+    user = db.get(models.User, client_id)
+    if not user:
+        raise ValueError("Клиент не найден.")
+
+    profile = db.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == client_id)
+    ).scalar_one_or_none()
+    now = now_msk()
+
+    # Логин / пароль
+    final_login = user.login
+    raw_password: Optional[str] = None
+    if login:
+        preferred_login = (login or "").strip().lower()
+        final_login = _ensure_unique_login(db, preferred_login)
+        user.login = final_login
+    if password:
+        raw_password = password.strip() if password else None
+        if raw_password:
+            user.password_hash = auth.hash_password(raw_password)
+    if login or password:
+        user.created_at = user.created_at or now  # safety
+
+    # Профиль
+    name_clean = name.strip() if name else None
+    inn_digits = re.sub(r"\D+", "", inn or "") if inn is not None else None
+    phone_clean = phone.strip() if phone else None
+
+    if inn_digits is not None:
+        if len(inn_digits) not in (10, 12):
+            raise ValueError("ИНН должен содержать 10 или 12 цифр.")
+        existing_by_inn = db.execute(
+            select(models.ClientProfile).where(
+                models.ClientProfile.inn == inn_digits,
+                models.ClientProfile.user_id != client_id,
+            )
+        ).scalar_one_or_none()
+        if existing_by_inn:
+            raise ValueError("Клиент с таким ИНН уже существует.")
+
+    if phone_clean is not None:
+        phone_digits = re.sub(r"\D+", "", phone_clean)
+        if len(phone_digits) < 10:
+            raise ValueError("Телефон должен содержать минимум 10 цифр.")
+
+    if not profile:
+        profile = models.ClientProfile(
+            user_id=client_id,
+            name=name_clean or user.login,
+            inn=inn_digits or "",
+            phone=phone_clean or "",
+            contact=(contact or "").strip() or None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(profile)
+    else:
+        if name_clean is not None:
+            profile.name = name_clean
+        if inn_digits is not None:
+            profile.inn = inn_digits
+        if phone_clean is not None:
+            profile.phone = phone_clean
+        if contact is not None:
+            profile.contact = (contact or "").strip() or None
+        profile.updated_at = now
+
+    db.commit()
+    db.refresh(user)
+    db.refresh(profile)
+
+    return schemas.AdminClientUpdateOut(
+        user=schemas.UserInfo(id=user.id, login=user.login),
+        profile=schemas.ClientProfileOut.from_orm(profile),
+        login=user.login,
+        password=raw_password,
+    )
+
+
 def ensure_users_from_env(db: Session) -> None:
     """
     Идём по переменным USER_{N}_LOGIN / USER_{N}_PASSWORD и создаём отсутствующих.
@@ -839,6 +1040,18 @@ def ensure_audit_admin_columns(db: Session) -> None:
         db.commit()
 
 
+def ensure_client_profile_contact_column(db: Session) -> None:
+    """
+    Добавляем столбец contact в client_profiles, если его нет (для старых БД).
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("client_profiles")]
+    if "contact" not in cols:
+        db.execute(text("ALTER TABLE client_profiles ADD COLUMN contact VARCHAR"))
+        db.commit()
+
+
 def admin_list_client_changes_summary(db: Session) -> List[schemas.AdminClientChangesSummaryItem]:
     """
     Краткая сводка по необработанным изменениям по клиентам.
@@ -881,7 +1094,26 @@ def admin_clients_summary(
     Агрегированная сводка по клиентам: проекты, использование номеров и остаток
     (начисления/списания − использовано по лидам).
     """
-    # Базовые данные по проектам
+    # Все пользователи-клиенты (исключаем админа id=1)
+    users = db.execute(
+        select(models.User).where(models.User.id != 1)
+    ).scalars().all()
+    users_map: Dict[int, schemas.UserInfo] = {
+        u.id: schemas.UserInfo(id=u.id, login=u.login) for u in users
+    }
+
+    # Профили клиентов
+    profiles_map: Dict[int, schemas.ClientProfileOut] = {}
+    user_ids = list(users_map.keys())
+    if user_ids:
+        profiles = db.execute(
+            select(models.ClientProfile).where(models.ClientProfile.user_id.in_(user_ids))
+        ).scalars().all()
+        for p in profiles:
+            profiles_map[p.user_id] = schemas.ClientProfileOut.from_orm(p)
+
+    # Статистика по проектам
+    by_user: Dict[int, Dict[str, int]] = {uid: {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0} for uid in users_map.keys()}
     proj_rows = db.execute(
         select(
             models.Project.user_id,
@@ -889,16 +1121,12 @@ def admin_clients_summary(
             func.coalesce(func.sum(models.Project.data_limit), 0),
         ).group_by(models.Project.user_id)
     ).all()
-    by_user: Dict[int, Dict[str, int]] = {}
     for uid, cnt, limit_sum in proj_rows:
         if uid is None:
             continue
-        by_user[int(uid)] = {
-            "projects": int(cnt or 0),
-            "limit": int(limit_sum or 0),
-            "used_total": 0,
-            "used_period": 0,
-        }
+        by_user.setdefault(int(uid), {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0})
+        by_user[int(uid)]["projects"] = int(cnt or 0)
+        by_user[int(uid)]["limit"] = int(limit_sum or 0)
 
     # Использование за все время
     used_total_rows = db.execute(
@@ -943,21 +1171,14 @@ def admin_clients_summary(
         balance_map.setdefault(cid, {"credit": 0, "debit": 0})
         balance_map[cid][str(op_type)] = int(total_amt or 0)
 
-    # Собираем user info
-    user_ids = list(by_user.keys())
-    users_map: Dict[int, schemas.UserInfo] = {}
-    if user_ids:
-        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
-        for u in users:
-            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
-
     items: List[schemas.AdminClientSummaryItem] = []
     totals_projects = 0
     totals_limit = 0
     totals_used = 0
     totals_used_period = 0
     totals_remaining = 0
-    for uid, stats in by_user.items():
+    for uid in users_map.keys():
+        stats = by_user.get(uid) or {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0}
         info = users_map.get(uid)
         if not info:
             continue
@@ -969,6 +1190,7 @@ def admin_clients_summary(
         remaining = manual_balance - used_total
         item = schemas.AdminClientSummaryItem(
             user=info,
+            profile=profiles_map.get(uid),
             projectCount=int(stats["projects"]),
             totalLimit=int(stats["limit"]),
             usedTotal=used_total,

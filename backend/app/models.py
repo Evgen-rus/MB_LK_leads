@@ -23,6 +23,23 @@ class User(Base):
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 
+class ClientProfile(Base):
+    __tablename__ = "client_profiles"
+    __table_args__ = (
+        UniqueConstraint("inn", name="uq_client_profiles_inn"),
+        UniqueConstraint("user_id", name="uq_client_profiles_user"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    inn = Column(String, nullable=False, index=True)
+    phone = Column(String, nullable=False)
+    contact = Column(String, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
