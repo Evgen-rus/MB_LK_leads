@@ -22,6 +22,7 @@ function AdminClientsTable() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
   const [editing, setEditing] = useState<AdminProject | null>(null);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -34,7 +35,7 @@ function AdminClientsTable() {
     }
   }
 
-  async function load(p = page, s = pageSize, q = search, userId: number | null = userIdFilter) {
+  async function load(p = page, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) {
     try {
       const offset = (p - 1) * s;
       const resp = await fetchAdminProjects({
@@ -42,6 +43,7 @@ function AdminClientsTable() {
         limit: s,
         q: q.trim() || undefined,
         userId: userId ?? undefined,
+        includeDeleted: withDeleted,
       });
       setRows(resp.items);
       setTotal(resp.total);
@@ -56,10 +58,10 @@ function AdminClientsTable() {
   }, []);
 
   useEffect(() => {
-    const h = () => load(page);
+    const h = () => load(page, pageSize, search, userIdFilter, includeDeleted);
     window.addEventListener('admin-projects-refresh', h as any);
     return () => window.removeEventListener('admin-projects-refresh', h as any);
-  }, [page, pageSize, search, userIdFilter]);
+  }, [page, pageSize, search, userIdFilter, includeDeleted]);
 
   const filteredRows = useMemo<AdminProject[]>(() => {
     const q = search.trim().toLowerCase();
@@ -123,7 +125,7 @@ function AdminClientsTable() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 setPage(1);
-                load(1, pageSize, (e.target as HTMLInputElement).value, userIdFilter);
+                load(1, pageSize, (e.target as HTMLInputElement).value, userIdFilter, includeDeleted);
               }
             }}
           />
@@ -133,7 +135,7 @@ function AdminClientsTable() {
               const val = e.target.value ? Number(e.target.value) : null;
               setUserIdFilter(val);
               setPage(1);
-              load(1, pageSize, search, val);
+              load(1, pageSize, search, val, includeDeleted);
             }}
           >
             <option value="">Все клиенты</option>
@@ -154,6 +156,19 @@ function AdminClientsTable() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeDeleted}
+              onChange={(e) => {
+                const val = e.target.checked;
+                setIncludeDeleted(val);
+                setPage(1);
+                load(1, pageSize, search, userIdFilter, val);
+              }}
+            />
+            Показывать удалённые
+          </label>
         </div>
         <div className="actions">
           <span className="sub">Всего: {total}</span>
@@ -203,7 +218,13 @@ function AdminClientsTable() {
                 </td>
                 <td>
                   <span
-                    className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
+                    className={
+                      row.status === 'Активен'
+                        ? 'badge badge--green'
+                        : row.status === 'На паузе'
+                          ? 'badge badge--orange'
+                          : 'badge badge--gray'
+                    }
                     style={{ whiteSpace: 'nowrap' }}
                   >
                     {row.status}

@@ -24,8 +24,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminProject | null>(null);
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
 
-  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate) {
+  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) {
     try {
       setLoading(true);
       setError(null);
@@ -37,6 +38,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         userId: clientId,
         fromDate: from,
         toDate: to,
+        includeDeleted: withDeleted,
       });
       setRows(resp.items);
       setTotal(resp.total);
@@ -49,9 +51,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   }
 
   useEffect(() => {
-    load(1, pageSize, search, fromDate, toDate);
+    load(1, pageSize, search, fromDate, toDate, includeDeleted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, fromDate, toDate]);
+  }, [clientId, fromDate, toDate, includeDeleted]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -128,10 +130,23 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 setPage(1);
-                load(1, pageSize, (e.target as HTMLInputElement).value);
+                load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted);
               }
             }}
           />
+          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeDeleted}
+              onChange={(e) => {
+                const val = e.target.checked;
+                setIncludeDeleted(val);
+                setPage(1);
+                load(1, pageSize, search, fromDate, toDate, val);
+              }}
+            />
+            Показывать удалённые
+          </label>
         </div>
         <div className="actions">
           <span className="sub">
@@ -196,10 +211,19 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   </td>
                   <td>
                     <span
-                      className={row.status === 'Активен' ? 'badge badge--green' : 'badge badge--orange'}
-                      style={{ whiteSpace: 'nowrap', cursor: 'pointer' }}
+                      className={
+                        row.status === 'Активен'
+                          ? 'badge badge--green'
+                          : row.status === 'На паузе'
+                            ? 'badge badge--orange'
+                            : 'badge badge--gray'
+                      }
+                      style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
                       title="Нажмите, чтобы переключить статус проекта"
-                      onClick={() => handleToggleStatus(row)}
+                      onClick={() => {
+                        if (row.status === 'Удалён') return;
+                        handleToggleStatus(row);
+                      }}
                     >
                       {row.status}
                     </span>

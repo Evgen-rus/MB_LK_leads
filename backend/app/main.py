@@ -616,6 +616,7 @@ def admin_list_projects(
     userId: int | None = None,
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
+    includeDeleted: bool = False,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
@@ -652,6 +653,7 @@ def admin_list_projects(
         user_id_filter=userId,
         start_local=start_naive,
         end_local=end_naive,
+        include_deleted=includeDeleted,
     )
 
 

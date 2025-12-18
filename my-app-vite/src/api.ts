@@ -353,6 +353,7 @@ export async function fetchAdminProjects(params?: {
   userId?: number;
   fromDate?: string;
   toDate?: string;
+  includeDeleted?: boolean;
 }): Promise<AdminProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -361,6 +362,7 @@ export async function fetchAdminProjects(params?: {
   if (params?.userId != null) q.set('userId', String(params.userId));
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
+  q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
   const qs = q.toString();
   return http<AdminProjectListResp>(`/admin/projects${qs ? `?${qs}` : ''}`);
 }
