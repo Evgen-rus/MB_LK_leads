@@ -32,7 +32,23 @@ function AdminClientCardModal({
   const [error, setError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState<string | null>(null);
 
+  const clientCabinetBase = (import.meta.env as any).VITE_CLIENT_PORTAL_URL || '/';
+
   const hasCredChanges = login.trim() !== initialLogin || password.trim() !== '';
+
+  function handleOpenClientCabinet() {
+    // Открываем ЛК клиента в новой вкладке, чтобы не сбивать сессию администратора.
+    if (!clientId) return;
+    try {
+      const url = new URL(clientCabinetBase, window.location.origin);
+      if (login) {
+        url.searchParams.set('login', login);
+      }
+      window.open(url.toString(), '_blank', 'noopener');
+    } catch (e) {
+      console.error('Не удалось открыть ЛК клиента', e);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -124,7 +140,6 @@ function AdminClientCardModal({
               placeholder="+7 999 123-45-67"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              style={{ height: 34, borderRadius: 8, background: '#f7f7f9', border: '1px solid #e5e5e5', padding: '8px 10px' }}
             />
           </label>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
@@ -170,11 +185,21 @@ function AdminClientCardModal({
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
-            <button type="button" className="btn" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={loading}>
-              {loading ? 'Сохраняем…' : 'Сохранить'}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={handleOpenClientCabinet}
+              disabled={loading || !clientId}
+            >
+              Перейти в ЛК
             </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn" onClick={onClose}>Отмена</button>
+              <button type="submit" className="btn btn--primary" disabled={loading}>
+                {loading ? 'Сохраняем…' : 'Сохранить'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
