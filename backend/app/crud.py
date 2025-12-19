@@ -589,7 +589,10 @@ def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_lo
     base = select(models.Lead).where(
         and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
     )
-    if project_ids:
+    # Если project_ids пустой список — возвращаем пусто (запрос вида "in ()" не нужен)
+    if project_ids is not None:
+        if not project_ids:
+            return schemas.LeadsListOut(items=[], total=0)
         base = base.where(models.Lead.project_id.in_(project_ids))
     if sources:
         base = base.where(models.Lead.source.in_(sources))

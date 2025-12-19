@@ -350,6 +350,8 @@ def list_leads(
 
     # Разрешённые проекты текущего пользователя
     allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+    if not allowed_ids:
+        return schemas.LeadsListOut(items=[], total=0)
 
     proj_ids: Optional[List[int]] = None
     if projectIds:
@@ -361,7 +363,6 @@ def list_leads(
             proj_ids = None
 
     # Ограничиваем проектами пользователя (для клиентского ЛК)
-    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
     if proj_ids is None:
         proj_ids = list(allowed_ids)
     else:
@@ -418,6 +419,14 @@ def export_leads(
     start_local = datetime(y, m, d, 0, 0, 0).replace(tzinfo=None)
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
+
+    # Разрешённые проекты
+    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+    if not allowed_ids:
+        empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+        if (format or "csv").lower() == "xlsx":
+            return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+        return Response(content="", media_type="text/csv", headers=empty_headers)
 
     proj_ids: Optional[List[int]] = None
     if projectIds:
