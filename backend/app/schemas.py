@@ -84,6 +84,13 @@ class UserInfo(BaseModel):
     login: str
 
 
+class SelfProfileOut(BaseModel):
+    """Краткий профиль текущего пользователя."""
+    id: int
+    login: str
+    name: Optional[str] = None
+
+
 class ClientProfileOut(BaseModel):
     name: str
     inn: str

@@ -179,6 +179,17 @@ export async function logout(): Promise<void> {
   try { localStorage.removeItem('access_token'); } catch {}
 }
 
+// -------- Профиль текущего пользователя --------
+export type MeResponse = {
+  id: number;
+  login: string;
+  name?: string | null;
+};
+
+export async function fetchMe(): Promise<MeResponse> {
+  return http<MeResponse>('/me');
+}
+
 // -------- Имперсонация клиента админом --------
 export async function impersonateClient(clientId: number): Promise<{ access_token: string; ttl_minutes: number }> {
   return http<{ access_token: string; ttl_minutes: number }>(`/admin/clients/${clientId}/impersonate`, {

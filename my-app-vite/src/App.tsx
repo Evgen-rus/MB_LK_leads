@@ -26,6 +26,7 @@ import {
   fetchProjects as apiList,
   updateProject as apiUpdate,
   logout as apiLogout,
+  fetchMe,
   fetchClientBalanceSummary,
 } from './api';
 import Login from './components/Login';
@@ -72,6 +73,7 @@ function App() {
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
+  const [clientName, setClientName] = useState<string | null>(null);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -183,6 +185,23 @@ function App() {
     })();
   }, [authChecked, needLogin, isAdmin]);
 
+  // Подтягиваем имя клиента для заголовка (только клиентская роль)
+  useEffect(() => {
+    if (!authChecked || needLogin || isAdmin) {
+      setClientName(null);
+      return;
+    }
+    (async () => {
+      try {
+        const me = await fetchMe();
+        setClientName(me.name || me.login || null);
+      } catch (e) {
+        console.error(e);
+        setClientName(null);
+      }
+    })();
+  }, [authChecked, needLogin, isAdmin]);
+
   // Пауза до завершения первичной проверки, чтобы избежать «мигания»
   if (!authChecked) {
     return <div style={{display:'grid',placeItems:'center',height:'100vh'}}>Загрузка…</div>;
@@ -234,27 +253,44 @@ function App() {
         />
         <main className="main">
           <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between', position:'relative'}}>
-            <span>
-              {view === 'admin-clients'
-                ? 'Клиенты'
-                : view === 'projects'
-                ? 'Проекты'
-                : view === 'leads'
-                ? 'Идентификации'
-                : view === 'reports'
-                ? 'Отчёты'
-                : view === 'balance'
-                ? 'Баланс'
-                : view === 'integrations'
-                ? 'Интеграции'
-                : view === 'support'
-                ? 'Техподдержка'
-                : view === 'education'
-                ? 'Обучение'
-                : view === 'onboarding'
-                ? 'Онбординг'
-                : 'Черный список'}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>
+                {view === 'admin-clients'
+                  ? 'Клиенты'
+                  : view === 'projects'
+                  ? 'Проекты'
+                  : view === 'leads'
+                  ? 'Идентификации'
+                  : view === 'reports'
+                  ? 'Отчёты'
+                  : view === 'balance'
+                  ? 'Баланс'
+                  : view === 'integrations'
+                  ? 'Интеграции'
+                  : view === 'support'
+                  ? 'Техподдержка'
+                  : view === 'education'
+                  ? 'Обучение'
+                  : view === 'onboarding'
+                  ? 'Онбординг'
+                  : 'Черный список'}
+              </span>
+              {!isAdmin && clientName && (
+                <span
+                  className="sub"
+                  style={{
+                    color: '#555',
+                    maxWidth: 240,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={clientName}
+                >
+                  {clientName}
+                </span>
+              )}
+            </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {!isAdmin && clientBalance && (
               <div style={{ textAlign: 'right', lineHeight: 1.3, color: clientBalance.debt ? '#d23' : '#111' }}>
@@ -264,6 +300,7 @@ function App() {
             )}
             <button className="btn btn--ghost" onClick={async ()=>{
               try { await apiLogout(); } catch {}
+              setClientName(null);
               setRows([]);
               setNeedLogin(true);
               if (window.location.pathname !== '/login') {

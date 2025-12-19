@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
 
@@ -152,6 +153,18 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return user
+
+
+@app.get("/me", response_model=schemas.SelfProfileOut)
+def get_me(current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    profile = db_sess.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == current_user.id)
+    ).scalar_one_or_none()
+    return schemas.SelfProfileOut(
+        id=current_user.id,
+        login=current_user.login,
+        name=profile.name if profile else None,
+    )
 
 
 @app.get("/projects", response_model=schemas.ProjectListOut)
