@@ -128,9 +128,9 @@ curl -X POST http://localhost:8000/projects \
 ## 🛠 Текущий стек
 
 - **Frontend:**
-  - React 19.1.1
+  - React 19.2.0
   - TypeScript 5.9.3
-  - Vite 7.1.7 + @vitejs/plugin-react 5.0.4
+  - Vite 7.1.12 + @vitejs/plugin-react 5.0.4
   - ESLint 9.36.0 + плагины для React
   - CSS (стили в `App.css`)
 
@@ -141,15 +141,19 @@ curl -X POST http://localhost:8000/projects \
   - Pydantic 2.12.3 (валидация данных)
   - PyJWT 2.9.0 (работа с JWT токенами)
   - bcrypt 4.2.0 (хэширование паролей)
+  - python-dotenv 1.2.1 (переменные окружения)
+  - requests 2.32.5 (HTTP запросы)
 
 - **Интеграции:**
   - Google Sheets API (google-api-python-client 2.151.0)
+  - Google Auth 2.43.0 (аутентификация Google)
   - Telegram Bot API
   - Excel файлы (openpyxl 3.1.5)
+  - tzdata 2024.1 (часовые пояса)
 
 - **DevOps:**
   - Node.js 24.12.0
-  - npm 11.6.2
+  - npm 11.7.0
   - Python 3.8+
   - SQLite (база данных)
   - Git + .gitignore
