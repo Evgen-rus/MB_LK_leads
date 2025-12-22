@@ -15,8 +15,17 @@
 ```bash
 git clone <repository-url>
 cd MB_LK_leads
+```
 
 # Python зависимости
+```bash
+python -m venv venv
+venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+
+# Linux/macOS
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Node.js зависимости
@@ -119,45 +128,96 @@ curl -X POST http://localhost:8000/projects \
 ## 🛠 Текущий стек
 
 - **Frontend:**
-  - React 19.2.0
+  - React 19.1.1
   - TypeScript 5.9.3
-  - Vite 7.1.12 + @vitejs/plugin-react 5.1.0
+  - Vite 7.1.7 + @vitejs/plugin-react 5.0.4
+  - ESLint 9.36.0 + плагины для React
   - CSS (стили в `App.css`)
 
 - **Backend:**
-  - FastAPI (Python)
-  - Uvicorn
-  - SQLAlchemy (база данных)
+  - FastAPI 0.120.2 (Python веб-фреймворк)
+  - Uvicorn 0.38.0 (ASGI сервер)
+  - SQLAlchemy 2.0.44 (ORM для базы данных)
+  - Pydantic 2.12.3 (валидация данных)
+  - PyJWT 2.9.0 (работа с JWT токенами)
+  - bcrypt 4.2.0 (хэширование паролей)
+
+- **Интеграции:**
+  - Google Sheets API (google-api-python-client 2.151.0)
+  - Telegram Bot API
+  - Excel файлы (openpyxl 3.1.5)
 
 - **DevOps:**
-  - Node.js 24.11.0
-  - npm 11.6.1
+  - Node.js 24.12.0
+  - npm 11.6.2
+  - Python 3.8+
+  - SQLite (база данных)
   - Git + .gitignore
 
 ## 📁 Структура проекта
 
 ```
 MB_LK_leads/
-├── backend/                 # Python FastAPI бэкенд
+├── backend/                          # Python FastAPI бэкенд
 │   └── app/
-│       ├── main.py         # Точка входа API
-│       ├── models.py       # Модели данных
-│       └── db.py           # Настройки БД
-├── my-app-vite/            # React фронтенд
+│       ├── __init__.py              # Инициализация пакета
+│       ├── main.py                  # Точка входа API (FastAPI приложение)
+│       ├── models.py                # SQLAlchemy модели данных
+│       ├── db.py                    # Настройки базы данных
+│       ├── crud.py                  # CRUD операции с БД
+│       ├── schemas.py               # Pydantic схемы для API
+│       ├── auth.py                  # Аутентификация и авторизация
+│       ├── sheets_import.py         # Импорт данных из Google Sheets
+│       ├── telegram.py              # Интеграция с Telegram
+│       ├── notify_worker.py         # Фоновые уведомления
+│       ├── logging_setup.py         # Настройка логирования
+│       └── time_utils.py            # Утилиты для работы со временем
+├── my-app-vite/                     # React фронтенд (Vite)
 │   ├── src/
-│   │   ├── components/     # React компоненты
-│   │   │   ├── Header.tsx
-│   │   │   ├── Sidebar.tsx
-│   │   │   └── ProjectsTable.tsx
+│   │   ├── components/              # React компоненты UI
+│   │   │   ├── Sidebar.tsx          # Левое меню навигации
+│   │   │   ├── ProjectsTable.tsx    # Таблица проектов
+│   │   │   ├── LeadsTable.tsx       # Таблица лидов
+│   │   │   ├── AdminClientsScreen.tsx # Админ-панель клиентов
+│   │   │   ├── Login.tsx            # Форма авторизации
+│   │   │   └── ... (30+ компонентов)
+│   │   ├── types/                   # TypeScript типы
+│   │   │   └── project.ts           # Типы для проектов
+│   │   ├── utils/                   # Утилиты фронтенда
+│   │   │   ├── jwt.ts              # Работа с JWT токенами
+│   │   │   ├── phones.ts           # Обработка телефонов
+│   │   │   └── impersonation.ts    # Имперсонация пользователей
 │   │   ├── data/
-│   │   │   └── projects.ts # Мок-данные
-│   │   ├── types/
-│   │   │   └── project.ts  # TypeScript типы
-│   │   ├── App.tsx         # Главный компонент
-│   │   └── main.tsx        # Точка входа Vite
-│   └── package.json
-├── requirements.txt         # Python зависимости
-└── README.md
+│   │   │   └── regions.ts          # Данные регионов
+│   │   ├── api.ts                  # HTTP-клиент для API
+│   │   ├── App.tsx                 # Главный компонент приложения
+│   │   ├── main.tsx                # Точка входа Vite
+│   │   ├── index.css               # Глобальные стили
+│   │   └── logger.ts               # Логирование на фронте
+│   ├── public/                     # Статические файлы
+│   ├── package.json                # Зависимости Node.js
+│   ├── vite.config.ts              # Конфигурация Vite
+│   ├── tsconfig.json               # Конфигурация TypeScript
+│   └── README.md                   # Документация фронтенда
+├── venv/                           # Python виртуальное окружение
+├── credentials/                    # Ключи и credentials
+│   └── sheets-data-bot-b8f4cc6634fc.json  # Google Sheets API ключ
+├── logs/                          # Логи приложения
+│   └── app.log                    # Основной лог-файл
+├── app.db                         # SQLite база данных
+├── requirements.txt               # Python зависимости
+├── .gitignore                     # Исключаемые из Git файлы
+├── tool_*.py                      # CLI утилиты для управления
+│   ├── tool_user_tools.py         # Управление пользователями
+│   ├── tool_db_tools.py           # Работа с БД
+│   ├── tool_inspect_db.py         # Инспекция БД
+│   ├── tool_map_projects.py       # Маппинг проектов
+│   └── tool_create_unmapped_project.py # Создание fallback-проекта
+├── task.md                        # Задачи проекта
+├── SWAP_SETUP.md                  # Настройка swap-файла
+├── bitrix_widget_restore.md       # Восстановление Bitrix виджета
+├── защита_от_перебора.md          # Защита от перебора паролей
+└── README.md                      # Эта документация
 ```
 
 ## 🔧 Скрипты
@@ -181,8 +241,7 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 - Для дальнейшего управления логинами/паролями используйте скрипт `tool_user_tools.py` в корне проекта:
 
 ```bash
-cd /opt/MB_LK_leads
-source venv/bin/activate
+venv\Scripts\activate   # Windows
 
 # Показать пользователей
 python tool_user_tools.py list
@@ -195,6 +254,36 @@ python tool_user_tools.py set-password --login <логин>
 ```
 
 При смене пароля скрипт дополнительно записывает логин и новый пароль в локальный файл `users.txt` (он добавлен в `.gitignore` и не попадает в репозиторий).
+
+### CLI утилиты для работы с проектом
+
+```bash
+# Инспекция базы данных
+python tool_inspect_db.py                    # Просмотр всех проектов и лидов
+python tool_inspect_db.py --db app.db       # С кастомным путем к БД
+
+# Управление маппингом проектов
+python tool_map_projects.py list            # Показать все связи
+python tool_map_projects.py unmapped        # Найти несопоставленные лиды
+python tool_map_projects.py set --external 128 --source B1 --project 1  # Добавить связь
+python tool_map_projects.py apply           # Применить маппинг к существующим лидам
+
+# Создание fallback-проекта для несопоставленных лидов
+python tool_create_unmapped_project.py --user-id 1
+
+# Работа с БД (расширенные инструменты)
+python tool_db_tools.py                     # Различные операции с БД
+```
+
+### Импорт данных из Google Sheets
+
+```bash
+# Активация виртуального окружения
+venv\Scripts\activate
+
+# Запуск импорта лидов из таблиц
+python -m backend.app.sheets_import
+```
 
 ## 📝 API Endpoints
 
