@@ -57,7 +57,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
     try {
       setLoading(true);
       const offset = (p - 1) * s;
-      const resp = await fetchLeads({ projectIds, sources, fromDate, toDate, offset, limit: s });
+      // Если массивы пустые — считаем, что выбрано «все», поэтому не передаём фильтр.
+      const projectIdsFilter = projectIds.length ? projectIds : undefined;
+      const sourcesFilter = sources.length ? sources : undefined;
+      const resp = await fetchLeads({ projectIds: projectIdsFilter, sources: sourcesFilter, fromDate, toDate, offset, limit: s });
       setRows(resp.items);
       setTotal(resp.total);
     } catch (e) {
