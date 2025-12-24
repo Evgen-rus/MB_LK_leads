@@ -185,8 +185,8 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
           </tr>
         </thead>
         <tbody>
-          {filteredRows.map((row, index) => (
-            <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
+          {filteredRows.map((row) => (
+            <tr key={row.id}>
               <td
                 style={{ cursor: 'pointer' }}
                 onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}

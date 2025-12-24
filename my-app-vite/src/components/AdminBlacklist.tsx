@@ -101,8 +101,8 @@ function AdminBlacklist() {
             ) : rows.length === 0 ? (
               <tr><td className="muted" colSpan={3}>Список пуст</td></tr>
             ) : (
-              rows.map((r, index) => (
-                <tr key={r.id} className={index % 2 === 0 ? 'row-alt' : ''}>
+              rows.map((r) => (
+                <tr key={r.id}>
                   <td>
                     <div className="name">{r.user.login}</div>
                     <div className="sub">id: {r.user.id}</div>

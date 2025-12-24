@@ -295,7 +295,6 @@ function AdminClientsScreen({
                 pageRows.map((row, idx) => (
                   <tr
                     key={row.id}
-                    className={idx % 2 === 0 ? 'row-alt' : ''}
                     style={{ cursor: 'pointer' }}
                     onClick={() => {
                       setSelectedClientId(row.id);

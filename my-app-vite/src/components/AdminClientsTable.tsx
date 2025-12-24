@@ -199,8 +199,8 @@ function AdminClientsTable() {
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row, index) => (
-              <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
+            {filteredRows.map((row) => (
+              <tr key={row.id}>
                 <td>
                   <input
                     type="checkbox"

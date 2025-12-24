@@ -308,8 +308,8 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                       <td colSpan={5} className="muted" style={{ padding: 16 }}>Операций нет.</td>
                     </tr>
                   )}
-                  {ops.map((op, idx) => (
-                    <tr key={op.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+                  {ops.map((op) => (
+                    <tr key={op.id}>
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}>{op.createdAt}</td>
                       <td>
                         <span

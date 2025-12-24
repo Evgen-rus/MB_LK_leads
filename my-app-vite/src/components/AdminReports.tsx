@@ -153,10 +153,10 @@ function AdminReports() {
                 </td>
               </tr>
             )}
-            {items.map((r, idx) => {
+            {items.map((r) => {
               const projectIds = parseProjectIdsString(r.projectIds);
               return (
-                <tr key={r.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+                <tr key={r.id}>
                   <td>
                     <div className="name">{r.user.login}</div>
                     <div className="sub">id: {r.user.id}</div>

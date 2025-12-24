@@ -195,8 +195,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
             )}
             {!error &&
               !loading &&
-              filteredRows.map((row, idx) => (
-                <tr key={row.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+              filteredRows.map((row) => (
+                <tr key={row.id}>
                   <td>
                     <div className="name">{row.name}</div>
                     <div className="sub muted">ID: {row.id}</div>

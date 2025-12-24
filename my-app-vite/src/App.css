@@ -122,8 +122,9 @@
 .project-filter-panel select { min-width: 240px; }
 .table { width: 100%; border-collapse: collapse; min-width: 1100px; }
 .table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; white-space: normal; }
-.table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f5; }
-.row-alt { background: #fff7f7; }
+.table tbody td { padding: 10px 12px; border-bottom: 1px solid #e3e5ed; }
+/* Равномерные серые разделители без чередования фона */
+.row-alt { background: transparent; }
 .name { font-weight: 500; }
 .sub { font-size: 0.75rem; color: #8b8b98; }
 .muted { color: #8b8b98; }

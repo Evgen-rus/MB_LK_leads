@@ -111,10 +111,10 @@ function Reports() {
                 </td>
               </tr>
             )}
-            {items.map((r, idx) => {
+            {items.map((r) => {
               const projectIds = parseProjectIds(r.projectIds);
               return (
-                <tr key={r.id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+                <tr key={r.id}>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.createdAt}</td>
                   <td className="muted">{r.fromDate} — {r.toDate}</td>
                   <td className="muted" style={{ textTransform: 'uppercase' }}>{r.format}</td>
