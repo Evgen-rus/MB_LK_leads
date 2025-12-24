@@ -1109,17 +1109,24 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
         .group_by(models.User.id, models.User.login)
     ).all()
 
+    creates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_creates}
+    updates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_updates}
+
+    # Собираем все user_ids, которые имеют либо обновления, либо создания
+    all_uids = set(creates_map.keys()) | set(updates_map.keys())
+
     items: List[schemas.AdminClientChangesSummaryItem] = []
-    creates_map = {int(uid): int(cnt or 0) for uid, login, cnt in rows_creates}
-    for uid, login, cnt in rows_updates:
+    for uid in all_uids:
+        upd_login, upd_cnt = updates_map.get(uid, (None, 0))
+        crt_login, crt_cnt = creates_map.get(uid, (None, 0))
+        login = upd_login or crt_login or ""
         user_info = schemas.UserInfo(id=int(uid), login=login)
-        creates = creates_map.get(int(uid), 0)
-        total = int(cnt or 0) + creates
+        total = upd_cnt + crt_cnt
         items.append(
             schemas.AdminClientChangesSummaryItem(
                 user=user_info,
-                pendingChanges=int(cnt or 0),
-                pendingCreates=creates,
+                pendingChanges=upd_cnt,
+                pendingCreates=crt_cnt,
                 pendingTotal=total,
             )
         )

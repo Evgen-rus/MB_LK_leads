@@ -98,15 +98,18 @@ function AdminClientsScreen({
       try {
         setLoading(true);
         setError(null);
-        const [summary, changesSummary, createsSummary] = await Promise.all([
+        const [summary, combinedSummary] = await Promise.all([
           fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
-          fetchAdminChangesSummary({ actions: ['update', 'delete'] }).catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
-          fetchAdminChangesSummary({ actions: ['create'] }).catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
+          fetchAdminChangesSummary({ actions: ['create', 'update', 'delete'] }).catch(
+            () => ({ items: [] } as AdminClientChangesSummaryListOut),
+          ),
         ]);
         const pendingMap: Record<number, number> = {};
-        changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
         const createsMap: Record<number, number> = {};
-        createsSummary.items.forEach((i) => { createsMap[i.user.id] = i.pendingChanges; });
+        combinedSummary.items.forEach((i) => {
+          pendingMap[i.user.id] = i.pendingChanges ?? 0;
+          createsMap[i.user.id] = i.pendingCreates ?? 0;
+        });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
           const profile: ClientProfile | null | undefined = it.profile;
           const displayName = profile?.name?.trim() || it.user.name?.trim() || it.user.login;
