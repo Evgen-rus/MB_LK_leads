@@ -82,6 +82,7 @@ class UserInfo(BaseModel):
     """Информация о владельце для админских ответов."""
     id: int
     login: str
+    name: Optional[str] = None
 
 
 class SelfProfileOut(BaseModel):
@@ -270,6 +271,7 @@ class AdminChangeOut(BaseModel):
     id: int
     projectId: Optional[int] = None
     projectName: Optional[str] = None
+    batchId: Optional[str] = None
     createdAt: str
     action: Literal['create', 'update', 'delete'] = 'update'
     description: str

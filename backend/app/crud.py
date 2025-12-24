@@ -373,6 +373,7 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
 def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id: int) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = now_msk()
+    batch_id = secrets.token_hex(8)
     for it in items:
         sites = it.sites or None
         phones = it.phones or None
@@ -408,6 +409,7 @@ def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id
         db.add(models.AuditEvent(
             user_id=user_id,
             project_id=p.id,
+            batch_id=batch_id,
             action='create',
             before=None,
             after=after,
@@ -1055,13 +1057,29 @@ def ensure_client_profile_contact_column(db: Session) -> None:
         db.commit()
 
 
-def admin_list_client_changes_summary(db: Session) -> List[schemas.AdminClientChangesSummaryItem]:
+def ensure_audit_batch_column(db: Session) -> None:
+    """
+    Добавляем столбец batch_id в audit_events, если его нет (для группировки созданий).
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("audit_events")]
+    if "batch_id" not in cols:
+        db.execute(text("ALTER TABLE audit_events ADD COLUMN batch_id VARCHAR"))
+        db.commit()
+
+
+def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] = None) -> List[schemas.AdminClientChangesSummaryItem]:
     """
     Краткая сводка по необработанным изменениям по клиентам.
 
     Считаем только события, созданные НЕ админом (user_id != 1),
     с action в ['create','update','delete'] и admin_processed_at IS NULL.
     """
+    allowed_actions = {"create", "update", "delete"}
+    action_filter = [a for a in (actions or ["create", "update", "delete"]) if a in allowed_actions]
+    if not action_filter:
+        action_filter = ["create", "update", "delete"]
     # Собираем пары (user_id, login, count)
     rows = db.execute(
         select(
@@ -1071,7 +1089,7 @@ def admin_list_client_changes_summary(db: Session) -> List[schemas.AdminClientCh
         )
         .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
         .where(models.User.id != 1)
-        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+        .where(models.AuditEvent.action.in_(action_filter))
         .where(models.AuditEvent.admin_processed_at.is_(None))
         .group_by(models.User.id, models.User.login)
     ).all()
@@ -1225,7 +1243,7 @@ def admin_clients_summary(
     return schemas.AdminClientsSummaryOut(items=items, totals=totals)
 
 
-def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClientChangesOut:
+def admin_list_client_changes(db: Session, client_id: int, actions: Optional[List[str]] = None) -> schemas.AdminClientChangesOut:
     """
     Подробный список необработанных изменений конкретного клиента (по всем его проектам).
     """
@@ -1237,12 +1255,17 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
             items=[],
         )
 
+    allowed_actions = {"create", "update", "delete"}
+    action_filter = [a for a in (actions or ["create", "update", "delete"]) if a in allowed_actions]
+    if not action_filter:
+        action_filter = ["create", "update", "delete"]
+
     # Берём только "проектные" события клиента, которые ещё не обработаны админом
     rows = db.execute(
         select(models.AuditEvent, models.Project.name)
         .outerjoin(models.Project, models.Project.id == models.AuditEvent.project_id)
         .where(models.AuditEvent.user_id == client_id)
-        .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
+        .where(models.AuditEvent.action.in_(action_filter))
         .where(models.AuditEvent.admin_processed_at.is_(None))
         .order_by(models.AuditEvent.created_at.desc())
     ).all()
@@ -1262,6 +1285,7 @@ def admin_list_client_changes(db: Session, client_id: int) -> schemas.AdminClien
                 id=ev.id,
                 projectId=ev.project_id,
                 projectName=proj_name,
+                batchId=getattr(ev, "batch_id", None),
                 createdAt=hist_item.createdAt,
                 action=ev.action or "update",  # type: ignore[arg-type]
                 description=hist_item.description,
@@ -1831,5 +1855,13 @@ def admin_list_all_reports(
 
 def get_all_users(db: Session) -> List[schemas.UserInfo]:
     """Получить список всех пользователей."""
-    users = db.execute(select(models.User).order_by(models.User.id)).scalars().all()
-    return [schemas.UserInfo(id=u.id, login=u.login) for u in users]
+    stmt = (
+        select(models.User, models.ClientProfile.name)
+        .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.User.id)
+        .order_by(models.User.id)
+    )
+    rows = db.execute(stmt).all()
+    out: List[schemas.UserInfo] = []
+    for user, name in rows:
+        out.append(schemas.UserInfo(id=user.id, login=user.login, name=name))
+    return out

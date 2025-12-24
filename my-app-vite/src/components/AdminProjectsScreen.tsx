@@ -77,7 +77,7 @@ function AdminProjectsScreen({
         const users: UserInfo[] = await fetchAdminUsers();
         const options: ClientOption[] = users.map((u) => ({
           id: u.id,
-          name: u.login,
+          name: u.name || u.login,
         }));
         setClients(options);
 
@@ -117,7 +117,7 @@ function AdminProjectsScreen({
     }
     (async () => {
       try {
-        const resp = await fetchAdminClientChanges(selectedClientId);
+        const resp = await fetchAdminClientChanges(selectedClientId, { actions: ['update', 'delete'] });
         const map: Record<number, number> = {};
         resp.items.forEach((c: AdminChange) => {
           if (c.projectId == null) return;

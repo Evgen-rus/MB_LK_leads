@@ -335,6 +335,7 @@ export async function sendSupportMessage(payload: { phone: string; text: string 
 export type UserInfo = {
   id: number;
   login: string;
+  name?: string | null;
 };
 
 export type ClientProfile = {
@@ -496,6 +497,7 @@ export type AdminChange = {
   id: number;
   projectId?: number | null;
   projectName?: string | null;
+  batchId?: string | null;
   createdAt: string;
   action: 'create' | 'update' | 'delete';
   description: string;
@@ -519,12 +521,18 @@ export type AdminClientChangesSummaryListOut = {
   items: AdminClientChangesSummaryItem[];
 };
 
-export async function fetchAdminChangesSummary(): Promise<AdminClientChangesSummaryListOut> {
-  return http<AdminClientChangesSummaryListOut>('/admin/changes/summary');
+export async function fetchAdminChangesSummary(params?: { actions?: Array<'create' | 'update' | 'delete'> }): Promise<AdminClientChangesSummaryListOut> {
+  const q = new URLSearchParams();
+  if (params?.actions && params.actions.length) q.set('actions', params.actions.join(','));
+  const qs = q.toString();
+  return http<AdminClientChangesSummaryListOut>(`/admin/changes/summary${qs ? `?${qs}` : ''}`);
 }
 
-export async function fetchAdminClientChanges(clientId: number): Promise<AdminClientChangesOut> {
-  return http<AdminClientChangesOut>(`/admin/changes/${clientId}`);
+export async function fetchAdminClientChanges(clientId: number, params?: { actions?: Array<'create' | 'update' | 'delete'> }): Promise<AdminClientChangesOut> {
+  const q = new URLSearchParams();
+  if (params?.actions && params.actions.length) q.set('actions', params.actions.join(','));
+  const qs = q.toString();
+  return http<AdminClientChangesOut>(`/admin/changes/${clientId}${qs ? `?${qs}` : ''}`);
 }
 
 export async function resolveAdminChange(changeId: number): Promise<void> {

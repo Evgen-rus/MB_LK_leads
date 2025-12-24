@@ -107,6 +107,7 @@ def startup_event():
         crud.ensure_audit_user_id_column(s)
         crud.ensure_blacklist_user_id_column(s)
         crud.ensure_audit_admin_columns(s)
+        crud.ensure_audit_batch_column(s)
         crud.ensure_report_client_id_column(s)
         crud.ensure_client_profile_contact_column(s)
 
@@ -958,13 +959,16 @@ def admin_create_report(
 
 @app.get("/admin/changes/summary", response_model=schemas.AdminClientChangesSummaryListOut)
 def admin_changes_summary(
+    actions: Optional[str] = None,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
     """
     Краткая сводка по количеству необработанных изменений по клиентам.
+    Можно отфильтровать по списку действий через query param actions=update,delete.
     """
-    items = crud.admin_list_client_changes_summary(db_sess)
+    actions_list = [a.strip() for a in (actions or "").split(",") if a.strip()] or None
+    items = crud.admin_list_client_changes_summary(db_sess, actions=actions_list)
     return schemas.AdminClientChangesSummaryListOut(items=items)
 
 
@@ -1165,13 +1169,16 @@ def admin_create_balance_op(
 @app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)
 def admin_client_changes(
     client_id: int,
+    actions: Optional[str] = None,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
     """
     Подробный список необработанных изменений конкретного клиента.
+    Дополнительно можно фильтровать по actions (create,update,delete).
     """
-    return crud.admin_list_client_changes(db_sess, client_id=client_id)
+    actions_list = [a.strip() for a in (actions or "").split(",") if a.strip()] or None
+    return crud.admin_list_client_changes(db_sess, client_id=client_id, actions=actions_list)
 
 
 @app.post("/admin/changes/{event_id}/resolve")

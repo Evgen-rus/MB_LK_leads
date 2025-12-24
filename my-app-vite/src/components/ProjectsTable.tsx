@@ -8,6 +8,7 @@ type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
   onHistory?: (row: Project) => void;
+  onOpenLeads?: (params: { projectId: number; fromDate: string; toDate: string }) => void;
 };
 
 function formatDateInput(d: Date) {
@@ -17,7 +18,7 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function ProjectsTable({ onEdit, onCreate, onHistory }: ProjectsTableProps) {
+function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
@@ -186,7 +187,11 @@ function ProjectsTable({ onEdit, onCreate, onHistory }: ProjectsTableProps) {
         <tbody>
           {filteredRows.map((row, index) => (
             <tr key={row.id} className={index % 2 === 0 ? 'row-alt' : ''}>
-              <td>
+              <td
+                style={{ cursor: 'pointer' }}
+                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
+                title="Открыть идентификации с текущим периодом"
+              >
                 <div className="name">{row.name}</div>
                 <div className="sub muted">ID: {row.id}</div>
               </td>
@@ -211,8 +216,20 @@ function ProjectsTable({ onEdit, onCreate, onHistory }: ProjectsTableProps) {
                 </span>
               </td>
               <td>{row.dataLimit}</td>
-              <td>{row.numbersPeriod ?? row.numbersToday}</td>
-              <td>{row.numbersTotal}</td>
+              <td
+                style={{ cursor: 'pointer' }}
+                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
+                title="Открыть идентификации за выбранный период"
+              >
+                {row.numbersPeriod ?? row.numbersToday}
+              </td>
+              <td
+                style={{ cursor: 'pointer' }}
+                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
+                title="Открыть все идентификации проекта"
+              >
+                {row.numbersTotal}
+              </td>
               <td className="muted">{row.daysReceived}</td>
               <td>{row.collectionSource}</td>
               <td>{row.sourcesCount}</td>

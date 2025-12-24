@@ -74,6 +74,7 @@ class AuditEvent(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     project_id = Column(Integer, nullable=True)
+    batch_id = Column(String, nullable=True, index=True)  # идентификатор батча (для группировки созданий)
     action = Column(String, nullable=False)  # 'create' | 'update' | 'delete'
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)

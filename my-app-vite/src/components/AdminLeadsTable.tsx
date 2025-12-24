@@ -237,8 +237,8 @@ function AdminLeadsTable() {
                 </td>
               </tr>
             )}
-            {rows.map((r, idx) => (
-              <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+            {rows.map((r) => (
+              <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
                 <td>
                   <div className="name">{r.user.login}</div>
                   <div className="sub">id: {r.user.id}</div>

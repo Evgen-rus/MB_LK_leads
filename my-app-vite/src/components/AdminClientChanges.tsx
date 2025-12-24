@@ -37,13 +37,20 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [snapshotFor, setSnapshotFor] = useState<AdminChange | null>(null);
+  const [filterMode, setFilterMode] = useState<'changes' | 'creates' | 'all'>('changes');
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const resp = await fetchAdminClientChanges(clientId);
+        const actions =
+          filterMode === 'creates'
+            ? ['create']
+            : filterMode === 'changes'
+              ? ['update', 'delete']
+              : ['create', 'update', 'delete'];
+        const resp = await fetchAdminClientChanges(clientId, { actions });
         setItems(resp.items);
       } catch (e: any) {
         console.error(e);
@@ -52,9 +59,47 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         setLoading(false);
       }
     })();
-  }, [clientId]);
+  }, [clientId, filterMode]);
 
-  const grouped = useMemo(() => groupByProject(items), [items]);
+  const grouped = useMemo(() => {
+    // Агрегируем создания с одним batchId в одну карточку
+    const createsByBatch = new Map<string, AdminChange>();
+    const rest: AdminChange[] = [];
+    items.forEach((c) => {
+      if (c.action === 'create' && c.batchId) {
+        const existing = createsByBatch.get(c.batchId);
+        if (!existing) {
+          createsByBatch.set(c.batchId, c);
+        } else {
+          // Обновляем описание и projectName для группировки
+          const projects = new Set<string>();
+          if (existing.projectName) projects.add(existing.projectName);
+          if (c.projectName) projects.add(c.projectName);
+          const sources = new Set<string>();
+          const tryCollectSource = (snap?: Record<string, any> | null) => {
+            if (snap && typeof snap.dataSourceCode === 'string') {
+              sources.add(snap.dataSourceCode);
+            }
+          };
+          tryCollectSource(existing.projectSnapshot);
+          tryCollectSource(c.projectSnapshot);
+          const count = (existing as any)._batchCount ? (existing as any)._batchCount + 1 : 2;
+          const updated: AdminChange = {
+            ...existing,
+            projectName: projects.size > 1 ? 'Несколько проектов' : Array.from(projects)[0] || existing.projectName,
+            description: `Создано проектов: ${count}${sources.size ? ` | Источники: ${Array.from(sources).join(', ')}` : ''}`,
+            projectSnapshot: existing.projectSnapshot,
+          };
+          (updated as any)._batchCount = count;
+          createsByBatch.set(c.batchId, updated);
+        }
+      } else {
+        rest.push(c);
+      }
+    });
+    const merged = [...rest, ...Array.from(createsByBatch.values())];
+    return groupByProject(merged);
+  }, [items]);
 
   async function handleResolve(change: AdminChange) {
     const id = change.id;
@@ -87,6 +132,29 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         </div>
         <div className="sub">
           Всего необработанных изменений: {items.length}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className={filterMode === 'changes' ? 'btn btn--primary' : 'btn btn--secondary'}
+            onClick={() => setFilterMode('changes')}
+          >
+            Изменения
+          </button>
+          <button
+            type="button"
+            className={filterMode === 'creates' ? 'btn btn--primary' : 'btn btn--secondary'}
+            onClick={() => setFilterMode('creates')}
+          >
+            Создания
+          </button>
+          <button
+            type="button"
+            className={filterMode === 'all' ? 'btn btn--primary' : 'btn btn--secondary'}
+            onClick={() => setFilterMode('all')}
+          >
+            Все
+          </button>
         </div>
       </div>
 

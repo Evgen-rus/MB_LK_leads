@@ -8,6 +8,7 @@ import DateRangeFilter from './DateRangeFilter';
 
 type Props = {
   projects: Project[];
+  initialFilter?: { projectId?: number; from?: string; to?: string };
 };
 
 // Формат для value инпута даты (YYYY-MM-DD)
@@ -18,7 +19,7 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function LeadsTable({ projects }: Props) {
+function LeadsTable({ projects, initialFilter }: Props) {
   const [projectIds, setProjectIds] = useState<number[]>([]);
   const [sources, setSources] = useState<string[]>([]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
@@ -41,6 +42,16 @@ function LeadsTable({ projects }: Props) {
       setProjectIds(projects.map((p) => p.id));
     }
   }, [projects, projectIds.length]);
+
+  // Применяем входные фильтры (переход из таблицы проектов)
+  useEffect(() => {
+    if (!initialFilter) return;
+    if (initialFilter.projectId) {
+      setProjectIds([initialFilter.projectId]);
+    }
+    if (initialFilter.from) setFromDate(initialFilter.from);
+    if (initialFilter.to) setToDate(initialFilter.to);
+  }, [initialFilter?.projectId, initialFilter?.from, initialFilter?.to]);
 
   async function load(p = page, s = pageSize) {
     try {
@@ -146,8 +157,8 @@ function LeadsTable({ projects }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, idx) => (
-            <tr key={r.ext_id} className={idx % 2 === 0 ? 'row-alt' : ''}>
+          {rows.map((r) => (
+            <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
               <td>
                 <div className="name">{projectNameMap.get(r.project_id) ?? '—'}</div>
                 <div className="sub">id: {r.project_id}</div>

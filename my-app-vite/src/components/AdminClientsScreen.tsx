@@ -97,13 +97,13 @@ function AdminClientsScreen({
         setError(null);
         const [summary, changesSummary] = await Promise.all([
           fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
-          fetchAdminChangesSummary().catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
+          fetchAdminChangesSummary({ actions: ['update', 'delete'] }).catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
         ]);
         const pendingMap: Record<number, number> = {};
         changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
           const profile: ClientProfile | null | undefined = it.profile;
-          const displayName = profile?.name?.trim() || it.user.login;
+          const displayName = profile?.name?.trim() || it.user.name?.trim() || it.user.login;
           const row: ClientRow = {
             id: it.user.id,
             name: displayName,

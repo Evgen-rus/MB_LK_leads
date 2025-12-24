@@ -71,6 +71,8 @@ function App() {
   // Состояние для баланса: выбранный клиент и какая модалка открыть
   const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
+  // Предзаполнение фильтров идентификаций при переходе из «Проектов»
+  const [leadsPrefill, setLeadsPrefill] = useState<{ projectId?: number; from?: string; to?: string } | null>(null);
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
@@ -343,10 +345,19 @@ function App() {
                 onCreate={() => setIsCreateOpen(true)}
                 onEdit={(row) => setEditing(row)}
                 onHistory={(row) => setHistoryFor(row)}
+                onOpenLeads={({ projectId, fromDate, toDate }) => {
+                  setLeadsPrefill({ projectId, from: fromDate, to: toDate });
+                  setView('leads');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
               />
             )
           ) : view === 'leads' ? (
-            isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} />
+            isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
           ) : view === 'reports' ? (
             isAdmin ? <AdminReports /> : <Reports />
         ) : view === 'balance' ? (
