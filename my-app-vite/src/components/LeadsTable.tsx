@@ -1,5 +1,5 @@
 // Таблица лидов с фильтрами по проекту и дате
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../types/project';
 import { fetchLeads, buildLeadsExportUrl, createReport, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
@@ -29,6 +29,9 @@ function LeadsTable({ projects, initialFilter }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const initialProjectId = useRef<number | undefined>(initialFilter?.projectId);
+  const initialProjectApplied = useRef(false);
+  const initialDatesApplied = useRef(false);
 
   const projectNameMap = useMemo(() => {
     const m = new Map<number, string>();
@@ -38,20 +41,31 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
   // По умолчанию — все проекты
   useEffect(() => {
-    if (projects.length && projectIds.length === 0) {
+    if (!projects.length) return;
+    if (!initialProjectApplied.current && initialProjectId.current) {
+      setProjectIds([initialProjectId.current]);
+      initialProjectApplied.current = true;
+      return;
+    }
+    if (!initialProjectApplied.current && projectIds.length === 0) {
       setProjectIds(projects.map((p) => p.id));
+      initialProjectApplied.current = true;
     }
   }, [projects, projectIds.length]);
 
   // Применяем входные фильтры (переход из таблицы проектов)
   useEffect(() => {
     if (!initialFilter) return;
-    if (initialFilter.projectId) {
-      setProjectIds([initialFilter.projectId]);
+    const { projectId, from, to } = initialFilter;
+    if (projectId) {
+      initialProjectId.current = projectId;
     }
-    if (initialFilter.from) setFromDate(initialFilter.from);
-    if (initialFilter.to) setToDate(initialFilter.to);
-  }, [initialFilter?.projectId, initialFilter?.from, initialFilter?.to]);
+    if (!initialDatesApplied.current) {
+      if (from) setFromDate(from);
+      if (to) setToDate(to);
+      initialDatesApplied.current = true;
+    }
+  }, [initialFilter, setFromDate, setToDate]);
 
   async function load(p = page, s = pageSize) {
     try {

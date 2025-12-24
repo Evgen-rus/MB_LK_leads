@@ -225,8 +225,15 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               </td>
               <td
                 style={{ cursor: 'pointer' }}
-                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
-                title="Открыть все идентификации проекта"
+                onClick={() =>
+                  onOpenLeads?.({
+                    projectId: row.id,
+                    // Для «Номеров всего» диапазон от даты создания проекта до выбранной конечной даты
+                    fromDate: row.createdAt?.slice(0, 10) || fromDate,
+                    toDate,
+                  })
+                }
+                title="Открыть все идентификации проекта (от даты создания)"
               >
                 {row.numbersTotal}
               </td>
