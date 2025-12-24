@@ -120,7 +120,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           const sortedSources = Array.from(sources).sort();
           const updated: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
             ...existing,
-            projectName: projects.size > 1 ? 'Несколько проектов' : Array.from(projects)[0] || existing.projectName,
+            projectName: projects.size > 1 ? 'с несколькими источниками' : Array.from(projects)[0] || existing.projectName,
             description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}`,
             projectSnapshot: existing.projectSnapshot,
             sources: sortedSources,
