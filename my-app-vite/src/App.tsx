@@ -73,6 +73,8 @@ function App() {
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
   // Предзаполнение фильтров идентификаций при переходе из «Проектов»
   const [leadsPrefill, setLeadsPrefill] = useState<{ projectId?: number; from?: string; to?: string } | null>(null);
+  // Предзаполнение идентификаций для админа (клиент + проект)
+  const [adminLeadsPrefill, setAdminLeadsPrefill] = useState<{ clientId?: number; projectId?: number; from?: string; to?: string } | null>(null);
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
@@ -339,6 +341,15 @@ function App() {
                 initialClientId={adminProjectsClientId ?? undefined}
                 initialClientName={adminProjectsClientName ?? undefined}
                 initialFocus={adminProjectsFocus}
+                onOpenLeads={({ clientId, clientName, projectId, fromDate, toDate }) => {
+                  setAdminLeadsPrefill({ clientId, projectId, from: fromDate, to: toDate });
+                  setView('leads');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
               />
             ) : (
               <ProjectsTable
@@ -357,7 +368,7 @@ function App() {
               />
             )
           ) : view === 'leads' ? (
-            isAdmin ? <AdminLeadsTable /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
+            isAdmin ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
           ) : view === 'reports' ? (
             isAdmin ? <AdminReports /> : <Reports />
         ) : view === 'balance' ? (

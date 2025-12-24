@@ -14,9 +14,16 @@ type AdminClientProjectsProps = {
   projectChanges?: Record<number, number>;
   // Количество необработанных созданий по каждому проекту (projectId -> count)
   projectCreates?: Record<number, number>;
+  onOpenLeads?: (params: {
+    clientId: number;
+    clientName: string;
+    projectId: number;
+    fromDate: string;
+    toDate: string;
+  }) => void;
 };
 
-function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -197,7 +204,20 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
               !loading &&
               filteredRows.map((row) => (
                 <tr key={row.id}>
-                  <td>
+                  <td
+                    style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                    title={onOpenLeads ? 'Открыть идентификации за выбранный период' : undefined}
+                    onClick={() => {
+                      if (!onOpenLeads) return;
+                      onOpenLeads({
+                        clientId,
+                        clientName,
+                        projectId: row.id,
+                        fromDate,
+                        toDate,
+                      });
+                    }}
+                  >
                     <div className="name">{row.name}</div>
                     <div className="sub muted">ID: {row.id}</div>
                   {(projectChanges?.[row.id] || projectCreates?.[row.id]) && (
@@ -243,8 +263,38 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   <td>{row.dataLimit}</td>
                   <td>{calcRemaining(row)}</td>
                   <td>{row.collectionSource}</td>
-                  <td>{row.numbersPeriod ?? row.numbersToday}</td>
-                  <td>{row.numbersTotal}</td>
+                  <td
+                    style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                    title={onOpenLeads ? 'Идентификации за текущий период' : undefined}
+                    onClick={() => {
+                      if (!onOpenLeads) return;
+                      onOpenLeads({
+                        clientId,
+                        clientName,
+                        projectId: row.id,
+                        fromDate,
+                        toDate,
+                      });
+                    }}
+                  >
+                    {row.numbersPeriod ?? row.numbersToday}
+                  </td>
+                  <td
+                    style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                    title={onOpenLeads ? 'Идентификации за весь срок проекта' : undefined}
+                    onClick={() => {
+                      if (!onOpenLeads) return;
+                      onOpenLeads({
+                        clientId,
+                        clientName,
+                        projectId: row.id,
+                        fromDate: row.createdAt?.slice(0, 10) || fromDate,
+                        toDate,
+                      });
+                    }}
+                  >
+                    {row.numbersTotal}
+                  </td>
                   <td>
                     <button
                       className="icon-btn"

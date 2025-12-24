@@ -1,6 +1,6 @@
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, createAdminReport, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
@@ -13,7 +13,14 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-function AdminLeadsTable() {
+type AdminLeadsInitialFilter = {
+  clientId?: number;
+  projectId?: number;
+  from?: string;
+  to?: string;
+};
+
+function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialFilter }) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
   const [projects, setProjects] = useState<AdminProject[]>([]);
@@ -26,6 +33,8 @@ function AdminLeadsTable() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const initialApplied = useRef(false);
+  const initialProjectId = useRef<number | undefined>(initialFilter?.projectId);
 
   const projectNameMap = useMemo(() => {
     const m = new Map<number, string>();
@@ -96,12 +105,31 @@ function AdminLeadsTable() {
       try {
         const resp = await fetchAdminProjects({ offset: 0, limit: 10000, userId: userIdFilter });
         setProjects(resp.items);
-        setProjectIds([]);
+        // Если был prefill с projectId — применяем его один раз после загрузки проектов
+        if (!initialApplied.current && initialProjectId.current) {
+          setProjectIds([initialProjectId.current]);
+          initialApplied.current = true;
+        } else if (!initialApplied.current) {
+          setProjectIds([]);
+        }
       } catch (e) {
         console.error(e);
       }
     })();
   }, [userIdFilter]);
+
+  // Предзаполнение фильтров при переходе из админских «Проектов»
+  useEffect(() => {
+    if (!initialFilter || initialApplied.current) return;
+    const { clientId, projectId, from, to } = initialFilter;
+    if (clientId) setUserIdFilter(clientId);
+    if (from) setFromDate(from);
+    if (to) setToDate(to);
+    // projectId применяем после загрузки проектов (в эффекте выше)
+    if (projectId) {
+      initialProjectId.current = projectId;
+    }
+  }, [initialFilter, setUserIdFilter, setFromDate, setToDate]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

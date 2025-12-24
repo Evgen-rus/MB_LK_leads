@@ -33,6 +33,13 @@ export type AdminProjectsScreenProps = {
   initialClientName?: string | null;
   // Куда сконцентрировать внимание после открытия: сразу на проектах или на изменениях
   initialFocus?: AdminProjectsFocus;
+  onOpenLeads?: (params: {
+    clientId: number;
+    clientName: string;
+    projectId: number;
+    fromDate: string;
+    toDate: string;
+  }) => void;
 };
 
 type ClientOption = {
@@ -54,6 +61,7 @@ function AdminProjectsScreen({
   initialClientId = null,
   initialClientName = null,
   initialFocus = 'projects',
+  onOpenLeads,
 }: AdminProjectsScreenProps) {
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
@@ -280,10 +288,11 @@ function AdminProjectsScreen({
             <AdminClientProjects
               clientId={selectedClientId}
               clientName={selectedClientName}
-                  fromDate={range.from}
-                  toDate={range.to}
+              fromDate={range.from}
+              toDate={range.to}
               projectChanges={projectChanges}
-                    projectCreates={projectCreates}
+              projectCreates={projectCreates}
+              onOpenLeads={onOpenLeads}
             />
           )}
 
