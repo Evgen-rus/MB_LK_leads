@@ -18,6 +18,26 @@ type GroupedChanges = {
   items: AdminChange[];
 };
 
+function shortNameSummary(changes: AdminChange[]): string | null {
+  const normalize = (name: string) => name.replace(/^B[1-4][\s_-]*/i, '');
+  // Используем имя из snapshot для созданий, чтобы не выводить "Несколько проектов"
+  const names = changes
+    .map((c) => {
+      const snapName = (c.projectSnapshot as any)?.name as string | undefined;
+      const raw = snapName || c.projectName || '';
+      return raw ? normalize(raw) : '';
+    })
+    .filter(Boolean);
+
+  if (!names.length) return null;
+
+  const unique = Array.from(new Set(names));
+  if (unique.length === 1) {
+    return `${unique[0]}`;
+  }
+  return unique.length <= 2 ? unique.join(', ') : `${unique.slice(0, 2).join(', ')}, …`;
+}
+
 function groupByProject(changes: AdminChange[]): GroupedChanges[] {
   const map = new Map<string, GroupedChanges>();
   changes.forEach((c) => {
@@ -75,11 +95,12 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             if (snap && typeof snap.dataSourceCode === 'string') sources.add(snap.dataSourceCode);
           };
           tryCollectSource(c.projectSnapshot);
+          const sortedSources = Array.from(sources).sort();
           const seed: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
             ...c,
             _batchCount: 1,
             _sources: sources,
-            sources: Array.from(sources),
+            sources: sortedSources,
           };
           createsByBatch.set(c.batchId, seed);
         } else {
@@ -96,12 +117,13 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           tryCollectSource(existing.projectSnapshot);
           tryCollectSource(c.projectSnapshot);
           const count = existing._batchCount ? existing._batchCount + 1 : 2;
+          const sortedSources = Array.from(sources).sort();
           const updated: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
             ...existing,
             projectName: projects.size > 1 ? 'Несколько проектов' : Array.from(projects)[0] || existing.projectName,
-            description: `Создано проектов: ${count}${sources.size ? ` | Источники: ${Array.from(sources).join(', ')}` : ''}`,
+            description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}`,
             projectSnapshot: existing.projectSnapshot,
-            sources: Array.from(sources),
+            sources: sortedSources,
           };
           updated._batchCount = count;
           updated._sources = sources;
@@ -118,8 +140,13 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   async function handleResolve(change: AdminChange) {
     const id = change.id;
     try {
-      await resolveAdminChange(id);
-      setItems((prev) => prev.filter((c) => c.id !== id));
+      const resp = await resolveAdminChange(id);
+      if (resp?.batch) {
+        // Убираем все изменения этого батча
+        setItems((prev) => prev.filter((c) => c.batchId !== resp.batch));
+      } else {
+        setItems((prev) => prev.filter((c) => c.id !== id));
+      }
       onResolvedChange?.(change);
     } catch (e) {
       console.error(e);
@@ -202,13 +229,22 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div className="sub">Проект</div>
-                <div>
-                  {g.projectName}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span>{g.projectName}</span>
                   {g.projectId != null && (
-                    <span className="sub" style={{ marginLeft: 8 }}>
+                    <span className="sub">
                       (id: {g.projectId})
                     </span>
                   )}
+                  {/* Сводка по именам в батче, чтобы админ видел название(я) сразу */}
+                  {g.items[0]?.action === 'create' && g.items.length > 0 && (() => {
+                    const summary = shortNameSummary(g.items);
+                    return summary ? (
+                      <span className="sub" style={{ color: '#555' }}>
+                        Название: {summary}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
               <div className="sub">

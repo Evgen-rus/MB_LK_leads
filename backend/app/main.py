@@ -1190,7 +1190,15 @@ def admin_resolve_change(
     """
     Помечает одно событие аудита как обработанное админом.
     """
+    ev = db_sess.get(models.AuditEvent, event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Change not found")
+    if ev.batch_id:
+        count = crud.admin_mark_batch_processed(db_sess, batch_id=ev.batch_id, admin_user_id=current_admin.id)
+        if count == 0:
+            raise HTTPException(status_code=404, detail="Change not found")
+        return {"ok": True, "processed": count, "batch": ev.batch_id}
     ok = crud.admin_mark_change_processed(db_sess, event_id=event_id, admin_user_id=current_admin.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Change not found")
-    return {"ok": True}
+    return {"ok": True, "processed": 1}

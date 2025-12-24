@@ -536,8 +536,8 @@ export async function fetchAdminClientChanges(clientId: number, params?: { actio
   return http<AdminClientChangesOut>(`/admin/changes/${clientId}${qs ? `?${qs}` : ''}`);
 }
 
-export async function resolveAdminChange(changeId: number): Promise<void> {
-  await http(`/admin/changes/${changeId}/resolve`, { method: 'POST' });
+export async function resolveAdminChange(changeId: number): Promise<{ ok: boolean; processed?: number; batch?: string }> {
+  return http<{ ok: boolean; processed?: number; batch?: string }>(`/admin/changes/${changeId}/resolve`, { method: 'POST' });
 }
 
 // -------- Сводка по клиентам --------

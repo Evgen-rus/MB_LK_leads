@@ -1457,6 +1457,28 @@ def admin_mark_change_processed(db: Session, event_id: int, admin_user_id: int) 
     return True
 
 
+def admin_mark_batch_processed(db: Session, batch_id: str, admin_user_id: int) -> int:
+    """
+    Помечает все события батча (по batch_id) как обработанные.
+    Возвращает число затронутых событий.
+    """
+    if not batch_id:
+        return 0
+    rows = db.execute(
+        select(models.AuditEvent).where(models.AuditEvent.batch_id == batch_id)
+    ).scalars().all()
+    count = 0
+    now = now_msk()
+    for ev in rows:
+        if ev.admin_processed_at is None:
+            ev.admin_processed_at = now
+            ev.admin_processed_by = admin_user_id
+            count += 1
+    if count:
+        db.commit()
+    return count
+
+
 def ensure_blacklist_user_id_column(db: Session) -> None:
     engine = db.get_bind()
     insp = inspect(engine)
