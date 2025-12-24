@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminClientsSummary,
-  fetchAdminChangesSummary,
-  type AdminClientSummaryItem,
-  type AdminClientChangesSummaryListOut,
-  type ClientProfile,
-} from '../api';
+          fetchAdminChangesSummary,
+          type AdminClientSummaryItem,
+          type AdminClientChangesSummaryListOut,
+          type ClientProfile,
+        } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
@@ -24,6 +24,7 @@ export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
   onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit') => void;
+  pendingByClient?: Record<number, { updates: number; creates: number; total: number }>;
 };
 
 type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
@@ -39,6 +40,7 @@ type ClientRow = {
   totalLimit: number;
   usedTotal: number;
   pendingChanges: number;
+  pendingCreates: number;
   inn?: string | null;
   phone?: string | null;
 };
@@ -70,6 +72,7 @@ function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
   onOpenClientBalance,
+  pendingByClient,
 }: AdminClientsScreenProps) {
   const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -114,6 +117,7 @@ function AdminClientsScreen({
             totalLimit: it.totalLimit,
             usedTotal: it.usedTotal,
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
+            pendingCreates: it.pendingCreates ?? 0,
             inn: profile?.inn,
             phone: profile?.phone,
             status: 'Активен',
@@ -296,12 +300,22 @@ function AdminClientsScreen({
                       <div className="name">{row.name}</div>
                       {row.pendingChanges > 0 && (
                         <div className="sub" style={{ marginTop: 2 }}>
-                          <span
-                            className="badge badge--orange"
-                            style={{ fontWeight: 500 }}
-                          >
-                            Изменения: {row.pendingChanges}
-                          </span>
+                      {row.pendingChanges > 0 && (
+                        <span
+                          className="badge badge--orange"
+                          style={{ fontWeight: 500, marginRight: 6 }}
+                        >
+                          Изменения: {row.pendingChanges}
+                        </span>
+                      )}
+                      {row.pendingCreates > 0 && (
+                        <span
+                          className="badge badge--gray"
+                          style={{ fontWeight: 500 }}
+                        >
+                          Создания: {row.pendingCreates}
+                        </span>
+                      )}
                         </div>
                       )}
                     </td>
@@ -445,9 +459,21 @@ function AdminClientsScreen({
               <div className="sub">
                 {selectedClient.name} (id: {selectedClient.id})
               </div>
-              {selectedClient.pendingChanges > 0 && (
-                <div className="sub" style={{ marginTop: 4 }}>
-                  Необработанных изменений: {selectedClient.pendingChanges}
+              {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+                <div className="sub" style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span>
+                    Необработанных событий: {selectedClient.pendingChanges + selectedClient.pendingCreates}
+                  </span>
+                  {selectedClient.pendingChanges > 0 && (
+                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                      Изменения: {selectedClient.pendingChanges}
+                    </span>
+                  )}
+                  {selectedClient.pendingCreates > 0 && (
+                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                      Создания: {selectedClient.pendingCreates}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -461,9 +487,20 @@ function AdminClientsScreen({
                   }
                 >
                   Изменения клиента
-                  {selectedClient.pendingChanges > 0
-                    ? ` (${selectedClient.pendingChanges})`
-                    : ''}
+                  {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+                    <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      {selectedClient.pendingChanges > 0 && (
+                        <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                          Изм: {selectedClient.pendingChanges}
+                        </span>
+                      )}
+                      {selectedClient.pendingCreates > 0 && (
+                        <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                          Созд: {selectedClient.pendingCreates}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </button>
               )}
               {onOpenClientProjects && (

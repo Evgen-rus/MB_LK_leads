@@ -12,9 +12,11 @@ type AdminClientProjectsProps = {
   toDate: string;
   // Количество необработанных изменений по каждому проекту (projectId -> count)
   projectChanges?: Record<number, number>;
+  // Количество необработанных созданий по каждому проекту (projectId -> count)
+  projectCreates?: Record<number, number>;
 };
 
-function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -198,16 +200,26 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   <td>
                     <div className="name">{row.name}</div>
                     <div className="sub muted">ID: {row.id}</div>
-                    {!!projectChanges?.[row.id] && projectChanges[row.id]! > 0 && (
-                      <div className="sub" style={{ marginTop: 2 }}>
+                  {(projectChanges?.[row.id] || projectCreates?.[row.id]) && (
+                    <div className="sub" style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {!!projectChanges?.[row.id] && projectChanges[row.id]! > 0 && (
                         <span
                           className="badge badge--orange"
                           style={{ fontWeight: 500 }}
                         >
                           Изменения: {projectChanges[row.id]}
                         </span>
-                      </div>
-                    )}
+                      )}
+                      {!!projectCreates?.[row.id] && projectCreates[row.id]! > 0 && (
+                        <span
+                          className="badge badge--gray"
+                          style={{ fontWeight: 500 }}
+                        >
+                          Создания: {projectCreates[row.id]}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   </td>
                   <td>
                     <span

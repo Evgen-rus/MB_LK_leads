@@ -15,9 +15,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminUsers,
   fetchAdminClientChanges,
+  fetchAdminClientChangesSummary,
   type UserInfo,
   type AdminChange,
   type AdminChangeStatus,
+  type AdminClientChangesSummaryListOut,
 } from '../api';
 import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';
@@ -57,6 +59,8 @@ function AdminProjectsScreen({
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [projectChanges, setProjectChanges] = useState<Record<number, number>>({});
+  const [projectCreates, setProjectCreates] = useState<Record<number, number>>({});
+  const [clientPendingSummary, setClientPendingSummary] = useState<{ updates: number; creates: number; total: number }>({ updates: 0, creates: 0, total: 0 });
 
   const [selectedClientId, setSelectedClientId] = useState<number | null>(
     initialClientId ?? null,
@@ -113,19 +117,46 @@ function AdminProjectsScreen({
   useEffect(() => {
     if (!selectedClientId) {
       setProjectChanges({});
+      setProjectCreates({});
+      setClientPendingSummary({ updates: 0, creates: 0, total: 0 });
       return;
     }
     (async () => {
       try {
-        const resp = await fetchAdminClientChanges(selectedClientId, { actions: ['update', 'delete'] });
-        const map: Record<number, number> = {};
-        resp.items.forEach((c: AdminChange) => {
+        // изменения (update/delete)
+        const respChanges = await fetchAdminClientChanges(selectedClientId, { actions: ['update', 'delete'] });
+        const mapChanges: Record<number, number> = {};
+        respChanges.items.forEach((c: AdminChange) => {
           if (c.projectId == null) return;
           const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
           if (status === 'done') return;
-          map[c.projectId] = (map[c.projectId] ?? 0) + 1;
+          mapChanges[c.projectId] = (mapChanges[c.projectId] ?? 0) + 1;
         });
-        setProjectChanges(map);
+        setProjectChanges(mapChanges);
+
+        // создания
+        const respCreates = await fetchAdminClientChanges(selectedClientId, { actions: ['create'] });
+        const mapCreates: Record<number, number> = {};
+        respCreates.items.forEach((c: AdminChange) => {
+          if (c.projectId == null) return;
+          const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
+          if (status === 'done') return;
+          mapCreates[c.projectId] = (mapCreates[c.projectId] ?? 0) + 1;
+        });
+        setProjectCreates(mapCreates);
+
+        // суммарно по клиенту
+        const summary = await fetchAdminClientChangesSummary({ actions: ['create', 'update', 'delete'] });
+        const item = summary.items.find((i) => i.user.id === selectedClientId);
+        if (item) {
+          setClientPendingSummary({
+            updates: item.pendingChanges,
+            creates: item.pendingCreates ?? 0,
+            total: item.pendingTotal ?? item.pendingCreates + item.pendingChanges,
+          });
+        } else {
+          setClientPendingSummary({ updates: 0, creates: 0, total: 0 });
+        }
       } catch (e: any) {
         console.error(e);
       }
@@ -176,9 +207,9 @@ function AdminProjectsScreen({
             {!clientsError && hasSelectedClient && (
               <span className="sub">
                 Выбран клиент: {selectedClientLabel}
-                {Object.keys(projectChanges).length > 0 && (
+                {(Object.keys(projectChanges).length > 0 || Object.keys(projectCreates).length > 0) && (
                   <span style={{ marginLeft: 8 }}>
-                    · Есть изменения по проектам
+                    · Есть необработанные события по проектам
                   </span>
                 )}
               </span>
@@ -213,19 +244,33 @@ function AdminProjectsScreen({
               flexWrap: 'wrap',
             }}
           >
-            <button
-              type="button"
-              className={focus === 'projects' ? 'btn btn--primary' : 'btn btn--secondary'}
-              onClick={() => setFocus('projects')}
-            >
-              Проекты клиента
-            </button>
+              <button
+                type="button"
+                className={focus === 'projects' ? 'btn btn--primary' : 'btn btn--secondary'}
+                onClick={() => setFocus('projects')}
+              >
+                Проекты клиента
+              </button>
             <button
               type="button"
               className={focus === 'changes' ? 'btn btn--primary' : 'btn btn--secondary'}
               onClick={() => setFocus('changes')}
             >
               Изменения клиента
+              {(clientPendingSummary.updates > 0 || clientPendingSummary.creates > 0) && (
+                <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  {clientPendingSummary.updates > 0 && (
+                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                      Изм: {clientPendingSummary.updates}
+                    </span>
+                  )}
+                  {clientPendingSummary.creates > 0 && (
+                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                      Созд: {clientPendingSummary.creates}
+                    </span>
+                  )}
+                </span>
+              )}
             </button>
           </div>
         )}
@@ -241,6 +286,7 @@ function AdminProjectsScreen({
                   fromDate={range.from}
                   toDate={range.to}
               projectChanges={projectChanges}
+                    projectCreates={projectCreates}
             />
           )}
 

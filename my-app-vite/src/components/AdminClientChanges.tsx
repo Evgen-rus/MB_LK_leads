@@ -58,6 +58,21 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   const [error, setError] = useState<string | null>(null);
   const [snapshotFor, setSnapshotFor] = useState<AdminChange | null>(null);
   const [filterMode, setFilterMode] = useState<'changes' | 'creates' | 'all'>('changes');
+  const counts = useMemo(() => {
+    let creates = 0;
+    let updates = 0;
+    items.forEach((c) => {
+      const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
+      if (status === 'done') return;
+      if (c.action === 'create') creates += 1;
+      else updates += 1;
+    });
+    return {
+      creates,
+      updates,
+      total: creates + updates,
+    };
+  }, [items]);
 
   useEffect(() => {
     (async () => {
@@ -181,6 +196,11 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             onClick={() => setFilterMode('changes')}
           >
             Изменения
+            {counts.updates > 0 && (
+              <span className="badge badge--orange" style={{ marginLeft: 8, fontWeight: 500 }}>
+                {counts.updates}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -188,6 +208,11 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             onClick={() => setFilterMode('creates')}
           >
             Создания
+            {counts.creates > 0 && (
+              <span className="badge badge--gray" style={{ marginLeft: 8, fontWeight: 500 }}>
+                {counts.creates}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -195,6 +220,11 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             onClick={() => setFilterMode('all')}
           >
             Все
+            {counts.total > 0 && (
+              <span className="badge badge--secondary" style={{ marginLeft: 8, fontWeight: 500 }}>
+                {counts.total}
+              </span>
+            )}
           </button>
         </div>
       </div>

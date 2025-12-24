@@ -516,6 +516,8 @@ export type AdminClientChangesOut = {
 export type AdminClientChangesSummaryItem = {
   user: UserInfo;
   pendingChanges: number;
+  pendingCreates: number;
+  pendingTotal: number;
 };
 
 export type AdminClientChangesSummaryListOut = {
@@ -540,6 +542,10 @@ export async function resolveAdminChange(changeId: number): Promise<{ ok: boolea
   return http<{ ok: boolean; processed?: number; batch?: string }>(`/admin/changes/${changeId}/resolve`, { method: 'POST' });
 }
 
+export async function fetchAdminClientChangesSummary(): Promise<AdminClientChangesSummaryListOut> {
+  return http<AdminClientChangesSummaryListOut>('/admin/changes/summary');
+}
+
 // -------- Сводка по клиентам --------
 export type AdminClientSummaryItem = {
   user: UserInfo;
@@ -550,6 +556,7 @@ export type AdminClientSummaryItem = {
   usedPeriod: number;
   remaining: number;
   pendingChanges: number;
+  pendingCreates: number;
   numbersCredited?: number | null;
   numbersDebited?: number | null;
   numbersBalance?: number | null;

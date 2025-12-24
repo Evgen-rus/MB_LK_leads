@@ -289,6 +289,8 @@ class AdminClientChangesOut(BaseModel):
 class AdminClientChangesSummaryItem(BaseModel):
     user: UserInfo
     pendingChanges: int
+    pendingCreates: int = 0
+    pendingTotal: int = 0
 
 
 class AdminClientChangesSummaryListOut(BaseModel):
@@ -305,6 +307,7 @@ class AdminClientSummaryItem(BaseModel):
     usedPeriod: int
     remaining: int
     pendingChanges: int = 0
+    pendingCreates: int = 0
     # Новые поля по номерам
     numbersCredited: int | None = None
     numbersDebited: int | None = None
@@ -320,6 +323,8 @@ class AdminClientSummaryTotals(BaseModel):
     usedTotal: int
     usedPeriod: int
     remaining: int
+    pendingCreates: int = 0
+    pendingChanges: int = 0
 
 
 class AdminClientsSummaryOut(BaseModel):

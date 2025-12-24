@@ -1081,7 +1081,8 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
     if not action_filter:
         action_filter = ["create", "update", "delete"]
     # Собираем пары (user_id, login, count)
-    rows = db.execute(
+    # pending update/delete
+    rows_updates = db.execute(
         select(
             models.User.id,
             models.User.login,
@@ -1089,18 +1090,37 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
         )
         .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
         .where(models.User.id != 1)
-        .where(models.AuditEvent.action.in_(action_filter))
+        .where(models.AuditEvent.action.in_([a for a in action_filter if a != "create"]))
+        .where(models.AuditEvent.admin_processed_at.is_(None))
+        .group_by(models.User.id, models.User.login)
+    ).all()
+
+    # pending create
+    rows_creates = db.execute(
+        select(
+            models.User.id,
+            models.User.login,
+            func.count(models.AuditEvent.id),
+        )
+        .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+        .where(models.User.id != 1)
+        .where(models.AuditEvent.action == "create")
         .where(models.AuditEvent.admin_processed_at.is_(None))
         .group_by(models.User.id, models.User.login)
     ).all()
 
     items: List[schemas.AdminClientChangesSummaryItem] = []
-    for uid, login, cnt in rows:
+    creates_map = {int(uid): int(cnt or 0) for uid, login, cnt in rows_creates}
+    for uid, login, cnt in rows_updates:
         user_info = schemas.UserInfo(id=int(uid), login=login)
+        creates = creates_map.get(int(uid), 0)
+        total = int(cnt or 0) + creates
         items.append(
             schemas.AdminClientChangesSummaryItem(
                 user=user_info,
                 pendingChanges=int(cnt or 0),
+                pendingCreates=creates,
+                pendingTotal=total,
             )
         )
     return items
@@ -1176,7 +1196,9 @@ def admin_clients_summary(
         by_user[int(uid)]["used_period"] = int(cnt or 0)
 
     # Карта pending изменений
-    pending_map = {item.user.id: item.pendingChanges for item in admin_list_client_changes_summary(db)}
+    pending_items = admin_list_client_changes_summary(db)
+    pending_map = {item.user.id: item.pendingChanges for item in pending_items}
+    pending_creates_map = {item.user.id: item.pendingCreates for item in pending_items}
 
     # Начисления/списания по номерам
     balance_rows = db.execute(
@@ -1198,6 +1220,8 @@ def admin_clients_summary(
     totals_used = 0
     totals_used_period = 0
     totals_remaining = 0
+    totals_pending_creates = 0
+    totals_pending_changes = 0
     for uid in users_map.keys():
         stats = by_user.get(uid) or {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0}
         info = users_map.get(uid)
@@ -1218,6 +1242,7 @@ def admin_clients_summary(
             usedPeriod=used_period,
             remaining=remaining,
             pendingChanges=pending_map.get(uid, 0),
+            pendingCreates=pending_creates_map.get(uid, 0),
             numbersCredited=credit,
             numbersDebited=debit,
             numbersBalance=manual_balance,
@@ -1229,6 +1254,8 @@ def admin_clients_summary(
         totals_used += item.usedTotal
         totals_used_period += item.usedPeriod
         totals_remaining += item.remaining
+        totals_pending_creates += item.pendingCreates
+        totals_pending_changes += item.pendingChanges
         items.append(item)
 
     totals = schemas.AdminClientSummaryTotals(
@@ -1238,6 +1265,8 @@ def admin_clients_summary(
         usedTotal=totals_used,
         usedPeriod=totals_used_period,
         remaining=totals_remaining,
+        pendingCreates=totals_pending_creates,
+        pendingChanges=totals_pending_changes,
     )
 
     return schemas.AdminClientsSummaryOut(items=items, totals=totals)
