@@ -534,15 +534,6 @@ function AdminClientsScreen({
               >
                 Списать номера
               </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  setSelectedClientId(null);
-                }}
-              >
-                ← К списку клиентов
-              </button>
             </div>
           </div>
           <div style={{ padding: 16, display: 'grid', gap: 12 }}>
