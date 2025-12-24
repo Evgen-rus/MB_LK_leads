@@ -98,12 +98,15 @@ function AdminClientsScreen({
       try {
         setLoading(true);
         setError(null);
-        const [summary, changesSummary] = await Promise.all([
+        const [summary, changesSummary, createsSummary] = await Promise.all([
           fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
           fetchAdminChangesSummary({ actions: ['update', 'delete'] }).catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
+          fetchAdminChangesSummary({ actions: ['create'] }).catch(() => ({ items: [] } as AdminClientChangesSummaryListOut)),
         ]);
         const pendingMap: Record<number, number> = {};
         changesSummary.items.forEach((i) => { pendingMap[i.user.id] = i.pendingChanges; });
+        const createsMap: Record<number, number> = {};
+        createsSummary.items.forEach((i) => { createsMap[i.user.id] = i.pendingChanges; });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
           const profile: ClientProfile | null | undefined = it.profile;
           const displayName = profile?.name?.trim() || it.user.name?.trim() || it.user.login;
@@ -117,7 +120,7 @@ function AdminClientsScreen({
             totalLimit: it.totalLimit,
             usedTotal: it.usedTotal,
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
-            pendingCreates: it.pendingCreates ?? 0,
+            pendingCreates: createsMap[it.user.id] ?? it.pendingCreates ?? 0,
             inn: profile?.inn,
             phone: profile?.phone,
             status: 'Активен',
@@ -298,7 +301,7 @@ function AdminClientsScreen({
                     <td className="muted">{row.id}</td>
                     <td>
                       <div className="name">{row.name}</div>
-                      {row.pendingChanges > 0 && (
+                      {(row.pendingChanges > 0 || row.pendingCreates > 0) && (
                         <div className="sub" style={{ marginTop: 2 }}>
                       {row.pendingChanges > 0 && (
                         <span

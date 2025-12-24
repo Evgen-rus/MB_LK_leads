@@ -4,12 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
 import ChangeProjectDiffModal from './ChangeProjectDiffModal';
 
+type ResolvedPayload = {
+  change: AdminChange;
+  processed?: number;
+  batchId?: string | null;
+};
+
 type AdminClientChangesProps = {
   clientId: number;
   clientName: string;
   // onResolvedChange вызывается после успешной отметки изменения как выполненного.
-  // Передаём всё изменение, чтобы родитель мог обновить счётчики по клиенту/проекту.
-  onResolvedChange?: (change: AdminChange) => void;
+  // Передаём изменение + количество обработанных (для батчей) + batchId.
+  onResolvedChange?: (payload: ResolvedPayload) => void;
 };
 
 type GroupedChanges = {
@@ -156,13 +162,18 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
     const id = change.id;
     try {
       const resp = await resolveAdminChange(id);
+      const processedCount = typeof resp?.processed === 'number' ? resp.processed : 1;
       if (resp?.batch) {
         // Убираем все изменения этого батча
         setAllItems((prev) => prev.filter((c) => c.batchId !== resp.batch));
       } else {
         setAllItems((prev) => prev.filter((c) => c.id !== id));
       }
-      onResolvedChange?.(change);
+      onResolvedChange?.({
+        change,
+        processed: processedCount,
+        batchId: resp?.batch ?? null,
+      });
     } catch (e) {
       console.error(e);
       alert('Не удалось отметить изменение как обработанное');

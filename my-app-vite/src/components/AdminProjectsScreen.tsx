@@ -126,10 +126,12 @@ function AdminProjectsScreen({
         // изменения (update/delete)
         const respChanges = await fetchAdminClientChanges(selectedClientId, { actions: ['update', 'delete'] });
         const mapChanges: Record<number, number> = {};
+        let updatesCount = 0;
         respChanges.items.forEach((c: AdminChange) => {
           if (c.projectId == null) return;
           const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
           if (status === 'done') return;
+          updatesCount += 1;
           mapChanges[c.projectId] = (mapChanges[c.projectId] ?? 0) + 1;
         });
         setProjectChanges(mapChanges);
@@ -137,26 +139,21 @@ function AdminProjectsScreen({
         // создания
         const respCreates = await fetchAdminClientChanges(selectedClientId, { actions: ['create'] });
         const mapCreates: Record<number, number> = {};
+        let createsCount = 0;
         respCreates.items.forEach((c: AdminChange) => {
           if (c.projectId == null) return;
           const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
           if (status === 'done') return;
+          createsCount += 1;
           mapCreates[c.projectId] = (mapCreates[c.projectId] ?? 0) + 1;
         });
         setProjectCreates(mapCreates);
 
-        // суммарно по клиенту
-        const summary = await fetchAdminClientChangesSummary({ actions: ['create', 'update', 'delete'] });
-        const item = summary.items.find((i) => i.user.id === selectedClientId);
-        if (item) {
-          setClientPendingSummary({
-            updates: item.pendingChanges,
-            creates: item.pendingCreates ?? 0,
-            total: item.pendingTotal ?? item.pendingCreates + item.pendingChanges,
-          });
-        } else {
-          setClientPendingSummary({ updates: 0, creates: 0, total: 0 });
-        }
+        setClientPendingSummary({
+          updates: updatesCount,
+          creates: createsCount,
+          total: updatesCount + createsCount,
+        });
       } catch (e: any) {
         console.error(e);
       }
@@ -295,16 +292,44 @@ function AdminProjectsScreen({
             <AdminClientChanges
               clientId={selectedClientId}
               clientName={selectedClientName}
-              onResolvedChange={(change) => {
-                if (!change.projectId) return;
-                const projectId = change.projectId;
-                setProjectChanges((prev) => {
-                  const prevCount = prev[projectId] ?? 0;
-                  if (prevCount <= 1) {
-                    const { [projectId]: _omit, ...rest } = prev;
-                    return rest;
+              onResolvedChange={({ change, processed = 1 }) => {
+                const projectId = change.projectId ?? null;
+
+                // Обновляем карты по проектам
+                if (projectId != null) {
+                  if (change.action === 'create') {
+                    setProjectCreates((prev) => {
+                      const prevCount = prev[projectId] ?? 0;
+                      const next = Math.max(0, prevCount - processed);
+                      if (next === 0) {
+                        const { [projectId]: _omit, ...rest } = prev;
+                        return rest;
+                      }
+                      return { ...prev, [projectId]: next };
+                    });
+                  } else {
+                    setProjectChanges((prev) => {
+                      const prevCount = prev[projectId] ?? 0;
+                      const next = Math.max(0, prevCount - processed);
+                      if (next === 0) {
+                        const { [projectId]: _omit, ...rest } = prev;
+                        return rest;
+                      }
+                      return { ...prev, [projectId]: next };
+                    });
                   }
-                  return { ...prev, [projectId]: prevCount - 1 };
+                }
+
+                // Обновляем сводку по клиенту
+                setClientPendingSummary((prev) => {
+                  if (change.action === 'create') {
+                    const creates = Math.max(0, (prev.creates ?? 0) - processed);
+                    const total = Math.max(0, (prev.total ?? 0) - processed);
+                    return { ...prev, creates, total };
+                  }
+                  const updates = Math.max(0, (prev.updates ?? 0) - processed);
+                  const total = Math.max(0, (prev.total ?? 0) - processed);
+                  return { ...prev, updates, total };
                 });
               }}
             />
