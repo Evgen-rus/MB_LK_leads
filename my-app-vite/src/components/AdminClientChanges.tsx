@@ -53,7 +53,7 @@ function groupByProject(changes: AdminChange[]): GroupedChanges[] {
 }
 
 function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminClientChangesProps) {
-  const [items, setItems] = useState<AdminChange[]>([]);
+  const [allItems, setAllItems] = useState<AdminChange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [snapshotFor, setSnapshotFor] = useState<AdminChange | null>(null);
@@ -61,7 +61,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
   const counts = useMemo(() => {
     let creates = 0;
     let updates = 0;
-    items.forEach((c) => {
+    allItems.forEach((c) => {
       const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';
       if (status === 'done') return;
       if (c.action === 'create') creates += 1;
@@ -72,21 +72,15 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
       updates,
       total: creates + updates,
     };
-  }, [items]);
+  }, [allItems]);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const actions =
-          filterMode === 'creates'
-            ? ['create']
-            : filterMode === 'changes'
-              ? ['update', 'delete']
-              : ['create', 'update', 'delete'];
-        const resp = await fetchAdminClientChanges(clientId, { actions });
-        setItems(resp.items);
+        const resp = await fetchAdminClientChanges(clientId, { actions: ['create', 'update', 'delete'] });
+        setAllItems(resp.items);
       } catch (e: any) {
         console.error(e);
         setError(e?.message || 'Не удалось загрузить изменения клиента');
@@ -94,7 +88,13 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         setLoading(false);
       }
     })();
-  }, [clientId, filterMode]);
+  }, [clientId]);
+
+  const items = useMemo(() => {
+    if (filterMode === 'creates') return allItems.filter((c) => c.action === 'create');
+    if (filterMode === 'changes') return allItems.filter((c) => c.action === 'update' || c.action === 'delete');
+    return allItems;
+  }, [allItems, filterMode]);
 
   const grouped = useMemo(() => {
     // Агрегируем создания с одним batchId в одну карточку
@@ -158,9 +158,9 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
       const resp = await resolveAdminChange(id);
       if (resp?.batch) {
         // Убираем все изменения этого батча
-        setItems((prev) => prev.filter((c) => c.batchId !== resp.batch));
+        setAllItems((prev) => prev.filter((c) => c.batchId !== resp.batch));
       } else {
-        setItems((prev) => prev.filter((c) => c.id !== id));
+        setAllItems((prev) => prev.filter((c) => c.id !== id));
       }
       onResolvedChange?.(change);
     } catch (e) {
@@ -187,7 +187,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           </div>
         </div>
         <div className="sub">
-          Всего необработанных изменений: {items.length}
+          Необработанных всего: {counts.total}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -220,11 +220,6 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             onClick={() => setFilterMode('all')}
           >
             Все
-            {counts.total > 0 && (
-              <span className="badge badge--secondary" style={{ marginLeft: 8, fontWeight: 500 }}>
-                {counts.total}
-              </span>
-            )}
           </button>
         </div>
       </div>
