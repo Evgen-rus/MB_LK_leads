@@ -56,6 +56,9 @@ function LeadsTable({ projects, initialFilter }: Props) {
   // Применяем входные фильтры (переход из таблицы проектов)
   useEffect(() => {
     if (!initialFilter) return;
+    // Если пришёл новый projectId или даты — сбрасываем флаги, чтобы применить снова
+    initialProjectApplied.current = false;
+    initialDatesApplied.current = false;
     const { projectId, from, to } = initialFilter;
     if (projectId) {
       initialProjectId.current = projectId;
