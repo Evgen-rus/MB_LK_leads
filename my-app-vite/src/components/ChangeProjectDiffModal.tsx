@@ -73,6 +73,12 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     return String(value);
   }
 
+  // Удаляем префикс источника из названия (например, "B3_" или "B3 ").
+  function normalizeName(raw: any) {
+    if (typeof raw !== 'string') return renderText('name' as FieldKey, raw);
+    return raw.replace(/^B[1-4][\s_-]*/i, '');
+  }
+
   const baseInputStyle: React.CSSProperties = {
     borderRadius: 10,
     border: '1px solid #dcdce6',
@@ -171,24 +177,14 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <span className="section-title">Название</span>
                 <input
                   readOnly
-                  value={renderText('name', after.name)}
+                  value={normalizeName(after.name)}
                   style={isChanged('name' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('name' as FieldKey) && before.name && (
-                  <span className="sub">Было: {renderText('name', before.name)}</span>
+                  <span className="sub">Было: {normalizeName(before.name)}</span>
                 )}
               </label>
-              <label style={{ display: 'grid', gap: 4 }}>
-                <span className="section-title">Тег</span>
-                <input
-                  readOnly
-                  value={renderText('tag', after.tag)}
-                  style={isChanged('tag' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
-                />
-                {isChanged('tag' as FieldKey) && before.tag && (
-                  <span className="sub">Было: {renderText('tag', before.tag)}</span>
-                )}
-              </label>
+              {/* Тег скрываем — на фронте не используется */}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -217,7 +213,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
               <span className="section-title">Источник данных</span>
               <div style={{ ...boxStyleFor('dataSourceCode'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {(['B1', 'B2', 'B3', 'B4'] as const).map((code) => {
-                  const active = after.dataSourceCode === code;
+                  const activeList = Array.isArray(change.sources) && change.sources.length > 0 ? change.sources : null;
+                  const active = activeList ? activeList.includes(code) : after.dataSourceCode === code;
                   return (
                     <span
                       key={code}

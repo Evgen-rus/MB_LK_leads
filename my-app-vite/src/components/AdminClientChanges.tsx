@@ -69,13 +69,25 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
       if (c.action === 'create' && c.batchId) {
         const existing = createsByBatch.get(c.batchId);
         if (!existing) {
-          createsByBatch.set(c.batchId, c);
+          // кладём исходное событие + временные поля для накопления
+          const sources = new Set<string>();
+          const tryCollectSource = (snap?: Record<string, any> | null) => {
+            if (snap && typeof snap.dataSourceCode === 'string') sources.add(snap.dataSourceCode);
+          };
+          tryCollectSource(c.projectSnapshot);
+          const seed: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
+            ...c,
+            _batchCount: 1,
+            _sources: sources,
+            sources: Array.from(sources),
+          };
+          createsByBatch.set(c.batchId, seed);
         } else {
-          // Обновляем описание и projectName для группировки
+          // Обновляем описание, projectName и полный набор источников
           const projects = new Set<string>();
           if (existing.projectName) projects.add(existing.projectName);
           if (c.projectName) projects.add(c.projectName);
-          const sources = new Set<string>();
+          const sources = existing._sources ? new Set(existing._sources) : new Set<string>();
           const tryCollectSource = (snap?: Record<string, any> | null) => {
             if (snap && typeof snap.dataSourceCode === 'string') {
               sources.add(snap.dataSourceCode);
@@ -83,14 +95,16 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           };
           tryCollectSource(existing.projectSnapshot);
           tryCollectSource(c.projectSnapshot);
-          const count = (existing as any)._batchCount ? (existing as any)._batchCount + 1 : 2;
-          const updated: AdminChange = {
+          const count = existing._batchCount ? existing._batchCount + 1 : 2;
+          const updated: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
             ...existing,
             projectName: projects.size > 1 ? 'Несколько проектов' : Array.from(projects)[0] || existing.projectName,
             description: `Создано проектов: ${count}${sources.size ? ` | Источники: ${Array.from(sources).join(', ')}` : ''}`,
             projectSnapshot: existing.projectSnapshot,
+            sources: Array.from(sources),
           };
-          (updated as any)._batchCount = count;
+          updated._batchCount = count;
+          updated._sources = sources;
           createsByBatch.set(c.batchId, updated);
         }
       } else {

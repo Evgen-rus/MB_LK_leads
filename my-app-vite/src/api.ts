@@ -498,6 +498,7 @@ export type AdminChange = {
   projectId?: number | null;
   projectName?: string | null;
   batchId?: string | null;
+  sources?: string[]; // список источников батча (для созданий)
   createdAt: string;
   action: 'create' | 'update' | 'delete';
   description: string;
