@@ -24,6 +24,9 @@ type GroupedChanges = {
   items: AdminChange[];
 };
 
+// Внутренний тип с временными полями для агрегации батчей созданий
+type AdminChangeWithMeta = AdminChange & { _batchCount?: number; _sources?: Set<string> };
+
 function shortNameSummary(changes: AdminChange[]): string | null {
   const normalize = (name: string) => name.replace(/^B[1-4][\s_-]*/i, '');
   // Используем имя из snapshot для созданий, чтобы не выводить "Несколько проектов"
@@ -104,7 +107,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
 
   const grouped = useMemo(() => {
     // Агрегируем создания с одним batchId в одну карточку
-    const createsByBatch = new Map<string, AdminChange>();
+    const createsByBatch = new Map<string, AdminChangeWithMeta>();
     const rest: AdminChange[] = [];
     items.forEach((c) => {
       if (c.action === 'create' && c.batchId) {
@@ -117,7 +120,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           };
           tryCollectSource(c.projectSnapshot);
           const sortedSources = Array.from(sources).sort();
-          const seed: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
+          const seed: AdminChangeWithMeta = {
             ...c,
             _batchCount: 1,
             _sources: sources,
@@ -129,7 +132,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           const projects = new Set<string>();
           if (existing.projectName) projects.add(existing.projectName);
           if (c.projectName) projects.add(c.projectName);
-          const sources = existing._sources ? new Set(existing._sources) : new Set<string>();
+          const sources = existing._sources ? new Set<string>(existing._sources) : new Set<string>();
           const tryCollectSource = (snap?: Record<string, any> | null) => {
             if (snap && typeof snap.dataSourceCode === 'string') {
               sources.add(snap.dataSourceCode);
@@ -139,7 +142,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           tryCollectSource(c.projectSnapshot);
           const count = existing._batchCount ? existing._batchCount + 1 : 2;
           const sortedSources = Array.from(sources).sort();
-          const updated: AdminChange & { _batchCount?: number; _sources?: Set<string> } = {
+          const updated: AdminChangeWithMeta = {
             ...existing,
             projectName: projects.size > 1 ? 'с несколькими источниками' : Array.from(projects)[0] || existing.projectName,
             description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}`,

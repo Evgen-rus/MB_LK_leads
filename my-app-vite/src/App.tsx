@@ -341,7 +341,7 @@ function App() {
                 initialClientId={adminProjectsClientId ?? undefined}
                 initialClientName={adminProjectsClientName ?? undefined}
                 initialFocus={adminProjectsFocus}
-                onOpenLeads={({ clientId, clientName, projectId, fromDate, toDate }) => {
+                onOpenLeads={({ clientId, projectId, fromDate, toDate }) => {
                   setAdminLeadsPrefill({ clientId, projectId, from: fromDate, to: toDate });
                   setView('leads');
                   try {

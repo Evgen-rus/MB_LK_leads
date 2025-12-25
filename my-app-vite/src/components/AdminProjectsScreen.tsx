@@ -15,11 +15,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminUsers,
   fetchAdminClientChanges,
-  fetchAdminClientChangesSummary,
   type UserInfo,
   type AdminChange,
   type AdminChangeStatus,
-  type AdminClientChangesSummaryListOut,
 } from '../api';
 import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';

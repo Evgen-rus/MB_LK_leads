@@ -24,7 +24,6 @@ export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
   onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit') => void;
-  pendingByClient?: Record<number, { updates: number; creates: number; total: number }>;
 };
 
 type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
@@ -72,7 +71,6 @@ function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
   onOpenClientBalance,
-  pendingByClient,
 }: AdminClientsScreenProps) {
   const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -292,7 +290,7 @@ function AdminClientsScreen({
               )}
               {!error &&
                 !loading &&
-                pageRows.map((row, idx) => (
+                pageRows.map((row) => (
                   <tr
                     key={row.id}
                     style={{ cursor: 'pointer' }}
