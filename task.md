@@ -62,6 +62,3 @@ AdminLeadsTable: умеет принимать initialFilter (clientId, projectI
 ### 9) Тестирование на «живых» данных
 - Подцепить реальные проекты (упоминание: **Таня и её новый проект**) для проверки работы фильтров, переходов и массовых действий в реальном сценарии.
 ⏳ Не выполнено (живые данные/тест)
-
-
-http://localhost:8000/leads/export?fromDate=2025-12-26&toDate=2025-12-26&format=xlsx&projectIds=8&sources=B1%2CB2%2CB3%2CB4&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJpc19hZG1pbiI6dHJ1ZSwiZXhwIjoxNzY2ODI5Nzk1fQ.CL7xXKLih-cnNKXot2uwzCzDkocFIGOuHRNDDdu87J4

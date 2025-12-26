@@ -57,10 +57,11 @@ function AdminClientCardModal({
       // 1) Запрашиваем короткий токен имперсонации
       const resp = await impersonateClient(clientId);
 
-      // 2) Сохраняем токен сразу, чтобы новая вкладка увидела его из localStorage
+      // 2) Сохраняем токен сразу, чтобы новая вкладка увидела его из localStorage и cookies
       try {
         localStorage.setItem('access_token', resp.access_token);
         sessionStorage.setItem('access_token', resp.access_token);
+        document.cookie = `access_token=${resp.access_token}; path=/; secure; samesite=strict`;
       } catch {
         /* ignore */
       }

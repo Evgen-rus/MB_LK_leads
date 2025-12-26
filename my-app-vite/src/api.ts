@@ -104,6 +104,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       // токен недействителен — очищаем и кидаем 401
       try {
         localStorage.removeItem('access_token');
+        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
       } catch (err) {
         console.warn('Не удалось очистить токен', err);
       }
@@ -190,11 +191,15 @@ export async function login(username: string, password: string): Promise<void> {
   }
   const data = await resp.json() as { access_token: string };
   localStorage.setItem('access_token', data.access_token);
+  // Сохраняем токен в cookies для безопасного экспорта файлов
+  document.cookie = `access_token=${data.access_token}; path=/; secure; samesite=strict`;
 }
 
 export async function logout(): Promise<void> {
   try {
     localStorage.removeItem('access_token');
+    // Очищаем cookie с токеном
+    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
   } catch (err) {
     console.warn('Не удалось очистить токен при выходе', err);
   }
@@ -300,9 +305,9 @@ export function buildLeadsExportUrl(params: { projectIds?: number[]; sources?: s
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
   if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
   if (params.source) q.set('source', params.source);
-  // Добавляем токен авторизации в параметры запроса для экспорта
-  const token = localStorage.getItem('access_token');
-  if (token) q.set('token', token);
+
+  // Токен теперь передается через cookies, а не в URL (для безопасности)
+  // Сервер автоматически прочитает токен из cookies при скачивании файла
   return `${API_BASE}/leads/export?${q.toString()}`;
 }
 

@@ -396,15 +396,39 @@ def list_leads(
 
 @app.get("/leads/export")
 def export_leads(
+    request: Request,
     projectIds: Optional[str] = None,
     sources: Optional[str] = None,
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     format: Optional[str] = "csv",  # csv | xlsx
     source: Optional[str] = "leads",
-    current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
+    # Проверяем аутентификацию (cookies или headers)
+    token = None
+
+    # Сначала проверяем Authorization header
+    auth_header = request.headers.get("Authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    else:
+        # Проверяем cookies
+        token = request.cookies.get("access_token")
+        if not token:
+            # Fallback для совместимости - query parameter (deprecated)
+            token = request.query_params.get("token")
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = auth.decode_access_token(token or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    current_user = db_sess.get(models.User, int(user_id))
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     # Границы дат локальные (MSK)
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
