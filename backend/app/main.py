@@ -435,6 +435,11 @@ def export_leads(
             proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
             if not proj_ids:
                 proj_ids = None
+            else:
+                # Фильтруем только разрешенные проекты
+                proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
+                if not proj_ids:
+                    proj_ids = None
         except Exception:
             proj_ids = None
 
@@ -452,6 +457,7 @@ def export_leads(
             crud.log_report_export(
                 db_sess,
                 user_id=current_user.id,
+                client_id=current_user.id,
                 from_date=fromDate,
                 to_date=toDate,
                 project_ids=proj_ids,
