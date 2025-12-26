@@ -97,9 +97,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     try {
       await deleteAdminProject(id);
       setRows((prev) => prev.filter((p) => p.id !== id));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert('Ошибка при удалении проекта');
+      setError(getErrorMessage(err, 'Не удалось удалить проект'));
     }
   }
 
@@ -122,9 +122,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
       };
       const updated = await updateAdminProject(project.id, payload);
       setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert('Ошибка при обновлении проекта');
+      setError(getErrorMessage(err, 'Не удалось обновить проект'));
     }
   }
 

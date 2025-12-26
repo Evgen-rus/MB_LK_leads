@@ -6,6 +6,14 @@ import ExportDropdown from './ExportDropdown';
 import FilterDropdown from './FilterDropdown';
 import DateRangeFilter from './DateRangeFilter';
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 type Props = {
   projects: Project[];
   initialFilter?: { projectId?: number; from?: string; to?: string };
@@ -29,6 +37,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const initialProjectId = useRef<number | undefined>(initialFilter?.projectId);
   const initialProjectApplied = useRef(false);
   const initialDatesApplied = useRef(false);
@@ -80,8 +89,9 @@ function LeadsTable({ projects, initialFilter }: Props) {
       const resp = await fetchLeads({ projectIds: projectIdsFilter, sources: sourcesFilter, fromDate, toDate, offset, limit: s });
       setRows(resp.items);
       setTotal(resp.total);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(e);
+      setError(getErrorMessage(e, 'Не удалось загрузить лиды'));
     } finally {
       setLoading(false);
     }
@@ -164,6 +174,13 @@ function LeadsTable({ projects, initialFilter }: Props) {
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
+      </div>
+      {error && (
+        <div className="sub" style={{ color: '#d00', margin: '8px 16px' }}>
+          {error}
+        </div>
+      )}
+      <div className="table-scroll">
       </div>
       <div className="table-scroll">
       <table className="table">

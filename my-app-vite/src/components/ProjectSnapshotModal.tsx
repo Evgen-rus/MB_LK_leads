@@ -13,7 +13,7 @@ function ProjectSnapshotModal({ snapshot, projectName, projectId, createdAt, act
   function copyJSON() {
     try {
       navigator.clipboard?.writeText(JSON.stringify(snapshot, null, 2));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
     }
   }

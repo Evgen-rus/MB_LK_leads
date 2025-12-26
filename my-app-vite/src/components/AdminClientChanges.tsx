@@ -193,9 +193,9 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         processed: processedCount,
         batchId: resp?.batch ?? null,
       });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert('Не удалось отметить изменение как обработанное');
+      setError(getErrorMessage(err, 'Не удалось отметить изменение как обработанное'));
     }
   }
 

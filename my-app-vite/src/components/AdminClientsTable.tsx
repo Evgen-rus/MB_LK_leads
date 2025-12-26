@@ -11,6 +11,14 @@ import {
 } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function AdminClientsTable() {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -24,14 +32,16 @@ function AdminClientsTable() {
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [editing, setEditing] = useState<AdminProject | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   async function loadUsers() {
     try {
       const list = await fetchAdminUsers();
       setUsers(list);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      setError(getErrorMessage(err, 'Не удалось загрузить список клиентов'));
     }
   }
 
@@ -48,8 +58,9 @@ function AdminClientsTable() {
         });
         setRows(resp.items);
         setTotal(resp.total);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error(err);
+        setError(getErrorMessage(err, 'Не удалось загрузить проекты'));
       }
     },
     [page, pageSize, search, userIdFilter, includeDeleted],
@@ -110,9 +121,9 @@ function AdminClientsTable() {
       setRows(prev => prev.filter(p => p.id !== id));
       setSelectedIds(prev => prev.filter(x => x !== id));
       window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(e);
-      alert('Ошибка при удалении');
+      setError(getErrorMessage(e, 'Не удалось удалить проект'));
     }
   }
 
@@ -177,6 +188,11 @@ function AdminClientsTable() {
           <span className="sub">Всего: {total}</span>
         </div>
       </div>
+      {error && (
+        <div className="sub" style={{ color: '#d00', margin: '8px 16px' }}>
+          {error}
+        </div>
+      )}
       <div className="table-scroll">
         <table className="table">
           <thead>

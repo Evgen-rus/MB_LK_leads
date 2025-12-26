@@ -6,6 +6,14 @@ import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
 import FilterDropdown from './FilterDropdown';
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -33,6 +41,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const initialApplied = useRef(false);
   const initialProjectId = useRef<number | undefined>(initialFilter?.projectId);
 
@@ -79,8 +88,9 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
       });
       setRows(resp.items);
       setTotal(resp.total);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      setError(getErrorMessage(err, 'Не удалось загрузить лиды'));
     } finally {
       setLoading(false);
     }
@@ -236,6 +246,13 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
+      </div>
+      {error && (
+        <div className="sub" style={{ color: '#d00', margin: '8px 16px' }}>
+          {error}
+        </div>
+      )}
+      <div className="table-toolbar" style={{ borderTop: 'none' }}>
       </div>
       <div className="table-scroll">
         <table className="table">

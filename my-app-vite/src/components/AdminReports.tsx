@@ -37,8 +37,9 @@ function AdminReports() {
     try {
       const list = await fetchAdminUsers();
       setUsers(list);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      setError(getErrorMessage(err, 'Не удалось загрузить список клиентов'));
     }
   }
 
