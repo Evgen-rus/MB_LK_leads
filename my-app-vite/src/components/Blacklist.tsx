@@ -12,7 +12,7 @@ function Blacklist() {
   const [pageSize, setPageSize] = useState(50);
 
   // Отвязываем от state page/pageSize, чтобы пагинация не сбрасывала данные на первую страницу
-  const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search) => {
+  const fetchPage = useCallback(async (nextPage: number, nextPageSize = pageSize, q = search) => {
     try {
       setLoading(true);
       const offset = (nextPage - 1) * nextPageSize;

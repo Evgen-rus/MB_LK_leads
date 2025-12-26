@@ -29,7 +29,7 @@ function Reports() {
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
 
   // Отвязываем от state page/pageSize, чтобы клики по пагинации не обнуляли данные
-  const load = useCallback(async (p = page, s = pageSize) => {
+  const load = useCallback(async (p: number, s = pageSize) => {
     try {
       setLoading(true);
       setError(null);

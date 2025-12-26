@@ -31,7 +31,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
 
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
   const load = useCallback(
-    async (p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) => {
+    async (p: number, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
         offset,

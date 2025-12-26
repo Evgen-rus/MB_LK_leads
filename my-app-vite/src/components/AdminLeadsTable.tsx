@@ -69,7 +69,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   // Загрузка страницы; не привязываем к state page, чтобы смена страницы
   // не дергала useEffect с load(1)
-  const load = useCallback(async (p = page, s = pageSize) => {
+  const load = useCallback(async (p: number, s = pageSize) => {
     if (!userIdFilter) {
       // Пока клиент не выбран — таблица пустая
       setRows([]);

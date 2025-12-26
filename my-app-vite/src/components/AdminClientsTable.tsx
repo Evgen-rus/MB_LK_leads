@@ -47,7 +47,7 @@ function AdminClientsTable() {
 
   // Не привязываем к state page/pageSize, чтобы клики пагинации не перезапускали load(1)
   const load = useCallback(
-    async (p = page, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) => {
+    async (p: number, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) => {
       try {
         const offset = (p - 1) * s;
         const resp = await fetchAdminProjects({

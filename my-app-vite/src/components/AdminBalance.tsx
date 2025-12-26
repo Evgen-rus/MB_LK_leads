@@ -176,7 +176,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
   }, [range]);
 
   // Отвязываем от state page/pageSize, чтобы смена страницы не сбрасывала данные на первую
-  const loadOps = useCallback(async (clientId: number, p = page, s = pageSize, r: DateRange = range) => {
+  const loadOps = useCallback(async (clientId: number, p: number, s = pageSize, r: DateRange = range) => {
     try {
       setLoadingOps(true);
       const offset = (p - 1) * s;

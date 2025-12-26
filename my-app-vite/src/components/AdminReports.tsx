@@ -45,7 +45,7 @@ function AdminReports() {
 
   // Не завязываем на state page/pageSize, чтобы смена страницы не сбрасывала данные
   const load = useCallback(
-    async (p = page, s = pageSize) => {
+    async (p: number, s = pageSize) => {
       try {
         setLoading(true);
         setError(null);

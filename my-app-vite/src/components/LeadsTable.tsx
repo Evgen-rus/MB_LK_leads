@@ -81,7 +81,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
   // Загрузка страницы лидов; не завязана на state page, чтобы смена страницы
   // не триггерила лишний вызов load(1) через эффекты
-  const load = useCallback(async (p = page, s = pageSize) => {
+  const load = useCallback(async (p: number, s = pageSize) => {
     try {
       setLoading(true);
       const offset = (p - 1) * s;

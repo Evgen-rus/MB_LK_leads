@@ -23,7 +23,7 @@ function AdminBlacklist() {
   }
 
   // Не привязываем к state page/pageSize, чтобы переключение страниц не сбрасывало загрузку
-  const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search, userId: number | null = userIdFilter) => {
+  const fetchPage = useCallback(async (nextPage: number, nextPageSize = pageSize, q = search, userId: number | null = userIdFilter) => {
     try {
       setLoading(true);
       const offset = (nextPage - 1) * nextPageSize;
