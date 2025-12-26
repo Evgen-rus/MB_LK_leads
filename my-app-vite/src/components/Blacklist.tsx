@@ -11,6 +11,7 @@ function Blacklist() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
+  // Отвязываем от state page/pageSize, чтобы пагинация не сбрасывала данные на первую страницу
   const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search) => {
     try {
       setLoading(true);
@@ -23,7 +24,7 @@ function Blacklist() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search]);
+  }, [pageSize, search]);
 
   useEffect(() => {
     fetchPage(1); // первичная загрузка

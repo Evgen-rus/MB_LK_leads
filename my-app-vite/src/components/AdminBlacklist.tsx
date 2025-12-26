@@ -22,6 +22,7 @@ function AdminBlacklist() {
     }
   }
 
+  // Не привязываем к state page/pageSize, чтобы переключение страниц не сбрасывало загрузку
   const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search, userId: number | null = userIdFilter) => {
     try {
       setLoading(true);
@@ -39,7 +40,7 @@ function AdminBlacklist() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, userIdFilter]);
+  }, [pageSize, search, userIdFilter]);
 
   useEffect(() => {
     loadUsers();

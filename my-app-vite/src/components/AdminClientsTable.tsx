@@ -45,6 +45,7 @@ function AdminClientsTable() {
     }
   }
 
+  // Не привязываем к state page/pageSize, чтобы клики пагинации не перезапускали load(1)
   const load = useCallback(
     async (p = page, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) => {
       try {
@@ -63,7 +64,7 @@ function AdminClientsTable() {
         setError(getErrorMessage(err, 'Не удалось загрузить проекты'));
       }
     },
-    [page, pageSize, search, userIdFilter, includeDeleted],
+    [pageSize, search, userIdFilter, includeDeleted],
   );
 
   useEffect(() => {

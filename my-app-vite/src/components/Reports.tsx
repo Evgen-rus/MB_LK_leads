@@ -28,6 +28,7 @@ function Reports() {
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
 
+  // Отвязываем от state page/pageSize, чтобы клики по пагинации не обнуляли данные
   const load = useCallback(async (p = page, s = pageSize) => {
     try {
       setLoading(true);
@@ -44,7 +45,7 @@ function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize]);
+  }, [pageSize]);
 
   useEffect(() => {
     load(1);

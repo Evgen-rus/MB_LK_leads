@@ -29,6 +29,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
   const load = useCallback(
     async (p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) => {
       const offset = (p - 1) * s;
@@ -43,7 +44,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [page, pageSize, search, fromDate, toDate, includeDeleted],
+    [pageSize, search, fromDate, toDate, includeDeleted],
   );
 
   useEffect(() => { load(1); }, [load]);

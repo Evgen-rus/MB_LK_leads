@@ -47,6 +47,7 @@ function ClientBalance() {
     }
   }, [range]);
 
+  // Не привязываем к state page/pageSize, чтобы пагинация не сбрасывала загрузку на первую
   const loadOps = useCallback(async (p = page, s = pageSize, r: DateRange = range) => {
     try {
       setLoadingOps(true);
@@ -60,7 +61,7 @@ function ClientBalance() {
     } finally {
       setLoadingOps(false);
     }
-  }, [page, pageSize, range]);
+  }, [pageSize, range]);
 
   useEffect(() => {
     loadSummary(range);

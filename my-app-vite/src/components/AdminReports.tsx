@@ -43,6 +43,7 @@ function AdminReports() {
     }
   }
 
+  // Не завязываем на state page/pageSize, чтобы смена страницы не сбрасывала данные
   const load = useCallback(
     async (p = page, s = pageSize) => {
       try {
@@ -61,7 +62,7 @@ function AdminReports() {
         setLoading(false);
       }
     },
-    [page, pageSize],
+    [pageSize],
   );
 
   useEffect(() => {

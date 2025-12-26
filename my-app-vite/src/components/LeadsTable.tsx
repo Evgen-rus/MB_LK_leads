@@ -79,6 +79,8 @@ function LeadsTable({ projects, initialFilter }: Props) {
     }
   }, [initialFilter, setFromDate, setToDate]);
 
+  // Загрузка страницы лидов; не завязана на state page, чтобы смена страницы
+  // не триггерила лишний вызов load(1) через эффекты
   const load = useCallback(async (p = page, s = pageSize) => {
     try {
       setLoading(true);
@@ -95,7 +97,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, projectIds, sources, fromDate, toDate]);
+  }, [pageSize, projectIds, sources, fromDate, toDate]);
 
   useEffect(() => {
     load(1);
