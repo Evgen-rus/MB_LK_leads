@@ -3,8 +3,12 @@
 // Отправка: всегда в production; в dev — если VITE_REPORT_ERRORS=true в .env.local
 import { sendClientError } from './api';
 
-const isProd = (import.meta as any).env?.PROD === true || (import.meta as any).env?.MODE === 'production';
-const reportFlag = String((import.meta as any).env?.VITE_REPORT_ERRORS || '').toLowerCase();
+const env = import.meta.env as Record<string, unknown>;
+const isProd =
+  env.PROD === true ||
+  env.MODE === 'production' ||
+  env.MODE === 'prod';
+const reportFlag = String(env.VITE_REPORT_ERRORS ?? '').toLowerCase();
 const reportEnabled = isProd || reportFlag === '1' || reportFlag === 'true';
 
 function nowIso(): string {
@@ -26,15 +30,27 @@ export function initClientErrorReporting() {
         userAgent: navigator.userAgent,
         level: 'error',
         time: nowIso(),
-      }).catch(() => {});
-    } catch {}
+      }).catch((err) => {
+        if (!isProd) console.warn('Не удалось отправить ошибку клиента', err);
+      });
+    } catch (err) {
+      if (!isProd) console.error('Ошибка обработки window.error', err);
+    }
   });
 
   window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     try {
-      const reason: any = event.reason;
-      const msg = typeof reason === 'string' ? reason : (reason?.message || 'Unhandled rejection');
-      const stack = typeof reason === 'object' ? (reason?.stack || undefined) : undefined;
+      const reason: unknown = event.reason;
+      const msg =
+        typeof reason === 'string'
+          ? reason
+          : (typeof reason === 'object' && reason && 'message' in reason
+              ? String((reason as { message?: unknown }).message)
+              : 'Unhandled rejection');
+      const stack =
+        typeof reason === 'object' && reason && 'stack' in reason
+          ? String((reason as { stack?: unknown }).stack ?? '')
+          : undefined;
       sendClientError({
         message: String(msg),
         stack,
@@ -42,8 +58,12 @@ export function initClientErrorReporting() {
         userAgent: navigator.userAgent,
         level: 'error',
         time: nowIso(),
-      }).catch(() => {});
-    } catch {}
+      }).catch((err) => {
+        if (!isProd) console.warn('Не удалось отправить unhandled rejection', err);
+      });
+    } catch (err) {
+      if (!isProd) console.error('Ошибка обработки unhandledrejection', err);
+    }
   });
 }
 

@@ -6,6 +6,22 @@ type Props = {
   onClose: () => void;
 };
 
+type ProjectSnapshot = {
+  name?: string;
+  tag?: string;
+  collectionSource?: string;
+  dataSourceCode?: string;
+  dataLimit?: number;
+  status?: string;
+  deliveryStatus?: string;
+  regionMode?: 'include' | 'exclude' | string;
+  regions?: string[];
+  sites?: string[];
+  phones?: string[];
+  smsSenderName?: string;
+  daysReceived?: string;
+};
+
 type FieldKey =
   | 'name'
   | 'tag'
@@ -38,9 +54,19 @@ const fieldLabels: Record<FieldKey, string> = {
 };
 
 function ChangeProjectDiffModal({ change, onClose }: Props) {
-  const after = (change.projectSnapshot || {}) as Record<string, any>;
-  const before = (change.beforeSnapshot || {}) as Record<string, any>;
+  const after: ProjectSnapshot = (change.projectSnapshot || {}) as ProjectSnapshot;
+  const before: ProjectSnapshot = (change.beforeSnapshot || {}) as ProjectSnapshot;
   const changed = useMemo(() => new Set(change.changedFields || []), [change.changedFields]);
+  const afterRegions = Array.isArray(after.regions) ? after.regions : [];
+  const beforeRegions = Array.isArray(before.regions) ? before.regions : [];
+  const afterSites = Array.isArray(after.sites) ? after.sites : [];
+  const beforeSites = Array.isArray(before.sites) ? before.sites : [];
+  const afterPhones = Array.isArray(after.phones) ? after.phones : [];
+  const beforePhones = Array.isArray(before.phones) ? before.phones : [];
+  const afterSms = typeof after.smsSenderName === 'string' ? after.smsSenderName : '';
+  const beforeSms = typeof before.smsSenderName === 'string' ? before.smsSenderName : '';
+  const afterDays = typeof after.daysReceived === 'string' ? after.daysReceived : '';
+  const beforeDays = typeof before.daysReceived === 'string' ? before.daysReceived : '';
 
   const changedList = useMemo(
     () => (change.changedFields && change.changedFields.length ? change.changedFields : []),
@@ -67,15 +93,14 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     </span>
   );
 
-  function renderText(_key: FieldKey, value: any) {
+  function renderText(_key: FieldKey, value: unknown) {
     if (Array.isArray(value)) return value.join(', ');
     if (value == null) return '—';
     return String(value);
   }
 
   // Удаляем префикс источника из названия (например, "B3_" или "B3 ").
-  function normalizeName(raw: any) {
-    if (typeof raw !== 'string') return renderText('name' as FieldKey, raw);
+  function normalizeName(raw: string) {
     return raw.replace(/^B[1-4][\s_-]*/i, '');
   }
 
@@ -177,7 +202,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <span className="section-title">Название</span>
                 <input
                   readOnly
-                  value={normalizeName(after.name)}
+                  value={normalizeName(after.name ?? '')}
                   style={isChanged('name' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('name' as FieldKey) && before.name && (
@@ -248,7 +273,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 )}
               </div>
               {isChanged('status' as FieldKey) && (
-                <span className="sub">Было: {before.status || '—'}</span>
+                <span className="sub">Было: {renderText('status', before.status)}</span>
               )}
             </div>
 
@@ -256,7 +281,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
               <span className="section-title">Регионы</span>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                 {pill(after.regionMode === 'exclude' ? 'Исключить' : 'Включить', '#f4f4f7')}
-                <span className="sub">Всего: {(after.regions || []).length}</span>
+                <span className="sub">Всего: {afterRegions.length}</span>
               </div>
               <div
                 style={{
@@ -266,69 +291,69 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                   overflow: 'auto',
                 }}
               >
-                {(after.regions || []).length
-                  ? (after.regions as string[]).map((r: string) => (
+                {afterRegions.length
+                  ? afterRegions.map((r) => (
                       <span key={r} className="badge badge--secondary" style={{ margin: 4, display: 'inline-block' }}>
                         {r}
                       </span>
                     ))
                   : <span className="muted">Не заданы</span>}
               </div>
-              {isChanged('regions' as FieldKey) && (before.regions || []).length > 0 && (
-                <span className="sub">Было: {(before.regions as string[]).join(', ') || '—'}</span>
+              {isChanged('regions' as FieldKey) && beforeRegions.length > 0 && (
+                <span className="sub">Было: {beforeRegions.join(', ') || '—'}</span>
               )}
             </div>
 
-            {(after.sites || after.phones || after.smsSenderName) && (
+            {(afterSites.length > 0 || afterPhones.length > 0 || afterSms) && (
               <div style={{ display: 'grid', gap: 12 }}>
-                {after.sites && (
+                {afterSites.length > 0 && (
                   <label style={{ display: 'grid', gap: 4 }}>
                     <span className="section-title">Сайты</span>
                     <textarea
                       readOnly
                       rows={6}
-                      value={(after.sites as string[]).join('\n')}
+                      value={afterSites.join('\n')}
                       style={{
                         ...(isChanged('sites' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle),
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
                         borderRadius: 10,
                       }}
                     />
-                    {isChanged('sites' as FieldKey) && before.sites && (
-                      <span className="sub">Было: {(before.sites as string[]).join(', ') || '—'}</span>
+                    {isChanged('sites' as FieldKey) && beforeSites.length > 0 && (
+                      <span className="sub">Было: {beforeSites.join(', ') || '—'}</span>
                     )}
                   </label>
                 )}
 
-                {after.phones && (
+                {afterPhones.length > 0 && (
                   <label style={{ display: 'grid', gap: 4 }}>
                     <span className="section-title">Телефоны</span>
                     <textarea
                       readOnly
                       rows={6}
-                      value={(after.phones as string[]).join('\n')}
+                      value={afterPhones.join('\n')}
                       style={{
                         ...(isChanged('phones' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle),
                         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
                         borderRadius: 10,
                       }}
                     />
-                    {isChanged('phones' as FieldKey) && before.phones && (
-                      <span className="sub">Было: {(before.phones as string[]).join(', ') || '—'}</span>
+                    {isChanged('phones' as FieldKey) && beforePhones.length > 0 && (
+                      <span className="sub">Было: {beforePhones.join(', ') || '—'}</span>
                     )}
                   </label>
                 )}
 
-                {after.smsSenderName != null && (
+                {afterSms && (
                   <label style={{ display: 'grid', gap: 4 }}>
                     <span className="section-title">СМС отправитель</span>
                     <input
                       readOnly
-                      value={renderText('smsSenderName', after.smsSenderName)}
+                      value={afterSms}
                       style={isChanged('smsSenderName' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                     />
-                    {isChanged('smsSenderName' as FieldKey) && before.smsSenderName && (
-                      <span className="sub">Было: {renderText('smsSenderName', before.smsSenderName)}</span>
+                    {isChanged('smsSenderName' as FieldKey) && beforeSms && (
+                      <span className="sub">Было: {beforeSms}</span>
                     )}
                   </label>
                 )}
@@ -338,10 +363,15 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Дни получения</span>
               <div style={{ ...boxStyleFor('daysReceived'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(after.daysReceived || '').split(/\s+/).filter(Boolean).map((d: string) => pill(d, '#f4f4f7'))}
+                {afterDays
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .map((d) => (
+                    <span key={d}>{pill(d, '#f4f4f7')}</span>
+                  ))}
               </div>
-              {isChanged('daysReceived' as FieldKey) && before.daysReceived && (
-                <span className="sub">Было: {renderText('daysReceived', before.daysReceived)}</span>
+              {isChanged('daysReceived' as FieldKey) && beforeDays && (
+                <span className="sub">Было: {renderText('daysReceived', beforeDays)}</span>
               )}
             </div>
           </div>

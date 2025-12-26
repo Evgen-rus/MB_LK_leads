@@ -1,6 +1,6 @@
 // Отчёты всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   fetchAdminReports,
   fetchAdminUsers,
@@ -11,6 +11,14 @@ import {
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import ExportDropdown from './ExportDropdown';
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
 
 function AdminReports() {
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -29,34 +37,36 @@ function AdminReports() {
     try {
       const list = await fetchAdminUsers();
       setUsers(list);
-      // автоподстановка первого клиента по умолчанию не делаем — надо выбрать явно
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
     }
   }
 
-  async function load(p = page, s = pageSize) {
-    try {
-      setLoading(true);
-      setError(null);
-      const offset = (p - 1) * s;
-      const resp = await fetchAdminReports({
-        offset,
-        limit: s,
-      });
-      setItems(resp.items);
-      setTotal(resp.total);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить отчёты');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const load = useCallback(
+    async (p = page, s = pageSize) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const offset = (p - 1) * s;
+        const resp = await fetchAdminReports({
+          offset,
+          limit: s,
+        });
+        setItems(resp.items);
+        setTotal(resp.total);
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Не удалось загрузить отчёты'));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [page, pageSize],
+  );
 
   useEffect(() => {
     loadUsers();
-    load(1);
-  }, []);
+    load(1, pageSize);
+  }, [load, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -83,8 +93,8 @@ function AdminReports() {
         load(1, pageSize);
         alert('Запрос на отчёт создан. Скачайте файл в списке ниже после готовности.');
       })
-      .catch((e: any) => {
-        alert(e?.message || 'Не удалось создать отчёт');
+      .catch((err: unknown) => {
+        alert(getErrorMessage(err, 'Не удалось создать отчёт'));
       });
   }
 

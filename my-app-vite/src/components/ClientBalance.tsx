@@ -1,5 +1,5 @@
 // Раздел «Баланс» для клиента: только просмотр сводки и истории операций по своему аккаунту
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
 import {
   fetchClientBalanceSummary,
@@ -15,6 +15,14 @@ function getTodayRange(): DateRange {
   return { from: today, to: today };
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function ClientBalance() {
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
@@ -26,20 +34,20 @@ function ClientBalance() {
   const [loadingOps, setLoadingOps] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadSummary(r: DateRange = range) {
+  const loadSummary = useCallback(async (r: DateRange = range) => {
     try {
       setLoadingSummary(true);
       setError(null);
       const data = await fetchClientBalanceSummary({ fromDate: r.from, toDate: r.to });
       setSummary(data);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить баланс');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось загрузить баланс'));
     } finally {
       setLoadingSummary(false);
     }
-  }
+  }, [range]);
 
-  async function loadOps(p = page, s = pageSize, r: DateRange = range) {
+  const loadOps = useCallback(async (p = page, s = pageSize, r: DateRange = range) => {
     try {
       setLoadingOps(true);
       setError(null);
@@ -47,18 +55,18 @@ function ClientBalance() {
       const resp = await fetchClientBalanceOps({ fromDate: r.from, toDate: r.to, offset, limit: s });
       setOps(resp.items);
       setTotalOps(resp.total);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить операции');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось загрузить операции'));
     } finally {
       setLoadingOps(false);
     }
-  }
+  }, [page, pageSize, range]);
 
   useEffect(() => {
     loadSummary(range);
     loadOps(1, pageSize, range);
     setPage(1);
-  }, [range]);
+  }, [range, loadSummary, loadOps, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(totalOps / pageSize));
 

@@ -1,5 +1,5 @@
 // Таблица лидов с фильтрами по проекту и дате
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { Project } from '../types/project';
 import { fetchLeads, buildLeadsExportUrl, createReport, type Lead } from '../api';
 import ExportDropdown from './ExportDropdown';
@@ -70,7 +70,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
     }
   }, [initialFilter, setFromDate, setToDate]);
 
-  async function load(p = page, s = pageSize) {
+  const load = useCallback(async (p = page, s = pageSize) => {
     try {
       setLoading(true);
       const offset = (p - 1) * s;
@@ -85,11 +85,11 @@ function LeadsTable({ projects, initialFilter }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, projectIds, sources, fromDate, toDate]);
 
   useEffect(() => {
     load(1);
-  }, [projectIds, sources, fromDate, toDate]);
+  }, [projectIds, sources, fromDate, toDate, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

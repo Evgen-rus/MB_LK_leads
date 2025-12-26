@@ -10,9 +10,16 @@ import type { Project } from './types/project';
 const RUNTIME_HOST =
   typeof window !== 'undefined' ? window.location.hostname : undefined;
 
+type HttpError = Error & {
+  status?: number;
+  isNetworkError?: boolean;
+  errorDetail?: string | null;
+};
+
+const env = import.meta.env as Record<string, unknown>;
 const API_BASE =
   // 1) Явное значение из .env/.env.production
-  (import.meta.env as any).VITE_API_BASE ||
+  (typeof env.VITE_API_BASE === 'string' ? env.VITE_API_BASE : undefined) ||
   // 2) Если мы на прод-домене — всегда ходим через /api (через Nginx)
   (RUNTIME_HOST === 'leadrecordwh.ru' ? '/api' : undefined) ||
   // 3) Фолбэк для локальной разработки
@@ -63,16 +70,17 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       headers,
       ...init,
     });
-  } catch (e) {
+  } catch {
     // Сетевая ошибка (нет интернета, сервер недоступен)
-    const err = new Error('Нет соединения с сервером. Проверьте подключение к интернету.') as any;
-    err.status = 0;
-    err.isNetworkError = true;
+    const err: HttpError = Object.assign(
+      new Error('Нет соединения с сервером. Проверьте подключение к интернету.'),
+      { status: 0, isNetworkError: true },
+    );
     throw err;
   }
 
   if (!res.ok) {
-    let errorMessage = res.statusText;
+    const errorMessage = res.statusText;
     let errorDetail: string | null = null;
     
     try {
@@ -80,7 +88,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       if (text) {
         try {
           // Пытаемся распарсить JSON ответ
-          const json = JSON.parse(text);
+          const json = JSON.parse(text) as { detail?: string; message?: string };
           errorDetail = json.detail || json.message || text;
         } catch {
           // Если не JSON, используем текст как есть
@@ -94,11 +102,16 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
     if (res.status === 401) {
       // токен недействителен — очищаем и кидаем 401
-      try { localStorage.removeItem('access_token'); } catch {}
+      try {
+        localStorage.removeItem('access_token');
+      } catch (err) {
+        console.warn('Не удалось очистить токен', err);
+      }
     }
-    const err = new Error(errorDetail || errorMessage) as any;
-    err.status = res.status;
-    err.errorDetail = errorDetail;
+    const err: HttpError = Object.assign(new Error(errorDetail || errorMessage), {
+      status: res.status,
+      errorDetail,
+    });
     throw err;
   }
   return res.json();
@@ -166,9 +179,13 @@ export async function login(username: string, password: string): Promise<void> {
   if (!resp.ok) {
     const text = await resp.text();
     let msg = resp.statusText;
-    try { const j = text ? JSON.parse(text) : null; msg = (j?.detail || msg); } catch {}
-    const err = new Error(msg) as any;
-    err.status = resp.status;
+    try {
+      const j = text ? (JSON.parse(text) as { detail?: string }) : null;
+      msg = j?.detail || msg;
+    } catch (parseErr) {
+      console.warn('Не удалось распарсить ответ логина', parseErr);
+    }
+    const err: HttpError = Object.assign(new Error(msg), { status: resp.status });
     throw err;
   }
   const data = await resp.json() as { access_token: string };
@@ -176,7 +193,11 @@ export async function login(username: string, password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  try { localStorage.removeItem('access_token'); } catch {}
+  try {
+    localStorage.removeItem('access_token');
+  } catch (err) {
+    console.warn('Не удалось очистить токен при выходе', err);
+  }
 }
 
 // -------- Профиль текущего пользователя --------
@@ -503,8 +524,8 @@ export type AdminChange = {
   action: 'create' | 'update' | 'delete';
   description: string;
   status?: AdminChangeStatus;
-  projectSnapshot?: Record<string, any> | null;
-  beforeSnapshot?: Record<string, any> | null;
+  projectSnapshot?: Record<string, unknown> | null;
+  beforeSnapshot?: Record<string, unknown> | null;
   changedFields?: string[] | null;
 };
 

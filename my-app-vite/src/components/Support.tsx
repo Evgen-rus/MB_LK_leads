@@ -21,8 +21,11 @@ function Support() {
       setSuccess('Заявка отправлена. Мы свяжемся с вами по указанному телефону.');
       setPhone('');
       setText('');
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось отправить сообщение. Попробуйте позже.');
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : 'Не удалось отправить сообщение. Попробуйте позже.';
+      setError(msg);
     } finally {
       setSending(false);
     }

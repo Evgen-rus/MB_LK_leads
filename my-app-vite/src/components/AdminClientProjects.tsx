@@ -1,7 +1,7 @@
 // Экран «Проекты клиента» для админа.
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminProjects, updateAdminProject, deleteAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
+import { fetchAdminProjects, updateAdminProject, deleteAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 
@@ -22,6 +22,16 @@ type AdminClientProjectsProps = {
     toDate: string;
   }) => void;
 };
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
+const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
@@ -51,9 +61,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
       });
       setRows(resp.items);
       setTotal(resp.total);
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message || 'Не удалось загрузить проекты клиента');
+    } catch (err: unknown) {
+      console.error(err);
+      setError(getErrorMessage(err, 'Не удалось загрузить проекты клиента'));
     } finally {
       setLoading(false);
     }
@@ -87,8 +97,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     try {
       await deleteAdminProject(id);
       setRows((prev) => prev.filter((p) => p.id !== id));
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       alert('Ошибка при удалении проекта');
     }
   }
@@ -107,13 +117,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         sites: project.sites || undefined,
         phones: project.phones || undefined,
         smsSenderName: project.smsSenderName || undefined,
-        days: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as any,
+        days: ALL_DAYS,
         ...patch,
       };
       const updated = await updateAdminProject(project.id, payload);
       setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       alert('Ошибка при обновлении проекта');
     }
   }

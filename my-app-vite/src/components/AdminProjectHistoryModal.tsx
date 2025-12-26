@@ -8,6 +8,14 @@ type Props = {
   onClose: () => void;
 };
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
   const formatDate = (date: Date) => date.toISOString().slice(0, 10);
   const today = new Date();
@@ -36,8 +44,8 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
           status,
         });
         setItems(resp.items);
-      } catch (e: any) {
-        setError(e?.message || 'Не удалось загрузить историю');
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Не удалось загрузить историю'));
       } finally {
         setLoading(false);
       }
@@ -102,7 +110,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
               setToDate(to);
             }}
           />
-          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+          <select value={status} onChange={(e) => setStatus(e.target.value as 'all' | 'pending' | 'done')}>
             <option value="all">Все статусы</option>
             <option value="pending">Не выполнено</option>
             <option value="done">Выполнено</option>

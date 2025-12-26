@@ -1,6 +1,6 @@
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с названием и id
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, createAdminReport, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
@@ -58,7 +58,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     }
   }
 
-  async function load(p = page, s = pageSize) {
+  const load = useCallback(async (p = page, s = pageSize) => {
     if (!userIdFilter) {
       // Пока клиент не выбран — таблица пустая
       setRows([]);
@@ -79,12 +79,12 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
       });
       setRows(resp.items);
       setTotal(resp.total);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  }
+  }, [userIdFilter, fromDate, toDate, projectIds, sources, page, pageSize]);
 
   useEffect(() => {
     loadUsers();
@@ -92,7 +92,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   useEffect(() => {
     load(1);
-  }, [fromDate, toDate, userIdFilter, projectIds, sources]);
+  }, [fromDate, toDate, userIdFilter, projectIds, sources, load]);
 
   // При выборе клиента подгружаем его проекты
   useEffect(() => {

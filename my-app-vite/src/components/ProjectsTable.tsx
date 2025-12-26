@@ -1,5 +1,5 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Project } from '../types/project';
 import { fetchProjects, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
 import DateRangeFilter from './DateRangeFilter';
@@ -29,27 +29,30 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) {
-    const offset = (p - 1) * s;
-    const resp = await fetchProjects({
-      offset,
-      limit: s,
-      q: q.trim() || undefined,
-      fromDate: from,
-      toDate: to,
-      includeDeleted: withDeleted,
-    });
-    setRows(resp.items);
-    setTotal(resp.total);
-  }
+  const load = useCallback(
+    async (p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) => {
+      const offset = (p - 1) * s;
+      const resp = await fetchProjects({
+        offset,
+        limit: s,
+        q: q.trim() || undefined,
+        fromDate: from,
+        toDate: to,
+        includeDeleted: withDeleted,
+      });
+      setRows(resp.items);
+      setTotal(resp.total);
+    },
+    [page, pageSize, search, fromDate, toDate, includeDeleted],
+  );
 
-  useEffect(() => { load(1); }, []);
+  useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
     const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted);
-    window.addEventListener('projects-refresh', h as any);
-    return () => window.removeEventListener('projects-refresh', h as any);
-  }, [page, pageSize, search, fromDate, toDate, includeDeleted]);
+    window.addEventListener('projects-refresh', h);
+    return () => window.removeEventListener('projects-refresh', h);
+  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted]);
 
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();

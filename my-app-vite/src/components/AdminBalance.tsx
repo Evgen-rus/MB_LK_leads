@@ -1,5 +1,5 @@
 // Раздел «Баланс» для админа: операции по номерам (идентификациям) на уровне клиента
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
 import {
   fetchAdminUsers,
@@ -21,6 +21,14 @@ type DateRange = { from: string; to: string };
 function getTodayRange(): DateRange {
   const today = new Date().toISOString().slice(0, 10);
   return { from: today, to: today };
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
 }
 
 type OperationModalProps = {
@@ -47,8 +55,8 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
       setError(null);
       await createAdminClientBalanceOp(clientId, { amount, type, comment: comment.trim() || undefined });
       onDone();
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось сохранить операцию');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось сохранить операцию'));
     } finally {
       setSubmitting(false);
     }
@@ -155,38 +163,38 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
 
   const hasClient = selectedClientId != null;
 
-  async function loadSummary(clientId: number, r: DateRange = range) {
+  const loadSummary = useCallback(async (clientId: number, r: DateRange = range) => {
     try {
       setLoadingSummary(true);
       const data = await fetchAdminClientBalanceSummary(clientId, { fromDate: r.from, toDate: r.to });
       setSummary(data);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить баланс');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось загрузить баланс'));
     } finally {
       setLoadingSummary(false);
     }
-  }
+  }, [range]);
 
-  async function loadOps(clientId: number, p = page, s = pageSize, r: DateRange = range) {
+  const loadOps = useCallback(async (clientId: number, p = page, s = pageSize, r: DateRange = range) => {
     try {
       setLoadingOps(true);
       const offset = (p - 1) * s;
       const resp = await fetchAdminClientBalanceOps(clientId, { fromDate: r.from, toDate: r.to, offset, limit: s });
       setOps(resp.items);
       setTotalOps(resp.total);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить операции');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось загрузить операции'));
     } finally {
       setLoadingOps(false);
     }
-  }
+  }, [page, pageSize, range]);
 
   useEffect(() => {
     if (!hasClient || selectedClientId == null) return;
     loadSummary(selectedClientId);
     loadOps(selectedClientId, 1, pageSize);
     setPage(1);
-  }, [selectedClientId, range]);
+  }, [selectedClientId, range, loadSummary, loadOps, pageSize, hasClient]);
 
   const totalPages = Math.max(1, Math.ceil(totalOps / pageSize));
 

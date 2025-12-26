@@ -19,25 +19,27 @@ function Login({ onSuccess }: Props) {
     try {
       await login(username, password);
       onSuccess();
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Обработка различных типов ошибок
       let errorMessage = 'Ошибка входа';
       
-      if (e?.isNetworkError || e?.status === 0) {
+      if (e && typeof e === 'object' && 'isNetworkError' in e && (e as { isNetworkError?: boolean }).isNetworkError) {
         // Сетевая ошибка
         errorMessage = 'Нет соединения с сервером. Проверьте подключение к интернету.';
-      } else if (e?.status === 401) {
+      } else if (e && typeof e === 'object' && 'status' in e && (e as { status?: number }).status === 0) {
+        errorMessage = 'Нет соединения с сервером. Проверьте подключение к интернету.';
+      } else if (e && typeof e === 'object' && 'status' in e && (e as { status?: number }).status === 401) {
         // Неверные учетные данные - стандартное сообщение для безопасности
         errorMessage = 'Неверный логин или пароль';
-      } else if (e?.status === 403) {
+      } else if (e && typeof e === 'object' && 'status' in e && (e as { status?: number }).status === 403) {
         errorMessage = 'Доступ запрещен';
-      } else if (e?.status === 404) {
+      } else if (e && typeof e === 'object' && 'status' in e && (e as { status?: number }).status === 404) {
         errorMessage = 'Сервис не найден';
-      } else if (e?.status >= 500) {
+      } else if (e && typeof e === 'object' && 'status' in e && typeof (e as { status?: number }).status === 'number' && (e as { status: number }).status >= 500) {
         errorMessage = 'Ошибка сервера. Попробуйте позже.';
-      } else if (e?.message) {
+      } else if (e && typeof e === 'object' && 'message' in e && typeof (e as { message?: unknown }).message === 'string') {
         // Пытаемся извлечь понятное сообщение
-        const msg = e.message;
+        const msg = (e as { message: string }).message;
         // Если это JSON с detail, извлекаем его
         if (msg.includes('Bad credentials') || msg.includes('detail')) {
           errorMessage = 'Неверный логин или пароль';

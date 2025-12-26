@@ -1,6 +1,6 @@
 // Таблица проектов всех клиентов (для админа)
 // Включает столбец "Клиент" и кликабельный dropdown для статуса отгрузки
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { CollectionSource } from '../types/project';
 import {
   fetchAdminProjects,
@@ -30,38 +30,41 @@ function AdminClientsTable() {
     try {
       const list = await fetchAdminUsers();
       setUsers(list);
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
     }
   }
 
-  async function load(p = page, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) {
-    try {
-      const offset = (p - 1) * s;
-      const resp = await fetchAdminProjects({
-        offset,
-        limit: s,
-        q: q.trim() || undefined,
-        userId: userId ?? undefined,
-        includeDeleted: withDeleted,
-      });
-      setRows(resp.items);
-      setTotal(resp.total);
-    } catch (e) {
-      console.error(e);
-    }
-  }
+  const load = useCallback(
+    async (p = page, s = pageSize, q = search, userId: number | null = userIdFilter, withDeleted = includeDeleted) => {
+      try {
+        const offset = (p - 1) * s;
+        const resp = await fetchAdminProjects({
+          offset,
+          limit: s,
+          q: q.trim() || undefined,
+          userId: userId ?? undefined,
+          includeDeleted: withDeleted,
+        });
+        setRows(resp.items);
+        setTotal(resp.total);
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [page, pageSize, search, userIdFilter, includeDeleted],
+  );
 
   useEffect(() => {
     loadUsers();
-    load(1);
-  }, []);
+    load(1, pageSize);
+  }, [load, pageSize]);
 
   useEffect(() => {
     const h = () => load(page, pageSize, search, userIdFilter, includeDeleted);
-    window.addEventListener('admin-projects-refresh', h as any);
-    return () => window.removeEventListener('admin-projects-refresh', h as any);
-  }, [page, pageSize, search, userIdFilter, includeDeleted]);
+    window.addEventListener('admin-projects-refresh', h);
+    return () => window.removeEventListener('admin-projects-refresh', h);
+  }, [load, page, pageSize, search, userIdFilter, includeDeleted]);
 
   const filteredRows = useMemo<AdminProject[]>(() => {
     const q = search.trim().toLowerCase();
@@ -145,7 +148,7 @@ function AdminClientsTable() {
               </option>
             ))}
           </select>
-          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+          <select value={status} onChange={(e) => setStatus(e.target.value as 'Все' | 'Активен' | 'На паузе')}>
             <option value="Все">Все статусы проекта</option>
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>

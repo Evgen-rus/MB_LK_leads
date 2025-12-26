@@ -27,12 +27,26 @@ type GroupedChanges = {
 // Внутренний тип с временными полями для агрегации батчей созданий
 type AdminChangeWithMeta = AdminChange & { _batchCount?: number; _sources?: Set<string> };
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function shortNameSummary(changes: AdminChange[]): string | null {
   const normalize = (name: string) => name.replace(/^B[1-4][\s_-]*/i, '');
   // Используем имя из snapshot для созданий, чтобы не выводить "Несколько проектов"
   const names = changes
     .map((c) => {
-      const snapName = (c.projectSnapshot as any)?.name as string | undefined;
+      const snapName =
+        c.projectSnapshot &&
+        typeof c.projectSnapshot === 'object' &&
+        'name' in c.projectSnapshot &&
+        typeof (c.projectSnapshot as { name?: unknown }).name === 'string'
+          ? (c.projectSnapshot as { name?: string }).name
+          : undefined;
       const raw = snapName || c.projectName || '';
       return raw ? normalize(raw) : '';
     })
@@ -90,9 +104,9 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         setError(null);
         const resp = await fetchAdminClientChanges(clientId, { actions: ['create', 'update', 'delete'] });
         setAllItems(resp.items);
-      } catch (e: any) {
-        console.error(e);
-        setError(e?.message || 'Не удалось загрузить изменения клиента');
+      } catch (err: unknown) {
+        console.error(err);
+        setError(getErrorMessage(err, 'Не удалось загрузить изменения клиента'));
       } finally {
         setLoading(false);
       }
@@ -115,8 +129,10 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         if (!existing) {
           // кладём исходное событие + временные поля для накопления
           const sources = new Set<string>();
-          const tryCollectSource = (snap?: Record<string, any> | null) => {
-            if (snap && typeof snap.dataSourceCode === 'string') sources.add(snap.dataSourceCode);
+          const tryCollectSource = (snap?: Record<string, unknown> | null) => {
+            if (snap && typeof snap === 'object' && 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string') {
+              sources.add((snap as { dataSourceCode: string }).dataSourceCode);
+            }
           };
           tryCollectSource(c.projectSnapshot);
           const sortedSources = Array.from(sources).sort();
@@ -133,9 +149,9 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           if (existing.projectName) projects.add(existing.projectName);
           if (c.projectName) projects.add(c.projectName);
           const sources = existing._sources ? new Set<string>(existing._sources) : new Set<string>();
-          const tryCollectSource = (snap?: Record<string, any> | null) => {
-            if (snap && typeof snap.dataSourceCode === 'string') {
-              sources.add(snap.dataSourceCode);
+          const tryCollectSource = (snap?: Record<string, unknown> | null) => {
+            if (snap && typeof snap === 'object' && 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string') {
+              sources.add((snap as { dataSourceCode: string }).dataSourceCode);
             }
           };
           tryCollectSource(existing.projectSnapshot);
@@ -177,8 +193,8 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         processed: processedCount,
         batchId: resp?.batch ?? null,
       });
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
       alert('Не удалось отметить изменение как обработанное');
     }
   }

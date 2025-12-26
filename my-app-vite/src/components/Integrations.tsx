@@ -11,6 +11,14 @@ function Integrations() {
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  function getErrorMessage(err: unknown, fallback: string): string {
+    if (err && typeof err === 'object' && 'message' in err) {
+      const msg = (err as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    return fallback;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmedPhone = phone.trim();
@@ -25,8 +33,8 @@ function Integrations() {
       setPhone('');
       setText('');
       setFormOpen(false);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось отправить сообщение. Попробуйте позже.');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось отправить сообщение. Попробуйте позже.'));
     } finally {
       setSending(false);
     }

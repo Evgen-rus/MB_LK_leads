@@ -23,8 +23,8 @@ function formatDisplayDate(value: string) {
 // Применяет пресет к диапазону дат относительно сегодняшнего дня
 function getPresetRange(preset: Exclude<PresetKey, 'custom'>): DateRange {
   const today = new Date();
-  let from = new Date(today);
-  let to = new Date(today);
+  const from = new Date(today);
+  const to = new Date(today);
 
   if (preset === 'yesterday') {
     from.setDate(from.getDate() - 1);

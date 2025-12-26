@@ -12,6 +12,16 @@ type AdminClientCardModalProps = {
   onUpdated?: (resp: AdminClientUpdateResp) => void;
 };
 
+const env = import.meta.env as Record<string, unknown>;
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function AdminClientCardModal({
   clientId,
   initialName,
@@ -32,7 +42,10 @@ function AdminClientCardModal({
   const [error, setError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState<string | null>(null);
 
-  const clientCabinetBase = (import.meta.env as any).VITE_CLIENT_PORTAL_URL || '/';
+  const clientCabinetBase =
+    typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
+      ? (env.VITE_CLIENT_PORTAL_URL as string)
+      : '/';
 
   const hasCredChanges = login.trim() !== initialLogin || password.trim() !== '';
 
@@ -60,8 +73,8 @@ function AdminClientCardModal({
       if (!newWindow) {
         window.location.href = targetUrl;
       }
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось открыть ЛК клиента');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось открыть ЛК клиента'));
     } finally {
       setLoading(false);
     }
@@ -82,8 +95,8 @@ function AdminClientCardModal({
       });
       setNewPassword(resp.password ?? null);
       onUpdated?.(resp);
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось сохранить');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось сохранить'));
     } finally {
       setLoading(false);
     }

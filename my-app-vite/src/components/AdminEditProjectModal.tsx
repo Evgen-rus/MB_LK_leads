@@ -14,6 +14,14 @@ type AdminEditProjectModalProps = {
   onSubmit?: (updated: AdminProject) => void;
 };
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -239,8 +247,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
       const updated = await updateAdminProject(project.id, payload);
       onSubmit?.(updated);
       onClose();
-    } catch (e: any) {
-      setError(e?.message || 'Ошибка при сохранении');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Ошибка при сохранении'));
     } finally {
       setSaving(false);
     }

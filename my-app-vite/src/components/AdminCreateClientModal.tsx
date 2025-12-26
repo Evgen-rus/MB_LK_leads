@@ -39,6 +39,14 @@ function normalizeDigits(value: string): string {
   return value.replace(/\D+/g, '');
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function copyToClipboard(text: string) {
   try {
     navigator.clipboard?.writeText(text);
@@ -98,8 +106,8 @@ function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalPr
       });
       setCreated(resp);
       onCreated?.(resp);
-    } catch (err: any) {
-      setError(err?.message || 'Не удалось создать клиента');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось создать клиента'));
     } finally {
       setLoading(false);
     }

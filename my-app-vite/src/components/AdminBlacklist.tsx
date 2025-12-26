@@ -1,6 +1,6 @@
 // Черный список всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { fetchAdminBlacklist, fetchAdminUsers, type AdminBlacklistPhone, type UserInfo } from '../api';
 
 function AdminBlacklist() {
@@ -22,7 +22,7 @@ function AdminBlacklist() {
     }
   }
 
-  async function fetchPage(nextPage = page, nextPageSize = pageSize, q = search, userId: number | null = userIdFilter) {
+  const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search, userId: number | null = userIdFilter) => {
     try {
       setLoading(true);
       const offset = (nextPage - 1) * nextPageSize;
@@ -39,12 +39,12 @@ function AdminBlacklist() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, search, userIdFilter]);
 
   useEffect(() => {
     loadUsers();
     fetchPage(1);
-  }, []);
+  }, [fetchPage]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

@@ -13,6 +13,14 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const getErrorMessage = (err: unknown, fallback: string): string => {
+    if (err && typeof err === 'object' && 'message' in err) {
+      const msg = (err as { message?: unknown }).message;
+      if (typeof msg === 'string' && msg.trim()) return msg;
+    }
+    return fallback;
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -23,9 +31,9 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
         if (!cancelled) {
           setItems(data);
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!cancelled) {
-          setError(e?.message || 'Не удалось загрузить историю изменений');
+          setError(getErrorMessage(e, 'Не удалось загрузить историю изменений'));
         }
       } finally {
         if (!cancelled) {

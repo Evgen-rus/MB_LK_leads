@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import AddPhonesModal from './AddPhonesModal';
 import { addToBlacklist, deleteFromBlacklist, listBlacklist, type BlacklistPhone } from '../api';
 
@@ -11,7 +11,7 @@ function Blacklist() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  async function fetchPage(nextPage = page, nextPageSize = pageSize, q = search) {
+  const fetchPage = useCallback(async (nextPage = page, nextPageSize = pageSize, q = search) => {
     try {
       setLoading(true);
       const offset = (nextPage - 1) * nextPageSize;
@@ -23,11 +23,11 @@ function Blacklist() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize, search]);
 
   useEffect(() => {
     fetchPage(1); // первичная загрузка
-  }, []);
+  }, [fetchPage]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

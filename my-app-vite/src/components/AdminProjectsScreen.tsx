@@ -55,6 +55,14 @@ function getTodayRange(): DateRange {
   return { from: today, to: today };
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function AdminProjectsScreen({
   initialClientId = null,
   initialClientName = null,
@@ -98,9 +106,9 @@ function AdminProjectsScreen({
             setSelectedClientName(found.name);
           }
         }
-      } catch (e: any) {
-        console.error(e);
-        setClientsError(e?.message || 'Не удалось загрузить список клиентов');
+      } catch (err: unknown) {
+        console.error(err);
+        setClientsError(getErrorMessage(err, 'Не удалось загрузить список клиентов'));
       } finally {
         setLoadingClients(false);
       }
@@ -160,8 +168,8 @@ function AdminProjectsScreen({
           creates: createsCount,
           total: updatesCount + createsCount,
         });
-      } catch (e: any) {
-        console.error(e);
+      } catch (err: unknown) {
+        console.error(err);
       }
     })();
   }, [selectedClientId]);
@@ -309,7 +317,8 @@ function AdminProjectsScreen({
                       const prevCount = prev[projectId] ?? 0;
                       const next = Math.max(0, prevCount - processed);
                       if (next === 0) {
-                        const { [projectId]: _omit, ...rest } = prev;
+                        const rest = { ...prev };
+                        delete rest[projectId];
                         return rest;
                       }
                       return { ...prev, [projectId]: next };
@@ -319,7 +328,8 @@ function AdminProjectsScreen({
                       const prevCount = prev[projectId] ?? 0;
                       const next = Math.max(0, prevCount - processed);
                       if (next === 0) {
-                        const { [projectId]: _omit, ...rest } = prev;
+                        const rest = { ...prev };
+                        delete rest[projectId];
                         return rest;
                       }
                       return { ...prev, [projectId]: next };

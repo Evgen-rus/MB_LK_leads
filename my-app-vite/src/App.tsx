@@ -28,6 +28,7 @@ import {
   logout as apiLogout,
   fetchMe,
   fetchClientBalanceSummary,
+  type ProjectUpdatePayload,
 } from './api';
 import Login from './components/Login';
 import { isJwtValid, isAdminFromToken } from './utils/jwt';
@@ -90,7 +91,11 @@ function App() {
         const token = localStorage.getItem('access_token') || '';
         const valid = token ? isJwtValid(token) : false;
         if (!valid) {
-          try { localStorage.removeItem('access_token'); } catch {}
+          try {
+            localStorage.removeItem('access_token');
+          } catch (err) {
+            console.warn('Не удалось очистить токен', err);
+          }
           setNeedLogin(true);
           setIsAdmin(false);
           if (window.location.pathname !== '/login') {
@@ -161,10 +166,14 @@ function App() {
       try {
         const data = await apiList({ limit: 10000 });
         setRows(data.items);
-      } catch (e: any) {
-        if (e?.status === 401) {
+      } catch (e: unknown) {
+        if (typeof e === 'object' && e !== null && 'status' in e && (e as { status?: number }).status === 401) {
           setNeedLogin(true);
-          try { localStorage.removeItem('access_token'); } catch {}
+          try {
+            localStorage.removeItem('access_token');
+          } catch (err) {
+            console.warn('Не удалось очистить токен', err);
+          }
           if (window.location.pathname !== '/login') {
             window.history.replaceState(null, '', '/login');
           }
@@ -233,7 +242,9 @@ function App() {
         try {
           const data = await apiList({ limit: 10000 });
           setRows(data.items);
-        } catch {}
+        } catch (err) {
+          console.error(err);
+        }
       })();
     }} />;
   }
@@ -303,7 +314,11 @@ function App() {
               </div>
             )}
             <button className="btn btn--ghost" onClick={async ()=>{
-              try { await apiLogout(); } catch {}
+              try {
+                await apiLogout();
+              } catch (err) {
+                console.error('Ошибка выхода', err);
+              }
               setClientName(null);
               setRows([]);
               setNeedLogin(true);
@@ -417,10 +432,10 @@ function App() {
         <EditProjectModal
           project={editing}
           onClose={() => setEditing(null)}
-          onSubmit={(u) => {
+          onSubmit={(u: ProjectUpdatePayload) => {
             (async () => {
               try {
-                const updated = await apiUpdate(editing.id, u as any);
+                const updated = await apiUpdate(editing.id, u);
                 setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
                 window.dispatchEvent(new CustomEvent('projects-refresh'));
               } catch (e) {

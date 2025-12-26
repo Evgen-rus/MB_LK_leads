@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { fetchReports, createReport, type ReportItem, buildLeadsExportUrl } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import ExportDropdown from './ExportDropdown';
@@ -28,7 +28,7 @@ function Reports() {
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
 
-  async function load(p = page, s = pageSize) {
+  const load = useCallback(async (p = page, s = pageSize) => {
     try {
       setLoading(true);
       setError(null);
@@ -36,16 +36,19 @@ function Reports() {
       const resp = await fetchReports({ offset, limit: s });
       setItems(resp.items);
       setTotal(resp.total);
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить отчёты');
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : 'Не удалось загрузить отчёты';
+      setError(msg);
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, pageSize]);
 
   useEffect(() => {
     load(1);
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

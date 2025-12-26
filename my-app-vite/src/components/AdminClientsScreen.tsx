@@ -59,6 +59,14 @@ function getTodayRange(): DateRange {
   return { from: today, to: today };
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 function deriveStatus(row: ClientRow): ClientStatus {
   if (row.projectCount === 0) return 'Нет проектов';
   if (row.remaining <= 0) return 'Долг';
@@ -130,9 +138,9 @@ function AdminClientsScreen({
         });
         setBaseClients(rows);
         setPage(1);
-      } catch (e: any) {
-        console.error(e);
-        setError(e?.message || 'Не удалось загрузить клиентов');
+      } catch (err: unknown) {
+        console.error(err);
+        setError(getErrorMessage(err, 'Не удалось загрузить клиентов'));
       } finally {
         setLoading(false);
       }
