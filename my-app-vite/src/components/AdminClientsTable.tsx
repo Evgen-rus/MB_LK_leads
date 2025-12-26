@@ -70,7 +70,7 @@ function AdminClientsTable() {
       const matchesType = typeFilter === 'Все' ? true : row.collectionSource === typeFilter;
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
-      const userLoginHit = row.user.login.toLowerCase().includes(q);
+      const userLoginHit = (row.user.name || row.user.login).toLowerCase().includes(q);
       const userIdHit = String(row.user.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit || userLoginHit || userIdHit);
       return matchesStatus && matchesType && matchesQuery;
@@ -209,7 +209,7 @@ function AdminClientsTable() {
                   />
                 </td>
                 <td>
-                  <div className="name">{row.user.login}</div>
+                  <div className="name">{row.user.name || row.user.login}</div>
                   <div className="sub">id: {row.user.id}</div>
                 </td>
                 <td>

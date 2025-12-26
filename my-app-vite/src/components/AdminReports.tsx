@@ -104,7 +104,7 @@ function AdminReports() {
             <option value="">Выберите клиента</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.login} (id: {u.id})
+                {u.name || u.login} (id: {u.id})
               </option>
             ))}
           </select>
@@ -158,11 +158,11 @@ function AdminReports() {
               return (
                 <tr key={r.id}>
                   <td>
-                    <div className="name">{r.user.login}</div>
+                    <div className="name">{r.user.name || r.user.login}</div>
                     <div className="sub">id: {r.user.id}</div>
                   </td>
                   <td>
-                    <div className="name">{r.client?.login || '—'}</div>
+                    <div className="name">{r.client ? (r.client.name || r.client.login) : '—'}</div>
                     {r.client && <div className="sub">id: {r.client.id}</div>}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.createdAt}</td>

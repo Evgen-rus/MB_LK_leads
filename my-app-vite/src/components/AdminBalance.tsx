@@ -202,11 +202,11 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
             }}
           >
             <option value="">Выберите клиента</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.login} (id: {u.id})
-              </option>
-            ))}
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name || u.login} (id: {u.id})
+                </option>
+              ))}
           </select>
           <DateRangeFilter
             from={range.from}
@@ -321,7 +321,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                       </td>
                       <td>{op.amount}</td>
                       <td>{op.comment || '—'}</td>
-                      <td className="muted">{op.createdBy.login} (id: {op.createdBy.id})</td>
+                      <td className="muted">{op.createdBy.name || op.createdBy.login} (id: {op.createdBy.id})</td>
                     </tr>
                   ))}
                 </tbody>

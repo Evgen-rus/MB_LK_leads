@@ -1,5 +1,5 @@
 // Таблица лидов всех клиентов (для админа)
-// Включает столбец "Клиент" с логином и id
+// Включает столбец "Клиент" с названием и id
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, createAdminReport, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
@@ -202,7 +202,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             <option value="">Выберите клиента…</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.login} (id: {u.id})
+                {u.name || u.login} (id: {u.id})
               </option>
             ))}
           </select>
@@ -268,7 +268,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             {rows.map((r) => (
               <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
                 <td>
-                  <div className="name">{r.user.login}</div>
+                  <div className="name">{r.user.name || r.user.login}</div>
                   <div className="sub">id: {r.user.id}</div>
                 </td>
                 <td className="muted">{r.ext_id}</td>

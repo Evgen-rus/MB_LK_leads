@@ -74,11 +74,11 @@ function AdminBlacklist() {
             }}
           >
             <option value="">Все клиенты</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.login} (id: {u.id})
-              </option>
-            ))}
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name || u.login} (id: {u.id})
+                </option>
+              ))}
           </select>
         </div>
         <div className="actions">
@@ -104,7 +104,7 @@ function AdminBlacklist() {
               rows.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <div className="name">{r.user.login}</div>
+                    <div className="name">{r.user.name || r.user.login}</div>
                     <div className="sub">id: {r.user.id}</div>
                   </td>
                   <td className="name" style={{ whiteSpace: 'nowrap' }}>{r.phone}</td>
