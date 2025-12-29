@@ -22,6 +22,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 function AdminReports() {
   const [users, setUsers] = useState<UserInfo[]>([]);
+  // Выбор клиента нужен только для создания нового отчёта, не для фильтра списка
   const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
   const [items, setItems] = useState<AdminReportItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,7 @@ function AdminReports() {
           limit: s,
           fromDate: r.from,
           toDate: r.to,
-          clientId,
+          clientId: clientId ?? undefined,
         });
         setItems(resp.items);
         setTotal(resp.total);
@@ -116,7 +117,7 @@ function AdminReports() {
               load(1, pageSize, range, val);
             }}
           >
-            <option value="">Выберите клиента</option>
+            <option value="">Клиент для нового отчёта</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name || u.login} (id: {u.id})
@@ -202,6 +203,7 @@ function AdminReports() {
                           toDate: r.toDate,
                           format: (r.format || 'csv') as 'csv' | 'xlsx',
                           source: 'reports',
+                        clientId: r.client?.id ?? undefined,
                         });
                         window.open(url, '_blank');
                       }}

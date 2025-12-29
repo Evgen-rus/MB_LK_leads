@@ -403,6 +403,7 @@ def export_leads(
     toDate: Optional[str] = None,
     format: Optional[str] = "csv",  # csv | xlsx
     source: Optional[str] = "leads",
+    clientId: Optional[int] = None,
     db_sess: Session = Depends(get_db),
 ):
     # Проверяем аутентификацию (cookies или headers)
@@ -447,6 +448,10 @@ def export_leads(
 
     # Разрешённые проекты
     allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+    if clientId is not None and current_user.id == 1:
+        # Админ скачивает отчёт для выбранного клиента: ограничиваем проектами клиента
+        client_projects = set(crud.get_user_project_ids(db_sess, clientId))
+        allowed_ids = client_projects
     if not allowed_ids:
         empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
         if (format or "csv").lower() == "xlsx":
@@ -481,7 +486,7 @@ def export_leads(
             crud.log_report_export(
                 db_sess,
                 user_id=current_user.id,
-                client_id=current_user.id,
+                client_id=clientId if clientId is not None and current_user.id == 1 else current_user.id,
                 from_date=fromDate,
                 to_date=toDate,
                 project_ids=proj_ids,
@@ -980,6 +985,7 @@ def admin_list_reports(
     limit: int = 50,
     fromDate: Optional[str] = None,  # YYYY-MM-DD — фильтр по дате создания
     toDate: Optional[str] = None,    # YYYY-MM-DD — фильтр по дате создания
+    clientId: Optional[int] = None,  # фильтр по целевому клиенту
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
@@ -1016,6 +1022,7 @@ def admin_list_reports(
         user_id_filter=current_admin.id,
         start_local=start_naive,
         end_local=end_naive,
+        target_client_id=clientId,
     )
 
 

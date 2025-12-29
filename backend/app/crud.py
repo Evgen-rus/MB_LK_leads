@@ -1880,6 +1880,7 @@ def admin_list_all_reports(
     user_id_filter: int | None = None,
     start_local: datetime | None = None,
     end_local: datetime | None = None,
+    target_client_id: int | None = None,
 ) -> schemas.AdminReportListOut:
     """
     Список всех отчётов (для админа).
@@ -1892,6 +1893,8 @@ def admin_list_all_reports(
         stmt = stmt.where(models.ReportExport.created_at >= start_local)
     if end_local is not None:
         stmt = stmt.where(models.ReportExport.created_at <= end_local)
+    if target_client_id is not None:
+        stmt = stmt.where(models.ReportExport.target_client_id == target_client_id)
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.ReportExport.created_at.desc()).offset(offset).limit(limit)).scalars().all()

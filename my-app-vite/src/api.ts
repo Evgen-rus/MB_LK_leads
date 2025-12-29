@@ -307,11 +307,20 @@ export async function createReport(payload: { fromDate: string; toDate: string; 
   });
 }
 
-export function buildLeadsExportUrl(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; format: 'csv'|'xlsx'; source?: 'leads' | 'reports'; }): string {
+export function buildLeadsExportUrl(params: {
+  projectIds?: number[];
+  sources?: string[];
+  fromDate: string;
+  toDate: string;
+  format: 'csv'|'xlsx';
+  source?: 'leads' | 'reports';
+  clientId?: number;
+}): string {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
   if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
   if (params.source) q.set('source', params.source);
+  if (params.clientId != null) q.set('clientId', String(params.clientId));
 
   // Токен теперь передается через cookies, а не в URL (для безопасности)
   // Сервер автоматически прочитает токен из cookies при скачивании файла
