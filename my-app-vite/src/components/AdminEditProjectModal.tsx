@@ -39,14 +39,15 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
   const [phonesError, setPhonesError] = useState<string | null>(null);
 
-  const [days, setDays] = useState<DayAbbrev[]>(() => {
+  const initialDays = useMemo<DayAbbrev[]>(() => {
     const map: Record<string, DayAbbrev> = { 'Пн.':'Пн','Вт.':'Вт','Ср.':'Ср','Чт.':'Чт','Пт.':'Пт','Сб.':'Сб','Вс.':'Вс' };
     const parts = (project.daysReceived || '').split(/\s+/).filter(Boolean);
     const out: DayAbbrev[] = [];
     parts.forEach(p => { if (map[p]) out.push(map[p]); });
-    // Не подставляем дефолтные дни, чтобы не создавать лишние изменения
     return out;
-  });
+  }, [project.daysReceived]);
+  const originalDaysRef = useRef<DayAbbrev[]>(initialDays);
+  const [days, setDays] = useState<DayAbbrev[]>(initialDays);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +163,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
       smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
         ? normalizeOptionalString(project.smsSenderName)
         : undefined,
-      days: normalizeDays(days),
+      // исходный набор дней (фикс isDirty для чекбоксов)
+      days: normalizeDays(originalDaysRef.current),
     };
 
     let phonesNow: string[] = [];

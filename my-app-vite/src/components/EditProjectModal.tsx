@@ -41,15 +41,15 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
 
-  const [days, setDays] = useState<DayAbbrev[]>(() => {
+  const initialDays = useMemo<DayAbbrev[]>(() => {
     const map: Record<string, DayAbbrev> = { 'Пн.':'Пн','Вт.':'Вт','Ср.':'Ср','Чт.':'Чт','Пт.':'Пт','Сб.':'Сб','Вс.':'Вс' };
     const parts = (project.daysReceived || '').split(/\s+/).filter(Boolean);
     const out: DayAbbrev[] = [];
     parts.forEach(p => { if (map[p]) out.push(map[p]); });
-    // Важно: не подставляем "дефолтные дни" за пользователя.
-    // Иначе простое открытие модалки + "Сохранить" создаёт изменение, даже если пользователь ничего не трогал.
     return out;
-  });
+  }, [project.daysReceived]);
+  const originalDaysRef = useRef<DayAbbrev[]>(initialDays);
+  const [days, setDays] = useState<DayAbbrev[]>(initialDays);
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -162,7 +162,8 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
         ? normalizeOptionalString(project.smsSenderName)
         : undefined,
-      days: normalizeDays(days), // days уже проинициализированы из project.daysReceived
+      // берём исходный набор дней из проекта (фикс isDirty при переключении чекбоксов)
+      days: normalizeDays(originalDaysRef.current),
     };
 
     // Текущее состояние формы → нормализованный вид (как уйдёт в payload)
