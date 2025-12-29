@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminProjects, updateAdminProject, deleteAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
+import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
 
 type AdminClientProjectsProps = {
   clientId: number;
@@ -42,6 +43,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<AdminProject | null>(null);
+  const [editingReadOnly, setEditingReadOnly] = useState(false);
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
 
@@ -85,6 +87,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   }, [rows, search]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // id текущего админа из токена; нужен, чтобы разрешить редактирование только своих проектов
+  const adminUserId = useMemo(() => {
+    const token = getValidTokenFromStorage();
+    return getUserIdFromToken(token);
+  }, []);
 
   function calcRemaining(p: AdminProject): number {
     const limit = p.dataLimit || 0;
@@ -306,27 +314,37 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     {row.numbersTotal}
                   </td>
                   <td>
-                    <button
-                      className="icon-btn"
-                      title="Редактировать проект"
-                      onClick={() => setEditing(row)}
-                    >
-                      ⚙️
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title="История изменений"
-                      onClick={() => setHistoryFor(row)}
-                    >
-                      🕘
-                    </button>
-                    <button
-                      className="icon-btn"
-                      title="Удалить проект"
-                      onClick={() => handleDelete(row.id)}
-                    >
-                      🗑️
-                    </button>
+                    {(() => {
+                      const canEdit = adminUserId != null && row.user?.id === adminUserId;
+                      return (
+                        <>
+                          <button
+                            className="icon-btn"
+                            title={canEdit ? 'Редактировать проект' : 'Только просмотр (редактировать свои или через ЛК клиента)'}
+                            onClick={() => {
+                              setEditing(row);
+                              setEditingReadOnly(!canEdit);
+                            }}
+                          >
+                            ⚙️
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="История изменений"
+                            onClick={() => setHistoryFor(row)}
+                          >
+                            🕘
+                          </button>
+                          <button
+                            className="icon-btn"
+                            title="Удалить проект"
+                            onClick={() => handleDelete(row.id)}
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
@@ -384,10 +402,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
       {editing && (
         <AdminEditProjectModal
           project={editing}
-          onClose={() => setEditing(null)}
+          readOnly={editingReadOnly}
+          onClose={() => {
+            setEditing(null);
+            setEditingReadOnly(false);
+          }}
           onSubmit={(updated) => {
             setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
             setEditing(null);
+            setEditingReadOnly(false);
           }}
         />
       )}

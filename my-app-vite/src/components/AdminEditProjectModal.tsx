@@ -12,6 +12,7 @@ type AdminEditProjectModalProps = {
   project: AdminProject;
   onClose: () => void;
   onSubmit?: (updated: AdminProject) => void;
+  readOnly?: boolean;
 };
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -22,7 +23,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectModalProps) {
+function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }: AdminEditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(project.name);
@@ -101,6 +102,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
   }, [filteredRegions, regions, baseRegionIndex]);
 
   function toggleDay(day: DayAbbrev) {
+    if (readOnly) return;
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   }
 
@@ -204,6 +206,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     if (!name.trim()) return;
     if (!isDirty) return;
 
@@ -281,7 +284,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
             </label>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -294,7 +297,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
 
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Лимит</span>
-                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} />
+                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} disabled={readOnly} />
               </label>
             </div>
 
@@ -313,7 +316,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список сайтов</span>
                 <span className="hint">По одному в строке</span>
-                <textarea rows={8} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} onBlur={sanitizeSites} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
+                <textarea rows={8} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} onBlur={sanitizeSites} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} disabled={readOnly} />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
               </label>
             )}
@@ -322,7 +325,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список телефонов</span>
                 <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
-                <textarea rows={8} placeholder={"79231234567\n74951234567"} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
+                <textarea rows={8} placeholder={"79231234567\n74951234567"} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} disabled={readOnly} />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
                 {phonesError && (
                   <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
@@ -335,7 +338,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
             {(source === 'СМС' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Наименование отправителя (СМС)</span>
-                <input type="text" placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен" value={smsSenderName} onChange={(e) => setSmsSenderName(e.target.value)} />
+                <input type="text" placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен" value={smsSenderName} onChange={(e) => setSmsSenderName(e.target.value)} disabled={readOnly} />
               </label>
             )}
 
@@ -343,25 +346,27 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <span className="section-title">Регионы</span>
               <div className="hint">Если ничего не выбрано, сбор идет по всей РФ. Чтобы выбрать регион — кликните в поле поиска.</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
-                <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
-                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} disabled={readOnly} /> Включить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} disabled={readOnly} /> Исключить</label>
                 <input
                   type="search"
                   placeholder="Поиск по регионам"
                   value={regionQuery}
-                  onFocus={() => setRegionsOpen(true)}
-                  onClick={() => setRegionsOpen(true)}
+                  onFocus={() => { if (!readOnly) setRegionsOpen(true); }}
+                  onClick={() => { if (!readOnly) setRegionsOpen(true); }}
                   onChange={(e) => {
+                    if (readOnly) return;
                     setRegionsOpen(true);
                     setRegionQuery(e.target.value);
                   }}
+                  disabled={readOnly}
                 />
               </div>
               {regionsOpen ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
                   {displayRegions.map(r => (
                     <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} /> {r}
+                      <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} disabled={readOnly} /> {r}
                     </label>
                   ))}
                 </div>
@@ -379,7 +384,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
 
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Статус проекта</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} disabled={readOnly}>
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
                 <option value="Удалён">Удалён</option>
@@ -391,7 +396,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
                   <label key={d}>
-                    <input type="checkbox" checked={days.includes(d)} onChange={() => toggleDay(d)} /> {d}
+                    <input type="checkbox" checked={days.includes(d)} onChange={() => toggleDay(d)} disabled={readOnly} /> {d}
                   </label>
                 ))}
               </div>
@@ -399,15 +404,23 @@ function AdminEditProjectModal({ project, onClose, onSubmit }: AdminEditProjectM
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-            <button type="button" className="btn" onClick={onClose} disabled={saving}>Отмена</button>
-            {!isDirty && (
-              <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
-                Нет изменений
+            <button type="button" className="btn" onClick={onClose} disabled={saving}>Закрыть</button>
+            {readOnly ? (
+              <span className="sub" style={{ alignSelf: 'center', color: '#666' }}>
+                Только просмотр (редактировать через ЛК клиента)
               </span>
+            ) : (
+              <>
+                {!isDirty && (
+                  <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
+                    Нет изменений
+                  </span>
+                )}
+                <button type="submit" className="btn btn--primary" disabled={!isDirty || saving}>
+                  {saving ? 'Сохранение...' : 'Сохранить'}
+                </button>
+              </>
             )}
-            <button type="submit" className="btn btn--primary" disabled={!isDirty || saving}>
-              {saving ? 'Сохранение...' : 'Сохранить'}
-            </button>
           </div>
         </form>
       </div>

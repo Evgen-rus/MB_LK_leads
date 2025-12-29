@@ -10,6 +10,7 @@ import {
   type UserInfo,
 } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
+import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -32,8 +33,15 @@ function AdminClientsTable() {
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [editing, setEditing] = useState<AdminProject | null>(null);
+  const [editingReadOnly, setEditingReadOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // id текущего админа из токена — разрешаем редактировать только проекты, созданные этим пользователем
+  const adminUserId = useMemo(() => {
+    const token = getValidTokenFromStorage();
+    return getUserIdFromToken(token);
+  }, []);
 
   async function loadUsers() {
     try {
@@ -258,12 +266,26 @@ function AdminClientsTable() {
                 <td>{row.sourcesCount}</td>
                 <td className="muted">{row.createdAt}</td>
                 <td>
-                  <button className="icon-btn" title="Редактировать" onClick={() => setEditing(row)}>
-                    ⚙️
-                  </button>
-                  <button className="icon-btn" title="Удалить" onClick={() => handleDelete(row.id)}>
-                    🗑️
-                  </button>
+                  {(() => {
+                    const canEdit = adminUserId != null && row.user?.id === adminUserId;
+                    return (
+                      <>
+                        <button
+                          className="icon-btn"
+                          title={canEdit ? 'Редактировать' : 'Только просмотр (редактировать свои или через ЛК клиента)'}
+                          onClick={() => {
+                            setEditing(row);
+                            setEditingReadOnly(!canEdit);
+                          }}
+                        >
+                          ⚙️
+                        </button>
+                        <button className="icon-btn" title="Удалить" onClick={() => handleDelete(row.id)}>
+                          🗑️
+                        </button>
+                      </>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}
@@ -289,10 +311,16 @@ function AdminClientsTable() {
       {editing && (
         <AdminEditProjectModal
           project={editing}
-          onClose={() => setEditing(null)}
+          readOnly={editingReadOnly}
+          onClose={() => {
+            setEditing(null);
+            setEditingReadOnly(false);
+          }}
           onSubmit={async (updated) => {
             setRows(prev => prev.map(p => p.id === updated.id ? updated : p));
             window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
+            setEditing(null);
+            setEditingReadOnly(false);
           }}
         />
       )}
