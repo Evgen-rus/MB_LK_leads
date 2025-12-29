@@ -158,7 +158,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
     const n = effectiveCodesPreview.length || 1;
     const base = Math.floor(total / n);
     const rem = total % n;
-    return effectiveCodesPreview.map((_, idx) => idx < rem ? base + 1 : base);
+    // Остаток отдаём "в конец списка" выбранных источников (последним rem элементам).
+    return effectiveCodesPreview.map((_, idx) => idx >= (n - rem) ? base + 1 : base);
   }, [dataLimit, effectiveCodesPreview]);
 
   function toggleDay(day: 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс') {
@@ -206,7 +207,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
     const n = effectiveCodes.length;
     const base = Math.floor(totalLimit / n);
     const remainder = totalLimit % n;
-    const perCodeLimits = effectiveCodes.map((_, idx) => (idx < remainder ? base + 1 : base));
+    // Остаток отдаём "в конец списка" выбранных источников (последним remainder элементам).
+    const perCodeLimits = effectiveCodes.map((_, idx) => (idx >= (n - remainder) ? base + 1 : base));
 
     const items: SubmitItem[] = effectiveCodes.map((code, idx) => ({
       name: `${code}_${name.trim()}`,
