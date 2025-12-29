@@ -649,6 +649,8 @@ def list_reports_paginated(
     user_id: int,
     offset: int,
     limit: int,
+    start_local: datetime,
+    end_local: datetime,
 ) -> schemas.ReportListOut:
     """
     Возвращает историю экспортов отчётов конкретного пользователя.
@@ -656,7 +658,13 @@ def list_reports_paginated(
     limit = max(1, min(500, limit))
     offset = max(0, offset)
 
-    base = select(models.ReportExport).where(models.ReportExport.user_id == user_id)
+    base = select(models.ReportExport).where(
+        and_(
+            models.ReportExport.user_id == user_id,
+            models.ReportExport.created_at >= start_local,
+            models.ReportExport.created_at <= end_local,
+        )
+    )
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = (
         db.execute(
@@ -1870,6 +1878,8 @@ def admin_list_all_reports(
     offset: int,
     limit: int,
     user_id_filter: int | None = None,
+    start_local: datetime | None = None,
+    end_local: datetime | None = None,
 ) -> schemas.AdminReportListOut:
     """
     Список всех отчётов (для админа).
@@ -1878,6 +1888,10 @@ def admin_list_all_reports(
 
     if user_id_filter is not None:
         stmt = stmt.where(models.ReportExport.user_id == user_id_filter)
+    if start_local is not None:
+        stmt = stmt.where(models.ReportExport.created_at >= start_local)
+    if end_local is not None:
+        stmt = stmt.where(models.ReportExport.created_at <= end_local)
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.ReportExport.created_at.desc()).offset(offset).limit(limit)).scalars().all()

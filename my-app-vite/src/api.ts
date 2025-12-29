@@ -285,10 +285,17 @@ export type ReportsListResp = {
   total: number;
 };
 
-export async function fetchReports(params?: { offset?: number; limit?: number }): Promise<ReportsListResp> {
+export async function fetchReports(params?: {
+  offset?: number;
+  limit?: number;
+  fromDate?: string;
+  toDate?: string;
+}): Promise<ReportsListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
   if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
   const qs = q.toString();
   return http<ReportsListResp>(`/reports${qs ? `?${qs}` : ''}`);
 }
@@ -508,10 +515,16 @@ export type AdminReportsListResp = {
 export async function fetchAdminReports(params?: {
   offset?: number;
   limit?: number;
+  fromDate?: string;
+  toDate?: string;
+  clientId?: number | null;
 }): Promise<AdminReportsListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
   if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.clientId != null) q.set('clientId', String(params.clientId));
   const qs = q.toString();
   return http<AdminReportsListResp>(`/admin/reports${qs ? `?${qs}` : ''}`);
 }

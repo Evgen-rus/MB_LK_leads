@@ -29,27 +29,35 @@ function Reports() {
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
 
   // Отвязываем от state page/pageSize, чтобы клики по пагинации не обнуляли данные
-  const load = useCallback(async (p: number, s = pageSize) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const offset = (p - 1) * s;
-      const resp = await fetchReports({ offset, limit: s });
-      setItems(resp.items);
-      setTotal(resp.total);
-    } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
-        ? (err as { message: string }).message
-        : 'Не удалось загрузить отчёты';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [pageSize]);
+  const load = useCallback(
+    async (p: number, s = pageSize) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const offset = (p - 1) * s;
+        const resp = await fetchReports({
+          offset,
+          limit: s,
+          fromDate,
+          toDate,
+        });
+        setItems(resp.items);
+        setTotal(resp.total);
+      } catch (err: unknown) {
+        const msg = err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : 'Не удалось загрузить отчёты';
+        setError(msg);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fromDate, toDate, pageSize],
+  );
 
   useEffect(() => {
-    load(1);
-  }, [fromDate, toDate, load]);
+    load(1, pageSize);
+  }, [fromDate, toDate, load, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

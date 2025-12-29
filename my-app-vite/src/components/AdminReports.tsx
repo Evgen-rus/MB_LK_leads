@@ -45,7 +45,7 @@ function AdminReports() {
 
   // Не завязываем на state page/pageSize, чтобы смена страницы не сбрасывала данные
   const load = useCallback(
-    async (p: number, s = pageSize) => {
+    async (p: number, s = pageSize, r: { from: string; to: string } = range, clientId: number | null = userIdFilter) => {
       try {
         setLoading(true);
         setError(null);
@@ -53,6 +53,9 @@ function AdminReports() {
         const resp = await fetchAdminReports({
           offset,
           limit: s,
+          fromDate: r.from,
+          toDate: r.to,
+          clientId,
         });
         setItems(resp.items);
         setTotal(resp.total);
@@ -62,13 +65,13 @@ function AdminReports() {
         setLoading(false);
       }
     },
-    [pageSize],
+    [pageSize, range, userIdFilter],
   );
 
   useEffect(() => {
     loadUsers();
-    load(1, pageSize);
-  }, [load, pageSize]);
+    load(1, pageSize, range, userIdFilter);
+  }, [load, pageSize, range, userIdFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -110,7 +113,7 @@ function AdminReports() {
               const val = e.target.value ? Number(e.target.value) : null;
               setUserIdFilter(val);
               setPage(1);
-              load(1, pageSize);
+              load(1, pageSize, range, val);
             }}
           >
             <option value="">Выберите клиента</option>
@@ -123,7 +126,11 @@ function AdminReports() {
           <DateRangeFilter
             from={range.from}
             to={range.to}
-            onChange={(r) => setRange(r)}
+            onChange={(r) => {
+              setRange(r);
+              setPage(1);
+              load(1, pageSize, r, userIdFilter);
+            }}
           />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

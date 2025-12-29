@@ -556,15 +556,46 @@ def export_leads(
 def list_reports(
     offset: int = 0,
     limit: int = 50,
+    fromDate: Optional[str] = None,  # YYYY-MM-DD — фильтр по дате создания отчёта (начало дня)
+    toDate: Optional[str] = None,    # YYYY-MM-DD — фильтр по дате создания отчёта (конец дня)
     current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
     """
     Вкладка «Отчёты»: история всех экспортов отчётов текущего пользователя.
     """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     limit = max(1, min(500, limit))
     offset = max(0, offset)
-    return crud.list_reports_paginated(db_sess, user_id=current_user.id, offset=offset, limit=limit)
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+
+    start_naive = start_local.replace(tzinfo=None)
+    end_naive = end_local.replace(tzinfo=None)
+
+    return crud.list_reports_paginated(
+        db_sess,
+        user_id=current_user.id,
+        offset=offset,
+        limit=limit,
+        start_local=start_naive,
+        end_local=end_naive,
+    )
 
 
 @app.post("/reports", response_model=schemas.ReportOut)
@@ -947,14 +978,45 @@ def admin_list_blacklist(
 def admin_list_reports(
     offset: int = 0,
     limit: int = 50,
+    fromDate: Optional[str] = None,  # YYYY-MM-DD — фильтр по дате создания
+    toDate: Optional[str] = None,    # YYYY-MM-DD — фильтр по дате создания
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех отчётов (для админа)."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     limit = max(1, min(500, limit))
     offset = max(0, offset)
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today_msk = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today_msk.isoformat()
+    if not toDate:
+        toDate = today_msk.isoformat()
+
+    y, m, d = [int(x) for x in fromDate.split("-")]
+    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+    y2, m2, d2 = [int(x) for x in toDate.split("-")]
+    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+
+    start_naive = start_local.replace(tzinfo=None)
+    end_naive = end_local.replace(tzinfo=None)
+
     # Показываем только отчёты, сформированные текущим админом
-    return crud.admin_list_all_reports(db_sess, offset=offset, limit=limit, user_id_filter=current_admin.id)
+    return crud.admin_list_all_reports(
+        db_sess,
+        offset=offset,
+        limit=limit,
+        user_id_filter=current_admin.id,
+        start_local=start_naive,
+        end_local=end_naive,
+    )
 
 
 @app.post("/admin/reports", response_model=schemas.AdminReportOut)
