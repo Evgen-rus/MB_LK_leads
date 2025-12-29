@@ -184,6 +184,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
       fromDate,
       toDate,
       format,
+      clientId: userIdFilter ?? undefined,
     });
     window.open(url, '_blank');
   };

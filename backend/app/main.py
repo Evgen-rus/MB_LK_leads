@@ -452,6 +452,13 @@ def export_leads(
         # Админ скачивает отчёт для выбранного клиента: ограничиваем проектами клиента
         client_projects = set(crud.get_user_project_ids(db_sess, clientId))
         allowed_ids = client_projects
+    logging.getLogger("app").info(
+        "export_leads: user=%s clientId=%s allowed_ids=%s raw_projectIds=%s",
+        current_user.id,
+        clientId,
+        sorted(list(allowed_ids)),
+        projectIds,
+    )
     if not allowed_ids:
         empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
         if (format or "csv").lower() == "xlsx":
@@ -467,10 +474,22 @@ def export_leads(
             else:
                 # Фильтруем только разрешенные проекты
                 proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
-                if not proj_ids:
-                    proj_ids = None
+                if proj_ids is not None and len(proj_ids) == 0:
+                    # Явно заданы проекты, но после фильтра нет разрешённых — вернуть пустой ответ
+                    empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+                    if (format or "csv").lower() == "xlsx":
+                        return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+                    return Response(content="", media_type="text/csv", headers=empty_headers)
         except Exception:
             proj_ids = None
+    else:
+        # Проекты не указаны — используем все разрешённые для выбранного клиента/пользователя
+        if not allowed_ids:
+            empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+            if (format or "csv").lower() == "xlsx":
+                return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+            return Response(content="", media_type="text/csv", headers=empty_headers)
+        proj_ids = sorted(allowed_ids)
 
     src_list: Optional[List[str]] = None
     if sources:
