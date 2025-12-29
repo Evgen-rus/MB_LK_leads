@@ -11,6 +11,11 @@ type ProjectsTableProps = {
   onOpenLeads?: (params: { projectId: number; fromDate: string; toDate: string }) => void;
 };
 
+// Для режима "за всё время" нам всё равно нужен диапазон,
+// потому что /leads требует fromDate/toDate. Даем максимально широкий интервал.
+const ALL_TIME_FROM_DATE = '1970-01-01';
+const ALL_TIME_TO_DATE = '2099-12-31';
+
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -232,12 +237,12 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                 onClick={() =>
                   onOpenLeads?.({
                     projectId: row.id,
-                    // Для «Номеров всего» диапазон от даты создания проекта до выбранной конечной даты
-                    fromDate: row.createdAt?.slice(0, 10) || fromDate,
-                    toDate,
+                    // Для «Номеров всего» открываем лиды за всё время
+                    fromDate: ALL_TIME_FROM_DATE,
+                    toDate: ALL_TIME_TO_DATE,
                   })
                 }
-                title="Открыть все идентификации проекта (от даты создания)"
+                title="Открыть все идентификации проекта (за всё время)"
               >
                 {row.numbersTotal}
               </td>

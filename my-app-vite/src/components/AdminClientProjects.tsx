@@ -24,6 +24,11 @@ type AdminClientProjectsProps = {
   }) => void;
 };
 
+// Для режима "за всё время" нам всё равно нужен диапазон,
+// потому что /admin/leads и /leads требуют fromDate/toDate. Даем максимально широкий интервал.
+const ALL_TIME_FROM_DATE = '1970-01-01';
+const ALL_TIME_TO_DATE = '2099-12-31';
+
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
@@ -306,8 +311,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                         clientId,
                         clientName,
                         projectId: row.id,
-                        fromDate: row.createdAt?.slice(0, 10) || fromDate,
-                        toDate,
+                        fromDate: ALL_TIME_FROM_DATE,
+                        toDate: ALL_TIME_TO_DATE,
                       });
                     }}
                   >
