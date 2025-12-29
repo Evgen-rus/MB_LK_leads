@@ -99,6 +99,21 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     return String(value);
   }
 
+  function formatSourceLimits(): string | null {
+    const limits =
+      change.sourceLimits && typeof change.sourceLimits === 'object'
+        ? (change.sourceLimits as Record<string, number>)
+        : null;
+    if (!limits) return null;
+    const keys = Object.keys(limits).filter((k) => typeof limits[k] === 'number' && Number.isFinite(limits[k]));
+    if (keys.length === 0) return null;
+    const order = Array.isArray(change.sources) && change.sources.length ? change.sources : keys.sort();
+    return order
+      .filter((k) => typeof limits[k] === 'number' && Number.isFinite(limits[k]))
+      .map((k) => `${k}: ${limits[k]}`)
+      .join(', ');
+  }
+
   // Удаляем префикс источника из названия (например, "B3_" или "B3 ").
   function normalizeName(raw: string) {
     return raw.replace(/^B[1-4][\s_-]*/i, '');
@@ -225,7 +240,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <span className="section-title">Лимит</span>
                 <input
                   readOnly
-                  value={renderText('dataLimit', after.dataLimit)}
+                  value={formatSourceLimits() || renderText('dataLimit', after.dataLimit)}
                   style={isChanged('dataLimit' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('dataLimit' as FieldKey) && before.dataLimit != null && (

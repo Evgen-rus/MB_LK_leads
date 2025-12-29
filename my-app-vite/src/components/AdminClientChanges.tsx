@@ -129,18 +129,34 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
         if (!existing) {
           // кладём исходное событие + временные поля для накопления
           const sources = new Set<string>();
+          const sourceLimits: Record<string, number> = {};
           const tryCollectSource = (snap?: Record<string, unknown> | null) => {
-            if (snap && typeof snap === 'object' && 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string') {
-              sources.add((snap as { dataSourceCode: string }).dataSourceCode);
+            if (!snap || typeof snap !== 'object') return;
+            const code = 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string'
+              ? (snap as { dataSourceCode: string }).dataSourceCode
+              : null;
+            if (code) sources.add(code);
+
+            const limitRaw = 'dataLimit' in snap ? (snap as { dataLimit?: unknown }).dataLimit : null;
+            const limit = typeof limitRaw === 'number' && Number.isFinite(limitRaw) ? limitRaw : null;
+            if (code && limit != null) {
+              sourceLimits[code] = limit;
             }
           };
           tryCollectSource(c.projectSnapshot);
           const sortedSources = Array.from(sources).sort();
+          const limitsStr = sortedSources
+            .filter((s) => typeof sourceLimits[s] === 'number')
+            .map((s) => `${s}: ${sourceLimits[s]}`)
+            .join(', ');
           const seed: AdminChangeWithMeta = {
             ...c,
             _batchCount: 1,
             _sources: sources,
             sources: sortedSources,
+            sourceLimits,
+            // Для батча чуть уточняем описание: какие источники и какие лимиты по ним
+            description: c.description + (limitsStr ? ` | Лимиты: ${limitsStr}` : (sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : '')),
           };
           createsByBatch.set(c.batchId, seed);
         } else {
@@ -149,21 +165,37 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           if (existing.projectName) projects.add(existing.projectName);
           if (c.projectName) projects.add(c.projectName);
           const sources = existing._sources ? new Set<string>(existing._sources) : new Set<string>();
+          const sourceLimits: Record<string, number> = (existing.sourceLimits && typeof existing.sourceLimits === 'object')
+            ? { ...existing.sourceLimits }
+            : {};
           const tryCollectSource = (snap?: Record<string, unknown> | null) => {
-            if (snap && typeof snap === 'object' && 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string') {
-              sources.add((snap as { dataSourceCode: string }).dataSourceCode);
+            if (!snap || typeof snap !== 'object') return;
+            const code = 'dataSourceCode' in snap && typeof (snap as { dataSourceCode?: unknown }).dataSourceCode === 'string'
+              ? (snap as { dataSourceCode: string }).dataSourceCode
+              : null;
+            if (code) sources.add(code);
+
+            const limitRaw = 'dataLimit' in snap ? (snap as { dataLimit?: unknown }).dataLimit : null;
+            const limit = typeof limitRaw === 'number' && Number.isFinite(limitRaw) ? limitRaw : null;
+            if (code && limit != null) {
+              sourceLimits[code] = limit;
             }
           };
           tryCollectSource(existing.projectSnapshot);
           tryCollectSource(c.projectSnapshot);
           const count = existing._batchCount ? existing._batchCount + 1 : 2;
           const sortedSources = Array.from(sources).sort();
+          const limitsStr = sortedSources
+            .filter((s) => typeof sourceLimits[s] === 'number')
+            .map((s) => `${s}: ${sourceLimits[s]}`)
+            .join(', ');
           const updated: AdminChangeWithMeta = {
             ...existing,
             projectName: projects.size > 1 ? 'с несколькими источниками' : Array.from(projects)[0] || existing.projectName,
-            description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}`,
+            description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}${limitsStr ? ` | Лимиты: ${limitsStr}` : ''}`,
             projectSnapshot: existing.projectSnapshot,
             sources: sortedSources,
+            sourceLimits,
           };
           updated._batchCount = count;
           updated._sources = sources;

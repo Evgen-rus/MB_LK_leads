@@ -547,6 +547,9 @@ export type AdminChange = {
   projectName?: string | null;
   batchId?: string | null;
   sources?: string[]; // список источников батча (для созданий)
+  // Для агрегированного "создания" (batchId): лимит по каждому источнику (B1..B4).
+  // Это поле формируется на фронте (из projectSnapshot), бэк его не обязан присылать.
+  sourceLimits?: Record<string, number>;
   createdAt: string;
   action: 'create' | 'update' | 'delete';
   description: string;
