@@ -1638,8 +1638,10 @@ def admin_list_all_projects(
                 select(models.Lead.project_id, func.count())
                 .where(
                     models.Lead.project_id.in_(proj_ids),
-                    models.Lead.created_at >= start_local,
-                    models.Lead.created_at <= end_local,
+                    # В админке и клиентском ЛК считаем «за период» по времени попадания лида в БД,
+                    # чтобы показатель совпадал с фильтрацией списков лидов (/admin/leads и /leads).
+                    models.Lead.imported_at >= start_local,
+                    models.Lead.imported_at <= end_local,
                 )
                 .group_by(models.Lead.project_id)
             ).all()
