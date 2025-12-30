@@ -309,8 +309,18 @@
   min-width: 160px;
   padding: 6px 10px;
   font-size: 0.85rem;
+  line-height: 1.2;
+  min-height: 40px;
 }
 .client-summary__actions .btn .badge { height: 20px; padding: 0 8px; font-size: 0.7rem; }
+
+@media (max-width: 900px) {
+  .client-summary__actions .btn { flex: 1 1 calc(50% - 8px); min-width: 0; }
+}
+
+@media (max-width: 560px) {
+  .client-summary__actions .btn { flex: 1 1 100%; }
+}
 .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .summary-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; padding: 12px; min-height: 72px; display: flex; flex-direction: column; justify-content: space-between; }
 .summary-card .value { font-size: 1.2rem; font-weight: 700; }
