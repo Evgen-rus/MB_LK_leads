@@ -194,32 +194,29 @@ function AdminClientsScreen({
   const start = (pageSafe - 1) * pageSize;
   const end = start + pageSize;
   const pageRows = filtered.slice(start, end);
+  const rangeLabel = range.from === range.to ? range.from : `${range.from} — ${range.to}`;
+  const selectedPendingTotal =
+    selectedClient != null
+      ? (selectedClient.pendingChanges ?? 0) +
+        (selectedClient.pendingCreates ?? 0) +
+        (selectedClient.pendingBlacklistAdds ?? 0) +
+        (selectedClient.pendingBlacklistDeletes ?? 0)
+      : 0;
+  const selectedBlacklistTotal =
+    selectedClient != null
+      ? (selectedClient.pendingBlacklistAdds ?? 0) + (selectedClient.pendingBlacklistDeletes ?? 0)
+      : 0;
+  const selectedAccrued =
+    selectedClient != null
+      ? (clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal
+      : 0;
 
   return (
     <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="table-card">
-        <div
-          className="table-toolbar"
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div
-            className="filters"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              flex: 1,
-              minWidth: 0,
-              flexWrap: 'wrap',
-            }}
-          >
+        <div className="table-toolbar toolbar-split">
+          <div className="filters toolbar-left">
             <DateRangeFilter
               from={range.from}
               to={range.to}
@@ -244,21 +241,12 @@ function AdminClientsScreen({
               style={{ minWidth: 220, flex: 1 }}
             />
           </div>
-          <div
-            className="actions"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              flexShrink: 0,
-              justifyContent: 'flex-end',
-            }}
-          >
+          <div className="actions toolbar-right">
             {loading ? (
-              <span className="sub">Загрузка…</span>
+              <span className="toolbar-meta">Загрузка…</span>
             ) : (
-              <span className="sub">
-                Всего клиентов: {clients.length}. Период: {range.from} — {range.to}
+              <span className="toolbar-meta">
+                Всего клиентов: {clients.length} · Период: {rangeLabel}
               </span>
             )}
             <button
@@ -308,111 +296,105 @@ function AdminClientsScreen({
               )}
               {!error &&
                 !loading &&
-                pageRows.map((row) => (
-                  <tr
-                    key={row.id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      setSelectedClientId(row.id);
-                    }}
-                  >
+                pageRows.map((row) => {
+                  const blacklistTotal = (row.pendingBlacklistAdds ?? 0) + (row.pendingBlacklistDeletes ?? 0);
+                  const hasEvents = (row.pendingChanges ?? 0) > 0 || (row.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
+                  const isDebt = row.remaining < 0;
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`client-row${isDebt ? ' row--debt' : ''}`}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setSelectedClientId(row.id);
+                      }}
+                    >
                     <td className="muted">{row.id}</td>
                     <td>
                       <div className="name">{row.name}</div>
-                      {(row.pendingChanges > 0 || row.pendingCreates > 0 || row.pendingBlacklistAdds > 0 || row.pendingBlacklistDeletes > 0) && (
-                        <div className="sub" style={{ marginTop: 2 }}>
-                      {row.pendingChanges > 0 && (
-                        <span
-                          className="badge badge--orange"
-                          style={{ fontWeight: 500, marginRight: 6 }}
-                        >
-                          Изменения: {row.pendingChanges}
-                        </span>
-                      )}
-                      {row.pendingCreates > 0 && (
-                        <span
-                          className="badge badge--gray"
-                          style={{ fontWeight: 500 }}
-                        >
-                          Создания: {row.pendingCreates}
-                        </span>
-                      )}
-                      {row.pendingBlacklistAdds > 0 && (
-                        <span
-                          className="badge badge--orange"
-                          style={{ fontWeight: 500, marginLeft: 6, marginRight: 6 }}
-                        >
-                          ЧС+: {row.pendingBlacklistAdds}
-                        </span>
-                      )}
-                      {row.pendingBlacklistDeletes > 0 && (
-                        <span
-                          className="badge badge--gray"
-                          style={{ fontWeight: 500 }}
-                        >
-                          ЧС−: {row.pendingBlacklistDeletes}
-                        </span>
-                      )}
+                      {hasEvents && (
+                        <div className="chip-stack">
+                          {row.pendingChanges > 0 && (
+                            <span className="badge badge--orange">Изменения: {row.pendingChanges}</span>
+                          )}
+                          {row.pendingCreates > 0 && (
+                            <span className="badge badge--gray">Создания: {row.pendingCreates}</span>
+                          )}
+                          {blacklistTotal > 0 && (
+                            <span className="badge badge--gray">ЧС: {blacklistTotal}</span>
+                          )}
                         </div>
                       )}
                     </td>
                     <td>{row.projectCount}</td>
                     <td>
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                      >
+                      {row.projectCount === 0 ? (
+                        <span className="badge badge--info">Нет проектов</span>
+                      ) : (
                         <span
                           style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: '50%',
-                            backgroundColor: STATUS_COLORS[row.status],
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
                           }}
-                        />
-                        <span className="sub" style={{ whiteSpace: 'nowrap' }}>
-                          {row.status}
+                        >
+                          <span
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              backgroundColor: STATUS_COLORS[row.status],
+                            }}
+                          />
+                          <span className="sub" style={{ whiteSpace: 'nowrap' }}>
+                            {row.status}
+                          </span>
                         </span>
-                      </span>
+                      )}
                     </td>
-                    <td>{row.remaining}</td>
+                    <td>
+                      <div className={isDebt ? 'remaining-negative' : undefined}>{row.remaining}</div>
+                      {isDebt && (
+                        <div className="sub" style={{ color: '#d23' }}>
+                          долг
+                        </div>
+                      )}
+                    </td>
                     <td>{row.totalVolume}</td>
                     <td>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      className="btn btn--secondary"
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedClientId(row.id);
-                      }}
-                    >
-                      Открыть
-                    </button>
-                    <button
-                      className="btn btn--primary"
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCardClientId(row.id);
-                        setCardClientData({
-                          name: row.name,
-                          inn: row.inn,
-                          phone: row.phone,
-                          contact: undefined,
-                          login: row.login,
-                        });
-                      }}
-                    >
-                      Карточка
-                    </button>
-                  </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          className="btn btn--secondary"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedClientId(row.id);
+                          }}
+                        >
+                          Смотреть
+                        </button>
+                        <button
+                          className="btn btn--primary"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCardClientId(row.id);
+                            setCardClientData({
+                              name: row.name,
+                              inn: row.inn,
+                              phone: row.phone,
+                              contact: undefined,
+                              login: row.login,
+                            });
+                          }}
+                        >
+                          Карточка
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -481,77 +463,42 @@ function AdminClientsScreen({
       </div>
 
       {selectedClient ? (
-        <div className="table-card">
-          <div
-            style={{
-              padding: 16,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              borderBottom: '1px solid #eee',
-            }}
-          >
+        <div className="table-card client-summary-card">
+          <div className="client-summary__header">
             <div>
-              <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
-              <div className="sub">
-                {selectedClient.name} (id: {selectedClient.id})
+              <div className="client-summary__title">{selectedClient.name}</div>
+              <div className="client-summary__meta">
+                <span className="sub">ID: {selectedClient.id}</span>
+                {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
+                <span className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: STATUS_COLORS[selectedClient.status],
+                    }}
+                  />
+                  {selectedClient.status}
+                </span>
               </div>
-              {(selectedClient.pendingChanges > 0 ||
-                selectedClient.pendingCreates > 0 ||
-                selectedClient.pendingBlacklistAdds > 0 ||
-                selectedClient.pendingBlacklistDeletes > 0) && (
-                <div className="sub" style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span>
-                    Необработанных событий:{' '}
-                    {selectedClient.pendingChanges +
-                      selectedClient.pendingCreates +
-                      selectedClient.pendingBlacklistAdds +
-                      selectedClient.pendingBlacklistDeletes}
-                  </span>
-                  {selectedClient.pendingChanges > 0 && (
-                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
-                      Изменения: {selectedClient.pendingChanges}
-                    </span>
-                  )}
-                  {selectedClient.pendingCreates > 0 && (
-                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
-                      Создания: {selectedClient.pendingCreates}
-                    </span>
-                  )}
-                  {selectedClient.pendingBlacklistAdds > 0 && (
-                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
-                      ЧС+: {selectedClient.pendingBlacklistAdds}
-                    </span>
-                  )}
-                  {selectedClient.pendingBlacklistDeletes > 0 && (
-                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
-                      ЧС−: {selectedClient.pendingBlacklistDeletes}
-                    </span>
-                  )}
-                </div>
-              )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="client-summary__actions">
               {onOpenClientChanges && (
                 <button
                   type="button"
                   className="btn btn--secondary"
-                  onClick={() =>
-                    onOpenClientChanges(selectedClient.id, selectedClient.name)
-                  }
+                  onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}
                 >
                   Изменения клиента
                   {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
-                    <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                    <span className="btn__meta">
                       {selectedClient.pendingChanges > 0 && (
-                        <span className="badge badge--orange" style={{ fontWeight: 500 }}>
-                          Изм: {selectedClient.pendingChanges}
-                        </span>
+                        <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
                       )}
                       {selectedClient.pendingCreates > 0 && (
-                        <span className="badge badge--gray" style={{ fontWeight: 500 }}>
-                          Созд: {selectedClient.pendingCreates}
-                        </span>
+                        <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
                       )}
                     </span>
                   )}
@@ -564,18 +511,9 @@ function AdminClientsScreen({
                   onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
                 >
                   События ЧС
-                  {(selectedClient.pendingBlacklistAdds > 0 || selectedClient.pendingBlacklistDeletes > 0) && (
-                    <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                      {selectedClient.pendingBlacklistAdds > 0 && (
-                        <span className="badge badge--orange" style={{ fontWeight: 500 }}>
-                          ЧС+: {selectedClient.pendingBlacklistAdds}
-                        </span>
-                      )}
-                      {selectedClient.pendingBlacklistDeletes > 0 && (
-                        <span className="badge badge--gray" style={{ fontWeight: 500 }}>
-                          ЧС−: {selectedClient.pendingBlacklistDeletes}
-                        </span>
-                      )}
+                  {selectedBlacklistTotal > 0 && (
+                    <span className="btn__meta">
+                      <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
                     </span>
                   )}
                 </button>
@@ -584,11 +522,9 @@ function AdminClientsScreen({
                 <button
                   type="button"
                   className="btn btn--secondary"
-                  onClick={() =>
-                    onOpenClientProjects(selectedClient.id, selectedClient.name)
-                  }
+                  onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}
                 >
-                  Перейти к проектам клиента
+                  Перейти к проектам
                 </button>
               )}
               <button
@@ -600,62 +536,29 @@ function AdminClientsScreen({
               </button>
               <button
                 type="button"
-                className="btn btn--secondary"
+                className="btn btn--primary"
                 onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
               >
                 Списать номера
               </button>
             </div>
           </div>
-          <div style={{ padding: 16, display: 'grid', gap: 12 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-              <div>
-                <div className="sub">ID</div>
-                <div>{selectedClient.id}</div>
+          <div className="summary-grid">
+            <div className="summary-card">
+              <div className="sub">Проектов</div>
+              <div className="value">{selectedClient.projectCount}</div>
+            </div>
+            <div className="summary-card">
+              <div className="sub">Объём за период</div>
+              <div className="value">{selectedClient.totalVolume}</div>
+            </div>
+            <div className="summary-card">
+              <div className="sub">Баланс</div>
+              <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>
+                Остаток: {selectedClient.remaining}
               </div>
-              <div>
-                <div className="sub">Название</div>
-                <div>{selectedClient.name}</div>
-              </div>
-              <div>
-                <div className="sub">Статус клиента</div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      backgroundColor: STATUS_COLORS[selectedClient.status],
-                    }}
-                  />
-                  <span>{selectedClient.status}</span>
-                </div>
-              </div>
-              <div>
-                <div className="sub">Кол-во проектов</div>
-                <div>{selectedClient.projectCount}</div>
-              </div>
-              <div>
-                <div className="sub">Остаток</div>
-                <div style={{ color: selectedClient.remaining < 0 ? '#d23' : undefined, fontWeight: 600 }}>
-                  {selectedClient.remaining}
-                </div>
-                {selectedClient.remaining < 0 && (
-                  <div className="sub" style={{ color: '#d23' }}>Долг</div>
-                )}
-              </div>
-              <div>
-                <div className="sub">Общий объём данных за период</div>
-                <div>{selectedClient.totalVolume}</div>
-              </div>
-              <div>
-                <div className="sub">Израсходовано всего</div>
-                <div>{selectedClient.usedTotal}</div>
-              </div>
-              <div>
-                <div className="sub">Начислено номеров</div>
-                <div>{(clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal}</div>
-              </div>
+              <div className="sub">Использовано: {selectedClient.usedTotal}</div>
+              <div className="sub">Начислено: {selectedAccrued}</div>
             </div>
           </div>
         </div>
@@ -718,5 +621,3 @@ function AdminClientsScreen({
 }
 
 export default AdminClientsScreen;
-
-

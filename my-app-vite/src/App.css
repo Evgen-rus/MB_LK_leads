@@ -1,5 +1,5 @@
 /* Базовая сетка и базовые компоненты страницы */
-.layout { display: flex; flex-direction: column; min-height: 100vh; background: #f7f7fb; color: #1d1d1f; }
+.layout { display: flex; flex-direction: column; min-height: 100vh; background: linear-gradient(180deg, #f6f2ff 0%, #f9f9ff 100%); color: #1d1d1f; }
 .content { display: flex; flex: 1; min-height: 100vh; }
 .main { flex: 1; padding: 16px 24px; overflow: auto; }
 .page-title { font-size: 1.125rem; font-weight: 600; margin: 12px 0 16px; }
@@ -34,7 +34,11 @@
 /* overflow: visible, чтобы выпадашки (даты, экспорт и т.п.) не обрезались по высоте карточки */
 .table-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: visible; }
 .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.table-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ececf2; }
+.table-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #ececf2; gap: 12px; flex-wrap: wrap; }
+.toolbar-split { align-items: flex-start; }
+.toolbar-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.toolbar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; justify-content: flex-end; color: #8b8fa3; font-size: 0.75rem; }
+.toolbar-meta { color: #8b8fa3; font-size: 0.75rem; white-space: nowrap; }
 /* Улучшенные контролы в тулбаре */
 .filters select { margin-right: 8px; padding: 8px 32px 8px 12px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6b76' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; transition: box-shadow .2s, border-color .2s; }
 .filters input[type="search"] { margin-right: 8px; padding: 8px 12px; border: 1px solid #dcdce6; border-radius: 10px; min-width: 240px; background: #fff; transition: box-shadow .2s, border-color .2s; }
@@ -120,18 +124,22 @@
 }
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
 .project-filter-panel select { min-width: 240px; }
-.table { width: 100%; border-collapse: collapse; min-width: 1100px; }
-.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 12px; background: #fafafc; border-bottom: 1px solid #ececf2; white-space: normal; }
-.table tbody td { padding: 10px 12px; border-bottom: 1px solid #e3e5ed; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0 8px; min-width: 1100px; }
+.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 12px; background: #f7f5ff; border-bottom: none; white-space: normal; }
+.table tbody tr { background: #ffffff; border: 1px solid #e6e6f2; border-radius: 12px; box-shadow: 0 8px 20px rgba(108,93,255,0.06); transition: background-color 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease; }
+.table tbody tr:hover { background: #f4f3ff; box-shadow: 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
+.table tbody tr.row--debt { border-left: 3px solid #ff5a5a; }
+.table tbody td { padding: 10px 12px; border-bottom: none; }
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
 .name { font-weight: 500; }
 .sub { font-size: 0.75rem; color: #8b8b98; }
 .muted { color: #8b8b98; }
-.badge { padding: 4px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
-.badge--green { background: #e6f7ed; color: #1d7a45; }
-.badge--orange { background: #fff3e6; color: #8a4b00; }
-.badge--gray { background: #f0f0f3; color: #5f616b; }
+.badge { padding: 0 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; height: 24px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; }
+.badge--green { background: #e6f7ed; color: #1d7a45; border-color: #b6e3cb; }
+.badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
+.badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
+.badge--info { background: #e7f0ff; color: #2f6fe4; border-color: #c7d9ff; }
 .icon-btn { background: transparent; border: none; cursor: pointer; font-size: 1rem; }
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .spacer { flex: 1; }
@@ -287,6 +295,20 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.chip-stack { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.client-row .remaining-negative { color: #d83a3a; font-weight: 700; }
+
+.client-summary-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.client-summary__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.client-summary__title { font-size: 1.1rem; font-weight: 700; margin: 0; }
+.client-summary__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.client-summary__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+.summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.summary-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; padding: 12px; min-height: 72px; display: flex; flex-direction: column; justify-content: space-between; }
+.summary-card .value { font-size: 1.2rem; font-weight: 700; }
+.summary-card .value--negative { color: #d83a3a; }
+.btn__meta { display: inline-flex; gap: 6px; margin-left: 8px; align-items: center; }
 
 /* ——— Мобильная адаптация ——— */
 @media (max-width: 768px) {
