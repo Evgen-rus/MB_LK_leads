@@ -69,6 +69,8 @@ function App() {
   const [adminProjectsClientId, setAdminProjectsClientId] = useState<number | null>(null);
   const [adminProjectsClientName, setAdminProjectsClientName] = useState<string | null>(null);
   const [adminProjectsFocus, setAdminProjectsFocus] = useState<AdminProjectsFocus>('projects');
+  // Состояние только для админов: фильтр клиента в «Черном списке»
+  const [adminBlacklistClientId, setAdminBlacklistClientId] = useState<number | null>(null);
   // Состояние для баланса: выбранный клиент и какая модалка открыть
   const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
@@ -344,6 +346,13 @@ function App() {
                 setAdminProjectsFocus('changes');
                 setView('projects');
               }}
+              // Быстрый переход к событиям ЧС клиента во вкладке «Проекты»
+              onOpenClientBlacklistChanges={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('blacklist-changes');
+                setView('projects');
+              }}
               onOpenClientBalance={(clientId, _clientName, action) => {
                 setAdminBalanceClientId(clientId);
                 setAdminBalanceModalType(action);
@@ -356,6 +365,15 @@ function App() {
                 initialClientId={adminProjectsClientId ?? undefined}
                 initialClientName={adminProjectsClientName ?? undefined}
                 initialFocus={adminProjectsFocus}
+                onOpenClientBlacklist={({ clientId }) => {
+                  setAdminBlacklistClientId(clientId);
+                  setView('blacklist');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'blacklist');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
                 onOpenLeads={({ clientId, projectId, fromDate, toDate }) => {
                   setAdminLeadsPrefill({ clientId, projectId, from: fromDate, to: toDate });
                   setView('leads');
@@ -408,7 +426,7 @@ function App() {
           ) : view === 'support' ? (
             <Support />
           ) : (
-            isAdmin ? <AdminBlacklist /> : <Blacklist />
+            isAdmin ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
           )}
         </main>
       </div>

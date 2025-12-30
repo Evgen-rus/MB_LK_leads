@@ -273,7 +273,7 @@ class AdminChangeOut(BaseModel):
     projectName: Optional[str] = None
     batchId: Optional[str] = None
     createdAt: str
-    action: Literal['create', 'update', 'delete'] = 'update'
+    action: Literal['create', 'update', 'delete', 'blacklist_add', 'blacklist_delete'] = 'update'
     description: str
     status: Literal['pending', 'done'] = 'pending'
     projectSnapshot: Optional[dict] = None
@@ -290,6 +290,8 @@ class AdminClientChangesSummaryItem(BaseModel):
     user: UserInfo
     pendingChanges: int
     pendingCreates: int = 0
+    pendingBlacklistAdds: int = 0
+    pendingBlacklistDeletes: int = 0
     pendingTotal: int = 0
 
 

@@ -21,9 +21,10 @@ import {
 } from '../api';
 import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';
+import AdminClientBlacklistChanges from './AdminClientBlacklistChanges';
 import DateRangeFilter from './DateRangeFilter';
 
-export type AdminProjectsFocus = 'projects' | 'changes' | null;
+export type AdminProjectsFocus = 'projects' | 'changes' | 'blacklist-changes' | null;
 
 export type AdminProjectsScreenProps = {
   // Опционально: предварительно выбранный клиент (например, при переходе из экрана «Клиенты»)
@@ -38,6 +39,7 @@ export type AdminProjectsScreenProps = {
     fromDate: string;
     toDate: string;
   }) => void;
+  onOpenClientBlacklist?: (params: { clientId: number; clientName: string }) => void;
 };
 
 type ClientOption = {
@@ -68,6 +70,7 @@ function AdminProjectsScreen({
   initialClientName = null,
   initialFocus = 'projects',
   onOpenLeads,
+  onOpenClientBlacklist,
 }: AdminProjectsScreenProps) {
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
@@ -75,6 +78,7 @@ function AdminProjectsScreen({
   const [projectChanges, setProjectChanges] = useState<Record<number, number>>({});
   const [projectCreates, setProjectCreates] = useState<Record<number, number>>({});
   const [clientPendingSummary, setClientPendingSummary] = useState<{ updates: number; creates: number; total: number }>({ updates: 0, creates: 0, total: 0 });
+  const [clientBlacklistPendingSummary, setClientBlacklistPendingSummary] = useState<{ adds: number; deletes: number; total: number }>({ adds: 0, deletes: 0, total: 0 });
 
   const [selectedClientId, setSelectedClientId] = useState<number | null>(
     initialClientId ?? null,
@@ -133,6 +137,7 @@ function AdminProjectsScreen({
       setProjectChanges({});
       setProjectCreates({});
       setClientPendingSummary({ updates: 0, creates: 0, total: 0 });
+      setClientBlacklistPendingSummary({ adds: 0, deletes: 0, total: 0 });
       return;
     }
     (async () => {
@@ -168,6 +173,15 @@ function AdminProjectsScreen({
           creates: createsCount,
           total: updatesCount + createsCount,
         });
+
+        // события черного списка: отдельно считаем добавления и удаления
+        const [respBlAdd, respBlDel] = await Promise.all([
+          fetchAdminClientChanges(selectedClientId, { actions: ['blacklist_add'] }),
+          fetchAdminClientChanges(selectedClientId, { actions: ['blacklist_delete'] }),
+        ]);
+        const adds = (respBlAdd?.items || []).filter((c) => ((c.status as AdminChangeStatus | undefined) ?? 'pending') !== 'done').length;
+        const deletes = (respBlDel?.items || []).filter((c) => ((c.status as AdminChangeStatus | undefined) ?? 'pending') !== 'done').length;
+        setClientBlacklistPendingSummary({ adds, deletes, total: adds + deletes });
       } catch (err: unknown) {
         console.error(err);
       }
@@ -283,6 +297,27 @@ function AdminProjectsScreen({
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              className={focus === 'blacklist-changes' ? 'btn btn--primary' : 'btn btn--secondary'}
+              onClick={() => setFocus('blacklist-changes')}
+            >
+              События ЧС
+              {(clientBlacklistPendingSummary.adds > 0 || clientBlacklistPendingSummary.deletes > 0) && (
+                <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  {clientBlacklistPendingSummary.adds > 0 && (
+                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                      ЧС+: {clientBlacklistPendingSummary.adds}
+                    </span>
+                  )}
+                  {clientBlacklistPendingSummary.deletes > 0 && (
+                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                      ЧС−: {clientBlacklistPendingSummary.deletes}
+                    </span>
+                  )}
+                </span>
+              )}
+            </button>
           </div>
         )}
       </div>
@@ -347,6 +382,30 @@ function AdminProjectsScreen({
                   const updates = Math.max(0, (prev.updates ?? 0) - processed);
                   const total = Math.max(0, (prev.total ?? 0) - processed);
                   return { ...prev, updates, total };
+                });
+              }}
+            />
+          )}
+
+          {focus === 'blacklist-changes' && (
+            <AdminClientBlacklistChanges
+              clientId={selectedClientId}
+              clientName={selectedClientName}
+              onOpenBlacklist={() => onOpenClientBlacklist?.({ clientId: selectedClientId, clientName: selectedClientName })}
+              onResolvedChange={({ change, processed = 1 }) => {
+                // Обновляем сводку по ЧС
+                setClientBlacklistPendingSummary((prev) => {
+                  if (change.action === 'blacklist_add') {
+                    const adds = Math.max(0, (prev.adds ?? 0) - processed);
+                    const total = Math.max(0, (prev.total ?? 0) - processed);
+                    return { ...prev, adds, total };
+                  }
+                  if (change.action === 'blacklist_delete') {
+                    const deletes = Math.max(0, (prev.deletes ?? 0) - processed);
+                    const total = Math.max(0, (prev.total ?? 0) - processed);
+                    return { ...prev, deletes, total };
+                  }
+                  return prev;
                 });
               }}
             />

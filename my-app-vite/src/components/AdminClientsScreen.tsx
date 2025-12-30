@@ -23,6 +23,7 @@ import AdminClientCardModal from './AdminClientCardModal';
 export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
+  onOpenClientBlacklistChanges?: (clientId: number, clientName: string) => void;
   onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit') => void;
 };
 
@@ -40,6 +41,8 @@ type ClientRow = {
   usedTotal: number;
   pendingChanges: number;
   pendingCreates: number;
+  pendingBlacklistAdds: number;
+  pendingBlacklistDeletes: number;
   inn?: string | null;
   phone?: string | null;
 };
@@ -78,6 +81,7 @@ function deriveStatus(row: ClientRow): ClientStatus {
 function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
+  onOpenClientBlacklistChanges,
   onOpenClientBalance,
 }: AdminClientsScreenProps) {
   const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
@@ -106,15 +110,19 @@ function AdminClientsScreen({
         setError(null);
         const [summary, combinedSummary] = await Promise.all([
           fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
-          fetchAdminChangesSummary({ actions: ['create', 'update', 'delete'] }).catch(
+          fetchAdminChangesSummary({ actions: ['create', 'update', 'delete', 'blacklist_add', 'blacklist_delete'] }).catch(
             () => ({ items: [] } as AdminClientChangesSummaryListOut),
           ),
         ]);
         const pendingMap: Record<number, number> = {};
         const createsMap: Record<number, number> = {};
+        const blAddsMap: Record<number, number> = {};
+        const blDeletesMap: Record<number, number> = {};
         combinedSummary.items.forEach((i) => {
           pendingMap[i.user.id] = i.pendingChanges ?? 0;
           createsMap[i.user.id] = i.pendingCreates ?? 0;
+          blAddsMap[i.user.id] = i.pendingBlacklistAdds ?? 0;
+          blDeletesMap[i.user.id] = i.pendingBlacklistDeletes ?? 0;
         });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
           const profile: ClientProfile | null | undefined = it.profile;
@@ -130,6 +138,8 @@ function AdminClientsScreen({
             usedTotal: it.usedTotal,
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
             pendingCreates: createsMap[it.user.id] ?? it.pendingCreates ?? 0,
+            pendingBlacklistAdds: blAddsMap[it.user.id] ?? 0,
+            pendingBlacklistDeletes: blDeletesMap[it.user.id] ?? 0,
             inn: profile?.inn,
             phone: profile?.phone,
             status: 'Активен',
@@ -309,7 +319,7 @@ function AdminClientsScreen({
                     <td className="muted">{row.id}</td>
                     <td>
                       <div className="name">{row.name}</div>
-                      {(row.pendingChanges > 0 || row.pendingCreates > 0) && (
+                      {(row.pendingChanges > 0 || row.pendingCreates > 0 || row.pendingBlacklistAdds > 0 || row.pendingBlacklistDeletes > 0) && (
                         <div className="sub" style={{ marginTop: 2 }}>
                       {row.pendingChanges > 0 && (
                         <span
@@ -325,6 +335,22 @@ function AdminClientsScreen({
                           style={{ fontWeight: 500 }}
                         >
                           Создания: {row.pendingCreates}
+                        </span>
+                      )}
+                      {row.pendingBlacklistAdds > 0 && (
+                        <span
+                          className="badge badge--orange"
+                          style={{ fontWeight: 500, marginLeft: 6, marginRight: 6 }}
+                        >
+                          ЧС+: {row.pendingBlacklistAdds}
+                        </span>
+                      )}
+                      {row.pendingBlacklistDeletes > 0 && (
+                        <span
+                          className="badge badge--gray"
+                          style={{ fontWeight: 500 }}
+                        >
+                          ЧС−: {row.pendingBlacklistDeletes}
                         </span>
                       )}
                         </div>
@@ -470,10 +496,17 @@ function AdminClientsScreen({
               <div className="sub">
                 {selectedClient.name} (id: {selectedClient.id})
               </div>
-              {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+              {(selectedClient.pendingChanges > 0 ||
+                selectedClient.pendingCreates > 0 ||
+                selectedClient.pendingBlacklistAdds > 0 ||
+                selectedClient.pendingBlacklistDeletes > 0) && (
                 <div className="sub" style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span>
-                    Необработанных событий: {selectedClient.pendingChanges + selectedClient.pendingCreates}
+                    Необработанных событий:{' '}
+                    {selectedClient.pendingChanges +
+                      selectedClient.pendingCreates +
+                      selectedClient.pendingBlacklistAdds +
+                      selectedClient.pendingBlacklistDeletes}
                   </span>
                   {selectedClient.pendingChanges > 0 && (
                     <span className="badge badge--orange" style={{ fontWeight: 500 }}>
@@ -483,6 +516,16 @@ function AdminClientsScreen({
                   {selectedClient.pendingCreates > 0 && (
                     <span className="badge badge--gray" style={{ fontWeight: 500 }}>
                       Создания: {selectedClient.pendingCreates}
+                    </span>
+                  )}
+                  {selectedClient.pendingBlacklistAdds > 0 && (
+                    <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                      ЧС+: {selectedClient.pendingBlacklistAdds}
+                    </span>
+                  )}
+                  {selectedClient.pendingBlacklistDeletes > 0 && (
+                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                      ЧС−: {selectedClient.pendingBlacklistDeletes}
                     </span>
                   )}
                 </div>
@@ -508,6 +551,29 @@ function AdminClientsScreen({
                       {selectedClient.pendingCreates > 0 && (
                         <span className="badge badge--gray" style={{ fontWeight: 500 }}>
                           Созд: {selectedClient.pendingCreates}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              )}
+              {onOpenClientBlacklistChanges && (
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
+                >
+                  События ЧС
+                  {(selectedClient.pendingBlacklistAdds > 0 || selectedClient.pendingBlacklistDeletes > 0) && (
+                    <span className="sub" style={{ marginLeft: 8, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                      {selectedClient.pendingBlacklistAdds > 0 && (
+                        <span className="badge badge--orange" style={{ fontWeight: 500 }}>
+                          ЧС+: {selectedClient.pendingBlacklistAdds}
+                        </span>
+                      )}
+                      {selectedClient.pendingBlacklistDeletes > 0 && (
+                        <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                          ЧС−: {selectedClient.pendingBlacklistDeletes}
                         </span>
                       )}
                     </span>

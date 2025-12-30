@@ -231,17 +231,16 @@ def list_projects_paginated(
     return schemas.ProjectListOut(items=items, total=total)
 
 
-def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistoryItem:
+def _audit_event_compact_description(ev: models.AuditEvent) -> str:
     """
-    Преобразует AuditEvent в компактный элемент истории для фронтенда.
-    Здесь мы формируем человекочитаемое краткое описание изменения.
-    """
-    created_at_str = ev.created_at.strftime('%Y-%m-%d %H:%M:%S')
-    action = ev.action or 'update'
+    Человекочитаемое описание события аудита для фронтенда.
 
-    # Краткое текстовое описание
-    desc: str
-    if action == 'create':
+    Важно: это описание используется и для админского списка изменений клиента,
+    поэтому поддерживаем не только project create/update/delete, но и blacklist_*.
+    """
+    action = ev.action or "update"
+
+    if action == "create":
         name = None
         try:
             if isinstance(ev.after, dict):
@@ -249,28 +248,72 @@ def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistor
         except Exception:
             name = None
         if name:
-            desc = f'Создан проект "{name}"'
-        else:
-            desc = "Создан проект"
-    elif action == 'update':
-        # Пытаемся построить детальное описание изменений.
+            return f'Создан проект "{name}"'
+        return "Создан проект"
+
+    if action == "update":
         before = ev.before or {}
         after = ev.after or {}
         if isinstance(before, dict) and isinstance(after, dict):
             diff = _diff_dict(before, after)
-            desc = _format_changes_compact(diff)
-        else:
-            fields = ev.changed_fields or []
-            if isinstance(fields, list) and fields:
-                fields_str = ", ".join(str(f) for f in fields)
-                desc = f"Обновлены поля: {fields_str}"
-            else:
-                desc = "Обновлены параметры проекта"
-    elif action == 'delete':
-        desc = "Проект удалён"
-    else:
-        # На будущее: другие типы событий (например, blacklist_*).
-        desc = action
+            return _format_changes_compact(diff)
+        fields = ev.changed_fields or []
+        if isinstance(fields, list) and fields:
+            fields_str = ", ".join(str(f) for f in fields)
+            return f"Обновлены поля: {fields_str}"
+        return "Обновлены параметры проекта"
+
+    if action == "delete":
+        return "Проект удалён"
+
+    if action == "blacklist_add":
+        # after: {"phones": [...], "count": N}
+        count = None
+        phones_preview = None
+        try:
+            if isinstance(ev.after, dict):
+                raw_count = ev.after.get("count")
+                if isinstance(raw_count, int):
+                    count = raw_count
+                raw_phones = ev.after.get("phones")
+                if isinstance(raw_phones, list):
+                    phones = [str(x) for x in raw_phones if x is not None]
+                    if phones:
+                        phones_preview = ", ".join(phones[:3]) + ("…" if len(phones) > 3 else "")
+        except Exception:
+            count = None
+            phones_preview = None
+        desc = f"ЧС: добавлено телефонов: {count}" if count is not None else "ЧС: добавлены телефоны"
+        if phones_preview:
+            desc += f" ({phones_preview})"
+        return desc
+
+    if action == "blacklist_delete":
+        # before: {"phone": "..."}
+        phone = None
+        try:
+            if isinstance(ev.before, dict):
+                raw_phone = ev.before.get("phone")
+                if isinstance(raw_phone, str) and raw_phone.strip():
+                    phone = raw_phone.strip()
+        except Exception:
+            phone = None
+        return f"ЧС: удалён телефон {phone}" if phone else "ЧС: удалён телефон"
+
+    # На будущее: другие типы событий.
+    return action
+
+
+def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistoryItem:
+    """
+    Преобразует AuditEvent в компактный элемент истории для фронтенда.
+    Здесь мы формируем человекочитаемое краткое описание изменения.
+    """
+    created_at_str = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    action_raw = ev.action or "update"
+    # История проекта на фронте ожидает только create/update/delete.
+    action = action_raw if action_raw in ("create", "update", "delete") else "update"
+    desc = _audit_event_compact_description(ev)
 
     return schemas.ProjectHistoryItem(
         id=ev.id,
@@ -1084,57 +1127,102 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
     Считаем только события, созданные НЕ админом (user_id != 1),
     с action в ['create','update','delete'] и admin_processed_at IS NULL.
     """
-    allowed_actions = {"create", "update", "delete"}
-    action_filter = [a for a in (actions or ["create", "update", "delete"]) if a in allowed_actions]
+    allowed_actions = {"create", "update", "delete", "blacklist_add", "blacklist_delete"}
+    default_actions = ["create", "update", "delete", "blacklist_add", "blacklist_delete"]
+    action_filter = [a for a in (actions or default_actions) if a in allowed_actions]
     if not action_filter:
-        action_filter = ["create", "update", "delete"]
+        action_filter = default_actions
+    include_creates = "create" in action_filter
+    include_updates = any(a in action_filter for a in ("update", "delete"))
+    include_bl_add = "blacklist_add" in action_filter
+    include_bl_del = "blacklist_delete" in action_filter
     # Собираем пары (user_id, login, count)
     # pending update/delete
-    rows_updates = db.execute(
-        select(
-            models.User.id,
-            models.User.login,
-            func.count(models.AuditEvent.id),
-        )
-        .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-        .where(models.User.id != 1)
-        .where(models.AuditEvent.action.in_([a for a in action_filter if a != "create"]))
-        .where(models.AuditEvent.admin_processed_at.is_(None))
-        .group_by(models.User.id, models.User.login)
-    ).all()
+    rows_updates = []
+    if include_updates:
+        rows_updates = db.execute(
+            select(
+                models.User.id,
+                models.User.login,
+                func.count(models.AuditEvent.id),
+            )
+            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+            .where(models.User.id != 1)
+            .where(models.AuditEvent.action.in_([a for a in action_filter if a in ("update", "delete")]))
+            .where(models.AuditEvent.admin_processed_at.is_(None))
+            .group_by(models.User.id, models.User.login)
+        ).all()
 
     # pending create
-    rows_creates = db.execute(
-        select(
-            models.User.id,
-            models.User.login,
-            func.count(models.AuditEvent.id),
-        )
-        .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-        .where(models.User.id != 1)
-        .where(models.AuditEvent.action == "create")
-        .where(models.AuditEvent.admin_processed_at.is_(None))
-        .group_by(models.User.id, models.User.login)
-    ).all()
+    rows_creates = []
+    if include_creates:
+        rows_creates = db.execute(
+            select(
+                models.User.id,
+                models.User.login,
+                func.count(models.AuditEvent.id),
+            )
+            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+            .where(models.User.id != 1)
+            .where(models.AuditEvent.action == "create")
+            .where(models.AuditEvent.admin_processed_at.is_(None))
+            .group_by(models.User.id, models.User.login)
+        ).all()
+
+    rows_bl_add = []
+    if include_bl_add:
+        rows_bl_add = db.execute(
+            select(
+                models.User.id,
+                models.User.login,
+                func.count(models.AuditEvent.id),
+            )
+            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+            .where(models.User.id != 1)
+            .where(models.AuditEvent.action == "blacklist_add")
+            .where(models.AuditEvent.admin_processed_at.is_(None))
+            .group_by(models.User.id, models.User.login)
+        ).all()
+
+    rows_bl_del = []
+    if include_bl_del:
+        rows_bl_del = db.execute(
+            select(
+                models.User.id,
+                models.User.login,
+                func.count(models.AuditEvent.id),
+            )
+            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+            .where(models.User.id != 1)
+            .where(models.AuditEvent.action == "blacklist_delete")
+            .where(models.AuditEvent.admin_processed_at.is_(None))
+            .group_by(models.User.id, models.User.login)
+        ).all()
 
     creates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_creates}
     updates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_updates}
+    bl_add_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_bl_add}
+    bl_del_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_bl_del}
 
     # Собираем все user_ids, которые имеют либо обновления, либо создания
-    all_uids = set(creates_map.keys()) | set(updates_map.keys())
+    all_uids = set(creates_map.keys()) | set(updates_map.keys()) | set(bl_add_map.keys()) | set(bl_del_map.keys())
 
     items: List[schemas.AdminClientChangesSummaryItem] = []
     for uid in all_uids:
         upd_login, upd_cnt = updates_map.get(uid, (None, 0))
         crt_login, crt_cnt = creates_map.get(uid, (None, 0))
-        login = upd_login or crt_login or ""
+        add_login, add_cnt = bl_add_map.get(uid, (None, 0))
+        del_login, del_cnt = bl_del_map.get(uid, (None, 0))
+        login = upd_login or crt_login or add_login or del_login or ""
         user_info = schemas.UserInfo(id=int(uid), login=login)
-        total = upd_cnt + crt_cnt
+        total = upd_cnt + crt_cnt + add_cnt + del_cnt
         items.append(
             schemas.AdminClientChangesSummaryItem(
                 user=user_info,
                 pendingChanges=upd_cnt,
                 pendingCreates=crt_cnt,
+                pendingBlacklistAdds=add_cnt,
+                pendingBlacklistDeletes=del_cnt,
                 pendingTotal=total,
             )
         )
@@ -1299,10 +1387,11 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
             items=[],
         )
 
-    allowed_actions = {"create", "update", "delete"}
-    action_filter = [a for a in (actions or ["create", "update", "delete"]) if a in allowed_actions]
+    allowed_actions = {"create", "update", "delete", "blacklist_add", "blacklist_delete"}
+    default_actions = ["create", "update", "delete", "blacklist_add", "blacklist_delete"]
+    action_filter = [a for a in (actions or default_actions) if a in allowed_actions]
     if not action_filter:
-        action_filter = ["create", "update", "delete"]
+        action_filter = default_actions
 
     # Берём только "проектные" события клиента, которые ещё не обработаны админом
     rows = db.execute(
@@ -1316,8 +1405,8 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
 
     items: List[schemas.AdminChangeOut] = []
     for ev, proj_name in rows:
-        # Используем уже существующую утилиту для человекочитаемого описания
-        hist_item = _audit_event_to_history_item(ev)
+        created_at_str = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        description = _audit_event_compact_description(ev)
         snapshot = None
         try:
             snapshot = ev.after or ev.before
@@ -1330,9 +1419,9 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
                 projectId=ev.project_id,
                 projectName=proj_name,
                 batchId=getattr(ev, "batch_id", None),
-                createdAt=hist_item.createdAt,
+                createdAt=created_at_str,
                 action=ev.action or "update",  # type: ignore[arg-type]
-                description=hist_item.description,
+                description=description,
                 status=status,  # type: ignore[arg-type]
                 projectSnapshot=snapshot,
                 beforeSnapshot=ev.before,

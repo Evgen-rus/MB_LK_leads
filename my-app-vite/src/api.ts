@@ -541,6 +541,8 @@ export async function fetchAdminReports(params?: {
 // -------- Админские изменения клиентов --------
 export type AdminChangeStatus = 'pending' | 'done';
 
+export type AdminChangeAction = 'create' | 'update' | 'delete' | 'blacklist_add' | 'blacklist_delete';
+
 export type AdminChange = {
   id: number;
   projectId?: number | null;
@@ -551,7 +553,7 @@ export type AdminChange = {
   // Это поле формируется на фронте (из projectSnapshot), бэк его не обязан присылать.
   sourceLimits?: Record<string, number>;
   createdAt: string;
-  action: 'create' | 'update' | 'delete';
+  action: AdminChangeAction;
   description: string;
   status?: AdminChangeStatus;
   projectSnapshot?: Record<string, unknown> | null;
@@ -568,6 +570,8 @@ export type AdminClientChangesSummaryItem = {
   user: UserInfo;
   pendingChanges: number;
   pendingCreates: number;
+  pendingBlacklistAdds: number;
+  pendingBlacklistDeletes: number;
   pendingTotal: number;
 };
 
@@ -575,14 +579,14 @@ export type AdminClientChangesSummaryListOut = {
   items: AdminClientChangesSummaryItem[];
 };
 
-export async function fetchAdminChangesSummary(params?: { actions?: Array<'create' | 'update' | 'delete'> }): Promise<AdminClientChangesSummaryListOut> {
+export async function fetchAdminChangesSummary(params?: { actions?: AdminChangeAction[] }): Promise<AdminClientChangesSummaryListOut> {
   const q = new URLSearchParams();
   if (params?.actions && params.actions.length) q.set('actions', params.actions.join(','));
   const qs = q.toString();
   return http<AdminClientChangesSummaryListOut>(`/admin/changes/summary${qs ? `?${qs}` : ''}`);
 }
 
-export async function fetchAdminClientChanges(clientId: number, params?: { actions?: Array<'create' | 'update' | 'delete'> }): Promise<AdminClientChangesOut> {
+export async function fetchAdminClientChanges(clientId: number, params?: { actions?: AdminChangeAction[] }): Promise<AdminClientChangesOut> {
   const q = new URLSearchParams();
   if (params?.actions && params.actions.length) q.set('actions', params.actions.join(','));
   const qs = q.toString();

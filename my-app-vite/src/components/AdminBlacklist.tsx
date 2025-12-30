@@ -3,9 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAdminBlacklist, fetchAdminUsers, type AdminBlacklistPhone, type UserInfo } from '../api';
 
-function AdminBlacklist() {
+type AdminBlacklistProps = {
+  initialUserId?: number | null;
+};
+
+function AdminBlacklist({ initialUserId = null }: AdminBlacklistProps) {
   const [users, setUsers] = useState<UserInfo[]>([]);
-  const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
+  const [userIdFilter, setUserIdFilter] = useState<number | null>(initialUserId ?? null);
   const [rows, setRows] = useState<AdminBlacklistPhone[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
