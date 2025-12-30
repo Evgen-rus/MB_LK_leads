@@ -61,7 +61,11 @@ function AdminClientCardModal({
       try {
         localStorage.setItem('access_token', resp.access_token);
         sessionStorage.setItem('access_token', resp.access_token);
-        document.cookie = `access_token=${resp.access_token}; path=/; secure; samesite=strict`;
+        // В dev по HTTP secure-cookie не отправляется браузером, поэтому не форсируем secure.
+        // Также Strict может ломать часть сценариев — Lax достаточно.
+        const parts = [`access_token=${encodeURIComponent(resp.access_token)}`, 'path=/', 'samesite=lax'];
+        if (window.location.protocol === 'https:') parts.push('secure');
+        document.cookie = parts.join('; ');
       } catch {
         /* ignore */
       }

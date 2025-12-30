@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   fetchAdminReports,
   fetchAdminUsers,
-  buildLeadsExportUrl,
   createAdminReport,
+  downloadLeadsExport,
   type AdminReportItem,
   type UserInfo,
 } from '../api';
@@ -197,15 +197,14 @@ function AdminReports() {
                     <button
                       className="btn btn--secondary"
                       onClick={() => {
-                        const url = buildLeadsExportUrl({
+                        void downloadLeadsExport({
                           projectIds,
                           fromDate: r.fromDate,
                           toDate: r.toDate,
                           format: (r.format || 'csv') as 'csv' | 'xlsx',
                           source: 'reports',
-                        clientId: r.client?.id ?? undefined,
+                          clientId: r.client?.id ?? undefined,
                         });
-                        window.open(url, '_blank');
                       }}
                     >
                       Скачать

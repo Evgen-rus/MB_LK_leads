@@ -25,6 +25,41 @@ const API_BASE =
   // 3) Фолбэк для локальной разработки
   'http://localhost:8000';
 
+function buildAccessTokenCookie(token: string, opts?: { expires?: Date }): string {
+  // Cookie используется только для скачивания файлов через window.open,
+  // потому что в таком запросе нельзя передать Authorization-заголовок.
+  //
+  // Secure-cookie НЕ отправляется браузером по http://, поэтому добавляем Secure
+  // только если сайт открыт по https://.
+  const parts: string[] = [`access_token=${encodeURIComponent(token)}`, 'path=/'];
+
+  if (opts?.expires) {
+    parts.push(`expires=${opts.expires.toUTCString()}`);
+  }
+
+  // Для скачивания достаточно Lax: cookie отправится при переходе/открытии вкладки на наш домен.
+  // Strict иногда ломает сценарии (например, переход из внешнего домена).
+  parts.push('samesite=lax');
+
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    parts.push('secure');
+  }
+
+  return parts.join('; ');
+}
+
+function setAccessTokenCookie(token: string): void {
+  document.cookie = buildAccessTokenCookie(token);
+}
+
+function clearAccessTokenCookie(): void {
+  const expired = new Date(0);
+  // Стираем и "secure", и "не secure" варианты (secure зависит от протокола страницы).
+  document.cookie = buildAccessTokenCookie('', { expires: expired });
+  // На всякий случай пробуем ещё и самым простым способом.
+  document.cookie = `access_token=; path=/; expires=${expired.toUTCString()}; samesite=lax`;
+}
+
 export type Day = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 export type CollectionSource = 'Сайты'|'Звонки'|'СМС'|'Ретросайты'|'Ретрозвонки'|'Пересечение';
 
@@ -55,6 +90,56 @@ export type ProjectUpdatePayload = {
   smsSenderName?: string;
   days: Day[];
 };
+
+function inferFilenameFromContentDisposition(header: string | null, fallback: string): string {
+  if (!header) return fallback;
+  // Пробуем вытащить filename=... (простые случаи).
+  const m = header.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+  if (!m) return fallback;
+  try {
+    return decodeURIComponent(m[1].trim().replace(/"$/g, '')) || fallback;
+  } catch {
+    return m[1].trim().replace(/"$/g, '') || fallback;
+  }
+}
+
+async function downloadByUrl(url: string, filenameFallback: string): Promise<void> {
+  const token = localStorage.getItem('access_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    // Пытаемся вытащить detail из JSON (как делает http()).
+    const text = await res.text().catch(() => '');
+    let msg = res.statusText || 'Ошибка скачивания';
+    try {
+      const j = text ? (JSON.parse(text) as { detail?: string; message?: string }) : null;
+      msg = j?.detail || j?.message || text || msg;
+    } catch {
+      msg = text || msg;
+    }
+    const err: HttpError = Object.assign(new Error(msg), { status: res.status, errorDetail: msg });
+    throw err;
+  }
+
+  const blob = await res.blob();
+  const filename = inferFilenameFromContentDisposition(res.headers.get('content-disposition'), filenameFallback);
+
+  const href = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Освобождаем объектный URL чуть позже, чтобы браузер успел начать скачивание.
+    window.setTimeout(() => URL.revokeObjectURL(href), 5_000);
+  }
+}
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -104,7 +189,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       // токен недействителен — очищаем и кидаем 401
       try {
         localStorage.removeItem('access_token');
-        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
+        clearAccessTokenCookie();
       } catch (err) {
         console.warn('Не удалось очистить токен', err);
       }
@@ -192,14 +277,14 @@ export async function login(username: string, password: string): Promise<void> {
   const data = await resp.json() as { access_token: string };
   localStorage.setItem('access_token', data.access_token);
   // Сохраняем токен в cookies для безопасного экспорта файлов
-  document.cookie = `access_token=${data.access_token}; path=/; secure; samesite=strict`;
+  setAccessTokenCookie(data.access_token);
 }
 
 export async function logout(): Promise<void> {
   try {
     localStorage.removeItem('access_token');
     // Очищаем cookie с токеном
-    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; secure; samesite=strict';
+    clearAccessTokenCookie();
   } catch (err) {
     console.warn('Не удалось очистить токен при выходе', err);
   }
@@ -325,6 +410,20 @@ export function buildLeadsExportUrl(params: {
   // Токен теперь передается через cookies, а не в URL (для безопасности)
   // Сервер автоматически прочитает токен из cookies при скачивании файла
   return `${API_BASE}/leads/export?${q.toString()}`;
+}
+
+export async function downloadLeadsExport(params: {
+  projectIds?: number[];
+  sources?: string[];
+  fromDate: string;
+  toDate: string;
+  format: 'csv' | 'xlsx';
+  source?: 'leads' | 'reports';
+  clientId?: number;
+}): Promise<void> {
+  const url = buildLeadsExportUrl(params);
+  const fallbackName = `leads_${params.fromDate}_${params.toDate}.${params.format}`;
+  await downloadByUrl(url, fallbackName);
 }
 
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchReports, createReport, type ReportItem, buildLeadsExportUrl } from '../api';
+import { fetchReports, createReport, type ReportItem, downloadLeadsExport } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import ExportDropdown from './ExportDropdown';
 
@@ -139,14 +139,13 @@ function Reports() {
                     <button
                       className="btn btn--secondary"
                       onClick={() => {
-                        const url = buildLeadsExportUrl({
+                        void downloadLeadsExport({
                           projectIds,
                           fromDate: r.fromDate,
                           toDate: r.toDate,
                           format: (r.format || 'csv') as 'csv' | 'xlsx',
                           source: 'reports',
                         });
-                        window.open(url, '_blank');
                       }}
                     >
                       Скачать

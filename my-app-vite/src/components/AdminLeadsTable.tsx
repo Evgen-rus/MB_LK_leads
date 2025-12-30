@@ -1,7 +1,7 @@
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с названием и id
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, buildLeadsExportUrl, createAdminReport, type AdminLead, type UserInfo, type AdminProject } from '../api';
+import { fetchAdminLeads, fetchAdminUsers, fetchAdminProjects, createAdminReport, downloadLeadsExport, type AdminLead, type UserInfo, type AdminProject } from '../api';
 import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
 import FilterDropdown from './FilterDropdown';
@@ -178,15 +178,15 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     } catch (e) {
       console.error('Не удалось зафиксировать экспорт отчёта', e);
     }
-    const url = buildLeadsExportUrl({
+    await downloadLeadsExport({
       projectIds: projectIds.length ? projectIds : undefined,
       sources: sources.length ? sources : undefined,
       fromDate,
       toDate,
       format,
       clientId: userIdFilter ?? undefined,
+      source: 'leads',
     });
-    window.open(url, '_blank');
   };
 
   return (
