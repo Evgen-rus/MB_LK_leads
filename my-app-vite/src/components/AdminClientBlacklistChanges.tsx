@@ -1,7 +1,7 @@
 // Экран "События черного списка" для админа.
 // Показывает необработанные события клиента по чёрному списку (добавления/удаления),
 // и позволяет отметить их как обработанные (через /admin/changes/{id}/resolve).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
 
 type ResolvedPayload = {
@@ -16,6 +16,15 @@ type AdminClientBlacklistChangesProps = {
   onResolvedChange?: (payload: ResolvedPayload) => void;
   onOpenBlacklist?: () => void;
 };
+
+function extractBlacklistPhones(change: AdminChange): string[] {
+  const snap = change.projectSnapshot;
+  if (!snap || typeof snap !== 'object') return [];
+  if (!('phones' in snap)) return [];
+  const raw = (snap as { phones?: unknown }).phones;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x)).filter(Boolean);
+}
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -35,6 +44,8 @@ function AdminClientBlacklistChanges({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<'adds' | 'deletes' | 'all'>('all');
+  const [phonesModalText, setPhonesModalText] = useState<string | null>(null);
+  const phonesRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -69,6 +80,20 @@ function AdminClientBlacklistChanges({
     });
     return { adds, deletes, total: adds + deletes };
   }, [allItems]);
+
+  useEffect(() => {
+    if (!phonesModalText) return;
+    // Авто-выделение, чтобы админ мог сразу Ctrl+C
+    const t = setTimeout(() => {
+      try {
+        phonesRef.current?.focus();
+        phonesRef.current?.select();
+      } catch {
+        /* ignore */
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [phonesModalText]);
 
   async function handleResolve(change: AdminChange) {
     try {
@@ -173,6 +198,18 @@ function AdminClientBlacklistChanges({
                   <td>{c.description}</td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {c.action === 'blacklist_add' && (
+                        <button
+                          type="button"
+                          className="btn btn--secondary"
+                          onClick={() => {
+                            const phones = extractBlacklistPhones(c);
+                            setPhonesModalText(phones.join('\n'));
+                          }}
+                        >
+                          Показать телефоны
+                        </button>
+                      )}
                       {onOpenBlacklist && (
                         <button type="button" className="btn btn--secondary" onClick={onOpenBlacklist}>
                           Открыть ЧС
@@ -189,6 +226,69 @@ function AdminClientBlacklistChanges({
           </tbody>
         </table>
       </div>
+
+      {phonesModalText != null && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: 16,
+          }}
+          onMouseDown={(e) => {
+            // клик по фону закрывает
+            if (e.target === e.currentTarget) setPhonesModalText(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="modal-card"
+            style={{
+              background: '#fff',
+              borderRadius: 8,
+              width: '100%',
+              maxWidth: 520,
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                padding: 16,
+                borderBottom: '1px solid #eee',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Телефоны (ЧС)</div>
+              <button className="icon-btn" aria-label="Закрыть" onClick={() => setPhonesModalText(null)}>✕</button>
+            </div>
+            <div style={{ padding: 16 }}>
+              <textarea
+                ref={phonesRef}
+                readOnly
+                value={phonesModalText}
+                rows={16}
+                style={{
+                  width: '100%',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
