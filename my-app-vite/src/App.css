@@ -302,7 +302,7 @@
 .client-summary-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .client-summary__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .client-summary__title { font-size: 1.1rem; font-weight: 700; margin: 0; }
-.client-summary__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.client-summary__meta { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 .client-summary__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: stretch; }
 .client-summary__actions .btn {
   flex: 1 1 160px;
@@ -320,6 +320,10 @@
 
 @media (max-width: 560px) {
   .client-summary__actions .btn { flex: 1 1 100%; }
+}
+
+@media (max-width: 700px) {
+  .client-summary__meta { flex-wrap: wrap; }
 }
 .summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .summary-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; padding: 12px; min-height: 72px; display: flex; flex-direction: column; justify-content: space-between; }
