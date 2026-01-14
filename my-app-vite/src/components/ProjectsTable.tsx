@@ -197,9 +197,12 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
           {filteredRows.map((row) => (
             <tr key={row.id}>
               <td
-                style={{ cursor: 'pointer' }}
-                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
-                title="Открыть идентификации с текущим периодом"
+                style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (!onOpenLeads) return;
+                  onOpenLeads({ projectId: row.id, fromDate, toDate });
+                }}
+                title={onOpenLeads ? 'Открыть идентификации с текущим периодом' : undefined}
               >
                 <div className="name">{row.name}</div>
                 <div className="sub muted">ID: {row.id}</div>
@@ -226,23 +229,27 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               </td>
               <td>{row.dataLimit}</td>
               <td
-                style={{ cursor: 'pointer' }}
-                onClick={() => onOpenLeads?.({ projectId: row.id, fromDate, toDate })}
-                title="Открыть идентификации за выбранный период"
+                style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (!onOpenLeads) return;
+                  onOpenLeads({ projectId: row.id, fromDate, toDate });
+                }}
+                title={onOpenLeads ? 'Открыть идентификации за выбранный период' : undefined}
               >
                 {row.numbersPeriod ?? row.numbersToday}
               </td>
               <td
-                style={{ cursor: 'pointer' }}
-                onClick={() =>
-                  onOpenLeads?.({
+                style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
+                onClick={() => {
+                  if (!onOpenLeads) return;
+                  // Для «Номеров всего» открываем лиды за всё время
+                  onOpenLeads({
                     projectId: row.id,
-                    // Для «Номеров всего» открываем лиды за всё время
                     fromDate: ALL_TIME_FROM_DATE,
                     toDate: ALL_TIME_TO_DATE,
-                  })
-                }
-                title="Открыть все идентификации проекта (за всё время)"
+                  });
+                }}
+                title={onOpenLeads ? 'Открыть все идентификации проекта (за всё время)' : undefined}
               >
                 {row.numbersTotal}
               </td>
