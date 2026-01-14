@@ -186,32 +186,36 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
           <thead>
             <tr>
               <th>Название</th>
+              <th>Источник</th>
               <th>Статус проекта</th>
               <th>Лимит</th>
-              <th>Источник сбора</th>
               <th>Номеров за период</th>
               <th>Номеров получено всего</th>
+              <th>Дни получения номеров</th>
+              <th>Источник сбора</th>
+              <th>Доменов/номеров</th>
+              <th>Дата создания</th>
               <th>Действия</th>
             </tr>
           </thead>
           <tbody>
             {error && (
               <tr>
-                <td colSpan={7} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={11} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
             )}
             {!error && loading && (
               <tr>
-                <td colSpan={7} className="muted" style={{ padding: 16 }}>
+                <td colSpan={11} className="muted" style={{ padding: 16 }}>
                   Загрузка проектов…
                 </td>
               </tr>
             )}
             {!error && !loading && filteredRows.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted" style={{ padding: 16 }}>
+                <td colSpan={11} className="muted" style={{ padding: 16 }}>
                   Проекты клиента не найдены.
                 </td>
               </tr>
@@ -257,6 +261,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     </div>
                   )}
                   </td>
+                  <td>{row.dataSourceCode}</td>
                   <td>
                     <span
                       className={
@@ -277,7 +282,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     </span>
                   </td>
                   <td>{row.dataLimit}</td>
-                  <td>{row.collectionSource}</td>
                   <td
                     style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                     title={onOpenLeads ? 'Идентификации за текущий период' : undefined}
@@ -310,6 +314,10 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   >
                     {row.numbersTotal}
                   </td>
+                  <td className="muted">{row.daysReceived}</td>
+                  <td>{row.collectionSource}</td>
+                  <td>{row.sourcesCount}</td>
+                  <td className="muted">{row.createdAt}</td>
                   <td>
                     {(() => {
                       const canEdit = adminUserId != null && row.user?.id === adminUserId;
