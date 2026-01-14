@@ -185,12 +185,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         <table className="table">
           <thead>
             <tr>
-              <th>Название проекта</th>
+              <th>Название</th>
               <th>Статус проекта</th>
               <th>Лимит</th>
-              <th>Источник</th>
+              <th>Источник сбора</th>
               <th>Номеров за период</th>
-              <th>Номеров всего</th>
+              <th>Номеров получено всего</th>
               <th>Действия</th>
             </tr>
           </thead>

@@ -190,7 +190,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
             <th>Источник сбора</th>
             <th>Доменов/номеров</th>
             <th>Дата создания</th>
-            <th>Настройки</th>
+            <th>Действия</th>
           </tr>
         </thead>
         <tbody>
