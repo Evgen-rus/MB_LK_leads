@@ -99,12 +99,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     return getUserIdFromToken(token);
   }, []);
 
-  function calcRemaining(p: AdminProject): number {
-    const limit = p.dataLimit || 0;
-    const used = p.numbersTotal || 0;
-    return Math.max(0, limit - used);
-  }
-
   async function handleDelete(id: number) {
     if (!window.confirm(`Удалить проект ${id}?`)) return;
     try {
@@ -194,7 +188,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
               <th>Название проекта</th>
               <th>Статус проекта</th>
               <th>Лимит</th>
-              <th>Остаток</th>
               <th>Источник</th>
               <th>Номеров за период</th>
               <th>Номеров всего</th>
@@ -204,21 +197,21 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
           <tbody>
             {error && (
               <tr>
-                <td colSpan={8} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={7} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
             )}
             {!error && loading && (
               <tr>
-                <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                <td colSpan={7} className="muted" style={{ padding: 16 }}>
                   Загрузка проектов…
                 </td>
               </tr>
             )}
             {!error && !loading && filteredRows.length === 0 && (
               <tr>
-                <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                <td colSpan={7} className="muted" style={{ padding: 16 }}>
                   Проекты клиента не найдены.
                 </td>
               </tr>
@@ -284,7 +277,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     </span>
                   </td>
                   <td>{row.dataLimit}</td>
-                  <td>{calcRemaining(row)}</td>
                   <td>{row.collectionSource}</td>
                   <td
                     style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
