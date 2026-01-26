@@ -118,7 +118,7 @@ def main() -> None:
         "token": token,
         "command": "gck_project_create",
         "type": "calls",
-        "src": "bl",
+        "src": "rt",
         "name": base_name,
         "tag": base_name,
         "limit": 1,
@@ -134,6 +134,17 @@ def main() -> None:
         items = [d.strip() for d in create_payload.get("content", "").split(",") if d.strip()]
         duplicates = {}
         target_type = str(create_payload.get("type") or "").strip()
+        target_src = str(create_payload.get("src") or "").strip()
+        duplicate_check = {
+            "target_type": target_type,
+            "target_src": target_src,
+            "min_id": 4189111,
+            "projects_total": 0,
+            "projects_filtered": 0,
+            "projects_scanned": 0,
+            "project_errors": 0,
+            "projects_list_error": None,
+        }
         if items and target_type in ("hosts", "calls"):
             projects_resp = post_json(
                 api_url,
@@ -141,8 +152,16 @@ def main() -> None:
                 log_file,
                 log_enabled=False,
             )
-            projects = projects_resp.get("result") or []
-            min_id = 4189111
+            if projects_resp.get("_http_error"):
+                duplicate_check["projects_list_error"] = {
+                    "status_code": projects_resp.get("status_code"),
+                    "raw_text": projects_resp.get("raw_text"),
+                }
+                projects = []
+            else:
+                projects = projects_resp.get("result") or []
+            duplicate_check["projects_total"] = len(projects)
+            min_id = duplicate_check["min_id"]
             filtered = []
             for item in projects:
                 if item.get("type") != target_type:
@@ -154,6 +173,7 @@ def main() -> None:
                 if pid < min_id:
                     continue
                 filtered.append((pid, item))
+            duplicate_check["projects_filtered"] = len(filtered)
             filtered.sort(key=lambda x: x[0], reverse=True)
             remaining = set(items)
             for pid, item in filtered:
@@ -166,7 +186,13 @@ def main() -> None:
                     log_file,
                     log_enabled=False,
                 )
+                duplicate_check["projects_scanned"] += 1
+                if detail.get("_http_error"):
+                    duplicate_check["project_errors"] += 1
+                    continue
                 detail_result = detail.get("result") or {}
+                if target_src and detail_result.get("src") != target_src:
+                    continue
                 content = str(detail_result.get("content") or "")
                 if not content:
                     continue
@@ -181,6 +207,7 @@ def main() -> None:
             "created_request": create_payload,
             "create_response": create_response,
             "duplicate_items": duplicates,
+            "duplicate_check": duplicate_check,
         }
         out_file = sys.argv[1] if len(sys.argv) > 1 else f"gck_create_and_dump_{ts}.json"
         with open(out_file, "w", encoding="utf-8") as f:
@@ -193,6 +220,9 @@ def main() -> None:
             for item, projects in duplicates.items():
                 print(f"  - {item} -> {', '.join(projects)}")
             print("Удалите их из других проектов или укажите другие.")
+        elif duplicate_check.get("projects_list_error") or duplicate_check.get("project_errors"):
+            print("Не удалось проверить дубли полностью (ошибки при чтении проектов).")
+            print("Смотрите gck_create_and_dump_*.json для деталей.")
         else:
             print("API request failed. See raw response in log.")
         return
