@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
+from .providers import prostats
 
 
 def get_settings():
@@ -218,6 +219,15 @@ def list_projects(
 
 @app.post("/projects", response_model=List[schemas.ProjectOut])
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    # 1) Создаём проекты у поставщика
+    for item in payload.items:
+        try:
+            prostats.create_project(item)
+        except prostats.ProstatsError as exc:
+            detail = {"message": exc.message, **(exc.details or {})}
+            raise HTTPException(status_code=exc.status_code, detail=detail)
+
+    # 2) Если все успешны — сохраняем у нас
     created = crud.create_projects(db_sess, payload.items, user_id=current_user.id)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return created
