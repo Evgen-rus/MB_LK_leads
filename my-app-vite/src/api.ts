@@ -235,6 +235,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type ProjectListResp = { items: Project[]; total: number };
+export type CreateProjectsResp = { items: Project[]; warning?: string | null };
 
 export async function fetchProjects(params?: {
   offset?: number;
@@ -255,8 +256,8 @@ export async function fetchProjects(params?: {
   return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }
 
-export async function createProjects(items: CreateProjectItem[]): Promise<Project[]> {
-  return http<Project[]>('/projects', {
+export async function createProjects(items: CreateProjectItem[]): Promise<CreateProjectsResp> {
+  return http<CreateProjectsResp>('/projects', {
     method: 'POST',
     body: JSON.stringify({ items }),
   });

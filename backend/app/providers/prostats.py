@@ -202,6 +202,32 @@ def _find_duplicates(items: List[str], target_type: str, target_src: str) -> Dic
     return duplicates
 
 
+def _parse_content_list(content: str) -> List[str]:
+    return [s.strip() for s in content.split(",") if s.strip()]
+
+
+def _get_project(provider_id: str) -> Optional[dict]:
+    status, raw_text, parsed = _post({"token": _get_token(), "command": "gck_project", "id": provider_id})
+    if status >= 400:
+        return None
+    return (parsed or {}).get("result") or None
+
+
+def _build_partial_warning(name: str, target_type: str, missing: List[str], duplicates: Dict[str, List[str]]) -> str:
+    label = "домены" if target_type == "hosts" else "номера"
+    lines: List[str] = []
+    for item in missing:
+        if item in duplicates and duplicates[item]:
+            lines.append(f"{item} -> {', '.join(duplicates[item])}")
+        else:
+            lines.append(item)
+    return (
+        f'Проект "{name}" создан, но некоторые {label} уже используются в других проектах:\n'
+        + "\n".join(lines)
+        + "\nУдалите их из других проектов или укажите другие."
+    )
+
+
 def create_project(item: schemas.CreateProjectItem) -> dict:
     payload = build_create_payload(item)
     status_code, raw_text, parsed = _post(payload)
@@ -222,4 +248,25 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
 
     result = parsed.get("result") or {}
     provider_id = result.get("id")
-    return {"provider_id": provider_id, "raw": parsed}
+    warning = None
+    missing_items: List[str] = []
+
+    target_type = payload.get("type")
+    if provider_id and target_type in ("hosts", "calls"):
+        expected = _parse_content_list(str(payload.get("content") or ""))
+        detail = _get_project(str(provider_id))
+        if detail:
+            actual = _parse_content_list(str(detail.get("content") or ""))
+            missing_items = sorted(set(expected) - set(actual))
+            if missing_items:
+                duplicates = _find_duplicates(missing_items, target_type, payload.get("src") or "")
+                warning = _build_partial_warning(item.name, target_type, missing_items, duplicates)
+
+    return {
+        "provider_id": provider_id,
+        "raw": parsed,
+        "warning": warning,
+        "missing_items": missing_items,
+        "provider_content": str(detail.get("content") or "") if provider_id and detail else "",
+        "target_type": target_type,
+    }

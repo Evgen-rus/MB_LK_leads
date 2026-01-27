@@ -217,20 +217,32 @@ def list_projects(
     )
 
 
-@app.post("/projects", response_model=List[schemas.ProjectOut])
+@app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     # 1) Создаём проекты у поставщика
-    for item in payload.items:
+    warnings: List[str] = []
+    adjusted_items = payload.items
+    for idx, item in enumerate(payload.items):
         try:
-            prostats.create_project(item)
+            result = prostats.create_project(item)
+            if result.get("warning"):
+                warnings.append(result["warning"])
+            missing_items = result.get("missing_items") or []
+            target_type = result.get("target_type")
+            if missing_items and target_type in ("hosts", "calls"):
+                if target_type == "hosts":
+                    item.sites = [s for s in (item.sites or []) if s not in missing_items]
+                else:
+                    item.phones = [p for p in (item.phones or []) if p not in missing_items]
         except prostats.ProstatsError as exc:
             detail = {"message": exc.message, **(exc.details or {})}
             raise HTTPException(status_code=exc.status_code, detail=detail)
 
     # 2) Если все успешны — сохраняем у нас
-    created = crud.create_projects(db_sess, payload.items, user_id=current_user.id)
+    created = crud.create_projects(db_sess, adjusted_items, user_id=current_user.id)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    return created
+    warning_text = "\n\n".join(warnings) if warnings else None
+    return schemas.CreateProjectsOut(items=created, warning=warning_text)
 
 
 @app.get("/projects/{project_id}", response_model=schemas.ProjectOut)

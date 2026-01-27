@@ -72,6 +72,11 @@ class ProjectOut(BaseModel):
         from_attributes = True
 
 
+class CreateProjectsOut(BaseModel):
+    items: List[ProjectOut]
+    warning: Optional[str] = None
+
+
 class ProjectListOut(BaseModel):
     items: List[ProjectOut]
     total: int

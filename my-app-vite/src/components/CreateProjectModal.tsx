@@ -247,6 +247,8 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
     }
   }
 
+  const isWarning = submitError ? submitError.includes('создан') : false;
+
   return (
     <div
       style={{
@@ -288,9 +290,9 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   position: 'sticky',
                   top: 0,
                   zIndex: 2,
-                  color: '#b00020',
-                  background: '#fff4f4',
-                  border: '1px solid #f3c6c6',
+                  color: isWarning ? '#8a5a00' : '#b00020',
+                  background: isWarning ? '#fff7e6' : '#fff4f4',
+                  border: `1px solid ${isWarning ? '#f2d59c' : '#f3c6c6'}`,
                   padding: '10px 12px',
                   borderRadius: 8,
                   whiteSpace: 'pre-wrap',

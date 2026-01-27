@@ -122,7 +122,7 @@ def main() -> None:
         "name": base_name,
         "tag": base_name,
         "limit": 1,
-        "content": "79231920440,79231920441",
+        "content": "79231920440,79231920441,79231920442",
         "status": 0,  # проект должен быть выключен
         "is_crm": 0,
         "workdays": "12345",

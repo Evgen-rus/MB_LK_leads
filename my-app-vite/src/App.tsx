@@ -37,6 +37,7 @@ const STORAGE_VIEW_KEY = 'last_view';
 
 function App() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
   const [historyFor, setHistoryFor] = useState<Project | null>(null);
@@ -85,6 +86,12 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
   }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 10_000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   // Предварительная проверка токена до любых запросов + установка URL
   useEffect(() => {
@@ -435,9 +442,12 @@ function App() {
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (items) => {
             try {
-              const created = await apiCreate(items);
-              setRows((prev) => [...created, ...prev]);
+              const result = await apiCreate(items);
+              setRows((prev) => [...result.items, ...prev]);
               window.dispatchEvent(new CustomEvent('projects-refresh'));
+              if (result.warning) {
+                setToast(result.warning);
+              }
               return null;
             } catch (e) {
               console.error(e);
@@ -472,6 +482,38 @@ function App() {
           projectName={historyFor.name}
           onClose={() => setHistoryFor(null)}
         />
+      )}
+      {toast && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            top: 16,
+            right: 16,
+            maxWidth: 420,
+            zIndex: 2000,
+            background: '#fff7e6',
+            border: '1px solid #f2d59c',
+            color: '#8a5a00',
+            padding: '12px 14px',
+            borderRadius: 10,
+            boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ fontWeight: 600 }}>Внимание</div>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="btn btn--ghost"
+              style={{ padding: '2px 6px', marginLeft: 'auto' }}
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ marginTop: 6 }}>{toast}</div>
+        </div>
       )}
     </div>
   );
