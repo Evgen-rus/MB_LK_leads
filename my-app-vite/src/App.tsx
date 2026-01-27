@@ -87,12 +87,6 @@ function App() {
     document.documentElement.setAttribute('data-theme', 'light');
   }, []);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 10_000);
-    return () => window.clearTimeout(t);
-  }, [toast]);
-
   // Предварительная проверка токена до любых запросов + установка URL
   useEffect(() => {
     const applyToken = () => {
