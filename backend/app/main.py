@@ -105,6 +105,7 @@ def startup_event():
         # Ensure users from .env exist and projects have user_id column
         crud.ensure_users_from_env(s)
         crud.ensure_projects_user_id_column(s)
+        crud.ensure_projects_provider_id_column(s)
         crud.ensure_audit_user_id_column(s)
         crud.ensure_blacklist_user_id_column(s)
         crud.ensure_audit_admin_columns(s)
@@ -222,11 +223,13 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     # 1) Создаём проекты у поставщика
     warnings: List[str] = []
     adjusted_items = payload.items
+    provider_ids: List[Optional[str]] = []
     for idx, item in enumerate(payload.items):
         try:
             result = prostats.create_project(item)
             if result.get("warning"):
                 warnings.append(result["warning"])
+            provider_ids.append(str(result.get("provider_id") or "").strip() or None)
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
@@ -239,7 +242,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             raise HTTPException(status_code=exc.status_code, detail=detail)
 
     # 2) Если все успешны — сохраняем у нас
-    created = crud.create_projects(db_sess, adjusted_items, user_id=current_user.id)
+    created = crud.create_projects(db_sess, adjusted_items, user_id=current_user.id, provider_ids=provider_ids)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     warning_text = "\n\n".join(warnings) if warnings else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)

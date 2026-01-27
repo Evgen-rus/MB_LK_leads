@@ -45,6 +45,7 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # владелец проекта
+    provider_project_id = Column(String, nullable=True, index=True)  # id проекта у поставщика
     name = Column(String, nullable=False)
     tag = Column(String, nullable=False)
     collection_source = Column(String, nullable=False)  # 'Сайты' | 'Звонки' | ...

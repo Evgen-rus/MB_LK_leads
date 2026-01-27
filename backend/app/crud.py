@@ -413,11 +413,20 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
     return _project_to_out(p) if p else None
 
 
-def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id: int) -> List[schemas.ProjectOut]:
+def create_projects(
+    db: Session,
+    items: List[schemas.CreateProjectItem],
+    user_id: int,
+    provider_ids: Optional[List[Optional[str]]] = None,
+) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = now_msk()
     batch_id = secrets.token_hex(8)
-    for it in items:
+    for idx, it in enumerate(items):
+        provider_id = None
+        if provider_ids and idx < len(provider_ids):
+            raw_provider_id = provider_ids[idx]
+            provider_id = str(raw_provider_id).strip() if raw_provider_id is not None else None
         sites = it.sites or None
         phones = it.phones or None
         sms = (it.smsSenderName or None)
@@ -426,6 +435,7 @@ def create_projects(db: Session, items: List[schemas.CreateProjectItem], user_id
 
         p = models.Project(
             user_id=user_id,
+            provider_project_id=provider_id or None,
             name=it.name,
             tag=it.tag or it.name,
             collection_source=it.collectionSource,
@@ -1057,6 +1067,18 @@ def ensure_projects_user_id_column(db: Session) -> None:
         db.execute(text("ALTER TABLE projects ADD COLUMN user_id INTEGER"))
         # по умолчанию привяжем к пользователю 1
         db.execute(text("UPDATE projects SET user_id = 1 WHERE user_id IS NULL"))
+        db.commit()
+
+
+def ensure_projects_provider_id_column(db: Session) -> None:
+    """
+    Добавляем столбец provider_project_id в projects при его отсутствии.
+    """
+    engine = db.get_bind()
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("projects")]
+    if "provider_project_id" not in cols:
+        db.execute(text("ALTER TABLE projects ADD COLUMN provider_project_id VARCHAR"))
         db.commit()
 
 
