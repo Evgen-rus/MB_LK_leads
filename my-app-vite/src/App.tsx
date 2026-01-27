@@ -433,16 +433,19 @@ function App() {
       {isCreateOpen && (
         <CreateProjectModal
           onClose={() => setIsCreateOpen(false)}
-          onSubmit={(items) => {
-            (async () => {
-              try {
-                const created = await apiCreate(items);
-                setRows((prev) => [...created, ...prev]);
-                window.dispatchEvent(new CustomEvent('projects-refresh'));
-              } catch (e) {
-                console.error(e);
+          onSubmit={async (items) => {
+            try {
+              const created = await apiCreate(items);
+              setRows((prev) => [...created, ...prev]);
+              window.dispatchEvent(new CustomEvent('projects-refresh'));
+              return null;
+            } catch (e) {
+              console.error(e);
+              if (e instanceof Error && e.message) {
+                return e.message;
               }
-            })();
+              return 'Не удалось создать проект. Проверьте введенные данные и попробуйте еще раз.';
+            }
           }}
         />
       )}

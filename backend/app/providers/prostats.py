@@ -94,6 +94,14 @@ def _build_complex_content(sites: List[str], phones: List[str], sms: Optional[st
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _strip_provider_prefix(name: str) -> str:
+    raw = (name or "").strip()
+    for prefix in ("B1_", "B2_", "B3_", "B4_"):
+        if raw.startswith(prefix):
+            return raw[len(prefix):].strip()
+    return raw
+
+
 def build_create_payload(item: schemas.CreateProjectItem) -> dict:
     token = _get_token()
     p_type = _type_from_collection(item.collectionSource)
@@ -115,13 +123,15 @@ def build_create_payload(item: schemas.CreateProjectItem) -> dict:
 
     status = 1 if item.status == "Активен" else 0
 
+    base_name = _strip_provider_prefix(item.name)
+    base_tag = _strip_provider_prefix(item.tag or item.name)
     payload = {
         "token": token,
         "command": "gck_project_create",
         "type": p_type,
         "src": src,
-        "name": item.name,
-        "tag": item.tag or item.name,
+        "name": base_name,
+        "tag": base_tag or base_name,
         "limit": item.dataLimit,
         "content": content,
         "status": status,

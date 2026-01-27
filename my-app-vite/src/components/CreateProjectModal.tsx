@@ -20,11 +20,13 @@ type SubmitItem = {
 
 type CreateProjectModalProps = {
   onClose: () => void;
-  onSubmit?: (payloads: SubmitItem[]) => void;
+  onSubmit?: (payloads: SubmitItem[]) => Promise<string | null> | string | null | void;
 };
 
 function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [name, setName] = useState('');
   const [collectionSource, setCollectionSource] = useState<CollectionSource>('Звонки');
@@ -166,9 +168,10 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (isSubmitting) return;
     if (collectionSource === 'СМС') {
       if (!smsSenderName.trim()) return;
       if (isLikelyPhone(smsSenderName)) return;
@@ -225,8 +228,23 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
       days,
     }));
 
-    onSubmit?.(items);
-    onClose();
+    if (!onSubmit) {
+      onClose();
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const result = await onSubmit(items);
+      if (typeof result === 'string' && result.trim()) {
+        setSubmitError(result);
+        return;
+      }
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -262,6 +280,26 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
         </div>
         <form onSubmit={handleSubmit} style={{ padding: 20 }}>
           <div style={{ display: 'grid', gap: 12 }}>
+            {submitError && (
+              <div
+                className="sub"
+                role="alert"
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 2,
+                  color: '#b00020',
+                  background: '#fff4f4',
+                  border: '1px solid #f3c6c6',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  whiteSpace: 'pre-wrap',
+                  marginBottom: 4,
+                }}
+              >
+                {submitError}
+              </div>
+            )}
             <label style={{ display: 'grid', gap: 6 }}>
               <span style={{ fontSize: '0.75rem', color: '#666' }}>Название</span>
               <input
@@ -472,8 +510,10 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-            <button type="button" className="btn" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={!hasName}>Создать</button>
+            <button type="button" className="btn" onClick={onClose} disabled={isSubmitting}>Отмена</button>
+            <button type="submit" className="btn btn--primary" disabled={!hasName || isSubmitting}>
+              {isSubmitting ? 'Создание...' : 'Создать'}
+            </button>
           </div>
         </form>
       </div>

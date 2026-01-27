@@ -167,21 +167,52 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const errorMessage = res.statusText;
     let errorDetail: string | null = null;
-    
+
+    function buildDuplicateMessage(message: string, duplicates: Record<string, string[]>): string {
+      const lower = message.toLowerCase();
+      const label = lower.includes('домены')
+        ? 'домены'
+        : lower.includes('номера')
+          ? 'номера'
+          : 'значения';
+      const lines = Object.entries(duplicates).map(
+        ([item, projects]) => `${item} -> ${projects.join(', ')}`,
+      );
+      return `Проект не создан. Эти ${label} уже используются:\n${lines.join('\n')}\nУдалите их из других проектов или укажите другие.`;
+    }
+
+    function parseErrorDetail(text: string): string {
+      try {
+        const json = JSON.parse(text) as {
+          detail?: unknown;
+          message?: unknown;
+        };
+
+        if (json.detail && typeof json.detail === 'object') {
+          const detail = json.detail as {
+            message?: string;
+            duplicates?: Record<string, string[]>;
+          };
+          if (detail.duplicates && Object.keys(detail.duplicates).length > 0) {
+            return buildDuplicateMessage(detail.message || 'Ошибка', detail.duplicates);
+          }
+          return detail.message || JSON.stringify(json.detail);
+        }
+
+        if (typeof json.detail === 'string') return json.detail;
+        if (typeof json.message === 'string') return json.message;
+        return text;
+      } catch {
+        return text;
+      }
+    }
+
     try {
       const text = await res.text();
       if (text) {
-        try {
-          // Пытаемся распарсить JSON ответ
-          const json = JSON.parse(text) as { detail?: string; message?: string };
-          errorDetail = json.detail || json.message || text;
-        } catch {
-          // Если не JSON, используем текст как есть
-          errorDetail = text;
-        }
+        errorDetail = parseErrorDetail(text);
       }
     } catch {
-      // Если не удалось прочитать ответ
       errorDetail = null;
     }
 
