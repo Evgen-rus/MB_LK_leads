@@ -181,7 +181,7 @@ def build_update_payload(
 
     status = 1 if update.status == "Активен" else 0
 
-    base_name = _strip_provider_prefix(update.name)
+    base_name = (update.name or "").strip()
     base_tag = _strip_provider_prefix(update.tag or update.name)
 
     regions = _normalize_regions(update.regions)
