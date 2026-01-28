@@ -258,6 +258,17 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
 
 @app.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
 def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    project_row = db_sess.get(models.Project, project_id)
+    if not project_row or project_row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project_row.provider_project_id:
+        raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    try:
+        prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+    except prostats.ProstatsError as exc:
+        detail = {"message": exc.message, **(exc.details or {})}
+        raise HTTPException(status_code=exc.status_code, detail=detail)
+
     updated = crud.update_project(db_sess, project_id, payload, user_id=current_user.id)
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -926,6 +937,17 @@ def admin_update_project(
     db_sess: Session = Depends(get_db),
 ):
     """Обновить проект (включая delivery_status)."""
+    project_row = db_sess.get(models.Project, project_id)
+    if not project_row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project_row.provider_project_id:
+        raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    try:
+        prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+    except prostats.ProstatsError as exc:
+        detail = {"message": exc.message, **(exc.details or {})}
+        raise HTTPException(status_code=exc.status_code, detail=detail)
+
     updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
     if not updated:
         raise HTTPException(status_code=404, detail="Project not found")
