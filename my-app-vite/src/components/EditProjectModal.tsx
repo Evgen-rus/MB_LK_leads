@@ -378,7 +378,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Дни сбора</span>
               <div className="hint">
-                Галочки — это дни сбора. Данные приходят за предыдущий день (пример: Пн включен → во Вт получите данные за Пн).
+                Галочки - это дни поступления данных. Данные приходят за предыдущий день (пример: Вт включен → во Вт получите данные за Пн).
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
