@@ -87,6 +87,17 @@ function App() {
     document.documentElement.setAttribute('data-theme', 'light');
   }, []);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<string | null>).detail;
+      if (detail && detail.trim()) {
+        setToast(detail);
+      }
+    };
+    window.addEventListener('app-toast', handler as EventListener);
+    return () => window.removeEventListener('app-toast', handler as EventListener);
+  }, []);
+
   // Предварительная проверка токена до любых запросов + установка URL
   useEffect(() => {
     const applyToken = () => {

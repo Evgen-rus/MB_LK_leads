@@ -132,7 +132,9 @@ function AdminClientsTable() {
       window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
     } catch (e: unknown) {
       console.error(e);
-      setError(getErrorMessage(e, 'Не удалось удалить проект'));
+      const message = getErrorMessage(e, 'Не удалось удалить проект');
+      setError(message);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
   }
 

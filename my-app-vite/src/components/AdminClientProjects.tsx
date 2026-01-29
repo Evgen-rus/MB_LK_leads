@@ -106,7 +106,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
       setRows((prev) => prev.filter((p) => p.id !== id));
     } catch (err: unknown) {
       console.error(err);
-      setError(getErrorMessage(err, 'Не удалось удалить проект'));
+      const message = getErrorMessage(err, 'Не удалось удалить проект');
+      setError(message);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
   }
 

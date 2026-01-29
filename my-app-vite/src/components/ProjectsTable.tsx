@@ -1,7 +1,7 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import type { Project } from '../types/project';
-import { fetchProjects, updateProject as apiUpdateProject, type ProjectUpdatePayload, type Day } from '../api';
+import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject, type ProjectUpdatePayload, type Day } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 
 type ProjectsTableProps = {
@@ -123,13 +123,14 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   async function handleSoftDelete(row: Project) {
     if (!window.confirm(`Пометить проект ${row.id} как удалённый?`)) return;
     try {
-      const payload = buildUpdatePayloadFromRow(row, { status: 'Удалён' });
-      const updated = await apiUpdateProject(row.id, payload);
-      setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
+      await apiDeleteProject(row.id);
       window.dispatchEvent(new CustomEvent('projects-refresh'));
     } catch (e) {
       console.error(e);
-      alert('Не удалось пометить проект как удалённый');
+      const message = e instanceof Error && e.message
+        ? e.message
+        : 'Не удалось удалить проект. Попробуйте позже.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
   }
 

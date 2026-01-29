@@ -96,6 +96,21 @@ def _normalize_regions(regions: Optional[List[str]]) -> List[int]:
     return normalized
 
 
+def _normalize_regions_optional(regions: Optional[List[str]]) -> Optional[List[int]]:
+    if not regions:
+        return None
+    normalized: List[int] = []
+    for raw in regions:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        try:
+            normalized.append(int(value))
+        except ValueError:
+            return None
+    return normalized
+
+
 def _build_complex_content(sites: List[str], phones: List[str], sms: Optional[str]) -> str:
     payload = {
         "hosts_content": ",".join(sites),
@@ -107,6 +122,12 @@ def _build_complex_content(sites: List[str], phones: List[str], sms: Optional[st
         "sms_cnt": 0,
     }
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_empty_content(target_type: str) -> str:
+    if target_type == "complex":
+        return _build_complex_content([], [], None)
+    return ""
 
 
 def _strip_provider_prefix(name: str) -> str:
@@ -184,7 +205,7 @@ def build_update_payload(
     base_name = (update.name or "").strip()
     base_tag = _strip_provider_prefix(update.tag or update.name)
 
-    regions = _normalize_regions(update.regions)
+    regions = _normalize_regions_optional(update.regions)
     regions_reverse = 1 if update.regionMode == "exclude" else 0
 
     try:
@@ -202,9 +223,10 @@ def build_update_payload(
         "status": status,
         "tag": base_tag or base_name,
         "workdays": _workdays_from_days(update.days),
-        "regions": regions,
-        "regions_reverse": regions_reverse,
     }
+    if regions is not None:
+        payload["regions"] = regions
+        payload["regions_reverse"] = regions_reverse
     return payload
 
 
@@ -351,4 +373,30 @@ def update_project(
         error_message = _extract_error_message(parsed, raw_text)
         raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
 
+    return {"raw": parsed}
+
+
+def disable_project(provider_id: str, project: models.Project) -> dict:
+    token = _get_token()
+    target_type = _type_from_collection(project.collection_source)
+    empty_content = _build_empty_content(target_type)
+
+    try:
+        provider_id_value: int | str = int(str(provider_id).strip())
+    except Exception:
+        provider_id_value = str(provider_id).strip()
+
+    payload = {
+        "token": token,
+        "command": "gck_project_update",
+        "id": provider_id_value,
+        "status": 0,
+        "content": empty_content,
+        "regions": [],
+        "regions_reverse": 0,
+    }
+    status_code, raw_text, parsed = _post(payload)
+    if status_code >= 400 or not parsed or parsed.get("status") != "success":
+        error_message = _extract_error_message(parsed, raw_text)
+        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
     return {"raw": parsed}

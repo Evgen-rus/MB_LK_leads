@@ -264,14 +264,25 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     try:
-        prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+        if payload.status == "Удалён":
+            prostats.disable_project(str(project_row.provider_project_id), project_row)
+        else:
+            prostats.update_project(str(project_row.provider_project_id), project_row, payload)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
-    updated = crud.update_project(db_sess, project_id, payload, user_id=current_user.id)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Project not found")
+    if payload.status == "Удалён":
+        ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+        updated = crud.get_project(db_sess, project_id, user_id=current_user.id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Project not found")
+    else:
+        updated = crud.update_project(db_sess, project_id, payload, user_id=current_user.id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return updated
 
@@ -297,6 +308,17 @@ def project_history(
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    project_row = db_sess.get(models.Project, project_id)
+    if not project_row or project_row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project_row.provider_project_id:
+        raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
+    try:
+        prostats.disable_project(str(project_row.provider_project_id), project_row)
+    except prostats.ProstatsError as exc:
+        detail = {"message": exc.message, **(exc.details or {})}
+        raise HTTPException(status_code=exc.status_code, detail=detail)
+
     ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -943,14 +965,25 @@ def admin_update_project(
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     try:
-        prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+        if payload.status == "Удалён":
+            prostats.disable_project(str(project_row.provider_project_id), project_row)
+        else:
+            prostats.update_project(str(project_row.provider_project_id), project_row, payload)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
-    updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Project not found")
+    if payload.status == "Удалён":
+        ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+        updated = crud.admin_get_project(db_sess, project_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Project not found")
+    else:
+        updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return updated
 
@@ -962,6 +995,17 @@ def admin_delete_project(
     db_sess: Session = Depends(get_db),
 ):
     """Удалить проект (для админа)."""
+    project_row = db_sess.get(models.Project, project_id)
+    if not project_row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project_row.provider_project_id:
+        raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
+    try:
+        prostats.disable_project(str(project_row.provider_project_id), project_row)
+    except prostats.ProstatsError as exc:
+        detail = {"message": exc.message, **(exc.details or {})}
+        raise HTTPException(status_code=exc.status_code, detail=detail)
+
     ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
