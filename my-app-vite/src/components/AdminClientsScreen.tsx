@@ -12,6 +12,10 @@ import DateRangeFilter from './DateRangeFilter';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 
+type ClientProfileWithContact = ClientProfile & {
+  contact?: string | null;
+};
+
 // Важно: начиная с разделения логики «Клиенты» / «Проекты»,
 // сам экран «Клиенты» НЕ занимается обработкой проектов и изменений.
 // Он только показывает агрегированный дашборд по клиентам и
@@ -45,6 +49,7 @@ type ClientRow = {
   pendingBlacklistDeletes: number;
   inn?: string | null;
   phone?: string | null;
+  contact?: string | null;
 };
 
 const STATUS_COLORS: Record<ClientStatus, string> = {
@@ -125,7 +130,7 @@ function AdminClientsScreen({
           blDeletesMap[i.user.id] = i.pendingBlacklistDeletes ?? 0;
         });
         const rows: ClientRow[] = summary.items.map((it: AdminClientSummaryItem) => {
-          const profile: ClientProfile | null | undefined = it.profile;
+          const profile: ClientProfileWithContact | null | undefined = it.profile;
           const displayName = profile?.name?.trim() || it.user.name?.trim() || it.user.login;
           const row: ClientRow = {
             id: it.user.id,
@@ -142,6 +147,7 @@ function AdminClientsScreen({
             pendingBlacklistDeletes: blDeletesMap[it.user.id] ?? 0,
             inn: profile?.inn,
             phone: profile?.phone,
+            contact: profile?.contact,
             status: 'Активен',
           };
           return { ...row, status: deriveStatus(row) };
@@ -383,7 +389,7 @@ function AdminClientsScreen({
                               name: row.name,
                               inn: row.inn,
                               phone: row.phone,
-                              contact: undefined,
+                              contact: row.contact,
                               login: row.login,
                             });
                           }}

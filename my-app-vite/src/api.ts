@@ -515,6 +515,7 @@ export type ClientProfile = {
   name: string;
   inn: string;
   phone: string;
+  contact?: string | null;
 };
 
 export type AdminProject = Project & {

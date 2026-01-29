@@ -966,15 +966,20 @@ def admin_update_client(
     # Логин / пароль
     final_login = user.login
     raw_password: Optional[str] = None
-    if login:
+    login_changed = False
+    password_changed = False
+    if login is not None:
         preferred_login = (login or "").strip().lower()
-        final_login = _ensure_unique_login(db, preferred_login)
-        user.login = final_login
+        if preferred_login and preferred_login != user.login:
+            final_login = _ensure_unique_login(db, preferred_login)
+            user.login = final_login
+            login_changed = True
     if password:
         raw_password = password.strip() if password else None
         if raw_password:
             user.password_hash = auth.hash_password(raw_password)
-    if login or password:
+            password_changed = True
+    if login_changed or password_changed:
         user.created_at = user.created_at or now  # safety
 
     # Профиль
