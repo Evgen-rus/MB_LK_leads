@@ -1,7 +1,7 @@
 // Модальное окно редактирования проекта для админа
 // Включает возможность изменять deliveryStatus
 import { useMemo, useRef, useState } from 'react';
-import { regions as allRegions } from '../data/regions';
+import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { ProjectStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 import { normalizePhonesMultiline } from '../utils/phones';
@@ -32,7 +32,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
   const [regionQuery, setRegionQuery] = useState('');
-  const [regions, setRegions] = useState<string[]>(project.regions || []);
+  const [regions, setRegions] = useState<string[]>(normalizeRegionValues(project.regions || []));
   const [regionsOpen, setRegionsOpen] = useState(false);
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
@@ -80,22 +80,24 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
 
   const baseRegionIndex = useMemo(() => {
     const m = new Map<string, number>();
-    allRegions.forEach((r, i) => m.set(r, i));
+    allRegions.forEach((r, i) => m.set(r.code, i));
     return m;
   }, []);
   const filteredRegions = useMemo(() => {
     const q = regionQuery.trim().toLowerCase();
     if (!q) return allRegions;
-    return allRegions.filter(r => r.toLowerCase().includes(q));
+    return allRegions.filter((r) => (
+      r.name.toLowerCase().includes(q) || r.code.includes(q)
+    ));
   }, [regionQuery]);
   const displayRegions = useMemo(() => {
     const list = filteredRegions.slice();
     list.sort((a, b) => {
-      const aSel = regions.includes(a) ? 1 : 0;
-      const bSel = regions.includes(b) ? 1 : 0;
+      const aSel = regions.includes(a.code) ? 1 : 0;
+      const bSel = regions.includes(b.code) ? 1 : 0;
       if (aSel !== bSel) return bSel - aSel;
-      const ai = baseRegionIndex.get(a) ?? 0;
-      const bi = baseRegionIndex.get(b) ?? 0;
+      const ai = baseRegionIndex.get(a.code) ?? 0;
+      const bi = baseRegionIndex.get(b.code) ?? 0;
       return ai - bi;
     });
     return list;
@@ -123,6 +125,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       .map((x) => normalizeString(typeof x === 'string' ? x : String(x ?? '')))
       .filter(Boolean);
     return Array.from(new Set(out)).sort();
+  }
+
+  function normalizeRegionsForCompare(values: string[] | undefined | null): string[] {
+    const normalized = normalizeRegionValues(values || []);
+    return Array.from(new Set(normalized)).sort();
   }
 
   function normalizeDays(value: DayAbbrev[]): DayAbbrev[] {
@@ -155,7 +162,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       status: project.status,
       dataLimit: Number.isFinite(project.dataLimit) ? project.dataLimit : 0,
       regionMode: (project.regionMode || 'include') as 'include' | 'exclude',
-      regions: normalizeStringArray(project.regions || []),
+      regions: normalizeRegionsForCompare(project.regions || []),
       sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
         ? normalizeStringArray(project.sites || [])
         : [],
@@ -180,7 +187,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       status,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
-      regions: normalizeStringArray(regions),
+      regions: normalizeRegionsForCompare(regions),
       sites: (sourceNow === 'Сайты' || sourceNow === 'Ретросайты' || sourceNow === 'Пересечение')
         ? normalizeStringArray(uniqueList(sitesParsed))
         : [],
@@ -238,7 +245,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       deliveryStatus: project.deliveryStatus,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
-      regions,
+      regions: normalizeRegionValues(regions),
       sites: (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
       phones,
       smsSenderName: (source === 'СМС' || source === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
@@ -364,9 +371,14 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
               </div>
               {regionsOpen ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                  {displayRegions.map(r => (
-                    <label key={r} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input type="checkbox" checked={regions.includes(r)} onChange={(e) => setRegions(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))} disabled={readOnly} /> {r}
+                  {displayRegions.map((r) => (
+                    <label key={r.code} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={regions.includes(r.code)}
+                        onChange={(e) => setRegions((prev) => e.target.checked ? [...prev, r.code] : prev.filter(x => x !== r.code))}
+                        disabled={readOnly}
+                      /> {r.name}
                     </label>
                   ))}
                 </div>
@@ -377,8 +389,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
                 {regions.length === 0
                   ? 'Итог: Вся РФ'
                   : regionMode === 'exclude'
-                    ? `Итог: Вся РФ, исключая: ${regions.join(', ')}`
-                    : `Итог: Только: ${regions.join(', ')}`}
+                    ? `Итог: Вся РФ, исключая: ${regions.map(regionLabelByCode).join(', ')}`
+                    : `Итог: Только: ${regions.map(regionLabelByCode).join(', ')}`}
               </div>
             </div>
 

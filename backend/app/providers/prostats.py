@@ -9,6 +9,86 @@ from .. import models, schemas
 API_URL_DEFAULT = "https://prostats.info/api/index.php"
 MIN_DUPLICATE_ID = 4189111
 
+REGION_CODE_BY_NAME: Dict[str, int] = {
+    "Республика Адыгея": 1,
+    "Республика Башкортостан": 2,
+    "Республика Алтай": 4,
+    "Республика Дагестан": 5,
+    "Республика Ингушетия": 6,
+    "Республика Кабардино-Балкарская": 7,
+    "Республика Калмыкия": 8,
+    "Республика Карачаево-Черкесская": 9,
+    "Республика Карелия": 10,
+    "Республика Коми": 11,
+    "Республика Марий Эл": 12,
+    "Республика Мордовия": 13,
+    "Республика Саха (Якутия)": 14,
+    "Республика Северная Осетия - Алания": 15,
+    "Республика Татарстан": 16,
+    "Республика Тыва": 17,
+    "Республика Удмуртская": 18,
+    "Республика Хакасия": 19,
+    "Чеченская Республика": 20,
+    "Чувашская Республика": 21,
+    "Алтайский край": 22,
+    "Краснодарский край": 23,
+    "Красноярский край": 24,
+    "Приморский край": 25,
+    "Ставропольский край": 26,
+    "Хабаровский край": 27,
+    "Амурская обл.": 28,
+    "Архангельская обл.": 29,
+    "Астраханская обл.": 30,
+    "Белгородская обл.": 31,
+    "Брянская обл.": 32,
+    "Владимирская обл.": 33,
+    "Волгоградская обл.": 34,
+    "Вологодская обл.": 35,
+    "Воронежская обл.": 36,
+    "Ивановская обл.": 37,
+    "Иркутская обл.": 38,
+    "Калининградская обл.": 39,
+    "Калужская обл.": 40,
+    "Камчатский край": 41,
+    "Кемеровская обл.": 42,
+    "Кировская обл.": 43,
+    "Костромская обл.": 44,
+    "Курганская обл.": 45,
+    "Курская обл.": 46,
+    "Липецкая обл.": 48,
+    "Магаданская обл.": 49,
+    "Мурманская обл.": 51,
+    "Нижегородская обл.": 52,
+    "Новгородская обл.": 53,
+    "Новосибирская обл.": 54,
+    "Омская обл.": 55,
+    "Оренбургская обл.": 56,
+    "Орловская обл.": 57,
+    "Пензенская обл.": 58,
+    "Пермский край": 59,
+    "Псковская обл.": 60,
+    "Ростовская обл.": 61,
+    "Рязанская обл.": 62,
+    "Самарская обл.": 63,
+    "Саратовская обл.": 64,
+    "Сахалинская обл.": 65,
+    "Свердловская обл.": 66,
+    "Смоленская обл.": 67,
+    "Тамбовская обл.": 68,
+    "Тверская обл.": 69,
+    "Томская обл.": 70,
+    "Тульская обл.": 71,
+    "Тюменская обл.": 72,
+    "Ульяновская обл.": 73,
+    "Челябинская обл.": 74,
+    "Ярославская обл.": 76,
+    "г. Москва": 77,
+    "г. Санкт-Петербург": 78,
+    "Еврейская автономная обл.": 79,
+    "Ханты-Мансийский АО - Югра": 86,
+    "Чукотский АО": 87,
+}
+
 
 class ProstatsError(Exception):
     def __init__(self, message: str, status_code: int = 500, details: Optional[dict] = None):
@@ -81,6 +161,12 @@ def _normalize_items(items: Optional[List[str]]) -> List[str]:
     return [s.strip() for s in items if s and s.strip()]
 
 
+def _region_code_from_value(value: str) -> Optional[int]:
+    if value.isdigit():
+        return int(value)
+    return REGION_CODE_BY_NAME.get(value)
+
+
 def _normalize_regions(regions: Optional[List[str]]) -> List[int]:
     if not regions:
         return []
@@ -89,26 +175,17 @@ def _normalize_regions(regions: Optional[List[str]]) -> List[int]:
         value = str(raw or "").strip()
         if not value:
             continue
-        try:
-            normalized.append(int(value))
-        except ValueError as exc:
-            raise ProstatsError(f"Region code must be numeric: {value}", status_code=400) from exc
+        code = _region_code_from_value(value)
+        if code is None:
+            raise ProstatsError(f"Unknown region: {value}", status_code=400)
+        normalized.append(code)
     return normalized
 
 
 def _normalize_regions_optional(regions: Optional[List[str]]) -> Optional[List[int]]:
     if not regions:
         return None
-    normalized: List[int] = []
-    for raw in regions:
-        value = str(raw or "").strip()
-        if not value:
-            continue
-        try:
-            normalized.append(int(value))
-        except ValueError:
-            return None
-    return normalized
+    return _normalize_regions(regions)
 
 
 def _build_complex_content(sites: List[str], phones: List[str], sms: Optional[str]) -> str:
@@ -174,6 +251,10 @@ def build_create_payload(item: schemas.CreateProjectItem) -> dict:
         "is_crm": 0,
         "workdays": _workdays_from_days(item.days),
     }
+    if item.regions:
+        regions = _normalize_regions(item.regions)
+        payload["regions"] = regions
+        payload["regions_reverse"] = 1 if item.regionMode == "exclude" else 0
     return payload
 
 
