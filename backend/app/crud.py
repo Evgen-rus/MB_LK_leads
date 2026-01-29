@@ -478,6 +478,18 @@ def _snapshot_project(p: models.Project) -> dict:
     return _project_to_out(p).dict()
 
 
+def _keep_first_item(value: Any) -> Optional[List[Any]]:
+    if not value:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        items = [item for item in value if item]
+        return [items[0]] if items else None
+    if isinstance(value, str):
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        return [items[0]] if items else None
+    return None
+
+
 def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate, user_id: int) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
     if not p:
@@ -522,11 +534,9 @@ def delete_project(db: Session, project_id: int, user_id: int) -> bool:
         return False
     before = _snapshot_project(p)
     p.status = 'Удалён'  # мягкое удаление
-    p.sites = None
-    p.phones = None
+    p.sites = _keep_first_item(p.sites)
+    p.phones = _keep_first_item(p.phones)
     p.sms_sender_name = None
-    p.regions = None
-    p.region_mode = None
     p.sources_count = 0
     p.updated_at = now_msk()
     db.flush()
@@ -1857,11 +1867,9 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
         return False
     before = _snapshot_project(p)
     p.status = 'Удалён'
-    p.sites = None
-    p.phones = None
+    p.sites = _keep_first_item(p.sites)
+    p.phones = _keep_first_item(p.phones)
     p.sms_sender_name = None
-    p.regions = None
-    p.region_mode = None
     p.sources_count = 0
     p.updated_at = now_msk()
     db.flush()
