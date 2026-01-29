@@ -23,6 +23,23 @@ type CreateProjectModalProps = {
   onSubmit?: (payloads: SubmitItem[]) => Promise<string | null> | string | null | void;
 };
 
+// Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
+const DISABLED_COLLECTION_SOURCES = new Set<CollectionSource>([
+  'СМС',
+  'Ретрозвонки',
+  'Ретросайты',
+  'Пересечение',
+]);
+
+const ALL_COLLECTION_SOURCES: CollectionSource[] = [
+  'Звонки',
+  'Сайты',
+  'СМС',
+  'Ретрозвонки',
+  'Ретросайты',
+  'Пересечение',
+];
+
 function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -53,6 +70,16 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
   const hasName = name.trim().length > 0;
+
+  const availableSources = useMemo(() => (
+    ALL_COLLECTION_SOURCES.filter((src) => !DISABLED_COLLECTION_SOURCES.has(src))
+  ), []);
+
+  useEffect(() => {
+    if (DISABLED_COLLECTION_SOURCES.has(collectionSource)) {
+      setCollectionSource(availableSources[0] || 'Звонки');
+    }
+  }, [collectionSource, availableSources]);
 
   const baseRegionIndex = useMemo(() => {
     const m = new Map<string, number>();
@@ -336,12 +363,9 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
                   <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
-                    <option value="Звонки">Звонки</option>
-                    <option value="Сайты">Сайты</option>
-                    <option value="СМС">СМС</option>
-                    <option value="Ретрозвонки">Ретрозвонки</option>
-                    <option value="Ретросайты">Ретросайты</option>
-                    <option value="Пересечение">Пересечение</option>
+                    {availableSources.map((src) => (
+                      <option key={src} value={src}>{src}</option>
+                    ))}
                   </select>
                 </label>
 

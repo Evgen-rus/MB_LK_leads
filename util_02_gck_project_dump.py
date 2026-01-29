@@ -54,11 +54,15 @@ def main() -> None:
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     default_name = f"gck_project_{project_id}_{ts}.json"
     out_file = sys.argv[2] if len(sys.argv) > 2 else default_name
+    raw_out_file = f"gck_project_{project_id}_{ts}_raw.txt"
 
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
     print(f"Saved project to: {out_file}")
+    with open(raw_out_file, "w", encoding="utf-8") as f:
+        f.write(raw_text)
+    print(f"Saved raw response to: {raw_out_file}")
 
     # полезный вывод
     result = data.get("result") or {}
