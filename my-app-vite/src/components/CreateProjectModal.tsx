@@ -25,7 +25,6 @@ type CreateProjectModalProps = {
 
 // Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
 const DISABLED_COLLECTION_SOURCES = new Set<CollectionSource>([
-  'СМС',
   'Ретрозвонки',
   'Ретросайты',
   'Пересечение',
