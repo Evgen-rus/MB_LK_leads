@@ -1,7 +1,8 @@
 import json
+import logging
 import os
 import sys
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -32,16 +33,6 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
     return response.status_code, raw_text, parsed
 
 
-def _print_block(title: str, content: Any) -> None:
-    print("=" * 80)
-    print(title)
-    print("-" * 80)
-    if isinstance(content, (dict, list)):
-        print(json.dumps(content, ensure_ascii=True, indent=2))
-    else:
-        print(content)
-
-
 def _mask_token(payload: dict) -> dict:
     safe = dict(payload)
     token = safe.get("token")
@@ -56,6 +47,11 @@ def main() -> None:
       python util_05_gck_project_delete.py <project_id>
     """
     load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
+    logger = logging.getLogger(__name__)
 
     token = require_env("PROSTATS_TOKEN")
     if len(sys.argv) < 2:
@@ -73,16 +69,20 @@ def main() -> None:
 
     status_code, raw_text, parsed = _post(payload)
 
-    _print_block("REQUEST", _mask_token(payload))
-    _print_block("RESPONSE: HTTP STATUS", status_code)
-    _print_block("RESPONSE: RAW", raw_text[:5000])
-    _print_block("RESPONSE: JSON", parsed if parsed is not None else "not a json response")
+    logger.info("REQUEST %s", json.dumps(_mask_token(payload), ensure_ascii=True))
+    logger.info("RESPONSE_HTTP_STATUS %s", status_code)
+    logger.info("RESPONSE_RAW %s", raw_text)
+    logger.info(
+        "RESPONSE_JSON %s",
+        json.dumps(parsed, ensure_ascii=True)
+        if parsed is not None
+        else "not a json response",
+    )
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
         raise SystemExit("Delete failed. Check RESPONSE above for details.")
 
-    print("=" * 80)
-    print("Delete finished with status=success.")
+    logger.info("Delete finished with status=success.")
 
 
 if __name__ == "__main__":
