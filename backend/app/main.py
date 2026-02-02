@@ -256,7 +256,7 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
     return project
 
 
-@app.patch("/projects/{project_id}", response_model=schemas.ProjectOut)
+@app.patch("/projects/{project_id}", response_model=schemas.UpdateProjectOut)
 def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
@@ -265,11 +265,20 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    warning_text = None
     try:
         if payload.status == "Удалён":
             prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
-            prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            warning_text = result.get("warning")
+            missing_items = result.get("missing_items") or []
+            target_type = result.get("target_type")
+            if missing_items and target_type in ("hosts", "calls"):
+                if target_type == "hosts":
+                    payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
+                else:
+                    payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
@@ -286,7 +295,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    return updated
+    return schemas.UpdateProjectOut(project=updated, warning=warning_text)
 
 
 @app.get("/projects/{project_id}/history", response_model=List[schemas.ProjectHistoryItem])
@@ -953,7 +962,7 @@ def admin_project_history(
     )
 
 
-@app.patch("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)
+@app.patch("/admin/projects/{project_id}", response_model=schemas.AdminUpdateProjectOut)
 def admin_update_project(
     project_id: int,
     payload: schemas.AdminProjectUpdate,
@@ -968,11 +977,20 @@ def admin_update_project(
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    warning_text = None
     try:
         if payload.status == "Удалён":
             prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
-            prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            warning_text = result.get("warning")
+            missing_items = result.get("missing_items") or []
+            target_type = result.get("target_type")
+            if missing_items and target_type in ("hosts", "calls"):
+                if target_type == "hosts":
+                    payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
+                else:
+                    payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
@@ -989,7 +1007,7 @@ def admin_update_project(
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    return updated
+    return schemas.AdminUpdateProjectOut(project=updated, warning=warning_text)
 
 
 @app.delete("/admin/projects/{project_id}")

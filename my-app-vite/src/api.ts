@@ -236,6 +236,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type ProjectListResp = { items: Project[]; total: number };
 export type CreateProjectsResp = { items: Project[]; warning?: string | null };
+export type UpdateProjectResp = { project: Project; warning?: string | null };
 
 export async function fetchProjects(params?: {
   offset?: number;
@@ -263,8 +264,8 @@ export async function createProjects(items: CreateProjectItem[]): Promise<Create
   });
 }
 
-export async function updateProject(id: number, payload: ProjectUpdatePayload): Promise<Project> {
-  return http<Project>(`/projects/${id}`, {
+export async function updateProject(id: number, payload: ProjectUpdatePayload): Promise<UpdateProjectResp> {
+  return http<UpdateProjectResp>(`/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
@@ -570,8 +571,10 @@ export async function fetchAdminProject(id: number): Promise<AdminProject> {
   return http<AdminProject>(`/admin/projects/${id}`);
 }
 
-export async function updateAdminProject(id: number, payload: AdminProjectUpdate): Promise<AdminProject> {
-  return http<AdminProject>(`/admin/projects/${id}`, {
+export type UpdateAdminProjectResp = { project: AdminProject; warning?: string | null };
+
+export async function updateAdminProject(id: number, payload: AdminProjectUpdate): Promise<UpdateAdminProjectResp> {
+  return http<UpdateAdminProjectResp>(`/admin/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });

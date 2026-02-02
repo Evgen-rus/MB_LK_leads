@@ -383,7 +383,13 @@ def _get_project(provider_id: str) -> Optional[dict]:
     return (parsed or {}).get("result") or None
 
 
-def _build_partial_warning(name: str, target_type: str, missing: List[str], duplicates: Dict[str, List[str]]) -> str:
+def _build_partial_warning(
+    name: str,
+    target_type: str,
+    missing: List[str],
+    duplicates: Dict[str, List[str]],
+    action: str,
+) -> str:
     label = "домены" if target_type == "hosts" else "номера"
     lines: List[str] = []
     for item in missing:
@@ -392,7 +398,7 @@ def _build_partial_warning(name: str, target_type: str, missing: List[str], dupl
         else:
             lines.append(item)
     return (
-        f'Проект "{name}" создан, но некоторые {label} уже используются в других проектах:\n'
+        f'Проект "{name}" {action}, но некоторые {label} уже используются в других проектах:\n'
         + "\n".join(lines)
         + "\nУдалите их из других проектов или укажите другие."
     )
@@ -430,7 +436,7 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
             missing_items = sorted(set(expected) - set(actual))
             if missing_items:
                 duplicates = _find_duplicates(missing_items, target_type, payload.get("src") or "")
-                warning = _build_partial_warning(item.name, target_type, missing_items, duplicates)
+                warning = _build_partial_warning(item.name, target_type, missing_items, duplicates, action="создан")
 
     return {
         "provider_id": provider_id,
@@ -447,14 +453,45 @@ def update_project(
     project: models.Project,
     update: schemas.ProjectUpdate | schemas.AdminProjectUpdate,
 ) -> dict:
+    target_type = _type_from_collection(project.collection_source)
+    target_src = _src_from_code(project.data_source_code)
     payload = build_update_payload(provider_id, project, update)
     status_code, raw_text, parsed = _post(payload)
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
         error_message = _extract_error_message(parsed, raw_text)
-        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+        duplicates = {}
+        if _should_check_duplicates(error_message, target_type):
+            items = _parse_content_list(str(payload.get("content") or ""))
+            duplicates = _find_duplicates(items, target_type, target_src)
+        raise ProstatsError(
+            error_message,
+            status_code=422 if duplicates else status_code,
+            details={"duplicates": duplicates, "raw": raw_text},
+        )
 
-    return {"raw": parsed}
+    warning = None
+    missing_items: List[str] = []
+    provider_content = ""
+
+    if target_type in ("hosts", "calls"):
+        expected = _parse_content_list(str(payload.get("content") or ""))
+        detail = _get_project(str(provider_id))
+        if detail:
+            provider_content = str(detail.get("content") or "")
+            actual = _parse_content_list(provider_content)
+            missing_items = sorted(set(expected) - set(actual))
+            if missing_items:
+                duplicates = _find_duplicates(missing_items, target_type, target_src)
+                warning = _build_partial_warning(update.name, target_type, missing_items, duplicates, action="обновлён")
+
+    return {
+        "raw": parsed,
+        "warning": warning,
+        "missing_items": missing_items,
+        "provider_content": provider_content,
+        "target_type": target_type,
+    }
 
 
 def delete_project(provider_id: str, project: models.Project) -> dict:

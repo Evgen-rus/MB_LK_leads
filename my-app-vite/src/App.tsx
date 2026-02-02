@@ -471,9 +471,12 @@ function App() {
           onSubmit={(u: ProjectUpdatePayload) => {
             (async () => {
               try {
-                const updated = await apiUpdate(editing.id, u);
-                setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+                const result = await apiUpdate(editing.id, u);
+                setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
                 window.dispatchEvent(new CustomEvent('projects-refresh'));
+                if (result.warning) {
+                  setToast(result.warning);
+                }
               } catch (e) {
                 console.error(e);
               }

@@ -129,8 +129,11 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         days: ALL_DAYS,
         ...patch,
       };
-      const updated = await updateAdminProject(project.id, payload);
-      setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      const result = await updateAdminProject(project.id, payload);
+      setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
+      if (result.warning) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+      }
     } catch (err: unknown) {
       console.error(err);
       setError(getErrorMessage(err, 'Не удалось обновить проект'));

@@ -111,9 +111,12 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
       const payload = buildUpdatePayloadFromRow(row, { status: nextStatus });
-      const updated = await apiUpdateProject(row.id, payload);
-      setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
+      const result = await apiUpdateProject(row.id, payload);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? result.project : p)));
       window.dispatchEvent(new CustomEvent('projects-refresh'));
+      if (result.warning) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+      }
     } catch (e) {
       console.error(e);
       alert('Не удалось изменить статус проекта');

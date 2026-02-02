@@ -77,6 +77,11 @@ class CreateProjectsOut(BaseModel):
     warning: Optional[str] = None
 
 
+class UpdateProjectOut(BaseModel):
+    project: ProjectOut
+    warning: Optional[str] = None
+
+
 class ProjectListOut(BaseModel):
     items: List[ProjectOut]
     total: int
@@ -147,6 +152,11 @@ class AdminProjectOut(ProjectOut):
 class AdminProjectListOut(BaseModel):
     items: List[AdminProjectOut]
     total: int
+
+
+class AdminUpdateProjectOut(BaseModel):
+    project: AdminProjectOut
+    warning: Optional[str] = None
 
 
 class AdminProjectUpdate(BaseModel):

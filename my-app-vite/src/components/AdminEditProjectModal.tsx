@@ -256,8 +256,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
     setError(null);
 
     try {
-      const updated = await updateAdminProject(project.id, payload);
-      onSubmit?.(updated);
+      const result = await updateAdminProject(project.id, payload);
+      onSubmit?.(result.project);
+      if (result.warning) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+      }
       onClose();
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Ошибка при сохранении'));
