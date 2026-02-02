@@ -410,17 +410,7 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
         error_message = _extract_error_message(parsed, raw_text)
-        target_type = payload.get("type")
-        duplicates = {}
-        if _should_check_duplicates(error_message, target_type):
-            items = [s.strip() for s in str(payload.get("content") or "").split(",") if s.strip()]
-            duplicates = _find_duplicates(items, target_type, payload.get("src") or "")
-
-        raise ProstatsError(
-            error_message,
-            status_code=422 if duplicates else status_code,
-            details={"duplicates": duplicates, "raw": raw_text},
-        )
+        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
 
     result = parsed.get("result") or {}
     provider_id = result.get("id")
@@ -434,14 +424,10 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
         if detail:
             actual = _parse_content_list(str(detail.get("content") or ""))
             missing_items = sorted(set(expected) - set(actual))
-            if missing_items:
-                duplicates = _find_duplicates(missing_items, target_type, payload.get("src") or "")
-                warning = _build_partial_warning(item.name, target_type, missing_items, duplicates, action="создан")
 
     return {
         "provider_id": provider_id,
         "raw": parsed,
-        "warning": warning,
         "missing_items": missing_items,
         "provider_content": str(detail.get("content") or "") if provider_id and detail else "",
         "target_type": target_type,

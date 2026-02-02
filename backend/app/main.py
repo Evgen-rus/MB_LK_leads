@@ -227,18 +227,53 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     for idx, item in enumerate(payload.items):
         try:
             result = prostats.create_project(item)
-            if result.get("warning"):
-                warnings.append(result["warning"])
             provider_ids.append(str(result.get("provider_id") or "").strip() or None)
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
+                provider_id_value = str(result.get("provider_id") or "").strip() or None
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    missing_items,
+                    target_type,
+                    user_id=current_user.id,
+                    provider_project_id=provider_id_value,
+                )
+                warnings.append(
+                    prostats._build_partial_warning(
+                        item.name,
+                        target_type,
+                        missing_items,
+                        duplicates,
+                        action="создан",
+                    ),
+                )
                 if target_type == "hosts":
                     item.sites = [s for s in (item.sites or []) if s not in missing_items]
                 else:
                     item.phones = [p for p in (item.phones or []) if p not in missing_items]
         except prostats.ProstatsError as exc:
             detail = {"message": exc.message, **(exc.details or {})}
+            target_type = prostats._type_from_collection(item.collectionSource)
+            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
+                items = item.sites if target_type == "hosts" else item.phones
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    items or [],
+                    target_type,
+                    user_id=current_user.id,
+                    provider_project_id=None,
+                )
+                if duplicates:
+                    detail["duplicates"] = duplicates
+                    detail["message"] = (
+                        "Домены уже используются в наших проектах."
+                        if target_type == "hosts"
+                        else "Номера уже используются в наших проектах."
+                    )
+                    raise HTTPException(status_code=422, detail=detail)
+                detail["message"] = "Занято у провайдера. Подробности недоступны."
+                raise HTTPException(status_code=422, detail=detail)
             raise HTTPException(status_code=exc.status_code, detail=detail)
 
     # 2) Если все успешны — сохраняем у нас
@@ -279,6 +314,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                     missing_items,
                     target_type,
                     user_id=current_user.id,
+                    provider_project_id=project_row.provider_project_id,
                     exclude_project_id=project_row.id,
                 )
                 warning_text = prostats._build_partial_warning(
@@ -303,6 +339,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                     items or [],
                     target_type,
                     user_id=current_user.id,
+                    provider_project_id=project_row.provider_project_id,
                     exclude_project_id=project_row.id,
                 )
                 if duplicates:
@@ -1025,6 +1062,7 @@ def admin_update_project(
                     missing_items,
                     target_type,
                     user_id=project_row.user_id,
+                    provider_project_id=project_row.provider_project_id,
                     exclude_project_id=project_row.id,
                 )
                 warning_text = prostats._build_partial_warning(
@@ -1049,6 +1087,7 @@ def admin_update_project(
                     items or [],
                     target_type,
                     user_id=project_row.user_id,
+                    provider_project_id=project_row.provider_project_id,
                     exclude_project_id=project_row.id,
                 )
                 if duplicates:

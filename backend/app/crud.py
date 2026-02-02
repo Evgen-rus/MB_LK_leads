@@ -31,6 +31,7 @@ def find_duplicates_in_projects(
     items: List[str],
     target_type: str,
     user_id: int,
+    provider_project_id: Optional[str],
     exclude_project_id: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     """
@@ -44,9 +45,13 @@ def find_duplicates_in_projects(
     if not normalized:
         return {}
 
+    if not provider_project_id:
+        return {}
+
     query = db.query(models.Project).filter(
         models.Project.status != "Удалён",
         models.Project.user_id == user_id,
+        models.Project.provider_project_id == str(provider_project_id).strip(),
     )
     if exclude_project_id is not None:
         query = query.filter(models.Project.id != exclude_project_id)
