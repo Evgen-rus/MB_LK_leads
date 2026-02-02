@@ -460,17 +460,8 @@ def update_project(
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
         error_message = _extract_error_message(parsed, raw_text)
-        duplicates = {}
-        if _should_check_duplicates(error_message, target_type):
-            items = _parse_content_list(str(payload.get("content") or ""))
-            duplicates = _find_duplicates(items, target_type, target_src)
-        raise ProstatsError(
-            error_message,
-            status_code=422 if duplicates else status_code,
-            details={"duplicates": duplicates, "raw": raw_text},
-        )
+        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
 
-    warning = None
     missing_items: List[str] = []
     provider_content = ""
 
@@ -481,13 +472,9 @@ def update_project(
             provider_content = str(detail.get("content") or "")
             actual = _parse_content_list(provider_content)
             missing_items = sorted(set(expected) - set(actual))
-            if missing_items:
-                duplicates = _find_duplicates(missing_items, target_type, target_src)
-                warning = _build_partial_warning(update.name, target_type, missing_items, duplicates, action="обновлён")
 
     return {
         "raw": parsed,
-        "warning": warning,
         "missing_items": missing_items,
         "provider_content": provider_content,
         "target_type": target_type,

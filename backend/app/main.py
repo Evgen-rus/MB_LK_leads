@@ -271,16 +271,50 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
             prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
             result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
-            warning_text = result.get("warning")
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    missing_items,
+                    target_type,
+                    user_id=current_user.id,
+                    exclude_project_id=project_row.id,
+                )
+                warning_text = prostats._build_partial_warning(
+                    payload.name,
+                    target_type,
+                    missing_items,
+                    duplicates,
+                    action="обновлён",
+                )
                 if target_type == "hosts":
                     payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
                 else:
                     payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
+        if payload.status != "Удалён":
+            target_type = prostats._type_from_collection(project_row.collection_source)
+            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
+                items = payload.sites if target_type == "hosts" else payload.phones
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    items or [],
+                    target_type,
+                    user_id=current_user.id,
+                    exclude_project_id=project_row.id,
+                )
+                if duplicates:
+                    detail["duplicates"] = duplicates
+                    detail["message"] = (
+                        "Домены уже используются в наших проектах."
+                        if target_type == "hosts"
+                        else "Номера уже используются в наших проектах."
+                    )
+                    raise HTTPException(status_code=422, detail=detail)
+                detail["message"] = "Занято у провайдера. Подробности недоступны."
+                raise HTTPException(status_code=422, detail=detail)
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
@@ -983,16 +1017,50 @@ def admin_update_project(
             prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
             result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
-            warning_text = result.get("warning")
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    missing_items,
+                    target_type,
+                    user_id=project_row.user_id,
+                    exclude_project_id=project_row.id,
+                )
+                warning_text = prostats._build_partial_warning(
+                    payload.name,
+                    target_type,
+                    missing_items,
+                    duplicates,
+                    action="обновлён",
+                )
                 if target_type == "hosts":
                     payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
                 else:
                     payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
+        if payload.status != "Удалён":
+            target_type = prostats._type_from_collection(project_row.collection_source)
+            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
+                items = payload.sites if target_type == "hosts" else payload.phones
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    items or [],
+                    target_type,
+                    user_id=project_row.user_id,
+                    exclude_project_id=project_row.id,
+                )
+                if duplicates:
+                    detail["duplicates"] = duplicates
+                    detail["message"] = (
+                        "Домены уже используются в наших проектах."
+                        if target_type == "hosts"
+                        else "Номера уже используются в наших проектах."
+                    )
+                    raise HTTPException(status_code=422, detail=detail)
+                detail["message"] = "Занято у провайдера. Подробности недоступны."
+                raise HTTPException(status_code=422, detail=detail)
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":

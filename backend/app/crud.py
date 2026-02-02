@@ -26,6 +26,47 @@ def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]],
     return (len(sites or [])) + (len(phones or [])) + (1 if sms_sender_name else 0)
 
 
+def find_duplicates_in_projects(
+    db: Session,
+    items: List[str],
+    target_type: str,
+    user_id: int,
+    exclude_project_id: Optional[int] = None,
+) -> Dict[str, List[str]]:
+    """
+    Ищет дубликаты доменов/номеров только среди наших проектов в БД.
+    Возвращает карту: item -> ["<id>|<name>", ...]
+    """
+    if target_type not in ("hosts", "calls"):
+        return {}
+
+    normalized = {str(x).strip() for x in items if x is not None and str(x).strip()}
+    if not normalized:
+        return {}
+
+    query = db.query(models.Project).filter(
+        models.Project.status != "Удалён",
+        models.Project.user_id == user_id,
+    )
+    if exclude_project_id is not None:
+        query = query.filter(models.Project.id != exclude_project_id)
+
+    duplicates: Dict[str, List[str]] = {}
+    for project in query:
+        sources = project.sites if target_type == "hosts" else project.phones
+        if not sources or not isinstance(sources, list):
+            continue
+        source_set = {str(x).strip() for x in sources if x is not None and str(x).strip()}
+        intersect = normalized.intersection(source_set)
+        if not intersect:
+            continue
+        label = f"{project.id}|{project.name}"
+        for value in intersect:
+            duplicates.setdefault(value, []).append(label)
+
+    return duplicates
+
+
 def _project_to_out(p: models.Project, numbers_period: int = 0, numbers_total: Optional[int] = None) -> schemas.ProjectOut:
     return schemas.ProjectOut(
         id=p.id,
