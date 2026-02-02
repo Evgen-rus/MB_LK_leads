@@ -468,19 +468,13 @@ function App() {
         <EditProjectModal
           project={editing}
           onClose={() => setEditing(null)}
-          onSubmit={(u: ProjectUpdatePayload) => {
-            (async () => {
-              try {
-                const result = await apiUpdate(editing.id, u);
-                setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
-                window.dispatchEvent(new CustomEvent('projects-refresh'));
-                if (result.warning) {
-                  setToast(result.warning);
-                }
-              } catch (e) {
-                console.error(e);
-              }
-            })();
+          onSubmit={async (u: ProjectUpdatePayload) => {
+            const result = await apiUpdate(editing.id, u);
+            setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
+            window.dispatchEvent(new CustomEvent('projects-refresh'));
+            if (result.warning) {
+              setToast(result.warning);
+            }
           }}
         />
       )}

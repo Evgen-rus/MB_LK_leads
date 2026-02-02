@@ -21,8 +21,16 @@ type SubmitUpdate = {
 type EditProjectModalProps = {
   project: Project;
   onClose: () => void;
-  onSubmit?: (update: SubmitUpdate) => void;
+  onSubmit?: (update: SubmitUpdate) => Promise<void>;
 };
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg.trim()) return msg;
+  }
+  return fallback;
+}
 
 function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -41,6 +49,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const initialDays = useMemo<DayAbbrev[]>(() => {
     const map: Record<string, DayAbbrev> = { 'Пн.':'Пн','Вт.':'Вт','Ср.':'Ср','Чт.':'Чт','Пт.':'Пт','Сб.':'Сб','Вс.':'Вс' };
@@ -213,10 +224,10 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, status, dataLimit, regionMode, regions, sitesParsed, phonesText, smsSenderName, days, project.collectionSource]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    if (!isDirty) return;
+    if (!isDirty || saving) return;
     if (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') {
       const digits = (smsSenderName || '').replace(/\D+/g, '');
       if (!smsSenderName.trim() || digits.length >= 10) return;
@@ -249,8 +260,16 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       smsSenderName: (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
       days,
     };
-    onSubmit?.(update);
-    onClose();
+    setSaving(true);
+    setError(null);
+    try {
+      await onSubmit?.(update);
+      onClose();
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось сохранить проект. Проверьте данные и попробуйте еще раз.'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   const bActive = (code: 'B1'|'B2'|'B3'|'B4') => project.dataSourceCode === code;
@@ -414,7 +433,14 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-            <button type="button" className="btn" onClick={onClose}>Отмена</button>
+            {error && (
+              <div style={{ marginRight: 'auto', color: '#b42318', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+                {error}
+              </div>
+            )}
+            <button type="button" className="btn" onClick={() => { if (!saving) onClose(); }} disabled={saving}>
+              Отмена
+            </button>
             {isDeleted ? (
               <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
                 Проект удалён. Сохранение недоступно.
@@ -424,8 +450,8 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 Нет изменений
               </span>
             )}
-            <button type="submit" className="btn btn--primary" disabled={!isDirty || isDeleted}>
-              Сохранить
+            <button type="submit" className="btn btn--primary" disabled={!isDirty || isDeleted || saving}>
+              {saving ? 'Сохранение…' : 'Сохранить'}
             </button>
           </div>
         </form>

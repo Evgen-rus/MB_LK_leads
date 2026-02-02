@@ -168,17 +168,28 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     const errorMessage = res.statusText;
     let errorDetail: string | null = null;
 
-    function buildDuplicateMessage(message: string, duplicates: Record<string, string[]>): string {
+    function buildDuplicateMessage(
+      message: string,
+      duplicates: Record<string, string[]>,
+      pathValue: string,
+      methodValue: string,
+    ): string {
       const lower = message.toLowerCase();
       const label = lower.includes('домены')
         ? 'домены'
         : lower.includes('номера')
           ? 'номера'
           : 'значения';
+      let actionPrefix = 'Операция не выполнена';
+      if (methodValue === 'POST' && pathValue.startsWith('/projects')) {
+        actionPrefix = 'Проект не создан';
+      } else if (methodValue === 'PATCH' && (pathValue.startsWith('/projects') || pathValue.startsWith('/admin/projects'))) {
+        actionPrefix = 'Проект не обновлён';
+      }
       const lines = Object.entries(duplicates).map(
         ([item, projects]) => `${item} -> ${projects.join(', ')}`,
       );
-      return `Проект не создан. Эти ${label} уже используются:\n${lines.join('\n')}\nУдалите их из других проектов или укажите другие.`;
+      return `${actionPrefix}. Эти ${label} уже используются:\n${lines.join('\n')}\nУдалите их из других проектов или укажите другие.`;
     }
 
     function parseErrorDetail(text: string): string {
@@ -194,7 +205,8 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
             duplicates?: Record<string, string[]>;
           };
           if (detail.duplicates && Object.keys(detail.duplicates).length > 0) {
-            return buildDuplicateMessage(detail.message || 'Ошибка', detail.duplicates);
+            const methodValue = (init?.method || 'GET').toUpperCase();
+            return buildDuplicateMessage(detail.message || 'Ошибка', detail.duplicates, path, methodValue);
           }
           return detail.message || JSON.stringify(json.detail);
         }
