@@ -419,6 +419,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            {saving && (
+              <div style={{ marginRight: 'auto', color: '#8a5a00', fontSize: '0.9rem' }}>
+                Ждём ответ от провайдера…
+              </div>
+            )}
             <button type="button" className="btn" onClick={onClose} disabled={saving}>Закрыть</button>
             {readOnly ? (
               <span className="sub" style={{ alignSelf: 'center', color: '#666' }}>

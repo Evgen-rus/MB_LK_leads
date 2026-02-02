@@ -438,6 +438,11 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 {error}
               </div>
             )}
+            {!error && saving && (
+              <div style={{ marginRight: 'auto', color: '#8a5a00', fontSize: '0.9rem' }}>
+                Ждём ответ от провайдера…
+              </div>
+            )}
             <button type="button" className="btn" onClick={() => { if (!saving) onClose(); }} disabled={saving}>
               Отмена
             </button>
