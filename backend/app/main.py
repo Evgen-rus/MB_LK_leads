@@ -220,18 +220,20 @@ def list_projects(
 
 @app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    # 1) Создаём проекты у поставщика
-    warnings: List[str] = []
-    adjusted_items = payload.items
+    # 1) Создаём проекты у поставщика (частичный успех допустим)
+    notices: List[str] = []
+    adjusted_items: List[schemas.CreateProjectItem] = []
     provider_ids: List[Optional[str]] = []
-    for idx, item in enumerate(payload.items):
+    for item in payload.items:
         try:
             result = prostats.create_project(item)
-            provider_ids.append(str(result.get("provider_id") or "").strip() or None)
+            provider_id_value = str(result.get("provider_id") or "").strip() or None
+            provider_ids.append(provider_id_value)
+            adjusted_items.append(item)
+
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
-                provider_id_value = str(result.get("provider_id") or "").strip() or None
                 duplicates = crud.find_duplicates_in_projects(
                     db_sess,
                     missing_items,
@@ -239,7 +241,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                     user_id=current_user.id,
                     provider_project_id=provider_id_value,
                 )
-                warnings.append(
+                notices.append(
                     prostats._build_partial_warning(
                         item.name,
                         target_type,
@@ -252,34 +254,23 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                     item.sites = [s for s in (item.sites or []) if s not in missing_items]
                 else:
                     item.phones = [p for p in (item.phones or []) if p not in missing_items]
+            else:
+                notices.append(f'Проект "{item.name}" создан.')
         except prostats.ProstatsError as exc:
-            detail = {"message": exc.message, **(exc.details or {})}
             target_type = prostats._type_from_collection(item.collectionSource)
-            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
-                items = item.sites if target_type == "hosts" else item.phones
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
-                    items or [],
-                    target_type,
-                    user_id=current_user.id,
-                    provider_project_id=None,
-                )
-                if duplicates:
-                    detail["duplicates"] = duplicates
-                    detail["message"] = (
-                        "Домены уже используются в наших проектах."
-                        if target_type == "hosts"
-                        else "Номера уже используются в наших проектах."
-                    )
-                    raise HTTPException(status_code=422, detail=detail)
-                detail["message"] = "Занято у провайдера. Подробности недоступны."
-                raise HTTPException(status_code=422, detail=detail)
-            raise HTTPException(status_code=exc.status_code, detail=detail)
+            message = exc.message
+            if prostats._should_check_duplicates(exc.message, target_type):
+                message = "Занято у провайдера. Подробности недоступны."
+            notices.append(f'Проект "{item.name}" не создан: {message}')
 
     # 2) Если все успешны — сохраняем у нас
+    if not adjusted_items:
+        warning_text = "\n\n".join(notices) if notices else "Не удалось создать проекты."
+        raise HTTPException(status_code=422, detail={"message": warning_text})
+
     created = crud.create_projects(db_sess, adjusted_items, user_id=current_user.id, provider_ids=provider_ids)
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    warning_text = "\n\n".join(warnings) if warnings else None
+    warning_text = "\n\n".join(notices) if notices else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)
 
 
