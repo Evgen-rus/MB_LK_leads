@@ -30,6 +30,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const [name, setName] = useState(project.name);
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
+  const isDeleted = project.status === 'Удалён';
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
   const [regionQuery, setRegionQuery] = useState('');
@@ -379,11 +380,22 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Статус проекта</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
-                <option value="Активен">Активен</option>
-                <option value="На паузе">На паузе</option>
-                <option value="Удалён">Удалён</option>
-              </select>
+              {isDeleted ? (
+                <div style={{ padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, background: '#f9f9f9' }}>
+                  Удалён
+                </div>
+              ) : (
+                <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+                  <option value="Активен">Активен</option>
+                  <option value="На паузе">На паузе</option>
+                  <option value="Удалён">Удалён</option>
+                </select>
+              )}
+              {isDeleted && (
+                <div className="hint" style={{ color: '#666' }}>
+                  Проект удалён. Редактирование недоступно, можно только просмотреть данные.
+                </div>
+              )}
             </label>
 
             <div style={{ display: 'grid', gap: 6 }}>
@@ -403,12 +415,16 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose}>Отмена</button>
-            {!isDirty && (
+            {isDeleted ? (
+              <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
+                Проект удалён. Сохранение недоступно.
+              </span>
+            ) : !isDirty && (
               <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
                 Нет изменений
               </span>
             )}
-            <button type="submit" className="btn btn--primary" disabled={!isDirty}>
+            <button type="submit" className="btn btn--primary" disabled={!isDirty || isDeleted}>
               Сохранить
             </button>
           </div>
