@@ -457,11 +457,8 @@ def update_project(
     return {"raw": parsed}
 
 
-def disable_project(provider_id: str, project: models.Project) -> dict:
+def delete_project(provider_id: str, project: models.Project) -> dict:
     token = _get_token()
-    target_type = _type_from_collection(project.collection_source)
-    empty_content = _build_empty_content(target_type)
-
     try:
         provider_id_value: int | str = int(str(provider_id).strip())
     except Exception:
@@ -469,12 +466,8 @@ def disable_project(provider_id: str, project: models.Project) -> dict:
 
     payload = {
         "token": token,
-        "command": "gck_project_update",
+        "command": "gck_project_delete",
         "id": provider_id_value,
-        "status": 0,
-        "content": empty_content,
-        "regions": [],
-        "regions_reverse": 0,
     }
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":

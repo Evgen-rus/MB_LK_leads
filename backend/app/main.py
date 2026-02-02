@@ -261,11 +261,13 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project_row.status == "Удалён":
+        raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     try:
         if payload.status == "Удалён":
-            prostats.disable_project(str(project_row.provider_project_id), project_row)
+            prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
             prostats.update_project(str(project_row.provider_project_id), project_row, payload)
     except prostats.ProstatsError as exc:
@@ -314,7 +316,7 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     try:
-        prostats.disable_project(str(project_row.provider_project_id), project_row)
+        prostats.delete_project(str(project_row.provider_project_id), project_row)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
@@ -962,11 +964,13 @@ def admin_update_project(
     project_row = db_sess.get(models.Project, project_id)
     if not project_row:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project_row.status == "Удалён":
+        raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     try:
         if payload.status == "Удалён":
-            prostats.disable_project(str(project_row.provider_project_id), project_row)
+            prostats.delete_project(str(project_row.provider_project_id), project_row)
         else:
             prostats.update_project(str(project_row.provider_project_id), project_row, payload)
     except prostats.ProstatsError as exc:
@@ -1001,7 +1005,7 @@ def admin_delete_project(
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     try:
-        prostats.disable_project(str(project_row.provider_project_id), project_row)
+        prostats.delete_project(str(project_row.provider_project_id), project_row)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)

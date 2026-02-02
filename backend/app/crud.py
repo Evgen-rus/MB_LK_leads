@@ -533,11 +533,7 @@ def delete_project(db: Session, project_id: int, user_id: int) -> bool:
     if p.user_id != user_id:
         return False
     before = _snapshot_project(p)
-    p.status = 'Удалён'  # мягкое удаление
-    p.sites = _keep_first_item(p.sites)
-    p.phones = _keep_first_item(p.phones)
-    p.sms_sender_name = None
-    p.sources_count = 0
+    p.status = 'Удалён'  # мягкое удаление: только статус
     p.updated_at = now_msk()
     db.flush()
     after = _snapshot_project(p)
@@ -1867,10 +1863,6 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
         return False
     before = _snapshot_project(p)
     p.status = 'Удалён'
-    p.sites = _keep_first_item(p.sites)
-    p.phones = _keep_first_item(p.phones)
-    p.sms_sender_name = None
-    p.sources_count = 0
     p.updated_at = now_msk()
     db.flush()
     after = _snapshot_project(p)
