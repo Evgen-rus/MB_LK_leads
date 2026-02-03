@@ -37,6 +37,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
+  const [sitesError, setSitesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
   const [phonesError, setPhonesError] = useState<string | null>(null);
 
@@ -223,6 +224,17 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       if (!smsSenderName.trim() || digits.length >= 10) return;
     }
 
+    if (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') {
+      const normalizedSites = uniqueList(sitesParsed);
+      if (normalizedSites.length === 0) {
+        setSitesError('Укажите минимум 1 сайт.');
+        return;
+      }
+      setSitesError(null);
+    } else {
+      setSitesError(null);
+    }
+
     let phones: string[] | undefined;
     if (source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') {
       const res = normalizePhonesMultiline(phonesText);
@@ -233,8 +245,12 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
         setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
         return;
       }
+      if (res.normalized.length === 0) {
+        setPhonesError('Укажите минимум 1 номер телефона.');
+        return;
+      }
       setPhonesError(null);
-      phones = res.normalized.length > 0 ? res.normalized : undefined;
+      phones = res.normalized;
     }
 
     const payload: AdminProjectUpdate = {
@@ -326,8 +342,24 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список сайтов</span>
                 <span className="hint">По одному в строке</span>
-                <textarea rows={8} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} onBlur={sanitizeSites} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} disabled={readOnly} />
+                <textarea
+                  rows={8}
+                  placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"}
+                  value={sitesText}
+                  onChange={(e) => {
+                    setSitesText(e.target.value);
+                    setSitesError(null);
+                  }}
+                  onBlur={sanitizeSites}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                  disabled={readOnly}
+                />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
+                {sitesError && (
+                  <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
+                    {sitesError}
+                  </div>
+                )}
               </label>
             )}
 

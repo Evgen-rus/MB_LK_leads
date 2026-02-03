@@ -47,6 +47,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
+  const [sitesError, setSitesError] = useState<string | null>(null);
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
 
@@ -233,8 +234,20 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       if (!smsSenderName.trim() || digits.length >= 10) return;
     }
 
+    const source: CollectionSource = project.collectionSource;
+    if (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') {
+      const normalizedSites = uniqueList(sitesParsed);
+      if (normalizedSites.length === 0) {
+        setSitesError('Укажите минимум 1 сайт.');
+        return;
+      }
+      setSitesError(null);
+    } else {
+      setSitesError(null);
+    }
+
     let phones: string[] | undefined;
-    if (project.collectionSource === 'Звонки' || project.collectionSource === 'Ретрозвонки' || project.collectionSource === 'Пересечение') {
+    if (source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') {
       const res = normalizePhonesMultiline(phonesText);
       setPhonesText(res.displayText);
       if (res.errors.length > 0) {
@@ -243,8 +256,12 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
         setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
         return;
       }
+      if (res.normalized.length === 0) {
+        setPhonesError('Укажите минимум 1 номер телефона.');
+        return;
+      }
       setPhonesError(null);
-      phones = res.normalized.length > 0 ? res.normalized : undefined;
+      phones = res.normalized;
     }
     const update: SubmitUpdate = {
       name: name.trim(),
@@ -255,9 +272,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
       regions: normalizeRegionValues(regions),
-      sites: (project.collectionSource === 'Сайты' || project.collectionSource === 'Ретросайты' || project.collectionSource === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
+      sites: (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
       phones,
-      smsSenderName: (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
+      smsSenderName: (source === 'СМС' || source === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
       days,
     };
     setSaving(true);
@@ -319,8 +336,23 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список сайтов</span>
                 <span className="hint">По одному в строке</span>
-                <textarea rows={8} placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"} value={sitesText} onChange={(e) => setSitesText(e.target.value)} onBlur={sanitizeSites} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} />
+                <textarea
+                  rows={8}
+                  placeholder={"site.ru\nwww.site.ru\nhttps://site.ru"}
+                  value={sitesText}
+                  onChange={(e) => {
+                    setSitesText(e.target.value);
+                    setSitesError(null);
+                  }}
+                  onBlur={sanitizeSites}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
+                {sitesError && (
+                  <div className="sub" style={{ color: '#d00', whiteSpace: 'pre-line' }}>
+                    {sitesError}
+                  </div>
+                )}
               </label>
             )}
 
