@@ -100,22 +100,6 @@ def compare_project(project: models.Project, detail: dict) -> List[str]:
                 f"локально={','.join(local_regions) or 'пусто'}",
             )
 
-        local_reverse = True if project.region_mode == "exclude" else False
-        provider_reverse_raw = detail.get("regions_reverse")
-        if provider_reverse_raw is None:
-            issues.append(
-                "Режим регионов: провайдер=неизвестно, "
-                f"локально={'exclude' if local_reverse else 'include'}",
-            )
-        else:
-            provider_reverse = bool(provider_reverse_raw)
-            if local_reverse != provider_reverse:
-                issues.append(
-                    "Режим регионов: "
-                    f"провайдер={'exclude' if provider_reverse else 'include'}, "
-                    f"локально={'exclude' if local_reverse else 'include'}",
-                )
-
     return issues
 
 

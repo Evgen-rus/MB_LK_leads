@@ -260,7 +260,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             target_type = prostats._type_from_collection(item.collectionSource)
             message = exc.message
             if prostats._should_check_duplicates(exc.message, target_type):
-                message = "Занято у провайдера. Подробности недоступны."
+                message = "Данные номера/сайты используются в других проектах. Подробности недоступны."
             notices.append(f'Проект "{item.name}" не создан: {message}')
 
     # 2) Если все успешны — сохраняем у нас
@@ -341,7 +341,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                         else "Номера уже используются в наших проектах."
                     )
                     raise HTTPException(status_code=422, detail=detail)
-                detail["message"] = "Занято у провайдера. Подробности недоступны."
+                detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
                 raise HTTPException(status_code=422, detail=detail)
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
@@ -1089,7 +1089,7 @@ def admin_update_project(
                         else "Номера уже используются в наших проектах."
                     )
                     raise HTTPException(status_code=422, detail=detail)
-                detail["message"] = "Занято у провайдера. Подробности недоступны."
+                detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
                 raise HTTPException(status_code=422, detail=detail)
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
