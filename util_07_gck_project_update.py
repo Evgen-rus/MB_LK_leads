@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 API_URL_DEFAULT = "https://prostats.info/api/index.php"
 
 # === ПАРАМЕТРЫ ОБНОВЛЕНИЯ (ПРИМЕРЫ) ===
-PROVIDER_PROJECT_ID = "10953546"  # id проекта у провайдера (обязательно)
+PROVIDER_PROJECT_ID = "10976296"  # id проекта у провайдера (обязательно)
 # Если NAME/TAG пустые, возьмём текущие значения у провайдера
 NAME = ""
 TAG = ""
@@ -28,10 +28,10 @@ STATUS = 0  # 1 = активен, 0 = на паузе
 WORKDAYS = "23456"  # Пн..Пт
 
 # Для calls/hosts: контент — список через запятую
-CONTENT = "79231234571,79231234572,79231234573"
+CONTENT = "79231111116,79231111117"
 
 # Регионы можно оставить None (не изменять), либо задать список кодов.
-REGIONS = None  # пример: [77, 78]
+REGIONS = [77, 78]  # пример: [77, 78]
 REGIONS_REVERSE = 0  # 0 = include, 1 = exclude
 
 

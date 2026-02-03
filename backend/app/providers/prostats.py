@@ -286,8 +286,9 @@ def build_update_payload(
     base_name = (update.name or "").strip()
     base_tag = _strip_provider_prefix(update.tag or update.name)
 
-    regions = _normalize_regions_optional(update.regions)
     regions_reverse = 1 if update.regionMode == "exclude" else 0
+    raw_regions = update.regions if update.regions is not None else None
+    regions = _normalize_regions_optional(raw_regions)
 
     try:
         provider_id_value: int | str = int(str(provider_id).strip())
@@ -305,8 +306,8 @@ def build_update_payload(
         "tag": base_tag or base_name,
         "workdays": _workdays_from_days(update.days),
     }
-    if regions is not None:
-        payload["regions"] = regions
+    if raw_regions is not None:
+        payload["regions"] = regions or []
         payload["regions_reverse"] = regions_reverse
     return payload
 

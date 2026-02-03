@@ -40,7 +40,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
   const isDeleted = project.status === 'Удалён';
 
-  const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
+  const [regionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
   const [regionQuery, setRegionQuery] = useState('');
   const [regions, setRegions] = useState<string[]>(normalizeRegionValues(project.regions || []));
   const [regionsOpen, setRegionsOpen] = useState(false);
@@ -391,8 +391,8 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
               <span className="section-title">Регионы</span>
               <div className="hint">Если ничего не выбрано, сбор идет по всей РФ. Чтобы выбрать регион — кликните в поле поиска.</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
-                <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} /> Включить</label>
-                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='include'} disabled /> Включить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} disabled /> Исключить</label>
                 <input
                   type="search"
                   placeholder="Поиск по регионам"
@@ -404,6 +404,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                     setRegionQuery(e.target.value);
                   }}
                 />
+              </div>
+              <div className="hint" style={{ color: '#666' }}>
+                Менять можно список регионов. Режим (включить/исключить) - только при создании проекта.
               </div>
               {regionsOpen ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>

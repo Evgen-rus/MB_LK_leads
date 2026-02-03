@@ -41,6 +41,18 @@ def to_int(value: object) -> Optional[int]:
         return None
 
 
+def parse_regions_value(value: object) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return normalize_list(value)
+    raw = str(value).strip()
+    if not raw:
+        return []
+    parts = [s.strip() for s in raw.replace(";", ",").split(",") if s.strip()]
+    return normalize_list(parts)
+
+
 def compare_project(project: models.Project, detail: dict) -> List[str]:
     issues: List[str] = []
 
@@ -79,8 +91,7 @@ def compare_project(project: models.Project, detail: dict) -> List[str]:
             issues.append(f"Лишнее у провайдера: {', '.join(extra)}")
 
     local_regions = normalize_list(project.regions or [])
-    provider_regions_raw = detail.get("regions") or []
-    provider_regions = normalize_list(provider_regions_raw)
+    provider_regions = parse_regions_value(detail.get("regions"))
     if local_regions or provider_regions:
         if local_regions != provider_regions:
             issues.append(
@@ -90,13 +101,20 @@ def compare_project(project: models.Project, detail: dict) -> List[str]:
             )
 
         local_reverse = True if project.region_mode == "exclude" else False
-        provider_reverse = bool(detail.get("regions_reverse"))
-        if local_reverse != provider_reverse:
+        provider_reverse_raw = detail.get("regions_reverse")
+        if provider_reverse_raw is None:
             issues.append(
-                "Режим регионов: "
-                f"провайдер={'exclude' if provider_reverse else 'include'}, "
+                "Режим регионов: провайдер=неизвестно, "
                 f"локально={'exclude' if local_reverse else 'include'}",
             )
+        else:
+            provider_reverse = bool(provider_reverse_raw)
+            if local_reverse != provider_reverse:
+                issues.append(
+                    "Режим регионов: "
+                    f"провайдер={'exclude' if provider_reverse else 'include'}, "
+                    f"локально={'exclude' if local_reverse else 'include'}",
+                )
 
     return issues
 

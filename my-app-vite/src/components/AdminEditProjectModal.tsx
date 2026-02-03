@@ -30,7 +30,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
 
-  const [regionMode, setRegionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
+  const [regionMode] = useState<'include'|'exclude'>(project.regionMode || 'include');
   const [regionQuery, setRegionQuery] = useState('');
   const [regions, setRegions] = useState<string[]>(normalizeRegionValues(project.regions || []));
   const [regionsOpen, setRegionsOpen] = useState(false);
@@ -388,8 +388,8 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
               <span className="section-title">Регионы</span>
               <div className="hint">Если ничего не выбрано, сбор идет по всей РФ. Чтобы выбрать регион — кликните в поле поиска.</div>
               <div className="radio-row" style={{ alignItems: 'center' }}>
-                <label><input type="radio" name="regionMode" checked={regionMode==='include'} onChange={() => setRegionMode('include')} disabled={readOnly} /> Включить</label>
-                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} onChange={() => setRegionMode('exclude')} disabled={readOnly} /> Исключить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='include'} disabled /> Включить</label>
+                <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} disabled /> Исключить</label>
                 <input
                   type="search"
                   placeholder="Поиск по регионам"
@@ -403,6 +403,9 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
                   }}
                   disabled={readOnly}
                 />
+              </div>
+              <div className="hint" style={{ color: '#666' }}>
+                Менять можно список регионов. Режим (включить/исключить) - только при создании проекта.
               </div>
               {regionsOpen ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
