@@ -20,6 +20,9 @@ from typing import List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -54,6 +57,9 @@ def get_db():
 
 
 app = FastAPI(title="LK Projects API")
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.middleware("http")
 async def access_log(request, call_next):
     start = datetime.now(timezone.utc)
@@ -400,7 +406,8 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
 
 
 @app.post("/login")
-def login(payload: dict, db_sess: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, payload: dict, db_sess: Session = Depends(get_db)):
     login_str = str(payload.get("login") or payload.get("username") or "")
     password = str(payload.get("password", ""))
     if not login_str or not password:
