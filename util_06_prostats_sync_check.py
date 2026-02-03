@@ -78,6 +78,26 @@ def compare_project(project: models.Project, detail: dict) -> List[str]:
         if extra:
             issues.append(f"Лишнее у провайдера: {', '.join(extra)}")
 
+    local_regions = normalize_list(project.regions or [])
+    provider_regions_raw = detail.get("regions") or []
+    provider_regions = normalize_list(provider_regions_raw)
+    if local_regions or provider_regions:
+        if local_regions != provider_regions:
+            issues.append(
+                "Регионы: "
+                f"провайдер={','.join(provider_regions) or 'пусто'}, "
+                f"локально={','.join(local_regions) or 'пусто'}",
+            )
+
+        local_reverse = True if project.region_mode == "exclude" else False
+        provider_reverse = bool(detail.get("regions_reverse"))
+        if local_reverse != provider_reverse:
+            issues.append(
+                "Режим регионов: "
+                f"провайдер={'exclude' if provider_reverse else 'include'}, "
+                f"локально={'exclude' if local_reverse else 'include'}",
+            )
+
     return issues
 
 
