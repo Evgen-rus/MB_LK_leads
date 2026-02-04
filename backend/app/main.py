@@ -106,18 +106,9 @@ app.add_middleware(
 @app.on_event("startup")
 def startup_event():
     with SessionLocal() as s:
-        # Ensure single row state exists
-        crud.ensure_notify_state(s, settings["DEBOUNCE_WINDOW_MINUTES"])
-        # Ensure users from .env exist and projects have user_id column
-        crud.ensure_users_from_env(s)
-        crud.ensure_projects_user_id_column(s)
-        crud.ensure_projects_provider_id_column(s)
-        crud.ensure_audit_user_id_column(s)
-        crud.ensure_blacklist_user_id_column(s)
-        crud.ensure_audit_admin_columns(s)
-        crud.ensure_audit_batch_column(s)
-        crud.ensure_report_client_id_column(s)
-        crud.ensure_client_profile_contact_column(s)
+        # Минимальный seed для чистой БД
+        crud.seed_notify_state(s, settings["DEBOUNCE_WINDOW_MINUTES"])
+        crud.seed_users_from_env(s)
 
     # Start background notifier thread
     worker = threading.Thread(

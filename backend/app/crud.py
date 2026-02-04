@@ -12,7 +12,7 @@ import re
 import secrets
 import string
 
-from sqlalchemy import select, func, or_, and_, text, inspect
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import Session
 
 from . import models, schemas, auth
@@ -185,7 +185,7 @@ def _format_changes_compact(diff: Dict[str, Tuple[Any, Any]]) -> str:
     return main
 
 
-def ensure_notify_state(db: Session, window_minutes: int) -> None:
+def seed_notify_state(db: Session, window_minutes: int) -> None:
     state = db.get(models.NotifyState, 1)
     if not state:
         state = models.NotifyState(id=1, window_minutes=window_minutes, next_send_at=None)
@@ -1096,7 +1096,7 @@ def admin_update_client(
     )
 
 
-def ensure_users_from_env(db: Session) -> None:
+def seed_users_from_env(db: Session) -> None:
     """
     Идём по переменным USER_{N}_LOGIN / USER_{N}_PASSWORD и создаём отсутствующих.
     Первым будет admin с id=1 (если база пустая).
@@ -1118,91 +1118,9 @@ def ensure_users_from_env(db: Session) -> None:
         db.commit()
 
 
-def ensure_projects_user_id_column(db: Session) -> None:
-    """
-    Добавляем столбец user_id в projects при его отсутствии и проставляем 1 (admin) для старых строк.
-    Работает на SQLite простым ALTER TABLE.
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("projects")]
-    if "user_id" not in cols:
-        db.execute(text("ALTER TABLE projects ADD COLUMN user_id INTEGER"))
-        # по умолчанию привяжем к пользователю 1
-        db.execute(text("UPDATE projects SET user_id = 1 WHERE user_id IS NULL"))
-        db.commit()
-
-
-def ensure_projects_provider_id_column(db: Session) -> None:
-    """
-    Добавляем столбец provider_project_id в projects при его отсутствии.
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("projects")]
-    if "provider_project_id" not in cols:
-        db.execute(text("ALTER TABLE projects ADD COLUMN provider_project_id VARCHAR"))
-        db.commit()
-
-
 def get_user_project_ids(db: Session, user_id: int) -> List[int]:
     rows = db.execute(select(models.Project.id).where(models.Project.user_id == user_id)).all()
     return [int(r[0]) for r in rows]
-
-
-def ensure_audit_user_id_column(db: Session) -> None:
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("audit_events")]
-    if "user_id" not in cols:
-        db.execute(text("ALTER TABLE audit_events ADD COLUMN user_id INTEGER"))
-        db.commit()
-
-
-def ensure_audit_admin_columns(db: Session) -> None:
-    """
-    Добавляем служебные поля для отметки обработки изменений админом:
-    - admin_processed_at: когда админ обработал событие
-    - admin_processed_by: id админа, который обработал
-
-    Реализовано через простой ALTER TABLE для SQLite.
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("audit_events")]
-    changed = False
-    if "admin_processed_at" not in cols:
-        db.execute(text("ALTER TABLE audit_events ADD COLUMN admin_processed_at DATETIME"))
-        changed = True
-    if "admin_processed_by" not in cols:
-        db.execute(text("ALTER TABLE audit_events ADD COLUMN admin_processed_by INTEGER"))
-        changed = True
-    if changed:
-        db.commit()
-
-
-def ensure_client_profile_contact_column(db: Session) -> None:
-    """
-    Добавляем столбец contact в client_profiles, если его нет (для старых БД).
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("client_profiles")]
-    if "contact" not in cols:
-        db.execute(text("ALTER TABLE client_profiles ADD COLUMN contact VARCHAR"))
-        db.commit()
-
-
-def ensure_audit_batch_column(db: Session) -> None:
-    """
-    Добавляем столбец batch_id в audit_events, если его нет (для группировки созданий).
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("audit_events")]
-    if "batch_id" not in cols:
-        db.execute(text("ALTER TABLE audit_events ADD COLUMN batch_id VARCHAR"))
-        db.commit()
 
 
 def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] = None) -> List[schemas.AdminClientChangesSummaryItem]:
@@ -1695,29 +1613,6 @@ def admin_mark_batch_processed(db: Session, batch_id: str, admin_user_id: int) -
     if count:
         db.commit()
     return count
-
-
-def ensure_blacklist_user_id_column(db: Session) -> None:
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("blacklist_phones")]
-    if "user_id" not in cols:
-        db.execute(text("ALTER TABLE blacklist_phones ADD COLUMN user_id INTEGER"))
-        # существующие записи считаем админскими
-        db.execute(text("UPDATE blacklist_phones SET user_id = 1 WHERE user_id IS NULL"))
-        db.commit()
-
-
-def ensure_report_client_id_column(db: Session) -> None:
-    """
-    Добавляем колонку target_client_id в report_exports, если её нет.
-    """
-    engine = db.get_bind()
-    insp = inspect(engine)
-    cols = [c["name"] for c in insp.get_columns("report_exports")]
-    if "target_client_id" not in cols:
-        db.execute(text("ALTER TABLE report_exports ADD COLUMN target_client_id INTEGER"))
-        db.commit()
 
 
 # =====================================================
