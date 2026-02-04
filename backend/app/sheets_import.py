@@ -25,7 +25,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from . import db, models, logging_setup
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
@@ -137,14 +137,18 @@ def _load_project_map(db_sess) -> Dict[tuple[int, str | None], int]:
     """
     mapping: Dict[tuple[int, str | None], int] = {}
     try:
-        rows = db_sess.execute(text("SELECT external_id, source, project_id FROM project_id_map")).fetchall()
-        for r in rows:
-            external_id = int(r.external_id)
-            src = r.source if r.source is not None else None
-            pid = int(r.project_id)
-            mapping[(external_id, src)] = pid
+        rows = db_sess.execute(
+            select(
+                models.ProjectIdMap.external_id,
+                models.ProjectIdMap.source,
+                models.ProjectIdMap.project_id,
+            )
+        ).all()
+        for external_id, source, project_id in rows:
+            src = source if source is not None else None
+            mapping[(int(external_id), src)] = int(project_id)
     except Exception:
-        # Если таблицы нет — вернём пустой маппинг
+        # Если таблицы нет/не совпадает схема — вернём пустой маппинг
         return {}
     return mapping
 

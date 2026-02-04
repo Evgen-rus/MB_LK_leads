@@ -69,6 +69,18 @@ class Project(Base):
     updated_at = Column(DateTime, default=now_msk, nullable=False)
 
 
+class ProjectIdMap(Base):
+    __tablename__ = "project_id_map"
+    __table_args__ = (
+        UniqueConstraint("external_id", "source", name="uq_project_id_map_external_source"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    external_id = Column(Integer, nullable=False, index=True)
+    source = Column(String, nullable=True)
+    project_id = Column(Integer, nullable=False, index=True)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
