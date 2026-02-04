@@ -7,7 +7,7 @@
 ### Предварительные требования
 - Node.js 24.11.0+ (через NVM)
 - Python 3.8+
-- PostgreSQL 18
+- PostgreSQL 18 (настройка см. `docs/PostgreSQL.md`)
 
 ### Запуск проекта
 
@@ -38,6 +38,7 @@ cd ..
 ```bash
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+> Перед запуском убедитесь, что в `.env` задан `DATABASE_URL` для Postgres.
 
 3. **Запуск фронтенда (в новом терминале):**
 ```bash
@@ -162,7 +163,7 @@ curl -X POST http://localhost:8000/projects \
   - Node.js 24.12.0
   - npm 11.7.0
   - Python 3.8+
-  - PostgreSQL 18
+  - PostgreSQL (см. `docs/PostgreSQL.md`)
   - Git + .gitignore
 
 ## 📁 Структура проекта
