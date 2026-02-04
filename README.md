@@ -162,7 +162,7 @@ curl -X POST http://localhost:8000/projects \
   - Node.js 24.12.0
   - npm 11.7.0
   - Python 3.8+
-  - SQLite (база данных)
+  - PostgreSQL 18
   - Git + .gitignore
 
 ## 📁 Структура проекта
@@ -214,8 +214,7 @@ MB_LK_leads/
 ├── credentials/                    # Ключи и credentials
 │   └── sheets-data-bot-b8f4cc6634fc.json  # Google Sheets API ключ
 ├── logs/                          # Логи приложения
-│   └── app.log                    # Основной лог-файл
-├── app.db                         # SQLite база данных
+│   └── app.log                    # Основной лог-файл            
 ├── requirements.txt               # Python зависимости
 ├── .gitignore                     # Исключаемые из Git файлы
 ├── tool_*.py                      # CLI утилиты для управления
@@ -322,11 +321,6 @@ python -m backend.app.sheets_import
 - `GET /admin/blacklist` - Весь чёрный список
 - `GET /admin/reports` - Все отчёты
 
-## ⚠️ Примечания
-
-- Проект перенесён с Create React App на Vite
-- Данные временно хранятся в памяти (in-memory), планируется переход на PostgreSQL
-- Конфигурация gitignore настроена для исключения системных и временных файлов
 
 ---
 
