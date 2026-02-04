@@ -73,11 +73,8 @@ function AdminClientCardModal({
       // 3) Формируем URL портала
       const targetUrl = new URL(clientCabinetBase, window.location.origin).toString();
 
-      // 4) Пытаемся открыть в новой вкладке; если блокируется — уходим в эту же вкладку
-      const newWindow = window.open(targetUrl, '_blank', 'noopener');
-      if (!newWindow) {
-        window.location.href = targetUrl;
-      }
+      // 4) Переходим в этой же вкладке, чтобы не было дубля вкладок
+      window.location.href = targetUrl;
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось открыть ЛК клиента'));
     } finally {
