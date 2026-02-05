@@ -1,3 +1,7 @@
+"""
+Скрипт удаляет проект в Prostats по id и выводит лог запроса/ответа.
+"""
+
 import json
 import logging
 import os

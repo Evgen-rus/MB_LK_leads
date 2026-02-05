@@ -271,19 +271,7 @@ python tool_user_tools.py set-password --login <логин>
 ```bash
 # Инспекция базы данных
 python tool_inspect_db.py                    # Просмотр всех проектов и лидов
-python tool_inspect_db.py --db app.db       # С кастомным путем к БД
 
-# Управление маппингом проектов
-python tool_map_projects.py list            # Показать все связи
-python tool_map_projects.py unmapped        # Найти несопоставленные лиды
-python tool_map_projects.py set --external 128 --source B1 --project 1  # Добавить связь
-python tool_map_projects.py apply           # Применить маппинг к существующим лидам
-
-# Создание fallback-проекта для несопоставленных лидов
-python tool_create_unmapped_project.py --user-id 1
-
-# Работа с БД (расширенные инструменты)
-python tool_db_tools.py                     # Различные операции с БД
 ```
 
 ### Импорт данных из Google Sheets

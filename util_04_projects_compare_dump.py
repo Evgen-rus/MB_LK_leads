@@ -1,12 +1,19 @@
+"""
+Скрипт сравнивает проекты из нашей БД с данными Prostats по provider_project_id,
+сохраняет результат (локальные данные + ответ API) в JSON-отчет.
+"""
+
 import json
 import os
-import sqlite3
 import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
+from sqlalchemy import select
+from backend.app import db as db_mod
+from backend.app import models
 
 
 API_URL_DEFAULT = "https://prostats.info/api/index.php"
@@ -17,14 +24,6 @@ def require_env(name: str) -> str:
     if not value:
         raise SystemExit(f"Missing env var {name}. Add it to .env or environment.")
     return value
-
-
-def get_db_path() -> str:
-    db_url = os.getenv("DATABASE_URL", "sqlite:///./app.db").strip()
-    if db_url.startswith("sqlite:///"):
-        raw_path = db_url[len("sqlite:///"):] or "./app.db"
-        return os.path.abspath(raw_path)
-    raise SystemExit("Only sqlite DATABASE_URL is supported in this script.")
 
 
 def parse_json_cell(value: Any) -> Any:
@@ -43,32 +42,33 @@ def parse_json_cell(value: Any) -> Any:
     return value
 
 
-def row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
-    data = dict(row)
+def row_to_dict(row: object) -> Dict[str, Any]:
+    data = {c.name: getattr(row, c.name) for c in row.__table__.columns}
     for key in ("regions", "sites", "phones"):
         data[key] = parse_json_cell(data.get(key))
     return data
 
 
-def fetch_projects(conn: sqlite3.Connection, project_id: Optional[str]) -> List[Dict[str, Any]]:
-    conn.row_factory = sqlite3.Row
+def fetch_projects(db_sess, project_id: Optional[str]) -> List[Dict[str, Any]]:
     if project_id:
-        cur = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,))
-        row = cur.fetchone()
+        row = db_sess.execute(
+            select(models.Project).where(models.Project.id == project_id)
+        ).scalar_one_or_none()
         if row:
             return [row_to_dict(row)]
-        cur = conn.execute(
-            "SELECT * FROM projects WHERE provider_project_id = ?",
-            (project_id,),
-        )
-        row = cur.fetchone()
+        row = db_sess.execute(
+            select(models.Project).where(models.Project.provider_project_id == project_id)
+        ).scalar_one_or_none()
         if row:
             return [row_to_dict(row)]
         raise SystemExit(f"Project not found by id or provider_project_id: {project_id}")
-    cur = conn.execute(
-        "SELECT * FROM projects WHERE provider_project_id IS NOT NULL AND TRIM(provider_project_id) != ''"
-    )
-    return [row_to_dict(row) for row in cur.fetchall()]
+    rows = db_sess.execute(
+        select(models.Project).where(
+            models.Project.provider_project_id.is_not(None),
+            models.Project.provider_project_id != "",
+        )
+    ).scalars().all()
+    return [row_to_dict(row) for row in rows]
 
 
 def fetch_prostats_project(api_url: str, token: str, provider_id: str) -> Dict[str, Any]:
@@ -99,13 +99,11 @@ def main() -> None:
     api_url = os.getenv("PROSTATS_API_URL", API_URL_DEFAULT).strip() or API_URL_DEFAULT
     token = require_env("PROSTATS_TOKEN")
     project_id = sys.argv[1].strip() if len(sys.argv) > 1 else None
-
-    db_path = get_db_path()
-    if not os.path.exists(db_path):
-        raise SystemExit(f"Database not found: {db_path}")
-
-    with sqlite3.connect(db_path) as conn:
-        local_items = fetch_projects(conn, project_id)
+    database_url = os.getenv("DATABASE_URL", "sqlite:///./app.db").strip()
+    engine, SessionLocal = db_mod.init_engine_and_session(database_url)
+    models.Base.metadata.create_all(bind=engine)
+    with SessionLocal() as s:
+        local_items = fetch_projects(s, project_id)
 
     items: List[Dict[str, Any]] = []
     for local in local_items:
@@ -133,7 +131,7 @@ def main() -> None:
     output = {
         "meta": {
             "generated_at": ts,
-            "db_path": db_path,
+            "database_url": database_url,
             "items_count": len(items),
         },
         "items": items,

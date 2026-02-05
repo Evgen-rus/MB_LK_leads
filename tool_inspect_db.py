@@ -1,5 +1,5 @@
 """
-Вспомогательный скрипт для просмотра содержимого app.db.
+Вспомогательный скрипт для просмотра содержимого БД через SQLAlchemy.
 
 Что делает:
 - Выводит все строки из таблицы projects (сортировка по id).
@@ -7,115 +7,115 @@
   по 5 первых и 5 последних записей по id для каждого.
 
 Запуск из корня проекта:
-    python inspect_db.py
-    python inspect_db.py --db path/to/app.db
+    python tool_inspect_db.py
+    python tool_inspect_db.py --db-url postgresql+psycopg://user:pass@host:5432/db
 """
 
 from __future__ import annotations
 
 import argparse
-import sqlite3
-from pathlib import Path
+import os
+from typing import Dict, Iterable, List
+
+from dotenv import load_dotenv
+from sqlalchemy import select
+
+from backend.app import db as db_mod
+from backend.app import models
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _model_to_dict(obj) -> Dict[str, object]:
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
-def _get_table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
-    cur = conn.execute("PRAGMA table_info(%s)" % table)
-    return [row["name"] for row in cur.fetchall()]
-
-
-def _print_rows(title: str, rows: list[sqlite3.Row], col_order: list[str] | None = None) -> None:
+def _print_rows(title: str, rows: List[Dict[str, object]], col_order: List[str]) -> None:
     print(f"\n{title} (rows={len(rows)})")
     if not rows:
         print("  <пусто>")
         return
-    cols = col_order or rows[0].keys()
     for r in rows:
-        parts = [f"{c}={r[c]!r}" for c in cols if c in r.keys()]
+        parts = [f"{c}={r.get(c)!r}" for c in col_order if c in r]
         print("  " + ", ".join(parts))
 
 
-def _fetch_projects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    cur = conn.execute("SELECT * FROM projects ORDER BY id ASC")
-    return cur.fetchall()
-
-
-def _fetch_project_ids_from_leads(conn: sqlite3.Connection) -> list[int]:
-    cur = conn.execute("SELECT DISTINCT project_id FROM leads ORDER BY project_id ASC")
-    return [row["project_id"] for row in cur.fetchall() if row["project_id"] is not None]
-
-
-def _fetch_leads(conn: sqlite3.Connection, project_id: int, cols: list[str]) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
-    cols_sql = ", ".join(cols)
-    first_cur = conn.execute(
-        f"SELECT {cols_sql} FROM leads WHERE project_id = ? ORDER BY id ASC LIMIT 5",
-        (project_id,),
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Просмотр projects и выборок leads из БД")
+    parser.add_argument(
+        "--db-url",
+        dest="db_url",
+        default=os.getenv("DATABASE_URL", "sqlite:///./app.db"),
+        help="DATABASE_URL для подключения (переопределяет значение из .env)",
     )
-    last_cur = conn.execute(
-        f"SELECT {cols_sql} FROM leads WHERE project_id = ? ORDER BY id DESC LIMIT 5",
-        (project_id,),
-    )
-    first_rows = first_cur.fetchall()
-    last_rows = list(reversed(last_cur.fetchall()))  # Чтобы вывод был по возрастанию id
-    return first_rows, last_rows
+    return parser.parse_args()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Просмотр projects и выборок leads из app.db")
-    parser.add_argument("--db", dest="db_path", default="app.db", help="Путь к SQLite файлу (по умолчанию app.db)")
-    args = parser.parse_args()
+    load_dotenv()
+    args = _parse_args()
+    db_url = args.db_url
 
-    db_path = Path(args.db_path)
-    if not db_path.exists():
-        print(f"Файл БД не найден: {db_path}")
-        return
+    engine, SessionLocal = db_mod.init_engine_and_session(db_url)
+    models.Base.metadata.create_all(bind=engine)
 
-    conn = _connect(db_path)
-    try:
-        projects = _fetch_projects(conn)
-        _print_rows("Projects", projects)
+    project_cols = [c.name for c in models.Project.__table__.columns]
+    lead_cols = [
+        "id",
+        "project_id",
+        "ext_id",
+        "phone",
+        "source",
+        "utm_campaign",
+        "created_at",
+        "imported_at",
+        "spreadsheet_id",
+        "sheet_name",
+    ]
 
-        lead_cols_available = _get_table_columns(conn, "leads")
-        lead_cols_desired = [
-            "id",
-            "project_id",
-            "ext_id",
-            "phone",
-            "source",
-            "utm_campaign",
-            "created_at",
-            "imported_at",
-            "spreadsheet_id",
-            "sheet_name",
-        ]
-        lead_cols = [c for c in lead_cols_desired if c in lead_cols_available]
-        if not lead_cols:
-            print("\nLeads: нет доступных столбцов для выборки (проверьте структуру таблицы)")
-            return
+    with SessionLocal() as s:
+        projects = s.execute(select(models.Project).order_by(models.Project.id.asc())).scalars().all()
+        project_rows = [_model_to_dict(p) for p in projects]
+        _print_rows("Projects", project_rows, project_cols)
 
-        project_ids = _fetch_project_ids_from_leads(conn)
+        project_ids = (
+            s.execute(select(models.Lead.project_id).distinct().order_by(models.Lead.project_id.asc()))
+            .scalars()
+            .all()
+        )
+        project_ids = [pid for pid in project_ids if pid is not None]
         if not project_ids:
             print("\nLeads: таблица пуста")
             return
 
-        targets: list[int] = []
-        if project_ids:
-            targets.append(project_ids[0])
+        targets: List[int] = [project_ids[0]]
         if len(project_ids) > 1 and project_ids[-1] != project_ids[0]:
             targets.append(project_ids[-1])
 
         print("\nLeads выборки (по project_id):")
         for pid in targets:
-            first_rows, last_rows = _fetch_leads(conn, pid, lead_cols)
-            _print_rows(f"project_id={pid} первые 5 (id ASC)", first_rows, lead_cols)
-            _print_rows(f"project_id={pid} последние 5 (id DESC→ASC)", last_rows, lead_cols)
-    finally:
-        conn.close()
+            first_rows = (
+                s.execute(
+                    select(models.Lead)
+                    .where(models.Lead.project_id == pid)
+                    .order_by(models.Lead.id.asc())
+                    .limit(5)
+                )
+                .scalars()
+                .all()
+            )
+            last_rows = (
+                s.execute(
+                    select(models.Lead)
+                    .where(models.Lead.project_id == pid)
+                    .order_by(models.Lead.id.desc())
+                    .limit(5)
+                )
+                .scalars()
+                .all()
+            )
+            first_dicts = [_model_to_dict(r) for r in first_rows]
+            last_dicts = list(reversed([_model_to_dict(r) for r in last_rows]))
+            _print_rows(f"project_id={pid} первые 5 (id ASC)", first_dicts, lead_cols)
+            _print_rows(f"project_id={pid} последние 5 (id DESC→ASC)", last_dicts, lead_cols)
 
 
 if __name__ == "__main__":

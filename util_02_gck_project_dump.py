@@ -1,3 +1,7 @@
+"""
+Скрипт запрашивает один проект у Prostats по id и сохраняет JSON + raw ответ.
+"""
+
 import json
 import os
 import sys

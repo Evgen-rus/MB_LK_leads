@@ -1,3 +1,7 @@
+"""
+Скрипт запрашивает список проектов у Prostats и сохраняет ответ в JSON-файл.
+"""
+
 import json
 import os
 import sys
