@@ -117,7 +117,8 @@ def _parse_provider_time(value: object) -> Optional[datetime]:
         ts = int(str(value).strip())
     except Exception:
         return None
-    return datetime.fromtimestamp(ts, tz=_get_msk_tz())
+    # Провайдер присылает unix-ts в UTC, прибавляем +3 часа (MSK)
+    return datetime.fromtimestamp(ts, tz=timezone.utc) + timedelta(hours=3)
 
 
 def _parse_page_parts(page: Optional[str]) -> tuple[Optional[str], Optional[str]]:
