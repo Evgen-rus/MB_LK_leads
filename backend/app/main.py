@@ -8,6 +8,7 @@
 - Стартует фоновый воркер уведомлений в Telegram ("тихое окно")
 """
 import os
+import json
 from dotenv import load_dotenv
 import logging
 import secrets
@@ -24,9 +25,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
+from .time_utils import now_msk
 from .providers import prostats
 
 
@@ -43,6 +46,12 @@ def get_settings():
 load_dotenv()
 logging_setup.setup_logging()
 settings = get_settings()
+
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
+if not WEBHOOK_SECRET:
+    raise RuntimeError("WEBHOOK_SECRET is not set")
+
+provider_webhook_logger = logging_setup.setup_provider_webhook_logger()
 
 engine, SessionLocal = db.init_engine_and_session(settings["DATABASE_URL"]) 
 models.Base.metadata.create_all(bind=engine)
@@ -75,6 +84,63 @@ async def access_log(request, call_next):
         response.headers['X-Request-Id'] = request_id
         return response
     raise
+
+
+async def _read_webhook_body(request: Request) -> tuple[dict, str]:
+    """
+    Возвращает (payload, format). Поддерживает JSON и form-data/URL-encoded.
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            return payload, "json"
+        return {"raw": payload}, "json"
+
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        return dict(form), "form"
+
+    raw = await request.body()
+    return {"raw": raw.decode("utf-8", errors="replace")}, "raw"
+
+
+def _get_msk_tz():
+    tz = now_msk().tzinfo
+    return tz or timezone(timedelta(hours=3))
+
+
+def _parse_provider_time(value: object) -> Optional[datetime]:
+    if value is None:
+        return None
+    try:
+        ts = int(str(value).strip())
+    except Exception:
+        return None
+    return datetime.fromtimestamp(ts, tz=_get_msk_tz())
+
+
+def _parse_page_parts(page: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not page:
+        return None, None
+    parts = page.split("_")
+    prov_chanel = parts[0].strip() if parts else None
+    prov_source = None
+    if len(parts) >= 3:
+        prov_source = "_".join(parts[2:]).strip() or None
+    return prov_chanel, prov_source
+
+
+def _extract_phones(raw: object) -> tuple[Optional[str], Optional[List[str]]]:
+    if raw is None:
+        return None, None
+    if isinstance(raw, list):
+        cleaned = [str(x).strip() for x in raw if str(x).strip()]
+    else:
+        cleaned = [str(raw).strip()] if str(raw).strip() else []
+    if not cleaned:
+        return None, None
+    return ", ".join(cleaned), cleaned
 
 
 @app.post("/client-errors")
@@ -129,6 +195,60 @@ def startup_event():
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
+
+
+@app.post("/api/provider-test/{secret}")
+async def provider_webhook(secret: str, request: Request, db_sess: Session = Depends(get_db)):
+    if secret != WEBHOOK_SECRET:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    payload, fmt = await _read_webhook_body(request)
+    provider_webhook_logger.info(
+        json.dumps(
+            {
+                "format": fmt,
+                "headers": dict(request.headers),
+                "payload": payload,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    if fmt != "json" or not isinstance(payload, dict):
+        return {"ok": True, "stored": False, "reason": "invalid_format"}
+
+    vid = str(payload.get("vid") or "").strip()
+    if not vid:
+        raise HTTPException(status_code=400, detail="vid is required")
+
+    if crud.get_provider_lead_by_vid(db_sess, vid):
+        return {"ok": True, "stored": False, "reason": "duplicate"}
+
+    page = str(payload.get("page") or "").strip() or None
+    prov_chanel, prov_source = _parse_page_parts(page)
+    phone, phones_raw = _extract_phones(payload.get("phones"))
+    subdomain = str(payload.get("subdomain")).strip() if payload.get("subdomain") else None
+    prov_created_at = _parse_provider_time(payload.get("time"))
+    project_id = crud.get_project_id_by_name(db_sess, page) if page else None
+
+    try:
+        row = crud.create_provider_lead(
+            db_sess,
+            vid=vid,
+            phone=phone,
+            phones_raw=phones_raw,
+            project_name=page,
+            prov_created_at=prov_created_at,
+            prov_chanel=prov_chanel,
+            prov_source=prov_source,
+            subdomain=subdomain,
+            project_id=project_id,
+        )
+    except IntegrityError:
+        db_sess.rollback()
+        return {"ok": True, "stored": False, "reason": "duplicate"}
+
+    return {"ok": True, "stored": True, "id": row.id}
 
 
 def require_auth(request: Request, db_sess: Session = Depends(get_db)):

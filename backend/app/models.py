@@ -139,6 +139,22 @@ class Lead(Base):
     imported_at = Column(DateTime, nullable=False, default=now_msk)
 
 
+class ProviderLead(Base):
+    __tablename__ = "provider_leads"
+
+    id = Column(Integer, primary_key=True)
+    vid = Column(String, nullable=False, unique=True, index=True)
+    phone = Column(String, nullable=True)
+    phones_raw = Column(JSON, nullable=True)
+    project_name = Column(String, nullable=True)
+    prov_created_at = Column(DateTime, nullable=True, index=True)
+    prov_chanel = Column(String, nullable=True, index=True)
+    prov_source = Column(String, nullable=True, index=True)
+    subdomain = Column(String, nullable=True, index=True)
+    imported_at = Column(DateTime, nullable=False, default=now_msk)
+    project_id = Column(Integer, nullable=True, index=True)
+
+
 class BlacklistPhone(Base):
     __tablename__ = "blacklist_phones"
     # Примечание: для существующих БД добавить уникальность (user_id, phone) сложно без мигратора.

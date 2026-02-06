@@ -652,6 +652,53 @@ def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datet
     return out
 
 
+def get_provider_lead_by_vid(db: Session, vid: str) -> Optional[models.ProviderLead]:
+    if not vid:
+        return None
+    return db.execute(
+        select(models.ProviderLead).where(models.ProviderLead.vid == vid)
+    ).scalar_one_or_none()
+
+
+def get_project_id_by_name(db: Session, project_name: str) -> Optional[int]:
+    if not project_name:
+        return None
+    return db.execute(
+        select(models.Project.id).where(models.Project.name == project_name)
+    ).scalar_one_or_none()
+
+
+def create_provider_lead(
+    db: Session,
+    *,
+    vid: str,
+    phone: Optional[str],
+    phones_raw: Optional[List[str]],
+    project_name: Optional[str],
+    prov_created_at: Optional[datetime],
+    prov_chanel: Optional[str],
+    prov_source: Optional[str],
+    subdomain: Optional[str],
+    project_id: Optional[int],
+) -> models.ProviderLead:
+    row = models.ProviderLead(
+        vid=vid,
+        phone=phone,
+        phones_raw=phones_raw,
+        project_name=project_name,
+        prov_created_at=prov_created_at,
+        prov_chanel=prov_chanel,
+        prov_source=prov_source,
+        subdomain=subdomain,
+        project_id=project_id,
+        imported_at=now_msk(),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def fetch_leads_for_export(
     db: Session,
     project_ids: Optional[List[int]],
