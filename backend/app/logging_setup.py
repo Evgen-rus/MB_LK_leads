@@ -83,3 +83,34 @@ def setup_provider_webhook_logger() -> logging.Logger:
     return logger
 
 
+def setup_provider_export_logger() -> logging.Logger:
+    ensure_log_dir()
+    log_path = os.path.join(LOG_DIR, 'provider_export.log')
+
+    logger = logging.getLogger("provider.export")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    for handler in logger.handlers:
+        if isinstance(handler, TimedRotatingFileHandler) and handler.baseFilename == log_path:
+            return logger
+
+    file_handler = TimedRotatingFileHandler(
+        filename=log_path,
+        when='midnight',
+        interval=1,
+        backupCount=10,
+        encoding='utf-8',
+        utc=False,
+    )
+    formatter = logging.Formatter(
+        fmt='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+
+    return logger
+
+
