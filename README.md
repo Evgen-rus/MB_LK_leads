@@ -320,6 +320,27 @@ location /api/provider-test/<secret> {
 }
 ```
 
+### Экспорт `provider_leads` в Google Sheets (cron)
+Скрипт: `tool_export_provider_leads.py`
+в env прописываем
+
+GOOGLE_SHEET_ID=id гугл таблицы куда из БД выгружать лиды
+GOOGLE_SHEET_NAME=имя листа
+# Фильтр “данные из бд в выгрузку в гугл таблицу за последние N дней”
+LEADS_EXPORT_LOOKBACK_DAYS=3
+
+Cron‑расписание (каждый час в 08:05 и 08:20 по МСК до 17:20):
+```
+CRON_TZ=Europe/Moscow
+5 8-17 * * * cd /opt/MB_LK_leads && /opt/MB_LK_leads/venv/bin/python tool_export_provider_leads.py
+20 8-17 * * * cd /opt/MB_LK_leads && /opt/MB_LK_leads/venv/bin/python tool_export_provider_leads.py
+```
+
+Проверка:
+```
+crontab -l
+```
+
 ## 📝 API Endpoints
 
 - `GET /health` - Проверка работоспособности
