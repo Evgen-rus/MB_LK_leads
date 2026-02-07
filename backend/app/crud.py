@@ -745,6 +745,53 @@ def fetch_leads_for_export(
     return out
 
 
+def fetch_provider_leads_for_export(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+    max_rows: int,
+    project_ids: Optional[List[int]] = None,
+    sources: Optional[List[str]] = None,
+    user_info: Optional[schemas.UserInfo] = None,
+) -> List[dict]:
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    stmt = (
+        select(models.ProviderLead)
+        .where(and_(ts_col >= start_local, ts_col < end_local))
+        .order_by(ts_col.asc())
+        .limit(max_rows)
+    )
+    if project_ids:
+        stmt = stmt.where(models.ProviderLead.project_id.in_(project_ids))
+    if sources:
+        stmt = stmt.where(models.ProviderLead.prov_chanel.in_(sources))
+
+    rows = db.execute(stmt).scalars().all()
+    out: List[dict] = []
+    for lead in rows:
+        phone_value = lead.phone
+        if not phone_value and lead.phones_raw:
+            try:
+                phone_value = ", ".join([str(x) for x in lead.phones_raw if x is not None])
+            except Exception:
+                phone_value = None
+        display_dt = lead.prov_created_at or lead.imported_at
+        out.append(
+            {
+                "ext_id": lead.vid,
+                "project_id": lead.project_id,
+                "project_name": lead.project_name or "",
+                "source": lead.prov_chanel,
+                "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
+                "phone": phone_value or "",
+                "utm_campaign": lead.prov_source,
+                "user_login": user_info.login if user_info else "",
+                "user_id": user_info.id if user_info else 0,
+            }
+        )
+    return out
+
+
 def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int, sources: Optional[List[str]] = None) -> schemas.LeadsListOut:
     base = select(models.Lead).where(
         and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
@@ -1936,6 +1983,62 @@ def admin_list_all_leads(
             utm_campaign=r.utm_campaign,
             source=r.source,
             project_name=pname,
+            user=user_info,
+        ))
+
+    return schemas.AdminLeadsListOut(items=items, total=total)
+
+
+def admin_list_provider_leads(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+    offset: int,
+    limit: int,
+    project_ids_filter: Optional[List[int]] = None,
+    sources_filter: Optional[List[str]] = None,
+    user_id_filter: int | None = None,
+) -> schemas.AdminLeadsListOut:
+    """
+    Список лидов из таблицы provider_leads (для админа).
+    Используется только для выбранного клиента id=1.
+    """
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    base = select(models.ProviderLead).where(
+        and_(ts_col >= start_local, ts_col < end_local)
+    )
+    if project_ids_filter:
+        base = base.where(models.ProviderLead.project_id.in_(project_ids_filter))
+    if sources_filter:
+        base = base.where(models.ProviderLead.prov_chanel.in_(sources_filter))
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = db.execute(
+        base.order_by(ts_col.desc()).offset(offset).limit(limit)
+    ).scalars().all()
+
+    user_id = user_id_filter or 0
+    user_info = _get_user_info(db, user_id) or schemas.UserInfo(id=user_id, login="(unknown)")
+
+    items: List[schemas.AdminLeadOut] = []
+    for r in rows:
+        phone_value = r.phone
+        if not phone_value and r.phones_raw:
+            try:
+                phone_value = ", ".join([str(x) for x in r.phones_raw if x is not None])
+            except Exception:
+                phone_value = None
+        created_at = r.prov_created_at or r.imported_at
+        imported_at = r.imported_at
+        items.append(schemas.AdminLeadOut(
+            ext_id=str(r.vid),
+            project_id=r.project_id,
+            created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
+            imported_at=imported_at.strftime('%Y-%m-%d %H:%M:%S') if imported_at else "",
+            phone=phone_value or "",
+            utm_campaign=r.prov_source,
+            source=r.prov_chanel,
+            project_name=r.project_name,
             user=user_info,
         ))
 

@@ -293,8 +293,10 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                 </td>
                 <td className="muted">{r.ext_id}</td>
                 <td>
-                  <div className="name">{r.project_name ?? projectNameMap.get(r.project_id) ?? '—'}</div>
-                  <div className="sub">id: {r.project_id}</div>
+                  <div className="name">
+                    {r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—'}
+                  </div>
+                  <div className="sub">id: {r.project_id != null ? r.project_id : '—'}</div>
                 </td>
                 <td className="muted">{r.source ?? ''}</td>
                 <td>{r.imported_at}</td>

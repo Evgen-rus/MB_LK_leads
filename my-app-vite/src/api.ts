@@ -597,7 +597,14 @@ export async function deleteAdminProject(id: number): Promise<void> {
 }
 
 // -------- Админские лиды --------
-export type AdminLead = Lead & {
+export type AdminLead = {
+  ext_id: string;
+  project_id?: number | null;
+  created_at: string;
+  imported_at: string;
+  phone: string;
+  utm_campaign?: string | null;
+  source?: string | null;
   project_name?: string | null;
   user: UserInfo;
 };
