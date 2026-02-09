@@ -696,9 +696,9 @@ def export_leads(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
 
-    use_provider_leads = current_user.id == 1 and clientId == 1
+    use_provider_leads = current_user.id == 1 and clientId is not None
 
-    # Разрешённые проекты
+    # Разрешённые проекты (для обычных лидов)
     allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
     if not use_provider_leads and clientId is not None and current_user.id == 1:
         # Админ скачивает отчёт для выбранного клиента: ограничиваем проектами клиента
@@ -718,12 +718,31 @@ def export_leads(
         return Response(content="", media_type="text/csv", headers=empty_headers)
 
     proj_ids: Optional[List[int]] = None
+    provider_allowed_ids: Optional[set[int]] = None
+    if use_provider_leads and clientId is not None and clientId != 1:
+        provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
+        if not provider_allowed_ids:
+            empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+            if (format or "csv").lower() == "xlsx":
+                return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+            return Response(content="", media_type="text/csv", headers=empty_headers)
+
     if projectIds:
         try:
             proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
             if not proj_ids:
                 proj_ids = None
-            elif not use_provider_leads:
+            elif use_provider_leads:
+                if clientId != 1 and provider_allowed_ids is not None:
+                    proj_ids = [pid for pid in proj_ids if pid in provider_allowed_ids]
+                    if proj_ids is not None and len(proj_ids) == 0:
+                        empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+                        if (format or "csv").lower() == "xlsx":
+                            return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+                        return Response(content="", media_type="text/csv", headers=empty_headers)
+                else:
+                    proj_ids = None
+            else:
                 # Фильтруем только разрешенные проекты
                 proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
                 if proj_ids is not None and len(proj_ids) == 0:
@@ -734,14 +753,18 @@ def export_leads(
                     return Response(content="", media_type="text/csv", headers=empty_headers)
         except Exception:
             proj_ids = None
-    elif not use_provider_leads:
-        # Проекты не указаны — используем все разрешённые для выбранного клиента/пользователя
-        if not allowed_ids:
-            empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
-            if (format or "csv").lower() == "xlsx":
-                return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
-            return Response(content="", media_type="text/csv", headers=empty_headers)
-        proj_ids = sorted(allowed_ids)
+    else:
+        if use_provider_leads:
+            if clientId != 1 and provider_allowed_ids is not None:
+                proj_ids = sorted(provider_allowed_ids)
+        else:
+            # Проекты не указаны — используем все разрешённые для выбранного клиента/пользователя
+            if not allowed_ids:
+                empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+                if (format or "csv").lower() == "xlsx":
+                    return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+                return Response(content="", media_type="text/csv", headers=empty_headers)
+            proj_ids = sorted(allowed_ids)
 
     src_list: Optional[List[str]] = None
     if sources:
@@ -1315,7 +1338,7 @@ def admin_list_leads(
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
 
-    if userId == 1:
+    if userId is not None:
         return crud.admin_list_provider_leads(
             db_sess,
             start_local=start_local,

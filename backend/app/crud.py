@@ -2003,12 +2003,25 @@ def admin_list_provider_leads(
     Список лидов из таблицы provider_leads (для админа).
     Используется только для выбранного клиента id=1.
     """
+    proj_ids: Optional[List[int]] = None
+    if user_id_filter is not None and user_id_filter != 1:
+        proj_ids = get_user_project_ids(db, user_id_filter)
+        if not proj_ids:
+            return schemas.AdminLeadsListOut(items=[], total=0)
+    if project_ids_filter is not None and user_id_filter != 1:
+        if proj_ids is None:
+            proj_ids = project_ids_filter
+        else:
+            proj_ids = [pid for pid in proj_ids if pid in project_ids_filter]
+        if not proj_ids:
+            return schemas.AdminLeadsListOut(items=[], total=0)
+
     ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
     base = select(models.ProviderLead).where(
         and_(ts_col >= start_local, ts_col < end_local)
     )
-    if project_ids_filter:
-        base = base.where(models.ProviderLead.project_id.in_(project_ids_filter))
+    if proj_ids is not None:
+        base = base.where(models.ProviderLead.project_id.in_(proj_ids))
     if sources_filter:
         base = base.where(models.ProviderLead.prov_chanel.in_(sources_filter))
 
