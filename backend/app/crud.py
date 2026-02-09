@@ -792,6 +792,64 @@ def fetch_provider_leads_for_export(
     return out
 
 
+def list_provider_leads_paginated(
+    db: Session,
+    project_ids: Optional[List[int]],
+    start_local: datetime,
+    end_local: datetime,
+    offset: int,
+    limit: int,
+    sources: Optional[List[str]] = None,
+    user_id: Optional[int] = None,
+) -> schemas.LeadsListOut:
+    proj_ids: Optional[List[int]] = None
+    if user_id is not None:
+        proj_ids = get_user_project_ids(db, user_id)
+        if not proj_ids:
+            return schemas.LeadsListOut(items=[], total=0)
+    if project_ids is not None:
+        if proj_ids is None:
+            proj_ids = project_ids
+        else:
+            proj_ids = [pid for pid in proj_ids if pid in project_ids]
+        if not proj_ids:
+            return schemas.LeadsListOut(items=[], total=0)
+
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    base = select(models.ProviderLead).where(
+        and_(ts_col >= start_local, ts_col < end_local)
+    )
+    if proj_ids is not None:
+        base = base.where(models.ProviderLead.project_id.in_(proj_ids))
+    if sources:
+        base = base.where(models.ProviderLead.prov_chanel.in_(sources))
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = db.execute(
+        base.order_by(ts_col.desc()).offset(offset).limit(limit)
+    ).scalars().all()
+
+    items: List[schemas.LeadOut] = []
+    for r in rows:
+        phone_value = r.phone
+        if not phone_value and r.phones_raw:
+            try:
+                phone_value = ", ".join([str(x) for x in r.phones_raw if x is not None])
+            except Exception:
+                phone_value = None
+        created_at = r.prov_created_at or r.imported_at
+        items.append(schemas.LeadOut(
+            ext_id=str(r.vid),
+            project_id=r.project_id,
+            created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
+            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
+            phone=phone_value or "",
+            utm_campaign=r.prov_source,
+            source=r.prov_chanel,
+        ))
+    return schemas.LeadsListOut(items=items, total=total)
+
+
 def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int, sources: Optional[List[str]] = None) -> schemas.LeadsListOut:
     base = select(models.Lead).where(
         and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
@@ -2001,7 +2059,7 @@ def admin_list_provider_leads(
 ) -> schemas.AdminLeadsListOut:
     """
     Список лидов из таблицы provider_leads (для админа).
-    Используется только для выбранного клиента id=1.
+    Для клиента id=1 возвращает все записи, для остальных — только по проектам клиента.
     """
     proj_ids: Optional[List[int]] = None
     if user_id_filter is not None and user_id_filter != 1:

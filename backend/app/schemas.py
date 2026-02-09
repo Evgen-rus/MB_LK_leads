@@ -185,8 +185,8 @@ class ClientErrorIn(BaseModel):
 
 
 class LeadOut(BaseModel):
-    ext_id: int
-    project_id: int
+    ext_id: str
+    project_id: Optional[int] = None
     created_at: str
     imported_at: str
     phone: str

@@ -599,11 +599,6 @@ def list_leads(
     start_naive = start_local.replace(tzinfo=None)
     end_naive = end_local.replace(tzinfo=None)
 
-    # Разрешённые проекты текущего пользователя
-    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
-    if not allowed_ids:
-        return schemas.LeadsListOut(items=[], total=0)
-
     proj_ids: Optional[List[int]] = None
     if projectIds:
         try:
@@ -613,18 +608,6 @@ def list_leads(
         except Exception:
             proj_ids = None
 
-    # Ограничиваем проектами пользователя (для клиентского ЛК)
-    if proj_ids is None:
-        proj_ids = list(allowed_ids)
-    else:
-        proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
-
-    # Пересекаем с разрешёнными
-    if proj_ids is None:
-        proj_ids = list(allowed_ids)
-    else:
-        proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
-
     src_list: Optional[List[str]] = None
     if sources:
         src_list = [s.strip() for s in sources.split(",") if s.strip()]
@@ -633,7 +616,7 @@ def list_leads(
 
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
-    return crud.list_leads_paginated(
+    return crud.list_provider_leads_paginated(
         db_sess,
         project_ids=proj_ids,
         start_local=start_naive,
@@ -641,6 +624,7 @@ def list_leads(
         offset=offset,
         limit=limit,
         sources=src_list,
+        user_id=current_user.id,
     )
 
 
@@ -696,10 +680,15 @@ def export_leads(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
 
-    use_provider_leads = current_user.id == 1 and clientId is not None
+    use_provider_leads = current_user.id != 1 or (current_user.id == 1 and clientId is not None)
 
     # Разрешённые проекты (для обычных лидов)
     allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
+    if use_provider_leads and current_user.id != 1 and not allowed_ids:
+        empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+        if (format or "csv").lower() == "xlsx":
+            return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+        return Response(content="", media_type="text/csv", headers=empty_headers)
     if not use_provider_leads and clientId is not None and current_user.id == 1:
         # Админ скачивает отчёт для выбранного клиента: ограничиваем проектами клиента
         client_projects = set(crud.get_user_project_ids(db_sess, clientId))
@@ -719,9 +708,12 @@ def export_leads(
 
     proj_ids: Optional[List[int]] = None
     provider_allowed_ids: Optional[set[int]] = None
-    if use_provider_leads and clientId is not None and clientId != 1:
-        provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
-        if not provider_allowed_ids:
+    if use_provider_leads:
+        if current_user.id != 1:
+            provider_allowed_ids = allowed_ids
+        elif clientId is not None and clientId != 1:
+            provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
+        if provider_allowed_ids is not None and not provider_allowed_ids:
             empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
             if (format or "csv").lower() == "xlsx":
                 return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
@@ -733,7 +725,7 @@ def export_leads(
             if not proj_ids:
                 proj_ids = None
             elif use_provider_leads:
-                if clientId != 1 and provider_allowed_ids is not None:
+                if provider_allowed_ids is not None:
                     proj_ids = [pid for pid in proj_ids if pid in provider_allowed_ids]
                     if proj_ids is not None and len(proj_ids) == 0:
                         empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
@@ -755,7 +747,7 @@ def export_leads(
             proj_ids = None
     else:
         if use_provider_leads:
-            if clientId != 1 and provider_allowed_ids is not None:
+            if provider_allowed_ids is not None:
                 proj_ids = sorted(provider_allowed_ids)
         else:
             # Проекты не указаны — используем все разрешённые для выбранного клиента/пользователя

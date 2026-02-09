@@ -198,8 +198,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
           {rows.map((r) => (
             <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
               <td>
-                <div className="name">{projectNameMap.get(r.project_id) ?? '—'}</div>
-                <div className="sub">id: {r.project_id}</div>
+                <div className="name">
+                  {r.project_id != null ? projectNameMap.get(r.project_id) ?? '—' : '—'}
+                </div>
+                <div className="sub">id: {r.project_id != null ? r.project_id : '—'}</div>
               </td>
               <td className="muted">{r.source ?? ''}</td>
               <td>{r.imported_at}</td>

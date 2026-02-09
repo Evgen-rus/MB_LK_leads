@@ -356,8 +356,8 @@ export async function impersonateClient(clientId: number): Promise<{ access_toke
 
 // -------- Лиды --------
 export type Lead = {
-  ext_id: number;
-  project_id: number;
+  ext_id: string;
+  project_id?: number | null;
   created_at: string; // ISO string (время из источника)
   imported_at: string; // ISO string (время попадания в БД)
   phone: string;
