@@ -626,33 +626,6 @@ def mark_events_sent_and_clear(db: Session, events: List[models.AuditEvent]) -> 
     db.commit()
 
 
-def list_leads(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, limit: int = 1000, sources: Optional[List[str]] = None) -> List[schemas.LeadOut]:
-    stmt = (
-        select(models.Lead)
-        .where(models.Lead.imported_at >= start_local)
-        .where(models.Lead.imported_at < end_local)
-        .order_by(models.Lead.imported_at.desc())
-        .limit(limit)
-    )
-    if project_ids:
-        stmt = stmt.where(models.Lead.project_id.in_(project_ids))
-    if sources:
-        stmt = stmt.where(models.Lead.source.in_(sources))
-    rows = db.execute(stmt).scalars().all()
-    out: List[schemas.LeadOut] = []
-    for r in rows:
-        out.append(schemas.LeadOut(
-            ext_id=r.ext_id,
-            project_id=r.project_id,
-            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
-            phone=r.phone,
-            utm_campaign=r.utm_campaign,
-            source=r.source,
-        ))
-    return out
-
-
 def get_provider_lead_by_vid(db: Session, vid: str) -> Optional[models.ProviderLead]:
     if not vid:
         return None

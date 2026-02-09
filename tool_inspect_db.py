@@ -3,7 +3,7 @@
 
 Что делает:
 - Выводит все строки из таблицы projects (сортировка по id).
-- Для leads берёт два project_id (минимальный и максимальный) и показывает
+- Для provider_leads берёт два project_id (минимальный и максимальный) и показывает
   по 5 первых и 5 последних записей по id для каждого.
 
 Запуск из корня проекта:
@@ -39,7 +39,7 @@ def _print_rows(title: str, rows: List[Dict[str, object]], col_order: List[str])
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Просмотр projects и выборок leads из БД")
+    parser = argparse.ArgumentParser(description="Просмотр projects и выборок provider_leads из БД")
     parser.add_argument(
         "--db-url",
         dest="db_url",
@@ -61,14 +61,14 @@ def main() -> None:
     lead_cols = [
         "id",
         "project_id",
-        "ext_id",
+        "vid",
         "phone",
-        "source",
-        "utm_campaign",
-        "created_at",
+        "prov_chanel",
+        "prov_source",
+        "project_name",
+        "prov_created_at",
         "imported_at",
-        "spreadsheet_id",
-        "sheet_name",
+        "subdomain",
     ]
 
     with SessionLocal() as s:
@@ -77,26 +77,26 @@ def main() -> None:
         _print_rows("Projects", project_rows, project_cols)
 
         project_ids = (
-            s.execute(select(models.Lead.project_id).distinct().order_by(models.Lead.project_id.asc()))
+            s.execute(select(models.ProviderLead.project_id).distinct().order_by(models.ProviderLead.project_id.asc()))
             .scalars()
             .all()
         )
         project_ids = [pid for pid in project_ids if pid is not None]
         if not project_ids:
-            print("\nLeads: таблица пуста")
+            print("\nProvider_leads: таблица пуста")
             return
 
         targets: List[int] = [project_ids[0]]
         if len(project_ids) > 1 and project_ids[-1] != project_ids[0]:
             targets.append(project_ids[-1])
 
-        print("\nLeads выборки (по project_id):")
+        print("\nProvider_leads выборки (по project_id):")
         for pid in targets:
             first_rows = (
                 s.execute(
-                    select(models.Lead)
-                    .where(models.Lead.project_id == pid)
-                    .order_by(models.Lead.id.asc())
+                    select(models.ProviderLead)
+                    .where(models.ProviderLead.project_id == pid)
+                    .order_by(models.ProviderLead.id.asc())
                     .limit(5)
                 )
                 .scalars()
@@ -104,9 +104,9 @@ def main() -> None:
             )
             last_rows = (
                 s.execute(
-                    select(models.Lead)
-                    .where(models.Lead.project_id == pid)
-                    .order_by(models.Lead.id.desc())
+                    select(models.ProviderLead)
+                    .where(models.ProviderLead.project_id == pid)
+                    .order_by(models.ProviderLead.id.desc())
                     .limit(5)
                 )
                 .scalars()

@@ -108,37 +108,6 @@ class NotifyState(Base):
 
 
 
-class Lead(Base):
-    __tablename__ = "leads"
-
-    id = Column(Integer, primary_key=True)
-    # Внешний ID из Google Sheets (столбец A: "ID")
-    ext_id = Column(BigInteger, nullable=False, unique=True, index=True)
-
-    # Внешний project_id (из источника/Sheets), для контроля
-    external_project_id = Column(Integer, nullable=True, index=True)
-
-    # Привязка к проекту (Project.id)
-    project_id = Column(Integer, nullable=False, index=True)
-
-    # Дата события (из столбца "Дата") в UTC
-    created_at = Column(DateTime, nullable=False, index=True)
-
-    # Номер телефона (как есть из таблицы)
-    phone = Column(String, nullable=False)
-
-    # Источник (столбец D)
-    source = Column(String, nullable=True)
-
-    # UTM-метка может отсутствовать
-    utm_campaign = Column(String, nullable=True)
-
-    # Служебные поля источника импорта
-    spreadsheet_id = Column(String, nullable=False)
-    sheet_name = Column(String, nullable=False, default="Данные")
-    imported_at = Column(DateTime, nullable=False, default=now_msk)
-
-
 class ProviderLead(Base):
     __tablename__ = "provider_leads"
 

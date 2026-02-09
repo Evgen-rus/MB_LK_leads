@@ -177,7 +177,6 @@ MB_LK_leads/
 │       ├── crud.py                  # CRUD операции с БД
 │       ├── schemas.py               # Pydantic схемы для API
 │       ├── auth.py                  # Аутентификация и авторизация
-│       ├── sheets_import.py         # Импорт данных из Google Sheets
 │       ├── telegram.py              # Интеграция с Telegram
 │       ├── notify_worker.py         # Фоновые уведомления
 │       ├── logging_setup.py         # Настройка логирования
@@ -268,18 +267,8 @@ python tool_user_tools.py set-password --login <логин>
 
 ```bash
 # Инспекция базы данных
-python tool_inspect_db.py                    # Просмотр всех проектов и лидов
+python tool_inspect_db.py                    # Просмотр всех проектов и provider_leads
 
-```
-
-### Импорт данных из Google Sheets
-
-```bash
-# Активация виртуального окружения
-venv\Scripts\activate
-
-# Запуск импорта лидов из таблиц   
-python -m backend.app.sheets_import
 ```
 
 ## 🔌 Вебхук провайдера (provider leads)
@@ -589,42 +578,4 @@ systemctl restart lk-backend
 nginx -t && systemctl reload nginx
 ```
 
-Запуск загрузки лидов в бд из таблиц прописанных  в .env SHEETS_MAP
-```bash
-python -m backend.app.sheets_import
-```
-
-## 🆕 Утилиты и настройка маппинга лидов (внешние ID → внутренние проекты)
-
-- Служебный проект для несопоставленных лидов (fallback):
-  ```bash
-  python tool_create_unmapped_project.py --user-id 1  # создаёт/находит проект с tag=UNMAPPED, выводит id
-  ```
-  В `.env` указать `UNMAPPED_PROJECT_ID=<id_из_вывода>` — тогда лиды без маппинга будут складываться в этот проект.
-
-- Маппинг внешнего project_id и source (B1/B2/B3/B4) во внутренний `projects.id`:
-  ```bash
-  # добавить/обновить связь
-  python tool_map_projects.py set --external 128 --source B1 --project 1
-
-  # показать все связи
-  python tool_map_projects.py list
-
-  # показать пары (external_id, source) из leads без маппинга
-  python tool_map_projects.py unmapped
-
-  # применить маппинг к уже загруженным лидам (переназначить project_id)
-  python tool_map_projects.py apply --dry-run
-  python tool_map_projects.py apply
-  ```
-
-- Поведение импорта (`python -m backend.app.sheets_import`):
-  - Ищет соответствие в `project_id_map` по паре (external project_id из `SHEETS_MAP`, source из столбца D).
-  - Если нет соответствия и задан `UNMAPPED_PROJECT_ID` — кладёт лид в этот проект, сохраняя `external_project_id` и `source`.
-  - Если `UNMAPPED_PROJECT_ID` пустой — несопоставленные лиды пропускаются (логируется warning).
-
-- Быстрый просмотр БД:
-  ```bash
-  python tool_inspect_db.py               # все projects; по 5 первых/последних leads для min/max project_id
-  python tool_inspect_db.py --db app.db
-  ```
+ 
