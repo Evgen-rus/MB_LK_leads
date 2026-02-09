@@ -244,24 +244,25 @@ def list_projects_paginated(
     counts_total_map: Dict[int, int] = {}
     if start_local and end_local and rows:
         proj_ids = [p.id for p in rows]
+        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
         cnt_rows_period = (
             db.execute(
-                select(models.Lead.project_id, func.count())
+                select(models.ProviderLead.project_id, func.count())
                 .where(
-                    models.Lead.project_id.in_(proj_ids),
-                    models.Lead.imported_at >= start_local,
-                    models.Lead.imported_at <= end_local,
+                    models.ProviderLead.project_id.in_(proj_ids),
+                    ts_col >= start_local,
+                    ts_col <= end_local,
                 )
-                .group_by(models.Lead.project_id)
+                .group_by(models.ProviderLead.project_id)
             ).all()
         )
         counts_period_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_period}
 
         cnt_rows_total = (
             db.execute(
-                select(models.Lead.project_id, func.count())
-                .where(models.Lead.project_id.in_(proj_ids))
-                .group_by(models.Lead.project_id)
+                select(models.ProviderLead.project_id, func.count())
+                .where(models.ProviderLead.project_id.in_(proj_ids))
+                .group_by(models.ProviderLead.project_id)
             ).all()
         )
         counts_total_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_total}
@@ -699,52 +700,6 @@ def create_provider_lead(
     return row
 
 
-def fetch_leads_for_export(
-    db: Session,
-    project_ids: Optional[List[int]],
-    start_local: datetime,
-    end_local: datetime,
-    max_rows: int,
-    sources: Optional[List[str]] = None,
-    current_user_id: Optional[int] = None,
-) -> List[dict]:
-    stmt = (
-        select(
-            models.Lead,
-            models.Project.name.label("project_name"),
-            models.Project.user_id.label("project_user_id"),
-            models.User.login.label("user_login"),
-        )
-        .join(models.Project, models.Project.id == models.Lead.project_id)
-        .join(models.User, models.User.id == models.Project.user_id, isouter=True)
-        .where(models.Lead.imported_at >= start_local)
-        .where(models.Lead.imported_at < end_local)
-        .order_by(models.Lead.imported_at.asc())
-        .limit(max_rows)
-    )
-    if project_ids:
-        stmt = stmt.where(models.Lead.project_id.in_(project_ids))
-    if sources:
-        stmt = stmt.where(models.Lead.source.in_(sources))
-    rows = db.execute(stmt).all()
-    out: List[dict] = []
-    for lead, proj_name, proj_user_id, user_login in rows:
-        out.append(
-            {
-                "ext_id": lead.ext_id,
-                "project_id": lead.project_id,
-                "project_name": proj_name or "",
-                "source": lead.source,
-                "imported_at": lead.imported_at.strftime("%Y-%m-%d %H:%M:%S") if lead.imported_at else "",
-                "phone": lead.phone,
-                "utm_campaign": lead.utm_campaign,
-                "user_login": user_login or "",
-                "user_id": proj_user_id or "",
-            }
-        )
-    return out
-
-
 def fetch_provider_leads_for_export(
     db: Session,
     start_local: datetime,
@@ -846,33 +801,6 @@ def list_provider_leads_paginated(
             phone=phone_value or "",
             utm_campaign=r.prov_source,
             source=r.prov_chanel,
-        ))
-    return schemas.LeadsListOut(items=items, total=total)
-
-
-def list_leads_paginated(db: Session, project_ids: Optional[List[int]], start_local: datetime, end_local: datetime, offset: int, limit: int, sources: Optional[List[str]] = None) -> schemas.LeadsListOut:
-    base = select(models.Lead).where(
-        and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
-    )
-    # Если project_ids пустой список — возвращаем пусто (запрос вида "in ()" не нужен)
-    if project_ids is not None:
-        if not project_ids:
-            return schemas.LeadsListOut(items=[], total=0)
-        base = base.where(models.Lead.project_id.in_(project_ids))
-    if sources:
-        base = base.where(models.Lead.source.in_(sources))
-    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
-    rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()
-    items: List[schemas.LeadOut] = []
-    for r in rows:
-        items.append(schemas.LeadOut(
-            ext_id=r.ext_id,
-            project_id=r.project_id,
-            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
-            phone=r.phone,
-            utm_campaign=r.utm_campaign,
-            source=r.source,
         ))
     return schemas.LeadsListOut(items=items, total=total)
 
@@ -1430,7 +1358,7 @@ def admin_clients_summary(
     # Использование за все время
     used_total_rows = db.execute(
         select(models.Project.user_id, func.count())
-        .join(models.Lead, models.Lead.project_id == models.Project.id)
+        .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
         .group_by(models.Project.user_id)
     ).all()
     for uid, cnt in used_total_rows:
@@ -1439,12 +1367,13 @@ def admin_clients_summary(
         by_user.setdefault(int(uid), {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0})
         by_user[int(uid)]["used_total"] = int(cnt or 0)
 
-    # Использование за период (по imported_at, локальное время без tz)
+    # Использование за период (по prov_created_at/imported_at, локальное время без tz)
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
     used_period_rows = db.execute(
         select(models.Project.user_id, func.count())
-        .join(models.Lead, models.Lead.project_id == models.Project.id)
-        .where(models.Lead.imported_at >= start_local)
-        .where(models.Lead.imported_at <= end_local)
+        .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
+        .where(ts_col >= start_local)
+        .where(ts_col <= end_local)
         .group_by(models.Project.user_id)
     ).all()
     for uid, cnt in used_period_rows:
@@ -1600,16 +1529,17 @@ def _client_leads_usage(
     """
     Количество выданных номеров (лидов) по всем проектам клиента.
     """
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
     stmt = (
         select(func.count())
-        .select_from(models.Lead)
-        .join(models.Project, models.Project.id == models.Lead.project_id)
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
         .where(models.Project.user_id == client_id)
     )
     if start_local:
-        stmt = stmt.where(models.Lead.imported_at >= start_local)
+        stmt = stmt.where(ts_col >= start_local)
     if end_local:
-        stmt = stmt.where(models.Lead.imported_at <= end_local)
+        stmt = stmt.where(ts_col <= end_local)
     return int(db.execute(stmt).scalar_one() or 0)
 
 
@@ -1854,26 +1784,27 @@ def admin_list_all_projects(
     counts_total_map: Dict[int, int] = {}
     if start_local and end_local and rows:
         proj_ids = [p.id for p in rows]
+        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
         cnt_rows_period = (
             db.execute(
-                select(models.Lead.project_id, func.count())
+                select(models.ProviderLead.project_id, func.count())
                 .where(
-                    models.Lead.project_id.in_(proj_ids),
-                    # В админке и клиентском ЛК считаем «за период» по времени попадания лида в БД,
-                    # чтобы показатель совпадал с фильтрацией списков лидов (/admin/leads и /leads).
-                    models.Lead.imported_at >= start_local,
-                    models.Lead.imported_at <= end_local,
+                    models.ProviderLead.project_id.in_(proj_ids),
+                    # В админке и клиентском ЛК считаем «за период» по времени события,
+                    # чтобы показатель совпадал с фильтрацией списков лидов.
+                    ts_col >= start_local,
+                    ts_col <= end_local,
                 )
-                .group_by(models.Lead.project_id)
+                .group_by(models.ProviderLead.project_id)
             ).all()
         )
         counts_period_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_period}
 
         cnt_rows_total = (
             db.execute(
-                select(models.Lead.project_id, func.count())
-                .where(models.Lead.project_id.in_(proj_ids))
-                .group_by(models.Lead.project_id)
+                select(models.ProviderLead.project_id, func.count())
+                .where(models.ProviderLead.project_id.in_(proj_ids))
+                .group_by(models.ProviderLead.project_id)
             ).all()
         )
         counts_total_map = {int(pid): int(cnt) for pid, cnt in cnt_rows_total}
@@ -1969,82 +1900,6 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
     ))
     db.commit()
     return True
-
-
-def admin_list_all_leads(
-    db: Session,
-    start_local: datetime,
-    end_local: datetime,
-    offset: int,
-    limit: int,
-    user_id_filter: int | None = None,
-    project_ids_filter: Optional[List[int]] = None,
-    sources_filter: Optional[List[str]] = None,
-) -> schemas.AdminLeadsListOut:
-    """
-    Список всех лидов (для админа).
-    Опционально фильтрация по user_id владельца проекта.
-    """
-    # Собираем project_ids если нужна фильтрация по user
-    proj_ids: Optional[List[int]] = None
-    if user_id_filter is not None:
-        proj_ids = get_user_project_ids(db, user_id_filter)
-        if not proj_ids:
-            return schemas.AdminLeadsListOut(items=[], total=0)
-    if project_ids_filter is not None:
-        if proj_ids is None:
-            proj_ids = project_ids_filter
-        else:
-            proj_ids = [pid for pid in proj_ids if pid in project_ids_filter]
-        if not proj_ids:
-            return schemas.AdminLeadsListOut(items=[], total=0)
-
-    base = select(models.Lead).where(
-        and_(models.Lead.imported_at >= start_local, models.Lead.imported_at < end_local)
-    )
-    if proj_ids is not None:
-        base = base.where(models.Lead.project_id.in_(proj_ids))
-    if sources_filter:
-        base = base.where(models.Lead.source.in_(sources_filter))
-
-    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
-    rows = db.execute(base.order_by(models.Lead.imported_at.desc()).offset(offset).limit(limit)).scalars().all()
-
-    # Собираем user info для всех лидов через их проекты
-    project_ids_in_rows = set(r.project_id for r in rows)
-    projects_map: Dict[int, Tuple[int, str]] = {}  # project_id -> (user_id, name)
-    if project_ids_in_rows:
-        proj_rows = db.execute(
-            select(models.Project.id, models.Project.user_id, models.Project.name)
-            .where(models.Project.id.in_(project_ids_in_rows))
-        ).all()
-        for pid, uid, name in proj_rows:
-            projects_map[pid] = (uid, name)
-
-    user_ids = set(uid for uid, _ in projects_map.values())
-    users_map: Dict[int, schemas.UserInfo] = {}
-    if user_ids:
-        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
-        for u in users:
-            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
-
-    items: List[schemas.AdminLeadOut] = []
-    for r in rows:
-        uid, pname = projects_map.get(r.project_id, (0, "(unknown)"))
-        user_info = users_map.get(uid, schemas.UserInfo(id=uid, login="(unknown)"))
-        items.append(schemas.AdminLeadOut(
-            ext_id=r.ext_id,
-            project_id=r.project_id,
-            created_at=r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
-            phone=r.phone,
-            utm_campaign=r.utm_campaign,
-            source=r.source,
-            project_name=pname,
-            user=user_info,
-        ))
-
-    return schemas.AdminLeadsListOut(items=items, total=total)
 
 
 def admin_list_provider_leads(

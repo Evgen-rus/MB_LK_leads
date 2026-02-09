@@ -680,19 +680,15 @@ def export_leads(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
 
-    use_provider_leads = current_user.id != 1 or (current_user.id == 1 and clientId is not None)
+    use_provider_leads = True
 
-    # Разрешённые проекты (для обычных лидов)
+    # Разрешённые проекты (для фильтрации provider_leads у клиентов/админа с clientId)
     allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
-    if use_provider_leads and current_user.id != 1 and not allowed_ids:
+    if current_user.id != 1 and not allowed_ids:
         empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
         if (format or "csv").lower() == "xlsx":
             return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
         return Response(content="", media_type="text/csv", headers=empty_headers)
-    if not use_provider_leads and clientId is not None and current_user.id == 1:
-        # Админ скачивает отчёт для выбранного клиента: ограничиваем проектами клиента
-        client_projects = set(crud.get_user_project_ids(db_sess, clientId))
-        allowed_ids = client_projects
     logging.getLogger("app").info(
         "export_leads: user=%s clientId=%s allowed_ids=%s raw_projectIds=%s",
         current_user.id,
@@ -708,23 +704,22 @@ def export_leads(
 
     proj_ids: Optional[List[int]] = None
     provider_allowed_ids: Optional[set[int]] = None
-    if use_provider_leads:
-        if current_user.id != 1:
-            provider_allowed_ids = allowed_ids
-        elif clientId is not None and clientId != 1:
-            provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
-        if provider_allowed_ids is not None and not provider_allowed_ids:
-            empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
-            if (format or "csv").lower() == "xlsx":
-                return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
-            return Response(content="", media_type="text/csv", headers=empty_headers)
+    if current_user.id != 1:
+        provider_allowed_ids = allowed_ids
+    elif clientId is not None and clientId != 1:
+        provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
+    if provider_allowed_ids is not None and not provider_allowed_ids:
+        empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
+        if (format or "csv").lower() == "xlsx":
+            return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
+        return Response(content="", media_type="text/csv", headers=empty_headers)
 
     if projectIds:
         try:
             proj_ids = [int(x) for x in projectIds.split(',') if x.strip()]
             if not proj_ids:
                 proj_ids = None
-            elif use_provider_leads:
+            else:
                 if provider_allowed_ids is not None:
                     proj_ids = [pid for pid in proj_ids if pid in provider_allowed_ids]
                     if proj_ids is not None and len(proj_ids) == 0:
@@ -734,29 +729,11 @@ def export_leads(
                         return Response(content="", media_type="text/csv", headers=empty_headers)
                 else:
                     proj_ids = None
-            else:
-                # Фильтруем только разрешенные проекты
-                proj_ids = [pid for pid in proj_ids if pid in allowed_ids]
-                if proj_ids is not None and len(proj_ids) == 0:
-                    # Явно заданы проекты, но после фильтра нет разрешённых — вернуть пустой ответ
-                    empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
-                    if (format or "csv").lower() == "xlsx":
-                        return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
-                    return Response(content="", media_type="text/csv", headers=empty_headers)
         except Exception:
             proj_ids = None
     else:
-        if use_provider_leads:
-            if provider_allowed_ids is not None:
-                proj_ids = sorted(provider_allowed_ids)
-        else:
-            # Проекты не указаны — используем все разрешённые для выбранного клиента/пользователя
-            if not allowed_ids:
-                empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
-                if (format or "csv").lower() == "xlsx":
-                    return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
-                return Response(content="", media_type="text/csv", headers=empty_headers)
-            proj_ids = sorted(allowed_ids)
+        if provider_allowed_ids is not None:
+            proj_ids = sorted(provider_allowed_ids)
 
     src_list: Optional[List[str]] = None
     if sources:
@@ -783,27 +760,16 @@ def export_leads(
             logging.getLogger("app").exception("Failed to log report export")
 
     max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
-    if use_provider_leads:
-        user_info = crud._get_user_info(db_sess, clientId or current_user.id)
-        rows = crud.fetch_provider_leads_for_export(
-            db_sess,
-            project_ids=proj_ids,
-            start_local=start_local,
-            end_local=end_local,
-            max_rows=max_rows,
-            sources=src_list,
-            user_info=user_info,
-        )
-    else:
-        rows = crud.fetch_leads_for_export(
-            db_sess,
-            project_ids=proj_ids,
-            start_local=start_local,
-            end_local=end_local,
-            max_rows=max_rows,
-            sources=src_list,
-            current_user_id=current_user.id,
-        )
+    user_info = crud._get_user_info(db_sess, clientId or current_user.id)
+    rows = crud.fetch_provider_leads_for_export(
+        db_sess,
+        project_ids=proj_ids,
+        start_local=start_local,
+        end_local=end_local,
+        max_rows=max_rows,
+        sources=src_list,
+        user_info=user_info,
+    )
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
     is_admin = current_user.id == 1
