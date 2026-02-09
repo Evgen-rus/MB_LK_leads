@@ -233,12 +233,12 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             }}
           />
 
-          {/* Фильтр по источникам */}
+          {/* Фильтр по каналам */}
           <FilterDropdown
-            label="Источники"
+            label="Каналы"
             options={sourcesList.map((s) => ({ value: s, label: s }))}
             selected={sources}
-            allLabel="Все источники"
+            allLabel="Все каналы"
             onApply={(vals) => {
               setSources(vals);
               setPage(1);
@@ -264,10 +264,10 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
               <th>Клиент</th>
               <th>ext_id</th>
               <th>Проект</th>
-              <th>Источник</th>
+              <th>Канал</th>
               <th>Дата</th>
               <th>Телефон</th>
-              <th>UTM_CAMPAIGN</th>
+              <th>Источник</th>
             </tr>
           </thead>
           <tbody>

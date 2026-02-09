@@ -776,9 +776,9 @@ def export_leads(
     if (format or "csv").lower() == "csv":
         def gen():
             if is_admin:
-                yield ("ext_id;project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
+                yield ("ext_id;project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
             else:
-                yield ("project_id;project_name;source;imported_at;phone;utm_campaign;user_login;user_id\n").encode('utf-8-sig')
+                yield ("project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
             for r in rows:
                 utm = r["utm_campaign"] or ""
                 if is_admin:
@@ -797,9 +797,9 @@ def export_leads(
         ws = wb.active
         ws.title = "leads"
         if is_admin:
-            ws.append(["ext_id", "project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
+            ws.append(["ext_id", "project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
         else:
-            ws.append(["project_id", "project_name", "source", "imported_at", "phone", "utm_campaign", "user_login", "user_id"])
+            ws.append(["project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
         for r in rows:
             row = [
                 r["project_id"],

@@ -161,10 +161,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
           />
 
           <FilterDropdown
-            label="Источники"
+            label="Каналы"
             options={sourcesList.map((s) => ({ value: s, label: s }))}
             selected={sources}
-            allLabel="Все источники"
+            allLabel="Все каналы"
             onApply={(vals) => {
               setSources(vals);
               setPage(1);
@@ -188,10 +188,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
         <thead>
           <tr>
             <th>Проект</th>
-            <th>Источник</th>
+            <th>Канал</th>
             <th>Дата</th>
             <th>Телефон</th>
-            <th>UTM_CAMPAIGN</th>
+            <th>Источник</th>
           </tr>
         </thead>
         <tbody>
