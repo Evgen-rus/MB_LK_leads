@@ -246,22 +246,6 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ### Управление пользователями (CLI)
 
 - Пользователи для первого запуска создаются из `.env` (пары `USER_1_LOGIN` / `USER_1_PASSWORD` и т.д.) **только если БД пустая**.
-- Для дальнейшего управления логинами/паролями используйте скрипт `tool_user_tools.py` в корне проекта:
-
-```bash
-venv\Scripts\activate   # Windows
-
-# Показать пользователей
-python tool_user_tools.py list
-
-# Создать нового пользователя
-python tool_user_tools.py create --login <логин>
-
-# Сменить пароль существующему пользователю
-python tool_user_tools.py set-password --login <логин>
-```
-
-При смене пароля скрипт дополнительно записывает логин и новый пароль в локальный файл `users.txt` (он добавлен в `.gitignore` и не попадает в репозиторий).
 
 ### CLI утилиты для работы с проектом
 
@@ -332,11 +316,31 @@ crontab -l
 
 ## 📝 API Endpoints
 
+**Общие:**
 - `GET /health` - Проверка работоспособности
-- `GET /projects` - Получение списка проектов
-- `POST /projects` - Создание нового проекта
-- `PATCH /projects/{id}` - Обновление проекта
-- `DELETE /projects/{id}` - Удаление проекта
+- `POST /client-errors` - Сбор ошибок клиента
+- `POST /api/provider-test/{secret}` - Тестовый вебхук провайдера
+
+**Клиентские:**
+- `POST /login` - Авторизация
+- `POST /auth/logout` - Выход
+- `GET /me` - Профиль текущего пользователя
+- `POST /support-message` - Сообщение в поддержку
+- `GET /projects` - Список проектов
+- `POST /projects` - Создание проектов
+- `GET /projects/{project_id}` - Проект по id
+- `PATCH /projects/{project_id}` - Обновление проекта
+- `DELETE /projects/{project_id}` - Удаление проекта
+- `GET /projects/{project_id}/history` - История изменений проекта
+- `GET /leads` - Список лидов
+- `GET /leads/export` - Экспорт лидов
+- `GET /reports` - Список отчётов
+- `POST /reports` - Создание отчёта
+- `GET /blacklist` - Список чёрного списка
+- `POST /blacklist` - Добавить телефоны в чёрный список
+- `DELETE /blacklist/{row_id}` - Удалить запись из чёрного списка
+- `GET /balance` - Баланс клиента
+- `GET /balance/ops` - Операции по балансу
 
 ## 👑 Админская версия
 
@@ -349,12 +353,26 @@ crontab -l
 - **Фильтрация по клиенту** — во всех админских таблицах доступна фильтрация по пользователю
 
 **Админские эндпоинты:**
+- `POST /admin/clients` - Создать клиента
+- `POST /admin/clients/{client_id}/impersonate` - Токен для входа под клиентом
+- `PATCH /admin/clients/{client_id}` - Обновить клиента
+- `GET /admin/clients/summary` - Сводка по клиентам
+- `GET /admin/clients/{client_id}/balance` - Баланс клиента
+- `GET /admin/clients/{client_id}/balance/ops` - Операции по балансу клиента
+- `POST /admin/clients/{client_id}/balance/ops` - Создать операцию по балансу клиента
 - `GET /admin/users` - Список всех пользователей
 - `GET /admin/projects` - Все проекты всех клиентов
-- `PATCH /admin/projects/{id}` - Редактирование проекта (включая delivery_status)
+- `GET /admin/projects/{project_id}` - Проект по id (админ)
+- `GET /admin/projects/{project_id}/history` - История изменений проекта (админ)
+- `PATCH /admin/projects/{project_id}` - Редактирование проекта (включая delivery_status)
+- `DELETE /admin/projects/{project_id}` - Удалить проект
 - `GET /admin/leads` - Все лиды с информацией о клиентах
 - `GET /admin/blacklist` - Весь чёрный список
 - `GET /admin/reports` - Все отчёты
+- `POST /admin/reports` - Создать отчёт
+- `GET /admin/changes/summary` - Сводка по изменениям клиентов
+- `GET /admin/changes/{client_id}` - Изменения клиента
+- `POST /admin/changes/{event_id}/resolve` - Отметить изменение обработанным
 
 
 ---
