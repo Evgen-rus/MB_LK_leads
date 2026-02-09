@@ -163,7 +163,7 @@ def _safe_google_call(call: Callable[[], Any]):
             raise
 
 def export_provider_leads():
-    log = logging.getLogger("app.export_provider")
+    log = logging.getLogger("provider.export")
 
     credentials_file = _get_env("GOOGLE_CREDENTIALS_FILE")
     sheet_id = _get_env("GOOGLE_SHEET_ID")
