@@ -1,22 +1,40 @@
 import { useMemo, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues } from '../data/regions';
+import type { Project } from '../types/project';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
+type RegionMode = 'include' | 'exclude';
+
 type BulkEditRegionsModalProps = {
-  selectedCount: number;
+  selectedProjects: Project[];
   submitting?: boolean;
   onClose: () => void;
-  onSubmit: (regions: string[]) => void;
+  onSubmit: (payload: { regions: string[]; regionMode: RegionMode }) => void;
 };
 
 function BulkEditRegionsModal({
-  selectedCount,
+  selectedProjects,
   submitting = false,
   onClose,
   onSubmit,
 }: BulkEditRegionsModalProps) {
   const [regionQuery, setRegionQuery] = useState('');
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const includeProjects = useMemo(
+    () => selectedProjects.filter((project) => (project.regionMode || 'include') === 'include'),
+    [selectedProjects],
+  );
+  const excludeProjects = useMemo(
+    () => selectedProjects.filter((project) => (project.regionMode || 'include') === 'exclude'),
+    [selectedProjects],
+  );
+
+  const [targetMode, setTargetMode] = useState<RegionMode>(
+    includeProjects.length > 0 ? 'include' : 'exclude',
+  );
+  const mixedModes = includeProjects.length > 0 && excludeProjects.length > 0;
+  const targetProjects = targetMode === 'include' ? includeProjects : excludeProjects;
+  const skippedProjects = targetMode === 'include' ? excludeProjects : includeProjects;
 
   const filteredRegions = useMemo(() => {
     const q = regionQuery.trim().toLowerCase();
@@ -28,15 +46,58 @@ function BulkEditRegionsModal({
 
   return (
     <BulkEditModalFrame
-      selectedCount={selectedCount}
+      selectedCount={selectedProjects.length}
       onClose={onClose}
-      onSubmit={() => onSubmit(normalizeRegionValues(selectedRegions))}
+      onSubmit={() => onSubmit({ regions: normalizeRegionValues(selectedRegions), regionMode: targetMode })}
       submitting={submitting}
     >
       <div className="section-title">Регионы</div>
       <div className="hint">
-        Список регионов будет полностью заменён. Пустой список = вся РФ.
+        Список регионов будет полностью заменён. Пустой список = вся РФ. Режим региона не изменяется.
       </div>
+      {mixedModes && (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div className="section-title">Выберите группу для массового изменения</div>
+          <label>
+            <input
+              type="radio"
+              name="bulk-regions-mode"
+              checked={targetMode === 'include'}
+              onChange={() => setTargetMode('include')}
+              disabled={submitting}
+            />{' '}
+            Включить регионы - {includeProjects.length} проекта(ов)
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="bulk-regions-mode"
+              checked={targetMode === 'exclude'}
+              onChange={() => setTargetMode('exclude')}
+              disabled={submitting}
+            />{' '}
+            Исключить регионы - {excludeProjects.length} проекта(ов)
+          </label>
+        </div>
+      )}
+      <div className="sub" style={{ color: '#666' }}>
+        Будут изменены ({targetProjects.length}):{' '}
+        {targetProjects
+          .slice(0, 4)
+          .map((project) => `${project.name} (id: ${project.id})`)
+          .join(', ')}
+        {targetProjects.length > 4 ? `, ... и еще ${targetProjects.length - 4}` : ''}
+      </div>
+      {skippedProjects.length > 0 && (
+        <div className="sub" style={{ color: '#8a5a00' }}>
+          Не будут изменены ({skippedProjects.length}, другой режим):{' '}
+          {skippedProjects
+            .slice(0, 4)
+            .map((project) => `${project.name} (id: ${project.id})`)
+            .join(', ')}
+          {skippedProjects.length > 4 ? `, ... и еще ${skippedProjects.length - 4}` : ''}
+        </div>
+      )}
       <input
         type="search"
         placeholder="Поиск по регионам"

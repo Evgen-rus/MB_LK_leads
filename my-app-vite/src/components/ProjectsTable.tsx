@@ -149,6 +149,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     updatedItems: Array<{ id: number; name: string }>;
     skippedItems: Array<{ id: number; name: string }>;
     failedItems: Array<{ id: number; name: string; reason: string }>;
+    skippedReasonLabel?: string;
   }) {
     function formatNames(items: Array<{ id: number; name: string }>, max = 5): string {
       const preview = items
@@ -164,7 +165,13 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     if (result.updatedItems.length > 0) {
       lines.push(`Применено к: ${formatNames(result.updatedItems)}.`);
     }
-    if (result.skippedCount > 0) lines.push(`Пропущено: ${result.skippedCount}.`);
+    if (result.skippedCount > 0) {
+      lines.push(
+        result.skippedReasonLabel
+          ? `Пропущено: ${result.skippedCount} (${result.skippedReasonLabel}).`
+          : `Пропущено: ${result.skippedCount}.`,
+      );
+    }
     if (result.skippedItems.length > 0) {
       lines.push(`Не применено к: ${formatNames(result.skippedItems)}.`);
     }
@@ -190,7 +197,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
   }
 
-  async function runBulkAction(buildPatch: (project: Project) => Partial<ProjectUpdatePayload> | null) {
+  async function runBulkAction(
+    buildPatch: (project: Project) => Partial<ProjectUpdatePayload> | null,
+    options?: { skippedReasonLabel?: string },
+  ) {
     if (selectedRows.length === 0) return;
     setBulkSaving(true);
     setBulkProgress(null);
@@ -210,6 +220,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
         updatedItems: result.updatedItems,
         skippedItems: result.skippedItems,
         failedItems: result.failedItems,
+        skippedReasonLabel: options?.skippedReasonLabel,
       });
       window.dispatchEvent(new CustomEvent('projects-refresh'));
       setSelectedIds([]);
@@ -261,8 +272,17 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     await runBulkAction(() => ({ dataLimit: limit }));
   }
 
-  async function handleBulkRegionsSubmit(regions: string[]) {
-    await runBulkAction(() => ({ regions }));
+  async function handleBulkRegionsSubmit(payload: { regions: string[]; regionMode: 'include' | 'exclude' }) {
+    await runBulkAction((project) => {
+      const mode = project.regionMode || 'include';
+      if (mode !== payload.regionMode) return null;
+      return { regions: payload.regions };
+    }, {
+      skippedReasonLabel:
+        payload.regionMode === 'include'
+          ? 'другой режим регионов: Исключить'
+          : 'другой режим регионов: Включить',
+    });
   }
 
   async function handleBulkStatusSubmit(status: Exclude<ProjectStatus, 'Удалён'>) {
@@ -561,7 +581,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
       )}
       {activeBulkAction === 'regions' && (
         <BulkEditRegionsModal
-          selectedCount={selectedRows.length}
+          selectedProjects={selectedRows}
           submitting={bulkSaving}
           onClose={closeBulkAction}
           onSubmit={handleBulkRegionsSubmit}
