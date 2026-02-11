@@ -5,7 +5,6 @@ import type { CollectionSource } from '../types/project';
 import {
   fetchAdminProjects,
   fetchAdminUsers,
-  deleteAdminProject,
   type AdminProject,
   type UserInfo,
 } from '../api';
@@ -121,21 +120,6 @@ function AdminClientsTable() {
       const union = new Set([...prev, ...filteredIds]);
       return Array.from(union);
     });
-  }
-
-  async function handleDelete(id: number) {
-    if (!window.confirm(`Удалить проект ${id}?`)) return;
-    try {
-      await deleteAdminProject(id);
-      setRows(prev => prev.filter(p => p.id !== id));
-      setSelectedIds(prev => prev.filter(x => x !== id));
-      window.dispatchEvent(new CustomEvent('admin-projects-refresh'));
-    } catch (e: unknown) {
-      console.error(e);
-      const message = getErrorMessage(e, 'Не удалось удалить проект');
-      setError(message);
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
-    }
   }
 
   return (
@@ -281,9 +265,6 @@ function AdminClientsTable() {
                           }}
                         >
                           ⚙️
-                        </button>
-                        <button className="icon-btn" title="Удалить" onClick={() => handleDelete(row.id)}>
-                          🗑️
                         </button>
                       </>
                     );

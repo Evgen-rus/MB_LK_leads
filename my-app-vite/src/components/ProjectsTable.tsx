@@ -26,6 +26,7 @@ function formatDateInput(d: Date) {
 function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
@@ -66,9 +67,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       const matchesQuery = q === '' ? true : (nameHit || idHit);
-      return matchesQuery;
+      const matchesStatus = statusFilter === 'Все' ? true : row.status === statusFilter;
+      return matchesQuery && matchesStatus;
     });
-  }, [rows, search]);
+  }, [rows, search, statusFilter]);
 
   // Восстанавливаем payload для updateProject из текущего объекта Project.
   // Нужен полный набор полей, иначе бэкенд отвечает 422.
@@ -162,6 +164,15 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted); }}}
           />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён')}
+          >
+            <option value="Все">Все статусы проекта</option>
+            <option value="Активен">Активен</option>
+            <option value="На паузе">На паузе</option>
+            <option value="Удалён">Удалён</option>
+          </select>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
               type="checkbox"

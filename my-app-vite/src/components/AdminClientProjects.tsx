@@ -1,7 +1,7 @@
 // Экран «Проекты клиента» для админа.
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
 import { useEffect, useMemo, useState } from 'react';
-import { fetchAdminProjects, updateAdminProject, deleteAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
+import { fetchAdminProjects, updateAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
@@ -42,6 +42,7 @@ const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
@@ -83,13 +84,14 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
+    const byStatus = rows.filter((row) => (statusFilter === 'Все' ? true : row.status === statusFilter));
+    if (!q) return byStatus;
+    return byStatus.filter((row) => {
       const nameHit = row.name.toLowerCase().includes(q);
       const idHit = String(row.id).includes(q);
       return nameHit || idHit;
     });
-  }, [rows, search]);
+  }, [rows, search, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -98,19 +100,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     const token = getValidTokenFromStorage();
     return getUserIdFromToken(token);
   }, []);
-
-  async function handleDelete(id: number) {
-    if (!window.confirm(`Удалить проект ${id}?`)) return;
-    try {
-      await deleteAdminProject(id);
-      setRows((prev) => prev.filter((p) => p.id !== id));
-    } catch (err: unknown) {
-      console.error(err);
-      const message = getErrorMessage(err, 'Не удалось удалить проект');
-      setError(message);
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
-    }
-  }
 
   // Обновление проекта без открытия модалки (если потребуется)
   async function applyUpdate(project: AdminProject, patch: Partial<AdminProjectUpdate>) {
@@ -165,6 +154,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
               }
             }}
           />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён')}
+          >
+            <option value="Все">Все статусы проекта</option>
+            <option value="Активен">Активен</option>
+            <option value="На паузе">На паузе</option>
+            <option value="Удалён">Удалён</option>
+          </select>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
               type="checkbox"
@@ -343,14 +341,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                             title="История изменений"
                             onClick={() => setHistoryFor(row)}
                           >
-                            🕘
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Удалить проект"
-                            onClick={() => handleDelete(row.id)}
-                          >
-                            🗑️
+                            📜
                           </button>
                         </>
                       );

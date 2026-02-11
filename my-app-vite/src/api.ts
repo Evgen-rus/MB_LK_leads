@@ -592,10 +592,6 @@ export async function updateAdminProject(id: number, payload: AdminProjectUpdate
   });
 }
 
-export async function deleteAdminProject(id: number): Promise<void> {
-  await http(`/admin/projects/${id}`, { method: 'DELETE' });
-}
-
 // -------- Админские лиды --------
 export type AdminLead = {
   ext_id: string;
