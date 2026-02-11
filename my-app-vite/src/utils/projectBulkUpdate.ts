@@ -61,6 +61,9 @@ export type BulkRunResult = {
   failed: number;
   warnings: string[];
   errors: string[];
+  updatedItems: Array<{ id: number; name: string }>;
+  skippedItems: Array<{ id: number; name: string }>;
+  failedItems: Array<{ id: number; name: string; reason: string }>;
 };
 
 type RunBulkProjectUpdatesParams = {
@@ -76,6 +79,9 @@ export async function runBulkProjectUpdatesSequential(
   const updatedProjects: Project[] = [];
   const warnings: string[] = [];
   const errors: string[] = [];
+  const updatedItems: Array<{ id: number; name: string }> = [];
+  const skippedItems: Array<{ id: number; name: string }> = [];
+  const failedItems: Array<{ id: number; name: string; reason: string }> = [];
 
   let skipped = 0;
   let failed = 0;
@@ -94,6 +100,7 @@ export async function runBulkProjectUpdatesSequential(
 
     if (!patch) {
       skipped += 1;
+      skippedItems.push({ id: project.id, name: project.name });
       done += 1;
       onProgress?.({
         total: projects.length,
@@ -109,10 +116,13 @@ export async function runBulkProjectUpdatesSequential(
       const payload = buildUpdatePayloadFromProject(project, patch);
       const response = await updateProject(project.id, payload);
       updatedProjects.push(response.project);
-      if (response.warning) warnings.push(`Проект ${project.id}: ${response.warning}`);
+      updatedItems.push({ id: response.project.id, name: response.project.name });
+      if (response.warning) warnings.push(`Проект ${project.id} (${project.name}): ${response.warning}`);
     } catch (err: unknown) {
       failed += 1;
-      errors.push(`Проект ${project.id}: ${getErrorMessage(err, 'Ошибка обновления')}`);
+      const reason = getErrorMessage(err, 'Ошибка обновления');
+      failedItems.push({ id: project.id, name: project.name, reason });
+      errors.push(`Проект ${project.id} (${project.name}): ${reason}`);
     } finally {
       done += 1;
       onProgress?.({
@@ -131,5 +141,8 @@ export async function runBulkProjectUpdatesSequential(
     failed,
     warnings,
     errors,
+    updatedItems,
+    skippedItems,
+    failedItems,
   };
 }

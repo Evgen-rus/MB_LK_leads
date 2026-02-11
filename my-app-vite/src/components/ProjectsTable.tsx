@@ -146,13 +146,41 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     failedCount: number;
     warnings: string[];
     errors: string[];
+    updatedItems: Array<{ id: number; name: string }>;
+    skippedItems: Array<{ id: number; name: string }>;
+    failedItems: Array<{ id: number; name: string; reason: string }>;
   }) {
+    function formatNames(items: Array<{ id: number; name: string }>, max = 5): string {
+      const preview = items
+        .slice(0, max)
+        .map((item) => `${item.name} (id: ${item.id})`)
+        .join(', ');
+      if (items.length <= max) return preview;
+      return `${preview}, ... и еще ${items.length - max}`;
+    }
+
     const lines: string[] = [];
     lines.push(`Обновлено: ${result.updatedCount}.`);
+    if (result.updatedItems.length > 0) {
+      lines.push(`Применено к: ${formatNames(result.updatedItems)}.`);
+    }
     if (result.skippedCount > 0) lines.push(`Пропущено: ${result.skippedCount}.`);
+    if (result.skippedItems.length > 0) {
+      lines.push(`Не применено к: ${formatNames(result.skippedItems)}.`);
+    }
     if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
+    if (result.failedItems.length > 0) {
+      const failedPreview = result.failedItems
+        .slice(0, 3)
+        .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
+        .join('\n');
+      lines.push(`Ошибки по проектам:\n${failedPreview}`);
+      if (result.failedItems.length > 3) {
+        lines.push(`... и еще ${result.failedItems.length - 3} проект(ов) с ошибкой.`);
+      }
+    }
     if (result.warnings.length > 0) lines.push(`Предупреждений: ${result.warnings.length}.`);
-    if (result.errors.length > 0) {
+    if (result.errors.length > 0 && result.failedItems.length === 0) {
       const preview = result.errors.slice(0, 3).join('\n');
       lines.push(preview);
       if (result.errors.length > 3) {
@@ -179,6 +207,9 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
         failedCount: result.failed,
         warnings: result.warnings,
         errors: result.errors,
+        updatedItems: result.updatedItems,
+        skippedItems: result.skippedItems,
+        failedItems: result.failedItems,
       });
       window.dispatchEvent(new CustomEvent('projects-refresh'));
       setSelectedIds([]);
