@@ -1,8 +1,15 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import type { Project } from '../types/project';
-import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject, type ProjectUpdatePayload, type Day } from '../api';
+import type { Day, ProjectUpdatePayload } from '../api';
+import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
+import type { Project, ProjectStatus } from '../types/project';
 import DateRangeFilter from './DateRangeFilter';
+import BulkEditDaysModal from './BulkEditDaysModal';
+import BulkEditLimitModal from './BulkEditLimitModal';
+import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkEditContactsModal';
+import BulkEditRegionsModal from './BulkEditRegionsModal';
+import BulkEditStatusModal from './BulkEditStatusModal';
+import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
@@ -23,6 +30,11 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status';
+
+const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
+const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
+
 function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
@@ -33,6 +45,11 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [activeBulkAction, setActiveBulkAction] = useState<BulkActionType | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
@@ -72,38 +89,104 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     });
   }, [rows, search, statusFilter]);
 
-  // Восстанавливаем payload для updateProject из текущего объекта Project.
-  // Нужен полный набор полей, иначе бэкенд отвечает 422.
-  function buildUpdatePayloadFromRow(row: Project, patch: Partial<ProjectUpdatePayload>): ProjectUpdatePayload {
-    const map: Record<string, Day> = {
-      'Пн.': 'Пн',
-      'Вт.': 'Вт',
-      'Ср.': 'Ср',
-      'Чт.': 'Чт',
-      'Пт.': 'Пт',
-      'Сб.': 'Сб',
-      'Вс.': 'Вс',
-    };
-    const parts = (row.daysReceived || '').split(/\s+/).filter(Boolean);
-    const days: Day[] = [];
-    parts.forEach((p) => {
-      if (map[p]) days.push(map[p]);
-    });
-    const daysFinal: Day[] = days.length ? days : (['Вт', 'Ср', 'Чт', 'Пт', 'Сб'] as Day[]);
+  const selectableRows = useMemo(
+    () => filteredRows.filter((row) => row.status !== 'Удалён'),
+    [filteredRows],
+  );
+  const selectedRows = useMemo(
+    () => filteredRows.filter((row) => selectedIds.includes(row.id)),
+    [filteredRows, selectedIds],
+  );
+  const allSelectableOnPageSelected =
+    selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
 
-    return {
-      name: row.name,
-      tag: row.tag || row.name,
-      status: row.status,
-      dataLimit: row.dataLimit,
-      regionMode: row.regionMode || 'include',
-      regions: row.regions || [],
-      sites: row.sites || undefined,
-      phones: row.phones || undefined,
-      smsSenderName: row.smsSenderName || undefined,
-      days: daysFinal,
-      ...patch,
-    };
+  useEffect(() => {
+    // Выделение действует только в рамках текущей страницы/выборки.
+    setSelectedIds([]);
+    setBulkMenuOpen(false);
+  }, [rows]);
+
+  function toggleRowSelection(projectId: number) {
+    setSelectedIds((prev) =>
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId],
+    );
+  }
+
+  function toggleSelectAllOnPage() {
+    setSelectedIds((prev) => {
+      const selectableIds = selectableRows.map((row) => row.id);
+      if (allSelectableOnPageSelected) {
+        return prev.filter((id) => !selectableIds.includes(id));
+      }
+      const union = new Set([...prev, ...selectableIds]);
+      return Array.from(union);
+    });
+  }
+
+  function openBulkAction(action: BulkActionType) {
+    setBulkMenuOpen(false);
+    setActiveBulkAction(action);
+  }
+
+  function closeBulkAction() {
+    if (bulkSaving) return;
+    setActiveBulkAction(null);
+    setBulkProgress(null);
+  }
+
+  function applyUpdatedProjects(updated: Project[]) {
+    if (updated.length === 0) return;
+    const map = new Map(updated.map((item) => [item.id, item]));
+    setRows((prev) => prev.map((item) => map.get(item.id) ?? item));
+  }
+
+  function showBulkResultToast(result: {
+    updatedCount: number;
+    skippedCount: number;
+    failedCount: number;
+    warnings: string[];
+    errors: string[];
+  }) {
+    const lines: string[] = [];
+    lines.push(`Обновлено: ${result.updatedCount}.`);
+    if (result.skippedCount > 0) lines.push(`Пропущено: ${result.skippedCount}.`);
+    if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
+    if (result.warnings.length > 0) lines.push(`Предупреждений: ${result.warnings.length}.`);
+    if (result.errors.length > 0) {
+      const preview = result.errors.slice(0, 3).join('\n');
+      lines.push(preview);
+      if (result.errors.length > 3) {
+        lines.push(`... и еще ${result.errors.length - 3}`);
+      }
+    }
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+  }
+
+  async function runBulkAction(buildPatch: (project: Project) => Partial<ProjectUpdatePayload> | null) {
+    if (selectedRows.length === 0) return;
+    setBulkSaving(true);
+    setBulkProgress(null);
+    try {
+      const result = await runBulkProjectUpdatesSequential({
+        projects: selectedRows,
+        buildPatch,
+        onProgress: setBulkProgress,
+      });
+      applyUpdatedProjects(result.updated);
+      showBulkResultToast({
+        updatedCount: result.updated.length,
+        skippedCount: result.skipped,
+        failedCount: result.failed,
+        warnings: result.warnings,
+        errors: result.errors,
+      });
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      setSelectedIds([]);
+      setActiveBulkAction(null);
+      setBulkProgress(null);
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
@@ -112,7 +195,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     if (row.status === 'Удалён') return;
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
-      const payload = buildUpdatePayloadFromRow(row, { status: nextStatus });
+      const payload = buildUpdatePayloadFromProject(row, { status: nextStatus });
       const result = await apiUpdateProject(row.id, payload);
       setRows((prev) => prev.map((p) => (p.id === row.id ? result.project : p)));
       window.dispatchEvent(new CustomEvent('projects-refresh'));
@@ -137,6 +220,33 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
         : 'Не удалось удалить проект. Попробуйте позже.';
       window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
+  }
+
+  async function handleBulkDaysSubmit(days: Day[]) {
+    await runBulkAction(() => ({ days }));
+  }
+
+  async function handleBulkLimitSubmit(limit: number) {
+    await runBulkAction(() => ({ dataLimit: limit }));
+  }
+
+  async function handleBulkRegionsSubmit(regions: string[]) {
+    await runBulkAction(() => ({ regions }));
+  }
+
+  async function handleBulkStatusSubmit(status: Exclude<ProjectStatus, 'Удалён'>) {
+    await runBulkAction(() => ({ status }));
+  }
+
+  async function handleBulkContactsSubmit(payload: BulkEditContactsModalSubmit) {
+    await runBulkAction((project) => {
+      if (payload.target === 'calls') {
+        if (!CALLS_SOURCES.has(project.collectionSource)) return null;
+        return { phones: payload.values };
+      }
+      if (!SITES_SOURCES.has(project.collectionSource)) return null;
+      return { sites: payload.values };
+    });
   }
 
   // Удаление из тулбара не используется — по просьбе отключено
@@ -191,10 +301,77 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
           <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
         </div>
       </div>
+      {selectedRows.length > 0 && (
+        <div
+          style={{
+            margin: '0 12px 12px',
+            padding: '10px 12px',
+            border: '1px solid #ece7ff',
+            background: '#f7f4ff',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            position: 'relative',
+          }}
+        >
+          <span className="badge badge--gray">Выбрано: {selectedRows.length}</span>
+          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkSaving}>
+            Снять выделение
+          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn--primary"
+              onClick={() => setBulkMenuOpen((prev) => !prev)}
+              disabled={bulkSaving}
+            >
+              Массовые действия
+            </button>
+            {bulkMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  minWidth: 230,
+                  zIndex: 20,
+                  border: '1px solid #e7e7ef',
+                  borderRadius: 10,
+                  background: '#fff',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.12)',
+                  padding: 6,
+                  display: 'grid',
+                  gap: 2,
+                }}
+              >
+                <button className="btn btn--ghost" onClick={() => openBulkAction('days')}>Дни получения данных</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('limit')}>Лимит</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('contacts')}>Телефоны/сайты конкурентов</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('regions')}>Регионы</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('status')}>Статус проекта</button>
+              </div>
+            )}
+          </div>
+          {bulkSaving && bulkProgress && (
+            <span className="sub" style={{ color: '#6b4ce6' }}>
+              Обработка: {bulkProgress.done}/{bulkProgress.total}
+            </span>
+          )}
+        </div>
+      )}
       <div className="table-scroll">
       <table className="table">
         <thead>
           <tr>
+            <th style={{ width: 36 }}>
+              <input
+                type="checkbox"
+                checked={allSelectableOnPageSelected}
+                onChange={toggleSelectAllOnPage}
+                title="Выбрать все доступные проекты на странице"
+              />
+            </th>
             <th>Название</th>
             <th>Источник</th>
             <th>Статус проекта</th>
@@ -211,6 +388,19 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
         <tbody>
           {filteredRows.map((row) => (
             <tr key={row.id}>
+              <td>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(row.id)}
+                  disabled={row.status === 'Удалён' || bulkSaving}
+                  title={
+                    row.status === 'Удалён'
+                      ? 'Удалённые проекты нельзя редактировать'
+                      : 'Выбрать проект'
+                  }
+                  onChange={() => toggleRowSelection(row.id)}
+                />
+              </td>
               <td
                 style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                 onClick={() => {
@@ -313,6 +503,47 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
           </select>
         </div>
       </div>
+
+      {activeBulkAction === 'days' && (
+        <BulkEditDaysModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkDaysSubmit}
+        />
+      )}
+      {activeBulkAction === 'limit' && (
+        <BulkEditLimitModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkLimitSubmit}
+        />
+      )}
+      {activeBulkAction === 'contacts' && (
+        <BulkEditContactsModal
+          selectedProjects={selectedRows}
+          submitting={bulkSaving}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkContactsSubmit}
+        />
+      )}
+      {activeBulkAction === 'regions' && (
+        <BulkEditRegionsModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkRegionsSubmit}
+        />
+      )}
+      {activeBulkAction === 'status' && (
+        <BulkEditStatusModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkStatusSubmit}
+        />
+      )}
     </div>
   );
 }
