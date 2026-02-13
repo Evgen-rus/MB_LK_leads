@@ -210,6 +210,13 @@ function LeadsTable({ projects, initialFilter }: Props) {
           </tr>
         </thead>
         <tbody>
+          {!loading && rows.length === 0 && (
+            <tr>
+              <td colSpan={5} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                По выбранным фильтрам идентификаций не найдено.
+              </td>
+            </tr>
+          )}
           {rows.map((r) => (
             <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
               <td>
