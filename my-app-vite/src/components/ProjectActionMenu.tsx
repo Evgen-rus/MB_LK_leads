@@ -50,9 +50,23 @@ function ProjectActionMenu({ items, onClose, anchorRect }: ProjectActionMenuProp
     <>
       <div
         className="project-action-menu-backdrop"
-        onClick={onClose}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
+        onTouchStart={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
         onContextMenu={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           onClose();
         }}
       />
@@ -61,6 +75,7 @@ function ProjectActionMenu({ items, onClose, anchorRect }: ProjectActionMenuProp
         className="project-action-menu"
         role="menu"
         style={{ top: menuStyle.top, left: menuStyle.left, width: menuStyle.width }}
+        onMouseDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
         {items.map((item) => (

@@ -111,6 +111,20 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     setProjectMenuAnchorRect(null);
   }, [rows]);
 
+  useEffect(() => {
+    if (openProjectMenuId == null) return;
+    const closeMenu = () => {
+      setOpenProjectMenuId(null);
+      setProjectMenuAnchorRect(null);
+    };
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [openProjectMenuId]);
+
   // Обновление проекта без открытия модалки (если потребуется)
   async function applyUpdate(project: AdminProject, patch: Partial<AdminProjectUpdate>) {
     try {
@@ -144,13 +158,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     if (project.status === 'Удалён') return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     await applyUpdate(project, { status: nextStatus });
-  }
-
-  async function handleSoftDelete(project: AdminProject) {
-    if (project.status === 'Удалён') return;
-    if (!canEditProject(project)) return;
-    if (!window.confirm(`Удалить проект ${project.id} навсегда?`)) return;
-    await applyUpdate(project, { status: 'Удалён' });
   }
 
   return (
@@ -343,21 +350,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                           key: 'history',
                           label: 'История изменений',
                           onSelect: () => setHistoryFor(row),
-                        },
-                        {
-                          key: 'delete',
-                          label: 'Удаление проекта',
-                          onSelect: () => {
-                            void handleSoftDelete(row);
-                          },
-                          disabled: row.status === 'Удалён' || !canEditProject(row),
-                          danger: true,
-                          title:
-                            row.status === 'Удалён'
-                              ? 'Проект уже помечен как удалённый'
-                              : canEditProject(row)
-                                ? 'Удалить проект навсегда'
-                                : 'Недостаточно прав: можно удалять только свои проекты',
                         },
                       ]}
                     />

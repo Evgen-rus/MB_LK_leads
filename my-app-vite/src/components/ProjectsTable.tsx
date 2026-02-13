@@ -81,6 +81,20 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     return () => window.removeEventListener('projects-refresh', h);
   }, [load, page, pageSize, search, fromDate, toDate, includeDeleted]);
 
+  useEffect(() => {
+    if (openProjectMenuId == null) return;
+    const closeMenu = () => {
+      setOpenProjectMenuId(null);
+      setProjectMenuAnchorRect(null);
+    };
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [openProjectMenuId]);
+
   const filteredRows = useMemo<Project[]>(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
