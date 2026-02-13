@@ -151,7 +151,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
           <FilterDropdown
             label="Проекты"
-            options={projects.map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
+            options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
             selected={projectIds.map(String)}
             allLabel="Все проекты"
             onApply={(vals) => {

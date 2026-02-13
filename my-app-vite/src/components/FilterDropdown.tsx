@@ -14,6 +14,7 @@ type Props = {
 function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply, disabled }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState<string[]>(selected);
+  const [emptyMeansAllInUi, setEmptyMeansAllInUi] = useState(false);
   const [query, setQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -21,6 +22,7 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
   useEffect(() => {
     if (isOpen) {
       setLocalSelected(selected);
+      setEmptyMeansAllInUi(selected.length === 0);
       setQuery('');
     }
   }, [isOpen, selected]);
@@ -46,9 +48,19 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
   }, []);
 
   const toggleValue = (val: string) => {
-    setLocalSelected((prev) =>
-      prev.includes(val) ? prev.filter((v) => v !== val) : [...prev, val],
-    );
+    setLocalSelected((prev) => {
+      // Пустой выбор трактуется как "все", поэтому при первом клике
+      // берем за основу весь список опций только если это "виртуальное все"
+      // (а не результат кнопки "Очистить выбор").
+      const effective =
+        prev.length === 0 && emptyMeansAllInUi
+          ? options.map((o) => o.value)
+          : prev;
+      setEmptyMeansAllInUi(false);
+      return effective.includes(val)
+        ? effective.filter((v) => v !== val)
+        : [...effective, val];
+    });
   };
 
   const handleApply = () => {
@@ -58,20 +70,36 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
 
   const handleSelectAll = () => {
     setLocalSelected(options.map((o) => o.value));
+    setEmptyMeansAllInUi(false);
   };
 
   const handleClearAll = () => {
     setLocalSelected([]);
+    setEmptyMeansAllInUi(false);
   };
 
   const filteredOptions = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, ' ').trim();
+    const q = normalize(query);
     if (!q) return options;
-    return options.filter((opt) => opt.label.toLowerCase().includes(q));
+    return options.filter((opt) => {
+      const label = normalize(opt.label);
+      const value = normalize(opt.value);
+      return label.includes(q) || value.includes(q);
+    });
   }, [options, query]);
 
+  // Для UI: если localSelected пустой, показываем как выбранные все опции.
+  const localSelectedForUi = useMemo(
+    () =>
+      localSelected.length === 0 && emptyMeansAllInUi
+        ? options.map((o) => o.value)
+        : localSelected,
+    [localSelected, options, emptyMeansAllInUi],
+  );
+
   const summary =
-    selected.length === options.length || options.length === 0
+    selected.length === 0 || selected.length === options.length || options.length === 0
       ? `${label}: все`
       : `${label}: ${selected.length}`;
 
@@ -92,7 +120,7 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
               ref={searchInputRef}
               type="search"
               value={query}
-              placeholder="Поиск по ID или названию"
+              placeholder="Поиск по названию"
               onChange={(e) => setQuery(e.target.value)}
               style={{ width: '100%' }}
             />
@@ -106,7 +134,7 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
               >
                 <input
                   type="checkbox"
-                  checked={localSelected.includes(opt.value)}
+                  checked={localSelectedForUi.includes(opt.value)}
                   onChange={() => toggleValue(opt.value)}
                   style={{ cursor: 'pointer' }}
                 />
@@ -126,7 +154,7 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
           </div>
           <div style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
             <button className="btn" onClick={handleClearAll} type="button">
-              Снять выбор
+              Очистить выбор
             </button>
             <button className="btn" onClick={handleSelectAll} type="button">
               {allLabel}
@@ -134,6 +162,9 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
             <button className="btn" onClick={handleApply} type="button">
               Сохранить
             </button>
+          </div>
+          <div className="sub" style={{ padding: '0 8px 8px' }}>
+            Подсказка: Пустой выбор = все значения.
           </div>
         </div>
       )}

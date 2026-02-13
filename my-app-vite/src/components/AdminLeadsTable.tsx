@@ -223,7 +223,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           {/* Фильтр по проектам клиента (мультивыбор) */}
           <FilterDropdown
             label="Проекты"
-            options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: `${p.id} — ${p.name}` }))}
+            options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: p.name }))}
             selected={projectIds.map(String)}
             allLabel="Все проекты"
             disabled={!userIdFilter}
