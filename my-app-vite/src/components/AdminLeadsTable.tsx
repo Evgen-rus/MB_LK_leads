@@ -276,13 +276,13 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
         <table className="table">
           <thead>
             <tr>
-              <th>Клиент</th>
-              <th>ext_id</th>
+              <th>Дата</th>
               <th>Проект</th>
               <th>Канал</th>
-              <th>Дата</th>
-              <th>Телефон</th>
               <th>Источник</th>
+              <th>Телефон</th>
+              <th>ext_id</th>
+              <th>Клиент</th>
             </tr>
           </thead>
           <tbody>
@@ -302,11 +302,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             )}
             {rows.map((r) => (
               <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
-                <td>
-                  <div className="name">{r.user.name || r.user.login}</div>
-                  <div className="sub">id: {r.user.id}</div>
-                </td>
-                <td className="muted">{r.ext_id}</td>
+                <td>{r.imported_at}</td>
                 <td>
                   <div className="name">
                     {r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—'}
@@ -314,9 +310,13 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                   <div className="sub">id: {r.project_id != null ? r.project_id : '—'}</div>
                 </td>
                 <td className="muted">{r.source ?? ''}</td>
-                <td>{r.imported_at}</td>
-                <td>{r.phone}</td>
                 <td className="muted">{r.utm_campaign ?? ''}</td>
+                <td>{r.phone}</td>
+                <td className="muted">{r.ext_id}</td>
+                <td>
+                  <div className="name">{r.user.name || r.user.login}</div>
+                  <div className="sub">id: {r.user.id}</div>
+                </td>
               </tr>
             ))}
           </tbody>
