@@ -96,8 +96,7 @@ function Reports() {
   return (
       <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }} />
-        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn--primary"
@@ -108,6 +107,8 @@ function Reports() {
           >
             Сформировать отчёт
           </button>
+        </div>
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
       </div>

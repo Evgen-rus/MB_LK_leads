@@ -8,7 +8,7 @@ interface ExportDropdownProps {
   buttonText?: string;
 }
 
-function ExportDropdown({ onExport, buttonText = 'Скачать отчет' }: ExportDropdownProps) {
+function ExportDropdown({ onExport, buttonText = 'Скачать отчёт' }: ExportDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
