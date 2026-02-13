@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminClientsSummary,
           fetchAdminChangesSummary,
+          impersonateClient,
           type AdminClientSummaryItem,
           type AdminClientChangesSummaryListOut,
           type ClientProfile,
@@ -89,6 +90,7 @@ function AdminClientsScreen({
   onOpenClientBlacklistChanges,
   onOpenClientBalance,
 }: AdminClientsScreenProps) {
+  const env = import.meta.env as Record<string, unknown>;
   const [baseClients, setBaseClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +102,7 @@ function AdminClientsScreen({
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
+  const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -216,6 +219,33 @@ function AdminClientsScreen({
     selectedClient != null
       ? (clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal
       : 0;
+  const clientCabinetBase =
+    typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
+      ? (env.VITE_CLIENT_PORTAL_URL as string)
+      : '/';
+
+  async function handleOpenClientCabinet(clientId: number) {
+    if (!clientId) return;
+    setOpeningClientCabinetId(clientId);
+    setError(null);
+    try {
+      const resp = await impersonateClient(clientId);
+      try {
+        localStorage.setItem('access_token', resp.access_token);
+        sessionStorage.setItem('access_token', resp.access_token);
+        const parts = [`access_token=${encodeURIComponent(resp.access_token)}`, 'path=/', 'samesite=lax'];
+        if (window.location.protocol === 'https:') parts.push('secure');
+        document.cookie = parts.join('; ');
+      } catch {
+        /* ignore */
+      }
+      const targetUrl = new URL(clientCabinetBase, window.location.origin).toString();
+      window.location.href = targetUrl;
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось открыть ЛК клиента'));
+      setOpeningClientCabinetId(null);
+    }
+  }
 
   return (
     <>
@@ -438,6 +468,17 @@ function AdminClientsScreen({
                           }}
                         >
                           Карточка
+                        </button>
+                        <button
+                          className="btn btn--secondary"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleOpenClientCabinet(row.id);
+                          }}
+                          disabled={openingClientCabinetId === row.id}
+                        >
+                          {openingClientCabinetId === row.id ? 'Переходим…' : 'Перейти в ЛК'}
                         </button>
                       </div>
                     </td>
