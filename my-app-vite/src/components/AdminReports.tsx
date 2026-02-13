@@ -4,13 +4,13 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   fetchAdminReports,
   fetchAdminUsers,
+  fetchAdminProjects,
   createAdminReport,
   downloadLeadsExport,
   type AdminReportItem,
   type UserInfo,
 } from '../api';
-import DateRangeFilter from './DateRangeFilter';
-import ExportDropdown from './ExportDropdown';
+import ReportBuildModal from './ReportBuildModal';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -22,18 +22,17 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 function AdminReports() {
   const [users, setUsers] = useState<UserInfo[]>([]);
-  // Выбор клиента нужен только для создания нового отчёта, не для фильтра списка
-  const [userIdFilter, setUserIdFilter] = useState<number | null>(null);
   const [items, setItems] = useState<AdminReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
-  const [range, setRange] = useState<{ from: string; to: string }>(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return { from: today, to: today };
-  });
+  const [buildModalOpen, setBuildModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [projects, setProjects] = useState<Array<{ id: number; name: string }>>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   async function loadUsers() {
     try {
       const list = await fetchAdminUsers();
@@ -46,7 +45,7 @@ function AdminReports() {
 
   // Не завязываем на state page/pageSize, чтобы смена страницы не сбрасывала данные
   const load = useCallback(
-    async (p: number, s = pageSize, r: { from: string; to: string } = range, clientId: number | null = userIdFilter) => {
+    async (p: number, s = pageSize) => {
       try {
         setLoading(true);
         setError(null);
@@ -54,9 +53,6 @@ function AdminReports() {
         const resp = await fetchAdminReports({
           offset,
           limit: s,
-          fromDate: r.from,
-          toDate: r.to,
-          clientId: clientId ?? undefined,
         });
         setItems(resp.items);
         setTotal(resp.total);
@@ -66,13 +62,13 @@ function AdminReports() {
         setLoading(false);
       }
     },
-    [pageSize, range, userIdFilter],
+    [pageSize],
   );
 
   useEffect(() => {
     loadUsers();
-    load(1, pageSize, range, userIdFilter);
-  }, [load, pageSize, range, userIdFilter]);
+    load(1, pageSize);
+  }, [load, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -83,67 +79,71 @@ function AdminReports() {
     return parts.length ? parts : undefined;
   }
 
-  function handleCreateReport(format: 'csv' | 'xlsx') {
-    if (userIdFilter == null) {
-      alert('Выберите клиента для отчёта');
+  async function loadProjectsForClient(clientId: number | null) {
+    if (!clientId) {
+      setProjects([]);
       return;
     }
-    createAdminReport({
-      fromDate: range.from,
-      toDate: range.to,
-      projectIds: undefined,
-      format,
-      clientId: userIdFilter,
-    })
-      .then(() => {
-        load(1, pageSize);
-        alert('Запрос на отчёт создан. Скачайте файл в списке ниже после готовности.');
-      })
-      .catch((err: unknown) => {
-        alert(getErrorMessage(err, 'Не удалось создать отчёт'));
+    try {
+      setProjectsLoading(true);
+      const resp = await fetchAdminProjects({ offset: 0, limit: 10000, userId: clientId });
+      setProjects(resp.items.filter((p) => p.status !== 'Удалён').map((p) => ({ id: p.id, name: p.name })));
+    } catch (err) {
+      console.error(err);
+      setProjects([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  async function handleCreateReport(payload: {
+    fromDate: string;
+    toDate: string;
+    format: 'csv' | 'xlsx';
+    projectIds?: number[];
+    clientId?: number;
+  }) {
+    if (!payload.clientId) return;
+    try {
+      setCreating(true);
+      await createAdminReport({
+        fromDate: payload.fromDate,
+        toDate: payload.toDate,
+        projectIds: payload.projectIds,
+        format: payload.format,
+        clientId: payload.clientId,
       });
+      setBuildModalOpen(false);
+      setPage(1);
+      await load(1, pageSize);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Отчёт сформирован. Теперь его можно скачать в списке ниже.' }));
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось создать отчёт') }));
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
     <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <select
-            value={userIdFilter ?? ''}
-            onChange={(e) => {
-              const val = e.target.value ? Number(e.target.value) : null;
-              setUserIdFilter(val);
-              setPage(1);
-              load(1, pageSize, range, val);
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }} />
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              setBuildModalOpen(true);
+              void loadProjectsForClient(selectedClientId);
             }}
           >
-            <option value="">Клиент для нового отчёта</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name || u.login} (id: {u.id})
-              </option>
-            ))}
-          </select>
-          <DateRangeFilter
-            from={range.from}
-            to={range.to}
-            onChange={(r) => {
-              setRange(r);
-              setPage(1);
-              load(1, pageSize, r, userIdFilter);
-            }}
-          />
-        </div>
-        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ExportDropdown
-            buttonText="Отчёт за период"
-            onExport={(fmt) => handleCreateReport(fmt)}
-          />
+            Сформировать отчёт
+          </button>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
       </div>
       <div className="sub" style={{ padding: '0 16px 8px' }}>
-        Для формирования отчёта выберите клиента и период — выгрузится отчёт по всем его проектам за выбранные даты.
+        Отчёты формируются через кнопку «Сформировать отчёт» и доступны для скачивания в списке ниже.
       </div>
       <div className="table-footer table-footer--top">
         Показано {items.length} из {total}
@@ -207,14 +207,14 @@ function AdminReports() {
           <tbody>
             {items.length === 0 && !loading && !error && (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: 16, color: '#666' }}>
-                  Отчётов пока нет.
+                <td colSpan={7} style={{ textAlign: 'center', padding: 16, color: '#666' }}>
+                  Отчётов пока нет. Нажмите «Сформировать отчёт».
                 </td>
               </tr>
             )}
             {error && (
               <tr>
-                <td colSpan={6} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={7} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
@@ -308,6 +308,24 @@ function AdminReports() {
           </select>
         </div>
       </div>
+      {buildModalOpen && (
+        <ReportBuildModal
+          title="Сформировать отчёт"
+          onClose={() => {
+            if (!creating) setBuildModalOpen(false);
+          }}
+          onSubmit={handleCreateReport}
+          submitting={creating}
+          users={users.map((u) => ({ id: u.id, name: u.name || u.login }))}
+          selectedClientId={selectedClientId}
+          onClientChange={(clientId) => {
+            setSelectedClientId(clientId);
+            void loadProjectsForClient(clientId);
+          }}
+          projects={projects}
+          projectsLoading={projectsLoading}
+        />
+      )}
     </div>
   );
 }

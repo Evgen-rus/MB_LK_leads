@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { fetchReports, createReport, type ReportItem, downloadLeadsExport } from '../api';
-import DateRangeFilter from './DateRangeFilter';
-import ExportDropdown from './ExportDropdown';
+import { fetchReports, createReport, fetchProjects, type ReportItem, downloadLeadsExport } from '../api';
+import type { Project } from '../types/project';
+import ReportBuildModal from './ReportBuildModal';
 
 function parseProjectIds(projectIds?: string | null): number[] | undefined {
   if (!projectIds) return undefined;
@@ -11,13 +11,6 @@ function parseProjectIds(projectIds?: string | null): number[] | undefined {
   return nums.length ? nums : undefined;
 }
 
-function formatDateInput(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function Reports() {
   const [items, setItems] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,8 +18,10 @@ function Reports() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
-  const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
-  const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
+  const [buildModalOpen, setBuildModalOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   // Отвязываем от state page/pageSize, чтобы клики по пагинации не обнуляли данные
   const load = useCallback(
@@ -38,8 +33,6 @@ function Reports() {
         const resp = await fetchReports({
           offset,
           limit: s,
-          fromDate,
-          toDate,
         });
         setItems(resp.items);
         setTotal(resp.total);
@@ -52,50 +45,74 @@ function Reports() {
         setLoading(false);
       }
     },
-    [fromDate, toDate, pageSize],
+    [pageSize],
   );
 
   useEffect(() => {
     load(1, pageSize);
-  }, [fromDate, toDate, load, pageSize]);
+  }, [load, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function handleExport(format: 'csv' | 'xlsx') {
+  async function loadProjectsForModal() {
+    if (projects.length > 0) return;
     try {
+      setProjectsLoading(true);
+      const resp = await fetchProjects({ offset: 0, limit: 10000 });
+      setProjects(resp.items.filter((p) => p.status !== 'Удалён'));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  async function handleCreateReport(payload: {
+    fromDate: string;
+    toDate: string;
+    format: 'csv' | 'xlsx';
+    projectIds?: number[];
+  }) {
+    try {
+      setCreating(true);
       await createReport({
-        fromDate,
-        toDate,
-        projectIds: undefined,
-        format,
+        fromDate: payload.fromDate,
+        toDate: payload.toDate,
+        projectIds: payload.projectIds,
+        format: payload.format,
       });
-      load(1, pageSize);
-    } catch (e) {
-      console.error('Не удалось зафиксировать экспорт отчёта', e);
+      setBuildModalOpen(false);
+      setPage(1);
+      await load(1, pageSize);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Отчёт сформирован. Теперь его можно скачать в списке ниже.' }));
+    } catch (err) {
+      console.error(err);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Не удалось сформировать отчёт. Попробуйте позже.' }));
+    } finally {
+      setCreating(false);
     }
   }
 
   return (
       <div className="table-card">
       <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <DateRangeFilter
-            from={fromDate}
-            to={toDate}
-            onChange={({ from, to }) => {
-              setFromDate(from);
-              setToDate(to);
-              setPage(1);
-            }}
-          />
-        </div>
+        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }} />
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ExportDropdown buttonText="Отчёт за период" onExport={handleExport} />
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => {
+              setBuildModalOpen(true);
+              void loadProjectsForModal();
+            }}
+          >
+            Сформировать отчёт
+          </button>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего отчётов: {total}</span>}
         </div>
       </div>
       <div className="sub" style={{ padding: '0 16px 8px' }}>
-        Отчёт формируется по всем вашим проектам за выбранный период.
+        Отчёты формируются через кнопку «Сформировать отчёт» и доступны для скачивания в списке ниже.
       </div>
       <div className="table-footer table-footer--top">
         Показано {items.length} из {total}
@@ -158,7 +175,7 @@ function Reports() {
             {items.length === 0 && !loading && !error && (
               <tr>
                 <td colSpan={5} style={{ textAlign: 'center', padding: 16, color: '#666' }}>
-                  Отчётов пока нет. Сделайте экспорт в разделе «Идентификации».
+                  Отчётов пока нет. Нажмите «Сформировать отчёт».
                 </td>
               </tr>
             )}
@@ -249,6 +266,18 @@ function Reports() {
           </select>
         </div>
       </div>
+      {buildModalOpen && (
+        <ReportBuildModal
+          title="Сформировать отчёт"
+          onClose={() => {
+            if (!creating) setBuildModalOpen(false);
+          }}
+          onSubmit={handleCreateReport}
+          submitting={creating}
+          projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+          projectsLoading={projectsLoading}
+        />
+      )}
     </div>
   );
 }
