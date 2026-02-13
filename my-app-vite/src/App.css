@@ -258,6 +258,41 @@
   border-radius: 8px;
 }
 
+/* Контекстное меню действий проекта */
+.project-action-menu {
+  position: fixed;
+  z-index: 2201;
+  min-width: 240px;
+  border: 1px solid #e7e7ef;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+  isolation: isolate;
+}
+
+.project-action-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: transparent;
+}
+
+.project-action-menu__item {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.project-action-menu__item--danger {
+  color: #b42318;
+}
+
+.project-action-menu__item--danger:hover {
+  background: #fff3f2;
+}
+
 /* ——— Dropdown статуса отгрузки (для админа) ——— */
 .delivery-select {
   appearance: none;

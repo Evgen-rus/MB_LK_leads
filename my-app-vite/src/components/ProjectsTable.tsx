@@ -10,6 +10,7 @@ import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkE
 import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
+import ProjectActionMenu from './ProjectActionMenu';
 
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
@@ -47,6 +48,8 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
+  const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
   const [activeBulkAction, setActiveBulkAction] = useState<BulkActionType | null>(null);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
@@ -104,6 +107,8 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     // Выделение действует только в рамках текущей страницы/выборки.
     setSelectedIds([]);
     setBulkMenuOpen(false);
+    setOpenProjectMenuId(null);
+    setProjectMenuAnchorRect(null);
   }, [rows]);
 
   function toggleRowSelection(projectId: number) {
@@ -251,7 +256,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   }
 
   async function handleSoftDelete(row: Project) {
-    if (!window.confirm(`Пометить проект ${row.id} как удалённый?`)) return;
+    if (!window.confirm(`Удалить проект ${row.id} навсегда?`)) return;
     try {
       await apiDeleteProject(row.id);
       window.dispatchEvent(new CustomEvent('projects-refresh'));
@@ -468,15 +473,67 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                 />
               </td>
               <td
-                style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
-                onClick={() => {
-                  if (!onOpenLeads) return;
-                  onOpenLeads({ projectId: row.id, fromDate, toDate });
+                style={{ cursor: 'pointer', position: 'relative' }}
+                onClick={(event) => {
+                  const nextRect = event.currentTarget.getBoundingClientRect();
+                  setOpenProjectMenuId((prev) => {
+                    if (prev === row.id) {
+                      setProjectMenuAnchorRect(null);
+                      return null;
+                    }
+                    setProjectMenuAnchorRect(nextRect);
+                    return row.id;
+                  });
                 }}
-                title={onOpenLeads ? 'Открыть идентификации с текущим периодом' : undefined}
+                title="Открыть меню действий проекта"
               >
                 <div className="name">{row.name}</div>
                 <div className="sub muted">ID: {row.id}</div>
+                {openProjectMenuId === row.id && projectMenuAnchorRect && (
+                  <ProjectActionMenu
+                    onClose={() => {
+                      setOpenProjectMenuId(null);
+                      setProjectMenuAnchorRect(null);
+                    }}
+                    anchorRect={projectMenuAnchorRect}
+                    items={[
+                      {
+                        key: 'settings',
+                        label: 'Настройки проекта',
+                        onSelect: () => onEdit?.(row),
+                      },
+                      {
+                        key: 'identifications',
+                        label: 'Идентификации проекта',
+                        onSelect: () => {
+                          if (!onOpenLeads) return;
+                          onOpenLeads({ projectId: row.id, fromDate, toDate });
+                        },
+                        disabled: !onOpenLeads,
+                        title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
+                      },
+                      {
+                        key: 'history',
+                        label: 'История изменений',
+                        onSelect: () => onHistory?.(row),
+                      },
+                      {
+                        key: 'delete',
+                        label: 'Удаление проекта',
+                        onSelect: () => {
+                          if (row.status === 'Удалён') return;
+                          handleSoftDelete(row);
+                        },
+                        disabled: row.status === 'Удалён',
+                        danger: true,
+                        title:
+                          row.status === 'Удалён'
+                            ? 'Проект уже удален'
+                            : 'Удалить проект навсегда',
+                      },
+                    ]}
+                  />
+                )}
               </td>
               <td>{row.dataSourceCode}</td>
               <td>
@@ -540,7 +597,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                 <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
                 <button
                   className="icon-btn"
-                  title={row.status === 'Удалён' ? 'Проект уже помечен как удалённый' : 'Пометить проект как удалённый'}
+                  title={row.status === 'Удалён' ? 'Проект уже удален' : 'Удалить проект навсегда'}
                   onClick={() => {
                     if (row.status === 'Удалён') return;
                     handleSoftDelete(row);

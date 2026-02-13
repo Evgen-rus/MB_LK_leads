@@ -5,6 +5,7 @@ import { fetchAdminProjects, updateAdminProject, type AdminProject, type AdminPr
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
+import ProjectActionMenu from './ProjectActionMenu';
 
 type AdminClientProjectsProps = {
   clientId: number;
@@ -52,6 +53,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   const [editingReadOnly, setEditingReadOnly] = useState(false);
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
+  const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
 
   async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) {
     try {
@@ -101,6 +104,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     return getUserIdFromToken(token);
   }, []);
 
+  const canEditProject = (project: AdminProject) => adminUserId != null && project.user?.id === adminUserId;
+
+  useEffect(() => {
+    setOpenProjectMenuId(null);
+    setProjectMenuAnchorRect(null);
+  }, [rows]);
+
   // Обновление проекта без открытия модалки (если потребуется)
   async function applyUpdate(project: AdminProject, patch: Partial<AdminProjectUpdate>) {
     try {
@@ -134,6 +144,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
     if (project.status === 'Удалён') return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     await applyUpdate(project, { status: nextStatus });
+  }
+
+  async function handleSoftDelete(project: AdminProject) {
+    if (project.status === 'Удалён') return;
+    if (!canEditProject(project)) return;
+    if (!window.confirm(`Удалить проект ${project.id} навсегда?`)) return;
+    await applyUpdate(project, { status: 'Удалён' });
   }
 
   return (
@@ -274,21 +291,77 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
               filteredRows.map((row) => (
                 <tr key={row.id}>
                   <td
-                    style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
-                    title={onOpenLeads ? 'Открыть идентификации за выбранный период' : undefined}
-                    onClick={() => {
-                      if (!onOpenLeads) return;
-                      onOpenLeads({
-                        clientId,
-                        clientName,
-                        projectId: row.id,
-                        fromDate,
-                        toDate,
+                    style={{ cursor: 'pointer', position: 'relative' }}
+                    title="Открыть меню действий проекта"
+                    onClick={(event) => {
+                      const nextRect = event.currentTarget.getBoundingClientRect();
+                      setOpenProjectMenuId((prev) => {
+                        if (prev === row.id) {
+                          setProjectMenuAnchorRect(null);
+                          return null;
+                        }
+                        setProjectMenuAnchorRect(nextRect);
+                        return row.id;
                       });
                     }}
                   >
                     <div className="name">{row.name}</div>
                     <div className="sub muted">ID: {row.id}</div>
+                  {openProjectMenuId === row.id && projectMenuAnchorRect && (
+                    <ProjectActionMenu
+                      onClose={() => {
+                        setOpenProjectMenuId(null);
+                        setProjectMenuAnchorRect(null);
+                      }}
+                      anchorRect={projectMenuAnchorRect}
+                      items={[
+                        {
+                          key: 'settings',
+                          label: 'Настройки проекта',
+                          onSelect: () => {
+                            setEditing(row);
+                            setEditingReadOnly(!canEditProject(row));
+                          },
+                        },
+                        {
+                          key: 'identifications',
+                          label: 'Идентификации проекта',
+                          onSelect: () => {
+                            if (!onOpenLeads) return;
+                            onOpenLeads({
+                              clientId,
+                              clientName,
+                              projectId: row.id,
+                              fromDate,
+                              toDate,
+                            });
+                          },
+                          disabled: !onOpenLeads,
+                          title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
+                        },
+                        {
+                          key: 'history',
+                          label: 'История изменений',
+                          onSelect: () => setHistoryFor(row),
+                        },
+                        {
+                          key: 'delete',
+                          label: 'Удаление проекта',
+                          onSelect: () => {
+                            void handleSoftDelete(row);
+                          },
+                          disabled: row.status === 'Удалён' || !canEditProject(row),
+                          danger: true,
+                          title:
+                            row.status === 'Удалён'
+                              ? 'Проект уже помечен как удалённый'
+                              : canEditProject(row)
+                                ? 'Удалить проект навсегда'
+                                : 'Недостаточно прав: можно удалять только свои проекты',
+                        },
+                      ]}
+                    />
+                  )}
                   {(projectChanges?.[row.id] || projectCreates?.[row.id]) && (
                     <div className="sub" style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {!!projectChanges?.[row.id] && projectChanges[row.id]! > 0 && (
@@ -369,7 +442,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   <td className="muted">{row.createdAt}</td>
                   <td>
                     {(() => {
-                      const canEdit = adminUserId != null && row.user?.id === adminUserId;
+                      const canEdit = canEditProject(row);
                       return (
                         <>
                           <button
