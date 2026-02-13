@@ -90,6 +90,21 @@ function AdminBlacklist({ initialUserId = null }: AdminBlacklistProps) {
           <span className="sub">Всего: {total}</span>
         </div>
       </div>
+      <div className="table-footer table-footer--top">
+        Показано {rows.length} из {total}
+        <div className="spacer" />
+        <div className="pager">
+          <button className="pager__btn" disabled={page <= 1} onClick={() => { const p = Math.max(1, page - 1); setPage(p); fetchPage(p); }}>‹</button>
+          <span className="pager__info">{page} / {totalPages}</span>
+          <button className="pager__btn" disabled={page >= totalPages} onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); fetchPage(p); }}>›</button>
+          <select className="pager__size" value={pageSize} onChange={(e) => { const s = Number(e.target.value); setPageSize(s); setPage(1); fetchPage(1, s); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
 
       <div className="table-scroll">
         <table className="table">

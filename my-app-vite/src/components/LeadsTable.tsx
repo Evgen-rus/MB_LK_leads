@@ -181,6 +181,21 @@ function LeadsTable({ projects, initialFilter }: Props) {
           {error}
         </div>
       )}
+      <div className="table-footer table-footer--top">
+        Показано {rows.length} из {total}
+        <div className="spacer" />
+        <div className="pager">
+          <button className="pager__btn" disabled={page <= 1} onClick={() => { const p = Math.max(1, page - 1); setPage(p); load(p); }}>‹</button>
+          <span className="pager__info">{page} / {totalPages}</span>
+          <button className="pager__btn" disabled={page >= totalPages} onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); load(p); }}>›</button>
+          <select className="pager__size" value={pageSize} onChange={(e) => { const s = Number(e.target.value); setPageSize(s); setPage(1); load(1, s); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
       <div className="table-scroll">
       </div>
       <div className="table-scroll">

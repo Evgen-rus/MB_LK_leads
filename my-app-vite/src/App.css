@@ -142,6 +142,7 @@
 .badge--info { background: #e7f0ff; color: #2f6fe4; border-color: #c7d9ff; }
 .icon-btn { background: transparent; border: none; cursor: pointer; font-size: 1rem; }
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
+.table-footer--top { border-bottom: 1px solid #ececf2; }
 .spacer { flex: 1; }
 
 /* Пейджер — единый стиль для всех таблиц */
@@ -335,6 +336,9 @@
 @media (max-width: 768px) {
   .main { padding: 12px; }
   .table-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .table-footer { flex-wrap: wrap; }
+  .table-footer .spacer { display: none; }
+  .pager { display: flex; width: 100%; flex-wrap: wrap; justify-content: flex-start; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; }
   .filters .btn { width: 100%; }
   .project-filter-panel { flex-direction: column; align-items: stretch; width: 100%; }

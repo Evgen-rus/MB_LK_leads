@@ -265,6 +265,49 @@ function AdminClientsScreen({
           </div>
         </div>
 
+        <div className="table-footer table-footer--top">
+          Показано {pageRows.length} из {total}
+          <div className="spacer" />
+          <div className="pager">
+            <button
+              className="pager__btn"
+              disabled={pageSafe <= 1}
+              onClick={() => {
+                const p = Math.max(1, pageSafe - 1);
+                setPage(p);
+              }}
+            >
+              ‹
+            </button>
+            <span className="pager__info">
+              {pageSafe} / {totalPages}
+            </span>
+            <button
+              className="pager__btn"
+              disabled={pageSafe >= totalPages}
+              onClick={() => {
+                const p = Math.min(totalPages, pageSafe + 1);
+                setPage(p);
+              }}
+            >
+              ›
+            </button>
+            <select
+              className="pager__size"
+              value={pageSize}
+              onChange={(e) => {
+                const s = Number(e.target.value);
+                setPageSize(s);
+                setPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
         <div className="table-scroll">
           <table className="table">
             <thead>
