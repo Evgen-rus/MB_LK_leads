@@ -224,8 +224,8 @@ function LeadsTable({ projects, initialFilter }: Props) {
                 <div className="name">
                   {r.project_id != null ? projectNameMap.get(r.project_id) ?? '—' : '—'}
                   {r.project_id != null ? (
-                    <span className="sub" style={{ marginLeft: 6 }}>
-                      &middot; id {r.project_id}
+                    <span className="project-id-badge">
+                      id{r.project_id}
                     </span>
                   ) : null}
                 </div>

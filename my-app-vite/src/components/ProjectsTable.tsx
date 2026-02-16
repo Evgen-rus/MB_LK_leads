@@ -503,8 +503,8 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               >
                 <div className="name">
                   {row.name}
-                  <span className="sub muted" style={{ marginLeft: 6 }}>
-                    &middot; id {row.id}
+                  <span className="project-id-badge">
+                    id{row.id}
                   </span>
                 </div>
                 {openProjectMenuId === row.id && projectMenuAnchorRect && (

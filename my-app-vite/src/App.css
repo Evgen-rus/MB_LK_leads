@@ -133,6 +133,22 @@
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
 .name { font-weight: 500; }
+.project-id-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid #d5d9e3;
+  background: #f0f0f3;
+  color: #6b6b76;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+}
 .sub { font-size: 0.75rem; color: #8b8b98; }
 .muted { color: #8b8b98; }
 .badge { padding: 0 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; height: 24px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; }
