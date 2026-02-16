@@ -312,8 +312,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                       });
                     }}
                   >
-                    <div className="name">{row.name}</div>
-                    <div className="sub muted">ID: {row.id}</div>
+                    <div className="name">
+                      {row.name}
+                      <span className="sub muted" style={{ marginLeft: 6 }}>
+                        &middot; id {row.id}
+                      </span>
+                    </div>
                   {openProjectMenuId === row.id && projectMenuAnchorRect && (
                     <ProjectActionMenu
                       onClose={() => {

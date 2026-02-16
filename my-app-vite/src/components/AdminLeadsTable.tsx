@@ -306,8 +306,12 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                 <td>
                   <div className="name">
                     {r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—'}
+                    {r.project_id != null ? (
+                      <span className="sub" style={{ marginLeft: 6 }}>
+                        &middot; id {r.project_id}
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="sub">id: {r.project_id != null ? r.project_id : '—'}</div>
                 </td>
                 <td className="muted">{r.source ?? ''}</td>
                 <td className="muted">{r.utm_campaign ?? ''}</td>
