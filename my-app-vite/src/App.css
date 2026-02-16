@@ -156,7 +156,22 @@
 .badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
 .badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
 .badge--info { background: #e7f0ff; color: #2f6fe4; border-color: #c7d9ff; }
-.icon-btn { background: transparent; border: none; cursor: pointer; font-size: 1rem; }
+.icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: middle;
+}
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .table-footer--top { border-bottom: 1px solid #ececf2; }
 .spacer { flex: 1; }

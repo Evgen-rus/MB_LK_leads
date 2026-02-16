@@ -604,7 +604,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               <td>{row.sourcesCount}</td>
               <td className="muted">{row.createdAt}</td>
               <td>
-                <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, alignItems: 'center' }}>
+                <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
                   <button
                     className="icon-btn"
                     title="История изменений"

@@ -440,7 +440,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                     {(() => {
                       const canEdit = canEditProject(row);
                       return (
-                        <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, alignItems: 'center' }}>
+                        <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
                           <button
                             className="icon-btn"
                             title={canEdit ? 'Редактировать проект' : 'Только просмотр (редактировать свои или через ЛК клиента)'}
