@@ -844,8 +844,9 @@ def list_reports(
         tz = timezone(timedelta(hours=3))
 
     today_msk = datetime.now(tz).date()
+    # По умолчанию — отчёты за последние 90 дней (по дате создания)
     if not fromDate:
-        fromDate = today_msk.isoformat()
+        fromDate = (today_msk - timedelta(days=90)).isoformat()
     if not toDate:
         toDate = today_msk.isoformat()
 
@@ -1357,8 +1358,9 @@ def admin_list_reports(
         tz = timezone(timedelta(hours=3))
 
     today_msk = datetime.now(tz).date()
+    # По умолчанию — отчёты за последние 90 дней (по дате создания)
     if not fromDate:
-        fromDate = today_msk.isoformat()
+        fromDate = (today_msk - timedelta(days=90)).isoformat()
     if not toDate:
         toDate = today_msk.isoformat()
 
