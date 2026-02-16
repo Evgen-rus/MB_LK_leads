@@ -124,15 +124,15 @@
 }
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
 .project-filter-panel select { min-width: 240px; }
-.table { width: 100%; border-collapse: separate; border-spacing: 0 8px; min-width: 1100px; }
-.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 12px; background: #f7f5ff; border-bottom: none; white-space: normal; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0 5px; min-width: 1100px; }
+.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 10px 12px; background: #f7f5ff; border-bottom: none; white-space: normal; }
 .table tbody tr { background: #ffffff; border: 1px solid #e6e6f2; border-radius: 12px; box-shadow: 0 8px 20px rgba(108,93,255,0.06); transition: background-color 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease; }
 .table tbody tr:hover { background: #f4f3ff; box-shadow: 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
 .table tbody tr.row--debt { border-left: 3px solid #ff5a5a; }
-.table tbody td { padding: 10px 12px; border-bottom: none; }
+.table tbody td { padding: 7px 12px; border-bottom: none; line-height: 1.25; }
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
-.name { font-weight: 500; }
+.name { font-weight: 500; line-height: 1.2; }
 .project-id-badge {
   display: inline-flex;
   align-items: center;
@@ -149,9 +149,9 @@
   vertical-align: middle;
   white-space: nowrap;
 }
-.sub { font-size: 0.75rem; color: #8b8b98; }
+.sub { font-size: 0.75rem; color: #8b8b98; line-height: 1.15; }
 .muted { color: #8b8b98; }
-.badge { padding: 0 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; height: 24px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; }
+.badge { padding: 0 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; height: 20px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; }
 .badge--green { background: #e6f7ed; color: #1d7a45; border-color: #b6e3cb; }
 .badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
 .badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
@@ -386,6 +386,13 @@
 /* ——— Мобильная адаптация ——— */
 @media (max-width: 768px) {
   .main { padding: 12px; }
+  .table { font-size: 0.8rem; border-spacing: 0 4px; }
+  .table thead th { font-size: 0.6rem; padding: 8px 10px; }
+  .table tbody td { font-size: 0.74rem; padding: 6px 10px; line-height: 1.2; }
+  .name { font-size: 0.86rem; line-height: 1.15; }
+  .sub, .muted, .pager__info, .toolbar-meta { font-size: 0.6rem; }
+  .badge { height: 18px; padding: 0 7px; font-size: 0.62rem; gap: 4px; }
+  .project-id-badge { height: 16px; padding: 0 5px; font-size: 0.6rem; }
   .table-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
   .table-footer { flex-wrap: wrap; }
   .table-footer .spacer { display: none; }
