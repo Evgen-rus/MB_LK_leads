@@ -604,25 +604,26 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               <td>{row.sourcesCount}</td>
               <td className="muted">{row.createdAt}</td>
               <td>
-                <button
-                  className="icon-btn"
-                  title="История изменений"
-                  onClick={() => onHistory?.(row)}
-                  style={{ marginRight: 4 }}
-                >
-                  📜
-                </button>
-                <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
-                <button
-                  className="icon-btn"
-                  title={row.status === 'Удалён' ? 'Проект уже удален' : 'Удалить проект навсегда'}
-                  onClick={() => {
-                    if (row.status === 'Удалён') return;
-                    handleSoftDelete(row);
-                  }}
-                >
-                  🗑️
-                </button>
+                <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, alignItems: 'center' }}>
+                  <button
+                    className="icon-btn"
+                    title="История изменений"
+                    onClick={() => onHistory?.(row)}
+                  >
+                    📜
+                  </button>
+                  <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
+                  <button
+                    className="icon-btn"
+                    title={row.status === 'Удалён' ? 'Проект уже удален' : 'Удалить проект навсегда'}
+                    onClick={() => {
+                      if (row.status === 'Удалён') return;
+                      handleSoftDelete(row);
+                    }}
+                  >
+                    🗑️
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
