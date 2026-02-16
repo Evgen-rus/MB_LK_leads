@@ -126,8 +126,8 @@
 .project-filter-panel select { min-width: 240px; }
 .table { width: 100%; border-collapse: separate; border-spacing: 0 5px; min-width: 1100px; }
 .table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 10px 12px; background: #f7f5ff; border-bottom: none; white-space: normal; }
-.table tbody tr { background: #ffffff; border: 1px solid #e6e6f2; border-radius: 12px; box-shadow: 0 8px 20px rgba(108,93,255,0.06); transition: background-color 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease; }
-.table tbody tr:hover { background: #f4f3ff; box-shadow: 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
+.table tbody tr { background: #ffffff; border: 1px solid #e6e6f2; border-radius: 12px; box-shadow: 0 0 0 1px #e3e4f0, 0 8px 20px rgba(108,93,255,0.06); transition: background-color 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease; }
+.table tbody tr:hover { background: #f4f3ff; box-shadow: 0 0 0 1px #d8d9ea, 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
 .table tbody tr.row--debt { border-left: 3px solid #ff5a5a; }
 .table tbody td { padding: 7px 12px; border-bottom: none; line-height: 1.25; }
 /* Равномерные серые разделители без чередования фона */
