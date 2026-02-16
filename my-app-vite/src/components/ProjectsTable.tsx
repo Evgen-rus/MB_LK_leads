@@ -512,11 +512,6 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                     anchorRect={projectMenuAnchorRect}
                     items={[
                       {
-                        key: 'settings',
-                        label: 'Настройки проекта',
-                        onSelect: () => onEdit?.(row),
-                      },
-                      {
                         key: 'identifications',
                         label: 'Идентификации проекта',
                         onSelect: () => {
@@ -525,6 +520,11 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                         },
                         disabled: !onOpenLeads,
                         title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
+                      },
+                      {
+                        key: 'settings',
+                        label: 'Настройки проекта',
+                        onSelect: () => onEdit?.(row),
                       },
                       {
                         key: 'history',

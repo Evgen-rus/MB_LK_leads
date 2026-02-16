@@ -323,14 +323,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                       anchorRect={projectMenuAnchorRect}
                       items={[
                         {
-                          key: 'settings',
-                          label: 'Настройки проекта',
-                          onSelect: () => {
-                            setEditing(row);
-                            setEditingReadOnly(!canEditProject(row));
-                          },
-                        },
-                        {
                           key: 'identifications',
                           label: 'Идентификации проекта',
                           onSelect: () => {
@@ -345,6 +337,14 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                           },
                           disabled: !onOpenLeads,
                           title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
+                        },
+                        {
+                          key: 'settings',
+                          label: 'Настройки проекта',
+                          onSelect: () => {
+                            setEditing(row);
+                            setEditingReadOnly(!canEditProject(row));
+                          },
                         },
                         {
                           key: 'history',
