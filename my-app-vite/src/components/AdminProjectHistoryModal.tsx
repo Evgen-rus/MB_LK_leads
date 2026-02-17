@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchAdminProjectHistory, type AdminProjectHistoryItem } from '../api';
 import DateRangeFilter from './DateRangeFilter';
+import DateTimeCompact from './DateTimeCompact';
 
 type Props = {
   projectId: number;
@@ -148,7 +149,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
               <tbody>
                 {items.map((item) => (
                   <tr key={item.id}>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{item.createdAt}</td>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={item.createdAt} /></td>
                     <td>{item.action === 'create' ? 'Создание' : item.action === 'update' ? 'Изменение' : 'Удаление'}</td>
                     <td>
                       <span className={item.status === 'done' ? 'badge badge--green' : 'badge badge--gray'}>

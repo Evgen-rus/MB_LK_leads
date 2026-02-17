@@ -6,6 +6,7 @@ import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
 import ProjectActionMenu from './ProjectActionMenu';
+import DateTimeCompact from './DateTimeCompact';
 
 type AdminClientProjectsProps = {
   clientId: number;
@@ -435,7 +436,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                   <td className="muted">{row.daysReceived}</td>
                   <td>{row.collectionSource}</td>
                   <td>{row.sourcesCount}</td>
-                  <td className="muted">{row.createdAt}</td>
+                  <td className="muted"><DateTimeCompact value={row.createdAt} /></td>
                   <td>
                     {(() => {
                       const canEdit = canEditProject(row);

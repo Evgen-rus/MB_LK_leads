@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { fetchReports, createReport, fetchProjects, type ReportItem, downloadLeadsExport } from '../api';
 import type { Project } from '../types/project';
 import ReportBuildModal from './ReportBuildModal';
+import DateTimeCompact from './DateTimeCompact';
 
 function parseProjectIds(projectIds?: string | null): number[] | undefined {
   if (!projectIds) return undefined;
@@ -191,7 +192,7 @@ function Reports() {
               const projectIds = parseProjectIds(r.projectIds);
               return (
                 <tr key={r.id}>
-                  <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.createdAt}</td>
+                  <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={r.createdAt} /></td>
                   <td className="muted">{r.fromDate} — {r.toDate}</td>
                   <td className="muted" style={{ textTransform: 'uppercase' }}>{r.format}</td>
                   <td className="muted">

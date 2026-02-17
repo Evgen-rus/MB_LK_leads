@@ -10,6 +10,7 @@ import {
 } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
+import DateTimeCompact from './DateTimeCompact';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -265,7 +266,7 @@ function AdminClientsTable() {
                 <td>{row.numbersTotal}</td>
                 <td className="muted">{row.daysReceived}</td>
                 <td>{row.sourcesCount}</td>
-                <td className="muted">{row.createdAt}</td>
+                <td className="muted"><DateTimeCompact value={row.createdAt} /></td>
                 <td>
                   {(() => {
                     const canEdit = adminUserId != null && row.user?.id === adminUserId;

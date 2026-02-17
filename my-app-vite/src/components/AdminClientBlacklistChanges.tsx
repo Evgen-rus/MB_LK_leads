@@ -3,6 +3,7 @@
 // и позволяет отметить их как обработанные (через /admin/changes/{id}/resolve).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
+import DateTimeCompact from './DateTimeCompact';
 
 type ResolvedPayload = {
   change: AdminChange;
@@ -191,7 +192,7 @@ function AdminClientBlacklistChanges({
             ) : (
               items.map((c) => (
                 <tr key={c.id}>
-                  <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
+                  <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={c.createdAt} /></td>
                   <td className="name" style={{ whiteSpace: 'nowrap' }}>
                     {c.action === 'blacklist_add' ? 'Добавление' : c.action === 'blacklist_delete' ? 'Удаление' : c.action}
                   </td>

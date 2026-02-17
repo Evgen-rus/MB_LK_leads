@@ -1,6 +1,7 @@
 // Раздел «Баланс» для клиента: только просмотр сводки и истории операций по своему аккаунту
 import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
+import DateTimeCompact from './DateTimeCompact';
 import {
   fetchClientBalanceSummary,
   fetchClientBalanceOps,
@@ -218,7 +219,7 @@ function ClientBalance() {
                 )}
                 {ops.map((op) => (
                   <tr key={op.id}>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{op.createdAt}</td>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={op.createdAt} /></td>
                     <td>
                       <span
                         className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'}

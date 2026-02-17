@@ -1,6 +1,7 @@
 // Раздел «Баланс» для админа: операции по номерам (идентификациям) на уровне клиента
 import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
+import DateTimeCompact from './DateTimeCompact';
 import {
   fetchAdminUsers,
   fetchAdminClientBalanceSummary,
@@ -365,7 +366,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                   )}
                   {ops.map((op) => (
                     <tr key={op.id}>
-                      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{op.createdAt}</td>
+                      <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={op.createdAt} /></td>
                       <td>
                         <span
                           className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'}

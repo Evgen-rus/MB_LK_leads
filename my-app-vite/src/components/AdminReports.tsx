@@ -11,6 +11,7 @@ import {
   type UserInfo,
 } from '../api';
 import ReportBuildModal from './ReportBuildModal';
+import DateTimeCompact from './DateTimeCompact';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -232,7 +233,7 @@ function AdminReports() {
                     <div className="name">{r.client ? (r.client.name || r.client.login) : '—'}</div>
                     {r.client && <div className="sub">id: {r.client.id}</div>}
                   </td>
-                  <td className="muted" style={{ whiteSpace: 'nowrap' }}>{r.createdAt}</td>
+                  <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={r.createdAt} /></td>
                   <td className="muted">{r.fromDate} — {r.toDate}</td>
                   <td className="muted" style={{ textTransform: 'uppercase' }}>{r.format}</td>
                   <td className="muted">

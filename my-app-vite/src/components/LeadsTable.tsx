@@ -5,6 +5,7 @@ import { fetchLeads, createReport, downloadLeadsExport, type Lead } from '../api
 import ExportDropdown from './ExportDropdown';
 import FilterDropdown from './FilterDropdown';
 import DateRangeFilter from './DateRangeFilter';
+import DateTimeCompact from './DateTimeCompact';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -219,7 +220,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
           )}
           {rows.map((r) => (
             <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
-              <td>{r.imported_at}</td>
+              <td><DateTimeCompact value={r.imported_at} /></td>
               <td>
                 <div className="name">
                   {r.project_id != null ? projectNameMap.get(r.project_id) ?? '—' : '—'}

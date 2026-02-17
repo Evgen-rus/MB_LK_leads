@@ -1,3 +1,5 @@
+import DateTimeCompact from './DateTimeCompact';
+
 type Props = {
   snapshot: Record<string, unknown>;
   projectName?: string;
@@ -64,7 +66,12 @@ function ProjectSnapshotModal({ snapshot, projectName, projectId, createdAt, act
               {projectName ? `${projectName}` : 'Проект'}
               {projectId ? ` (id: ${projectId})` : ''}
             </div>
-            {createdAt && <div className="sub">Создано: {createdAt}</div>}
+            {createdAt && (
+              <div className="sub" style={{ display: 'grid', gap: 2 }}>
+                <span>Создано:</span>
+                <DateTimeCompact value={createdAt} />
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn" onClick={copyJSON} type="button">Копировать JSON</button>

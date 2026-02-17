@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ProjectHistoryItem } from '../api';
 import { fetchProjectHistory } from '../api';
+import DateTimeCompact from './DateTimeCompact';
 
 type ProjectHistoryModalProps = {
   projectId: number;
@@ -124,7 +125,7 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                 {items.map((item) => (
                   <tr key={item.id}>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 150 }}>
-                      {item.createdAt}
+                      <DateTimeCompact value={item.createdAt} />
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 120 }}>
                       {item.action === 'create' ? 'Создание' : item.action === 'update' ? 'Изменение' : 'Удаление'}

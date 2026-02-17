@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import type { AdminChange } from '../api';
+import DateTimeCompact from './DateTimeCompact';
 
 type Props = {
   change: AdminChange;
@@ -182,7 +183,10 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
               {change.projectName || 'Проект'}
               {change.projectId ? ` (id: ${change.projectId})` : ''}
             </div>
-            <div className="sub">Создано: {change.createdAt}</div>
+            <div className="sub" style={{ display: 'grid', gap: 2 }}>
+              <span>Создано:</span>
+              <DateTimeCompact value={change.createdAt} />
+            </div>
             {changedList.length > 0 && (
               <div className="sub">
                 Изменений: {changedList.length}{' '}

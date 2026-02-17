@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import AddPhonesModal from './AddPhonesModal';
 import { addToBlacklist, deleteFromBlacklist, listBlacklist, type BlacklistPhone } from '../api';
+import DateTimeCompact from './DateTimeCompact';
 
 function Blacklist() {
   const [rows, setRows] = useState<BlacklistPhone[]>([]);
@@ -87,7 +88,7 @@ function Blacklist() {
               rows.map((r) => (
                 <tr key={r.id}>
                   <td className="name" style={{ whiteSpace: 'nowrap' }}>{r.phone}</td>
-                  <td className="muted">{r.createdAt}</td>
+                  <td className="muted"><DateTimeCompact value={r.createdAt} /></td>
                   <td style={{ textAlign: 'right' }}>
                     <button
                       className="icon-btn"

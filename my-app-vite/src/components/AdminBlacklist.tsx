@@ -2,6 +2,7 @@
 // Включает столбец "Клиент" с логином и id
 import { useEffect, useState, useCallback } from 'react';
 import { fetchAdminBlacklist, fetchAdminUsers, type AdminBlacklistPhone, type UserInfo } from '../api';
+import DateTimeCompact from './DateTimeCompact';
 
 type AdminBlacklistProps = {
   initialUserId?: number | null;
@@ -128,7 +129,7 @@ function AdminBlacklist({ initialUserId = null }: AdminBlacklistProps) {
                     <div className="sub">id: {r.user.id}</div>
                   </td>
                   <td className="name" style={{ whiteSpace: 'nowrap' }}>{r.phone}</td>
-                  <td className="muted">{r.createdAt}</td>
+                  <td className="muted"><DateTimeCompact value={r.createdAt} /></td>
                 </tr>
               ))
             )}

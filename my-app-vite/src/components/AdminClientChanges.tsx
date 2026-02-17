@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
 import ChangeProjectDiffModal from './ChangeProjectDiffModal';
+import DateTimeCompact from './DateTimeCompact';
 
 type ResolvedPayload = {
   change: AdminChange;
@@ -352,7 +353,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                 <tbody>
                   {g.items.map((c) => (
                     <tr key={c.id}>
-                      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{c.createdAt}</td>
+                      <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={c.createdAt} /></td>
                       <td className="muted">
                         {c.action === 'create' ? 'Создание' : c.action === 'delete' ? 'Удаление' : 'Изменение'}
                       </td>

@@ -130,6 +130,27 @@
 .table tbody tr:hover { background: #f4f3ff; box-shadow: 0 0 0 1px #d8d9ea, 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
 .table tbody tr.row--debt { border-left: 3px solid #ff5a5a; }
 .table tbody td { padding: 7px 12px; border-bottom: none; line-height: 1.25; }
+.datetime-compact {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.datetime-compact__date {
+  color: #111111;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+.datetime-compact__time {
+  color: #8b8b98;
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+.datetime-compact--raw {
+  white-space: normal;
+}
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
 .name { font-weight: 500; line-height: 1.2; }

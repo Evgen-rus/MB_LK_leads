@@ -11,6 +11,7 @@ import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 import ProjectActionMenu from './ProjectActionMenu';
+import DateTimeCompact from './DateTimeCompact';
 
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
@@ -602,7 +603,7 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
               <td className="muted">{row.daysReceived}</td>
               <td>{row.collectionSource}</td>
               <td>{row.sourcesCount}</td>
-              <td className="muted">{row.createdAt}</td>
+              <td className="muted"><DateTimeCompact value={row.createdAt} /></td>
               <td>
                 <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
                   <button
