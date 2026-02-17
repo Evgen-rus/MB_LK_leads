@@ -64,7 +64,7 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState('');
 
-  const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Пн','Вт','Ср','Чт','Пт']);
+  const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Пн','Вт','Ср','Чт','Пт','Сб','Вс']);
 
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
