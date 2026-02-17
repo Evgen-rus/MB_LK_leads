@@ -526,6 +526,9 @@
   .page-title__title { white-space: normal; line-height: 1.2; }
   .page-title__right { width: 100%; justify-content: flex-end; flex-wrap: wrap; }
   .page-title__balance { flex: 1 1 100%; }
+  .page-title__right > .notif { order: 1; }
+  .page-title__right > .btn--ghost { order: 1; }
+  .page-title__right > .page-title__balance { order: 2; }
   .table { font-size: 0.8rem; border-spacing: 0 4px; }
   .table thead th { font-size: 0.6rem; padding: 8px 10px; }
   .table tbody td { font-size: 0.74rem; padding: 6px 10px; line-height: 1.2; }
