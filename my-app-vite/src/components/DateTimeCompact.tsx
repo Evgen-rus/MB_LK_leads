@@ -24,9 +24,9 @@ function parseBackendDate(raw: string): ParsedDateParts | null {
   if (!input) return null;
 
   const isoLike =
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?(?:\s?(?:Z|[+\-]\d{2}:?\d{2}))?)?$/;
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?(?:\s?(?:Z|[+-]\d{2}:?\d{2}))?)?$/;
   const slashLike =
-    /^(\d{4})\/(\d{2})\/(\d{2})(?:[T\s](\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?(?:\s?(?:Z|[+\-]\d{2}:?\d{2}))?)?$/;
+    /^(\d{4})\/(\d{2})\/(\d{2})(?:[T\s](\d{2}):(\d{2})(?::\d{2}(?:[.,]\d+)?)?(?:\s?(?:Z|[+-]\d{2}:?\d{2}))?)?$/;
 
   const match = input.match(isoLike) ?? input.match(slashLike);
   if (!match) return null;
