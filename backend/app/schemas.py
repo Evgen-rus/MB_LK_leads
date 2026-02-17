@@ -258,6 +258,27 @@ class AdminBlacklistListOut(BaseModel):
     total: int
 
 
+# -------- История активности клиента --------
+ActivityEntity = Literal['project', 'blacklist', 'balance', 'report']
+
+
+class ActivityEventOut(BaseModel):
+    eventId: str
+    sourceId: int
+    entity: ActivityEntity
+    action: str
+    createdAt: str
+    actor: Optional[UserInfo] = None
+    description: str
+    projectId: Optional[int] = None
+    projectName: Optional[str] = None
+
+
+class ActivityEventListOut(BaseModel):
+    items: List[ActivityEventOut]
+    total: int
+
+
 # -------- История изменений проектов --------
 class ProjectHistoryItem(BaseModel):
     id: int

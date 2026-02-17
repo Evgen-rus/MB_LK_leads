@@ -437,6 +437,45 @@ export async function createReport(payload: { fromDate: string; toDate: string; 
   });
 }
 
+// -------- История активности (клиент) --------
+export type ActivityEntity = 'project' | 'blacklist' | 'balance' | 'report';
+
+export type ActivityEvent = {
+  eventId: string;         // AE-44 / BO-1 / RE-9
+  sourceId: number;
+  entity: ActivityEntity;
+  action: string;
+  createdAt: string;       // YYYY-MM-DD HH:mm:ss
+  actor?: UserInfo | null; // кто выполнил действие
+  description: string;     // краткое описание
+  projectId?: number | null;
+  projectName?: string | null;
+};
+
+export type ActivityEventsListResp = {
+  items: ActivityEvent[];
+  total: number;
+};
+
+export async function fetchClientActivityEvents(params?: {
+  offset?: number;
+  limit?: number;
+  fromDate?: string;
+  toDate?: string;
+  entities?: ActivityEntity[];
+  q?: string;
+}): Promise<ActivityEventsListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.entities && params.entities.length > 0) q.set('entities', params.entities.join(','));
+  if (params?.q && params.q.trim()) q.set('q', params.q.trim());
+  const qs = q.toString();
+  return http<ActivityEventsListResp>(`/activity/events${qs ? `?${qs}` : ''}`);
+}
+
 export function buildLeadsExportUrl(params: {
   projectIds?: number[];
   sources?: string[];

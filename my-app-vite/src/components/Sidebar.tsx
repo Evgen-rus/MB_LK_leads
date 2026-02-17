@@ -5,6 +5,7 @@ export type ViewType =
   | 'projects'
   | 'leads'
   | 'reports'
+  | 'activity'
   | 'integrations'
   | 'support'
   | 'blacklist'

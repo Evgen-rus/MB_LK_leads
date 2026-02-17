@@ -741,23 +741,9 @@ def export_leads(
         if not src_list:
             src_list = None
 
-    # Логируем экспорт отчёта (для вкладки "Отчёты").
-    # Повторные скачивания из раздела "Отчёты" помечаем source=reports и не логируем,
-    # чтобы не плодить дубли.
-    if (source or "leads") != "reports":
-        try:
-            crud.log_report_export(
-                db_sess,
-                user_id=current_user.id,
-                client_id=clientId if clientId is not None and current_user.id == 1 else current_user.id,
-                from_date=fromDate,
-                to_date=toDate,
-                project_ids=proj_ids,
-                fmt=(format or "csv"),
-            )
-        except Exception:
-            # Не блокируем выгрузку, если логирование по какой-то причине не удалось
-            logging.getLogger("app").exception("Failed to log report export")
+    # Важно: экспорт из лидов больше НЕ пишем в report_exports.
+    # История отчетов/уведомлений должна содержать только явные действия
+    # через кнопку "Сформировать отчёт" (/reports и /admin/reports).
 
     max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
     user_info = crud._get_user_info(db_sess, clientId or current_user.id)
@@ -894,6 +880,65 @@ def create_report(
         toDate=row.to_date,
         projectIds=row.project_ids,
         format=row.format,
+    )
+
+
+@app.get("/activity/events", response_model=schemas.ActivityEventListOut)
+def list_client_activity_events(
+    offset: int = 0,
+    limit: int = 50,
+    fromDate: Optional[str] = None,  # YYYY-MM-DD (optional)
+    toDate: Optional[str] = None,    # YYYY-MM-DD (optional)
+    entities: Optional[str] = None,  # project,blacklist,balance,report
+    q: Optional[str] = None,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Единая история действий по текущему аккаунту клиента.
+
+    Источники данных:
+    - audit_events (проекты и чёрный список),
+    - client_balance_operations (начисления/списания),
+    - report_exports (создание отчётов).
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    start_naive: Optional[datetime] = None
+    end_naive: Optional[datetime] = None
+    if fromDate or toDate:
+        if not fromDate and toDate:
+            fromDate = toDate
+        if not toDate and fromDate:
+            toDate = fromDate
+        try:
+            y, m, d = [int(x) for x in (fromDate or "").split("-")]
+            start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+            y2, m2, d2 = [int(x) for x in (toDate or "").split("-")]
+            end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid fromDate/toDate format, expected YYYY-MM-DD")
+        start_naive = start_local.replace(tzinfo=None)
+        end_naive = end_local.replace(tzinfo=None)
+
+    entities_list = [e.strip() for e in (entities or "").split(",") if e.strip()] or None
+    return crud.list_client_activity_events(
+        db_sess,
+        client_id=current_user.id,
+        offset=offset,
+        limit=limit,
+        start_local=start_naive,
+        end_local=end_naive,
+        entities=entities_list,
+        q=q,
     )
 
 # ----------------------- Черный список -----------------------

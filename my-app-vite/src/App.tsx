@@ -16,6 +16,8 @@ import AdminProjectsScreen, {
 } from './components/AdminProjectsScreen';
 import AdminBalance from './components/AdminBalance';
 import ClientBalance from './components/ClientBalance';
+import ClientActivityHistory from './components/ClientActivityHistory';
+import NotificationBell from './components/NotificationBell';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -50,6 +52,7 @@ function App() {
         saved === 'projects' ||
         saved === 'leads' ||
         saved === 'reports' ||
+        saved === 'activity' ||
         saved === 'integrations' ||
         saved === 'support' ||
         saved === 'blacklist' ||
@@ -151,11 +154,21 @@ function App() {
       }
       return;
     }
+    if (isAdmin && view === 'activity') {
+      setView('admin-clients');
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     // если вдруг сохранённая вкладка невалидная, откатываем
     if (
       view !== 'projects' &&
       view !== 'leads' &&
       view !== 'reports' &&
+      view !== 'activity' &&
       view !== 'integrations' &&
       view !== 'support' &&
       view !== 'blacklist' &&
@@ -292,6 +305,8 @@ function App() {
                   ? 'Идентификации'
                   : view === 'reports'
                   ? 'Отчёты'
+                  : view === 'activity'
+                  ? 'История изменений'
                   : view === 'balance'
                   ? 'Баланс'
                   : view === 'integrations'
@@ -326,6 +341,18 @@ function App() {
                 <div style={{ fontWeight: 600 }}>Текущий остаток: {clientBalance.remaining}</div>
                 {clientBalance.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
               </div>
+            )}
+            {!isAdmin && (
+              <NotificationBell
+                onOpenFullHistory={() => {
+                  setView('activity');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              />
             )}
             <button className="btn btn--ghost" onClick={async ()=>{
               try {
@@ -416,6 +443,14 @@ function App() {
             isAdmin ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
           ) : view === 'reports' ? (
             isAdmin ? <AdminReports /> : <Reports />
+        ) : view === 'activity' ? (
+          isAdmin ? (
+            <div className="table-card" style={{ padding: 16 }}>
+              Раздел истории изменений доступен только в клиентском ЛК.
+            </div>
+          ) : (
+            <ClientActivityHistory />
+          )
         ) : view === 'balance' ? (
           isAdmin ? (
             <AdminBalance

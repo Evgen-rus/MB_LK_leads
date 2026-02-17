@@ -155,6 +155,67 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.notif {
+  position: relative;
+}
+.notif__btn {
+  border: 1px solid #dcdce6;
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  color: #5f616b;
+  background: #fff;
+}
+.notif__btn svg {
+  width: 16px;
+  height: 16px;
+}
+.notif__btn--open,
+.notif__btn:hover {
+  background: #f4f3ff;
+  border-color: #cfcde8;
+}
+.notif__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 420px;
+  max-width: min(420px, 92vw);
+  z-index: 1200;
+  background: #fff;
+  border: 1px solid #ececf2;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+.notif__head {
+  padding: 10px 12px;
+  border-bottom: 1px solid #ececf2;
+}
+.notif__list {
+  max-height: 420px;
+  overflow: auto;
+}
+.notif__item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f1f7;
+  font-size: 0.875rem;
+}
+.notif__item:last-child {
+  border-bottom: none;
+}
+.notif__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.notif__footer {
+  border-top: 1px solid #ececf2;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: flex-end;
+}
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
 .name { font-weight: 500; line-height: 1.2; }

@@ -370,6 +370,229 @@ def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistor
     )
 
 
+def _build_balance_activity_description(op_type: str, amount: int, comment: Optional[str]) -> str:
+    action_label = "Начисление" if op_type == "credit" else "Списание"
+    desc = f"{action_label} остатка: {amount}"
+    if comment and comment.strip():
+        desc += f" ({comment.strip()})"
+    return desc
+
+
+def _build_report_activity_description(row: models.ReportExport) -> str:
+    period = f"{row.from_date} - {row.to_date}"
+    fmt = (row.format or "csv").upper()
+    projects_str = (row.project_ids or "").strip()
+    if not projects_str:
+        projects_part = "по всем проектам"
+    else:
+        ids = [x.strip() for x in projects_str.split(",") if x.strip()]
+        projects_part = f"по {len(ids)} проектам"
+    return f"Сформирован отчёт ({fmt}) за период {period}, {projects_part}"
+
+
+def list_client_activity_events(
+    db: Session,
+    client_id: int,
+    offset: int,
+    limit: int,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+    entities: Optional[List[str]] = None,
+    q: Optional[str] = None,
+) -> schemas.ActivityEventListOut:
+    """
+    Единая лента активности по аккаунту клиента.
+
+    Источники:
+    - audit_events: create/update/delete проектов, blacklist_add/blacklist_delete;
+    - client_balance_operations: credit/debit;
+    - report_exports: создание отчётов.
+    """
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+
+    allowed_entities = {"project", "blacklist", "balance", "report"}
+    selected_entities = {e for e in (entities or list(allowed_entities)) if e in allowed_entities}
+    if not selected_entities:
+        selected_entities = allowed_entities
+
+    users_map: Dict[int, schemas.UserInfo] = {}
+
+    def get_user_info(user_id: Optional[int]) -> Optional[schemas.UserInfo]:
+        if not user_id:
+            return None
+        if user_id in users_map:
+            return users_map[user_id]
+        user = db.get(models.User, user_id)
+        info = schemas.UserInfo(id=user_id, login=user.login if user else "(unknown)")
+        users_map[user_id] = info
+        return info
+
+    rows: List[Dict[str, Any]] = []
+
+    if "project" in selected_entities or "blacklist" in selected_entities:
+        audit_actions: List[str] = []
+        if "project" in selected_entities:
+            audit_actions.extend(["create", "update", "delete"])
+        if "blacklist" in selected_entities:
+            audit_actions.extend(["blacklist_add", "blacklist_delete"])
+
+        audit_stmt = (
+            select(models.AuditEvent, models.Project.name, models.Project.user_id)
+            .outerjoin(models.Project, models.Project.id == models.AuditEvent.project_id)
+            .where(models.AuditEvent.action.in_(audit_actions))
+        )
+        if start_local:
+            audit_stmt = audit_stmt.where(models.AuditEvent.created_at >= start_local)
+        if end_local:
+            audit_stmt = audit_stmt.where(models.AuditEvent.created_at <= end_local)
+
+        audit_stmt = audit_stmt.where(
+            or_(
+                and_(
+                    models.AuditEvent.project_id.is_not(None),
+                    models.Project.user_id == client_id,
+                ),
+                and_(
+                    models.AuditEvent.project_id.is_(None),
+                    models.AuditEvent.user_id == client_id,
+                    models.AuditEvent.action.in_(["blacklist_add", "blacklist_delete"]),
+                ),
+            )
+        )
+
+        audit_rows = db.execute(audit_stmt).all()
+        for ev, project_name, _project_owner_id in audit_rows:
+            entity = "blacklist" if ev.action in ("blacklist_add", "blacklist_delete") else "project"
+            actor = get_user_info(ev.user_id)
+            description = _audit_event_compact_description(ev)
+            event_id = f"AE-{ev.id}"
+            actor_login = actor.login if actor else ""
+            search_blob = " ".join(
+                [
+                    event_id,
+                    entity,
+                    ev.action or "",
+                    description,
+                    project_name or "",
+                    actor_login,
+                ]
+            ).lower()
+            rows.append(
+                {
+                    "created_at": ev.created_at,
+                    "search": search_blob,
+                    "item": schemas.ActivityEventOut(
+                        eventId=event_id,
+                        sourceId=ev.id,
+                        entity=entity,  # type: ignore[arg-type]
+                        action=ev.action or "update",
+                        createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        actor=actor,
+                        description=description,
+                        projectId=ev.project_id,
+                        projectName=project_name,
+                    ),
+                }
+            )
+
+    if "balance" in selected_entities:
+        balance_stmt = select(models.ClientBalanceOperation).where(
+            models.ClientBalanceOperation.client_id == client_id
+        )
+        if start_local:
+            balance_stmt = balance_stmt.where(models.ClientBalanceOperation.created_at >= start_local)
+        if end_local:
+            balance_stmt = balance_stmt.where(models.ClientBalanceOperation.created_at <= end_local)
+
+        balance_rows = db.execute(balance_stmt).scalars().all()
+        for op in balance_rows:
+            actor = get_user_info(op.created_by)
+            description = _build_balance_activity_description(op.op_type, op.amount, op.comment)
+            event_id = f"BO-{op.id}"
+            actor_login = actor.login if actor else ""
+            search_blob = " ".join(
+                [
+                    event_id,
+                    "balance",
+                    op.op_type,
+                    description,
+                    actor_login,
+                ]
+            ).lower()
+            rows.append(
+                {
+                    "created_at": op.created_at,
+                    "search": search_blob,
+                    "item": schemas.ActivityEventOut(
+                        eventId=event_id,
+                        sourceId=op.id,
+                        entity="balance",
+                        action=op.op_type,
+                        createdAt=op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        actor=actor,
+                        description=description,
+                        projectId=None,
+                        projectName=None,
+                    ),
+                }
+            )
+
+    if "report" in selected_entities:
+        report_stmt = select(models.ReportExport).where(
+            models.ReportExport.target_client_id == client_id
+        )
+        if start_local:
+            report_stmt = report_stmt.where(models.ReportExport.created_at >= start_local)
+        if end_local:
+            report_stmt = report_stmt.where(models.ReportExport.created_at <= end_local)
+
+        report_rows = db.execute(report_stmt).scalars().all()
+        for rep in report_rows:
+            actor = get_user_info(rep.user_id)
+            description = _build_report_activity_description(rep)
+            event_id = f"RE-{rep.id}"
+            actor_login = actor.login if actor else ""
+            search_blob = " ".join(
+                [
+                    event_id,
+                    "report",
+                    "create",
+                    description,
+                    actor_login,
+                    rep.from_date or "",
+                    rep.to_date or "",
+                ]
+            ).lower()
+            rows.append(
+                {
+                    "created_at": rep.created_at,
+                    "search": search_blob,
+                    "item": schemas.ActivityEventOut(
+                        eventId=event_id,
+                        sourceId=rep.id,
+                        entity="report",
+                        action="create",
+                        createdAt=rep.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        actor=actor,
+                        description=description,
+                        projectId=None,
+                        projectName=None,
+                    ),
+                }
+            )
+
+    q_norm = (q or "").strip().lower()
+    if q_norm:
+        rows = [row for row in rows if q_norm in row["search"]]
+
+    rows.sort(key=lambda row: row["created_at"], reverse=True)
+    total = len(rows)
+    page_rows = rows[offset : offset + limit]
+    items = [row["item"] for row in page_rows]
+    return schemas.ActivityEventListOut(items=items, total=total)
+
+
 def list_project_history(db: Session, project_id: int, user_id: int, limit: int = 100) -> List[schemas.ProjectHistoryItem]:
     """
     Возвращает историю изменений конкретного проекта для текущего пользователя.
