@@ -379,7 +379,6 @@ def _build_balance_activity_description(op_type: str, amount: int, comment: Opti
 
 
 def _build_report_activity_description(row: models.ReportExport) -> str:
-    period = f"{row.from_date} - {row.to_date}"
     fmt = (row.format or "csv").upper()
     projects_str = (row.project_ids or "").strip()
     if not projects_str:
@@ -387,7 +386,7 @@ def _build_report_activity_description(row: models.ReportExport) -> str:
     else:
         ids = [x.strip() for x in projects_str.split(",") if x.strip()]
         projects_part = f"по {len(ids)} проектам"
-    return f"Сформирован отчёт ({fmt}) за период {period}, {projects_part}"
+    return f"Сформирован отчёт ({fmt}), {projects_part}"
 
 
 def list_client_activity_events(
@@ -578,6 +577,8 @@ def list_client_activity_events(
                         description=description,
                         projectId=None,
                         projectName=None,
+                        periodFrom=rep.from_date,
+                        periodTo=rep.to_date,
                     ),
                 }
             )

@@ -450,6 +450,8 @@ export type ActivityEvent = {
   description: string;     // краткое описание
   projectId?: number | null;
   projectName?: string | null;
+  periodFrom?: string | null;
+  periodTo?: string | null;
 };
 
 export type ActivityEventsListResp = {

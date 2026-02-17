@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchClientActivityEvents, type ActivityEvent } from '../api';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeCompact from './DateRangeCompact';
 
 type Props = {
   onOpenFullHistory: () => void;
@@ -114,6 +115,11 @@ function NotificationBell({ onOpenFullHistory }: Props) {
                   <DateTimeCompact value={item.createdAt} />
                 </div>
                 <div style={{ marginTop: 4 }}>{item.description}</div>
+                {item.entity === 'report' && item.periodFrom && item.periodTo && (
+                  <div className="sub" style={{ marginTop: 4 }}>
+                    Период: <DateRangeCompact from={item.periodFrom} to={item.periodTo} />
+                  </div>
+                )}
                 <div className="sub" style={{ marginTop: 4 }}>
                   {item.actor ? `${item.actor.login} (id: ${item.actor.id})` : 'Система'}
                 </div>

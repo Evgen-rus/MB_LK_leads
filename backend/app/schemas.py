@@ -272,6 +272,8 @@ class ActivityEventOut(BaseModel):
     description: str
     projectId: Optional[int] = None
     projectName: Optional[str] = None
+    periodFrom: Optional[str] = None
+    periodTo: Optional[str] = None
 
 
 class ActivityEventListOut(BaseModel):
