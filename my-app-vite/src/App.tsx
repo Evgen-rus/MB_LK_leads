@@ -294,9 +294,9 @@ function App() {
           isAdmin={isAdmin}
         />
         <main className="main">
-          <div className="page-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between', position:'relative'}}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <span style={{ whiteSpace: 'nowrap' }}>
+          <div className="page-title page-title--main">
+            <div className="page-title__left">
+              <span className="page-title__title">
                 {view === 'admin-clients'
                   ? 'Клиенты'
                   : view === 'projects'
@@ -335,10 +335,14 @@ function App() {
                 </span>
               )}
             </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="page-title__right">
             {!isAdmin && clientBalance && (
-              <div style={{ textAlign: 'right', lineHeight: 1.3, color: clientBalance.debt ? '#d23' : '#111' }}>
-                <div style={{ fontWeight: 600 }}>Текущий остаток: {clientBalance.remaining}</div>
+              <div className="page-title__balance" style={{ color: clientBalance.debt ? '#d23' : '#111' }}>
+                <div className="page-title__balance-value">
+                  <span className="page-title__balance-label-full">Текущий остаток:</span>
+                  <span className="page-title__balance-label-short">Остаток:</span>{' '}
+                  {clientBalance.remaining}
+                </div>
                 {clientBalance.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
               </div>
             )}
