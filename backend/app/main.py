@@ -741,9 +741,23 @@ def export_leads(
         if not src_list:
             src_list = None
 
-    # Важно: экспорт из лидов больше НЕ пишем в report_exports.
-    # История отчетов/уведомлений должна содержать только явные действия
-    # через кнопку "Сформировать отчёт" (/reports и /admin/reports).
+    # Логируем экспорт отчёта (для вкладки "Отчёты").
+    # Повторные скачивания из раздела "Отчёты" помечаем source=reports и не логируем,
+    # чтобы не плодить дубли.
+    if (source or "leads") != "reports":
+        try:
+            crud.log_report_export(
+                db_sess,
+                user_id=current_user.id,
+                client_id=clientId if clientId is not None and current_user.id == 1 else current_user.id,
+                from_date=fromDate,
+                to_date=toDate,
+                project_ids=proj_ids,
+                fmt=(format or "csv"),
+            )
+        except Exception:
+            # Не блокируем выгрузку, если логирование по какой-то причине не удалось
+            logging.getLogger("app").exception("Failed to log report export")
 
     max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
     user_info = crud._get_user_info(db_sess, clientId or current_user.id)
