@@ -92,53 +92,61 @@ function NotificationBell({ onOpenFullHistory }: Props) {
         </svg>
       </button>
       {open && (
-        <div className="notif__menu">
-          <div className="notif__head">
-            <div style={{ fontWeight: 600 }}>История действий</div>
-            <div className="sub">{subtitle}</div>
-          </div>
-          <div className="notif__list">
-            {!loading && !error && !hasItems && (
-              <div className="sub" style={{ padding: 10 }}>
-                Действий пока нет.
-              </div>
-            )}
-            {items.map((item) => (
-              <div key={item.eventId} className="notif__item">
-                <div className="notif__meta">
-                  <span className="sub">{item.eventId}</span>
-                  <span className="badge badge--gray" style={{ fontWeight: 500 }}>
-                    {entityLabel(item.entity)}
-                  </span>
+        <>
+          <button
+            type="button"
+            className="notif__backdrop"
+            aria-label="Закрыть историю действий"
+            onClick={() => setOpen(false)}
+          />
+          <div className="notif__menu">
+            <div className="notif__head">
+              <div style={{ fontWeight: 600 }}>История действий</div>
+              <div className="sub">{subtitle}</div>
+            </div>
+            <div className="notif__list">
+              {!loading && !error && !hasItems && (
+                <div className="sub" style={{ padding: 10 }}>
+                  Действий пока нет.
                 </div>
-                <div style={{ marginTop: 4 }}>
-                  <DateTimeCompact value={item.createdAt} />
-                </div>
-                <div style={{ marginTop: 4 }}>{item.description}</div>
-                {item.entity === 'report' && item.periodFrom && item.periodTo && (
-                  <div className="sub" style={{ marginTop: 4 }}>
-                    Период: <DateRangeCompact from={item.periodFrom} to={item.periodTo} />
+              )}
+              {items.map((item) => (
+                <div key={item.eventId} className="notif__item">
+                  <div className="notif__meta">
+                    <span className="sub">{item.eventId}</span>
+                    <span className="badge badge--gray" style={{ fontWeight: 500 }}>
+                      {entityLabel(item.entity)}
+                    </span>
                   </div>
-                )}
-                <div className="sub" style={{ marginTop: 4 }}>
-                  {item.actor ? `${item.actor.login} (id: ${item.actor.id})` : 'Система'}
+                  <div style={{ marginTop: 4 }}>
+                    <DateTimeCompact value={item.createdAt} />
+                  </div>
+                  <div style={{ marginTop: 4 }}>{item.description}</div>
+                  {item.entity === 'report' && item.periodFrom && item.periodTo && (
+                    <div className="sub" style={{ marginTop: 4 }}>
+                      Период: <DateRangeCompact from={item.periodFrom} to={item.periodTo} />
+                    </div>
+                  )}
+                  <div className="sub" style={{ marginTop: 4 }}>
+                    {item.actor ? `${item.actor.login} (id: ${item.actor.id})` : 'Система'}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="notif__footer">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenFullHistory();
+                }}
+              >
+                Показать всю историю
+              </button>
+            </div>
           </div>
-          <div className="notif__footer">
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => {
-                setOpen(false);
-                onOpenFullHistory();
-              }}
-            >
-              Показать всю историю
-            </button>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
