@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeCompact from './DateRangeCompact';
 import {
   fetchAdminUsers,
   fetchAdminClientBalanceSummary,
@@ -249,7 +250,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
             <div>
               <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
               <div className="sub">
-                Клиент id: {summary.clientId}. Период: {summary.periodFrom} — {summary.periodTo}
+                Клиент id: {summary.clientId}. Период: <DateRangeCompact from={summary.periodFrom} to={summary.periodTo} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

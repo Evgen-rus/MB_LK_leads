@@ -10,6 +10,7 @@ import {
           type ClientProfile,
         } from '../api';
 import DateRangeFilter from './DateRangeFilter';
+import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 
@@ -203,7 +204,6 @@ function AdminClientsScreen({
   const start = (pageSafe - 1) * pageSize;
   const end = start + pageSize;
   const pageRows = filtered.slice(start, end);
-  const rangeLabel = range.from === range.to ? range.from : `${range.from} — ${range.to}`;
   const selectedPendingTotal =
     selectedClient != null
       ? (selectedClient.pendingChanges ?? 0) +
@@ -282,7 +282,7 @@ function AdminClientsScreen({
               <span className="toolbar-meta">Загрузка…</span>
             ) : (
               <span className="toolbar-meta">
-                Всего клиентов: {clients.length} · Период: {rangeLabel}
+                Всего клиентов: {clients.length} · Период: <DateRangeCompact from={range.from} to={range.to} />
               </span>
             )}
             <button

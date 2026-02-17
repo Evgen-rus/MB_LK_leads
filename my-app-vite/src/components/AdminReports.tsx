@@ -12,6 +12,7 @@ import {
 } from '../api';
 import ReportBuildModal from './ReportBuildModal';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeCompact from './DateRangeCompact';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -234,7 +235,7 @@ function AdminReports() {
                     {r.client && <div className="sub">id: {r.client.id}</div>}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={r.createdAt} /></td>
-                  <td className="muted">{r.fromDate} — {r.toDate}</td>
+                  <td className="muted"><DateRangeCompact from={r.fromDate} to={r.toDate} /></td>
                   <td className="muted" style={{ textTransform: 'uppercase' }}>{r.format}</td>
                   <td className="muted">
                     {projectIds && projectIds.length

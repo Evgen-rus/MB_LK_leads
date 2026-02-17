@@ -151,6 +151,10 @@
 .datetime-compact--raw {
   white-space: normal;
 }
+.date-range-compact {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 /* Равномерные серые разделители без чередования фона */
 .row-alt { background: transparent; }
 .name { font-weight: 500; line-height: 1.2; }

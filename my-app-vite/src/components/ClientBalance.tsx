@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeCompact from './DateRangeCompact';
 import {
   fetchClientBalanceSummary,
   fetchClientBalanceOps,
@@ -106,7 +107,7 @@ function ClientBalance() {
               <div>
                 <div style={{ fontWeight: 600 }}>Сводка по вашему аккаунту</div>
                 <div className="sub">
-                  Период: {summary.periodFrom} — {summary.periodTo}
+                  Период: <DateRangeCompact from={summary.periodFrom} to={summary.periodTo} />
                 </div>
               </div>
             </div>

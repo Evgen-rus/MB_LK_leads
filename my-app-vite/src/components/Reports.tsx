@@ -3,6 +3,7 @@ import { fetchReports, createReport, fetchProjects, type ReportItem, downloadLea
 import type { Project } from '../types/project';
 import ReportBuildModal from './ReportBuildModal';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeCompact from './DateRangeCompact';
 
 function parseProjectIds(projectIds?: string | null): number[] | undefined {
   if (!projectIds) return undefined;
@@ -193,7 +194,7 @@ function Reports() {
               return (
                 <tr key={r.id}>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={r.createdAt} /></td>
-                  <td className="muted">{r.fromDate} — {r.toDate}</td>
+                  <td className="muted"><DateRangeCompact from={r.fromDate} to={r.toDate} /></td>
                   <td className="muted" style={{ textTransform: 'uppercase' }}>{r.format}</td>
                   <td className="muted">
                     {projectIds && projectIds.length
