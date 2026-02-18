@@ -113,6 +113,7 @@ function AdminClientsScreen({
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
   const [collectionRunInfo, setCollectionRunInfo] = useState<{ mode: 'pause' | 'resume'; total: number } | null>(null);
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
+  const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -256,6 +257,10 @@ function AdminClientsScreen({
       cancelled = true;
     };
   }, [selectedClientId, refreshKey]);
+
+  useEffect(() => {
+    setPauseSnapshotExpanded(false);
+  }, [selectedClientId]);
 
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
@@ -794,34 +799,77 @@ function AdminClientsScreen({
             </div>
           </div>
           <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
-            <div className="sub" style={{ marginBottom: 8 }}>
-              Проекты из последней массовой паузы
-            </div>
-            {collectionLoading && <div className="sub">Загрузка списка…</div>}
-            {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
-              <div className="sub">Снимок отсутствует.</div>
-            )}
-            {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
-              <div style={{ display: 'grid', gap: 6 }}>
-                {collectionState.snapshotProjects.map((project) => (
-                  <div
-                    key={project.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
-                  >
-                    <span>{project.name} (id: {project.id})</span>
-                    <span
-                      className={
-                        project.status === 'Активен'
-                          ? 'badge badge--green'
-                          : project.status === 'На паузе'
-                            ? 'badge badge--orange'
-                            : 'badge badge--gray'
-                      }
-                    >
-                      {project.status}
-                    </span>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setPauseSnapshotExpanded((prev) => !prev)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                border: '1px solid #e7e9f5',
+                background: '#f7f8fc',
+                borderRadius: 10,
+                padding: '10px 12px',
+              }}
+              title={pauseSnapshotExpanded ? 'Свернуть список' : 'Развернуть список'}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  className="sub"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    border: '1px solid #d9dcef',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    lineHeight: 1,
+                  }}
+                >
+                  i
+                </span>
+                <span>
+                  Проекты из последней массовой паузы
+                  {collectionState ? ` (${collectionState.snapshotProjects.length})` : ''}
+                </span>
+              </span>
+              <span className="sub" style={{ fontSize: 12 }}>
+                {pauseSnapshotExpanded ? '▾' : '▸'}
+              </span>
+            </button>
+
+            {pauseSnapshotExpanded && (
+              <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                {collectionLoading && <div className="sub">Загрузка списка…</div>}
+                {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
+                  <div className="sub">Снимок отсутствует.</div>
+                )}
+                {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {collectionState.snapshotProjects.map((project) => (
+                      <div
+                        key={project.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                      >
+                        <span>{project.name} (id: {project.id})</span>
+                        <span
+                          className={
+                            project.status === 'Активен'
+                              ? 'badge badge--green'
+                              : project.status === 'На паузе'
+                                ? 'badge badge--orange'
+                                : 'badge badge--gray'
+                          }
+                        >
+                          {project.status}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
