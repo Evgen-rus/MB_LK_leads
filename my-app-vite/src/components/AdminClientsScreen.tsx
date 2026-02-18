@@ -691,25 +691,10 @@ function AdminClientsScreen({
                 </button>
               )}
               <div style={{ display: 'grid', gap: 4, minWidth: 320 }}>
-                <div className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <span>Сбор данных:</span>
-                  {collectionLoading ? (
-                    <span className="badge badge--gray">Загрузка…</span>
-                  ) : (
-                    <span
-                      className={
-                        collectionState?.dataCollectionStatus === 'На паузе'
-                          ? 'badge badge--orange'
-                          : 'badge badge--green'
-                      }
-                    >
-                      {collectionState?.dataCollectionStatus ?? '—'}
-                    </span>
-                  )}
-                </div>
                 <button
                   type="button"
                   className="btn btn--secondary"
+                  style={{ display: 'grid', gap: 4, justifyItems: 'center', textAlign: 'center', lineHeight: 1.2 }}
                   disabled={
                     collectionLoading
                     || collectionActionLoading
@@ -721,9 +706,30 @@ function AdminClientsScreen({
                   }}
                   title={collectionState?.actionDisabledReason || undefined}
                 >
-                  {collectionActionLoading
-                    ? 'Выполняем…'
-                    : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                  <span>
+                    {collectionActionLoading
+                      ? 'Выполняем…'
+                      : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                  </span>
+                  <span
+                    className="sub"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.9 }}
+                  >
+                    <span>Сбор данных:</span>
+                    {collectionLoading ? (
+                      <span className="badge badge--gray">Загрузка…</span>
+                    ) : (
+                      <span
+                        className={
+                          collectionState?.dataCollectionStatus === 'На паузе'
+                            ? 'badge badge--orange'
+                            : 'badge badge--green'
+                        }
+                      >
+                        {collectionState?.dataCollectionStatus ?? '—'}
+                      </span>
+                    )}
+                  </span>
                 </button>
                 {!!collectionState?.actionDisabledReason && (
                   <span className="sub" style={{ color: '#a55' }}>
