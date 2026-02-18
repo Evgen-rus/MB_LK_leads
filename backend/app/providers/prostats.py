@@ -312,6 +312,49 @@ def build_update_payload(
     return payload
 
 
+def _days_from_days_received(days_received: Optional[str]) -> List[schemas.Day]:
+    mapping: Dict[str, schemas.Day] = {
+        "Пн": "Пн",
+        "Вт": "Вт",
+        "Ср": "Ср",
+        "Чт": "Чт",
+        "Пт": "Пт",
+        "Сб": "Сб",
+        "Вс": "Вс",
+    }
+    parts = [str(x).strip().rstrip(".") for x in str(days_received or "").split() if str(x).strip()]
+    out: List[schemas.Day] = []
+    for part in parts:
+        day = mapping.get(part)
+        if day:
+            out.append(day)
+    if out:
+        return out
+    return ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
+def build_status_only_payload(provider_id: str, project: models.Project, status: schemas.ProjectStatus) -> dict:
+    # Передаём в Prostats полный update-payload, но все поля берём из текущего проекта,
+    # меняем только status.
+    update_like = type(
+        "StatusOnlyUpdate",
+        (),
+        {
+            "name": project.name,
+            "tag": project.tag,
+            "status": status,
+            "dataLimit": int(project.data_limit or 0),
+            "regionMode": project.region_mode or "include",
+            "regions": list(project.regions or []),
+            "sites": list(project.sites or []),
+            "phones": list(project.phones or []),
+            "smsSenderName": project.sms_sender_name,
+            "days": _days_from_days_received(project.days_received),
+        },
+    )()
+    return build_update_payload(provider_id, project, update_like)  # type: ignore[arg-type]
+
+
 def _extract_error_message(parsed: Optional[dict], raw_text: str) -> str:
     if not parsed:
         return raw_text or "Unknown error"
@@ -480,6 +523,15 @@ def delete_project(provider_id: str, project: models.Project) -> dict:
         "command": "gck_project_delete",
         "id": provider_id_value,
     }
+    status_code, raw_text, parsed = _post(payload)
+    if status_code >= 400 or not parsed or parsed.get("status") != "success":
+        error_message = _extract_error_message(parsed, raw_text)
+        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+    return {"raw": parsed}
+
+
+def update_project_status(provider_id: str, project: models.Project, status: schemas.ProjectStatus) -> dict:
+    payload = build_status_only_payload(provider_id, project, status)
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
         error_message = _extract_error_message(parsed, raw_text)

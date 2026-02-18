@@ -69,6 +69,21 @@ class Project(Base):
     updated_at = Column(DateTime, default=now_msk, nullable=False)
 
 
+class ClientProjectPauseSnapshot(Base):
+    __tablename__ = "client_project_pause_snapshots"
+    __table_args__ = (
+        UniqueConstraint("client_id", name="uq_client_project_pause_snapshot_client"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # Список id проектов, которые были реально поставлены на паузу этой механикой.
+    project_ids = Column(JSON, nullable=False)
+    paused_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
+
+
 class ProjectIdMap(Base):
     __tablename__ = "project_id_map"
     __table_args__ = (

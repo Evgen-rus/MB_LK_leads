@@ -1592,6 +1592,214 @@ def admin_clients_summary(
     )
 
 
+def _ensure_admin_client_exists(db_sess: Session, client_id: int) -> models.User:
+    user = db_sess.get(models.User, client_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return user
+
+
+@app.get("/admin/clients/{client_id}/collection-state", response_model=schemas.AdminClientCollectionStateOut)
+def admin_client_collection_state(
+    client_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_admin_client_exists(db_sess, client_id)
+    return crud.admin_get_collection_state(db_sess, client_id=client_id)
+
+
+@app.post("/admin/clients/{client_id}/collection/pause", response_model=schemas.AdminClientCollectionActionOut)
+def admin_pause_client_projects(
+    client_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_admin_client_exists(db_sess, client_id)
+    prev_state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+    had_snapshot = len(prev_state.snapshotProjects) > 0
+
+    active_projects = db_sess.execute(
+        select(models.Project).where(
+            models.Project.user_id == client_id,
+            models.Project.status == "Активен",
+        ).order_by(models.Project.id.asc())
+    ).scalars().all()
+
+    paused_ids: List[int] = []
+    skipped_count = 0
+    failed_count = 0
+    errors: List[str] = []
+
+    for p in active_projects:
+        if p.status == "Удалён":
+            skipped_count += 1
+            continue
+        if not p.provider_project_id:
+            skipped_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
+            continue
+        try:
+            prostats.update_project_status(str(p.provider_project_id), p, "На паузе")
+            ok = crud.admin_update_project_status_only(
+                db_sess,
+                project_id=int(p.id),
+                status="На паузе",
+                admin_user_id=current_admin.id,
+            )
+            if ok:
+                paused_ids.append(int(p.id))
+        except prostats.ProstatsError as exc:
+            failed_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
+
+    crud.admin_replace_pause_snapshot(
+        db_sess,
+        client_id=client_id,
+        project_ids=paused_ids,
+        admin_user_id=current_admin.id,
+    )
+
+    if paused_ids:
+        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+
+    state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+
+    if paused_ids and failed_count == 0 and skipped_count == 0:
+        message = "Все активные проекты поставлены на паузу."
+    elif paused_ids:
+        message = (
+            f"Пауза применена частично: поставлено на паузу {len(paused_ids)}, "
+            f"пропущено {skipped_count}, ошибок {failed_count}."
+        )
+    else:
+        message = "Активных синхронизированных проектов для паузы не найдено."
+
+    if had_snapshot:
+        message += " Снимок ранее поставленных на паузу проектов перезаписан."
+
+    return schemas.AdminClientCollectionActionOut(
+        state=state,
+        message=message,
+        pausedCount=len(paused_ids),
+        resumedCount=0,
+        skippedCount=skipped_count,
+        failedCount=failed_count,
+        errors=errors,
+    )
+
+
+@app.post("/admin/clients/{client_id}/collection/resume", response_model=schemas.AdminClientCollectionActionOut)
+def admin_resume_client_projects(
+    client_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_admin_client_exists(db_sess, client_id)
+    prev_state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+    snapshot_ids = [int(item.id) for item in prev_state.snapshotProjects]
+    if not snapshot_ids:
+        raise HTTPException(status_code=409, detail={"message": "Нет сохранённых проектов для восстановления."})
+    if prev_state.action == "resume" and not prev_state.actionEnabled:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": prev_state.actionDisabledReason or "Восстановление недоступно."},
+        )
+
+    proj_rows = db_sess.execute(
+        select(models.Project).where(
+            models.Project.user_id == client_id,
+            models.Project.id.in_(snapshot_ids),
+        )
+    ).scalars().all()
+    by_id = {int(p.id): p for p in proj_rows}
+
+    resumed_ids: List[int] = []
+    skipped_count = 0
+    failed_count = 0
+    errors: List[str] = []
+
+    for pid in snapshot_ids:
+        p = by_id.get(pid)
+        if not p:
+            skipped_count += 1
+            errors.append(f"Проект {pid}: не найден, пропущен.")
+            continue
+        if p.status == "Удалён":
+            skipped_count += 1
+            continue
+        if not p.provider_project_id:
+            skipped_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
+            continue
+        if p.status == "Активен":
+            skipped_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": уже активен, восстановление заблокировано.')
+            continue
+        if p.status != "На паузе":
+            skipped_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": неожиданный статус "{p.status}", пропущен.')
+            continue
+        try:
+            prostats.update_project_status(str(p.provider_project_id), p, "Активен")
+            ok = crud.admin_update_project_status_only(
+                db_sess,
+                project_id=int(p.id),
+                status="Активен",
+                admin_user_id=current_admin.id,
+            )
+            if ok:
+                resumed_ids.append(int(p.id))
+        except prostats.ProstatsError as exc:
+            failed_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
+
+    # Оставляем в снимке только те проекты, которые всё ещё на паузе и могут быть восстановлены позже.
+    next_snapshot_ids: List[int] = []
+    for pid in snapshot_ids:
+        p = by_id.get(pid)
+        if not p:
+            continue
+        if p.status == "Удалён":
+            continue
+        if not p.provider_project_id:
+            continue
+        if p.status != "Активен":
+            next_snapshot_ids.append(int(pid))
+
+    crud.admin_replace_pause_snapshot(
+        db_sess,
+        client_id=client_id,
+        project_ids=next_snapshot_ids,
+        admin_user_id=current_admin.id,
+    )
+
+    if resumed_ids:
+        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+
+    state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+
+    if resumed_ids and failed_count == 0 and skipped_count == 0 and not next_snapshot_ids:
+        message = "Проекты восстановлены."
+    elif resumed_ids:
+        message = (
+            f"Восстановление выполнено частично: включено {len(resumed_ids)}, "
+            f"пропущено {skipped_count}, ошибок {failed_count}."
+        )
+    else:
+        message = "Не удалось восстановить проекты из сохранённого снимка."
+
+    return schemas.AdminClientCollectionActionOut(
+        state=state,
+        message=message,
+        pausedCount=0,
+        resumedCount=len(resumed_ids),
+        skippedCount=skipped_count,
+        failedCount=failed_count,
+        errors=errors,
+    )
+
+
 @app.get("/admin/clients/{client_id}/balance", response_model=schemas.ClientBalanceSummaryOut)
 def admin_client_balance_summary(
     client_id: int,

@@ -595,6 +595,32 @@ export type AdminProjectUpdate = {
   days: Day[];
 };
 
+export type AdminCollectionProjectItem = {
+  id: number;
+  name: string;
+  status: 'Активен' | 'На паузе' | 'Удалён';
+};
+
+export type AdminClientCollectionState = {
+  clientId: number;
+  dataCollectionStatus: 'Активен' | 'На паузе';
+  action: 'pause' | 'resume';
+  actionLabel: string;
+  actionEnabled: boolean;
+  actionDisabledReason?: string | null;
+  snapshotProjects: AdminCollectionProjectItem[];
+};
+
+export type AdminClientCollectionActionResp = {
+  state: AdminClientCollectionState;
+  message: string;
+  pausedCount: number;
+  resumedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  errors: string[];
+};
+
 export async function fetchAdminUsers(): Promise<UserInfo[]> {
   return http<UserInfo[]>('/admin/users');
 }
@@ -630,6 +656,22 @@ export async function updateAdminProject(id: number, payload: AdminProjectUpdate
   return http<UpdateAdminProjectResp>(`/admin/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminClientCollectionState(clientId: number): Promise<AdminClientCollectionState> {
+  return http<AdminClientCollectionState>(`/admin/clients/${clientId}/collection-state`);
+}
+
+export async function pauseAdminClientProjects(clientId: number): Promise<AdminClientCollectionActionResp> {
+  return http<AdminClientCollectionActionResp>(`/admin/clients/${clientId}/collection/pause`, {
+    method: 'POST',
+  });
+}
+
+export async function resumeAdminClientProjects(clientId: number): Promise<AdminClientCollectionActionResp> {
+  return http<AdminClientCollectionActionResp>(`/admin/clients/${clientId}/collection/resume`, {
+    method: 'POST',
   });
 }
 

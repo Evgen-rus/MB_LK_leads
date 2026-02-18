@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminClientsSummary,
-          fetchAdminChangesSummary,
-          impersonateClient,
-          type AdminClientSummaryItem,
-          type AdminClientChangesSummaryListOut,
-          type ClientProfile,
-        } from '../api';
+  fetchAdminChangesSummary,
+  impersonateClient,
+  fetchAdminClientCollectionState,
+  pauseAdminClientProjects,
+  resumeAdminClientProjects,
+  type AdminClientSummaryItem,
+  type AdminClientChangesSummaryListOut,
+  type AdminClientCollectionState,
+  type ClientProfile,
+} from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
@@ -104,6 +108,9 @@ function AdminClientsScreen({
   const [refreshKey, setRefreshKey] = useState(0);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
+  const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionActionLoading, setCollectionActionLoading] = useState(false);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -219,6 +226,35 @@ function AdminClientsScreen({
     selectedClient != null
       ? (clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal
       : 0;
+
+  useEffect(() => {
+    if (selectedClientId == null) {
+      setCollectionState(null);
+      setCollectionLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setCollectionLoading(true);
+        const state = await fetchAdminClientCollectionState(selectedClientId);
+        if (!cancelled) setCollectionState(state);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setCollectionState(null);
+          window.dispatchEvent(
+            new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось загрузить состояние сбора данных') }),
+          );
+        }
+      } finally {
+        if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClientId, refreshKey]);
+
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
       ? (env.VITE_CLIENT_PORTAL_URL as string)
@@ -244,6 +280,43 @@ function AdminClientsScreen({
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось открыть ЛК клиента'));
       setOpeningClientCabinetId(null);
+    }
+  }
+
+  async function handleToggleCollection() {
+    if (!selectedClient) return;
+    if (!collectionState) return;
+
+    const isPause = collectionState.action === 'pause';
+    const confirmText = isPause
+      ? 'Поставить на паузу все активные проекты клиента? При включении восстановятся только те, что были активны.'
+      : 'Включить проекты ранее поставленные на паузу?';
+    if (!window.confirm(confirmText)) return;
+
+    setCollectionActionLoading(true);
+    try {
+      const resp = isPause
+        ? await pauseAdminClientProjects(selectedClient.id)
+        : await resumeAdminClientProjects(selectedClient.id);
+      setCollectionState(resp.state);
+
+      const lines: string[] = [resp.message];
+      if (resp.failedCount > 0 || resp.skippedCount > 0) {
+        lines.push(
+          `Детали: успешно ${isPause ? resp.pausedCount : resp.resumedCount}, пропущено ${resp.skippedCount}, ошибок ${resp.failedCount}.`,
+        );
+      }
+      if (resp.errors.length > 0) {
+        lines.push(resp.errors.slice(0, 5).join('\n'));
+        if (resp.errors.length > 5) {
+          lines.push(`... и ещё ${resp.errors.length - 5}`);
+        }
+      }
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим сбора данных') }));
+    } finally {
+      setCollectionActionLoading(false);
     }
   }
 
@@ -617,6 +690,47 @@ function AdminClientsScreen({
                   Перейти к проектам
                 </button>
               )}
+              <div style={{ display: 'grid', gap: 4, minWidth: 320 }}>
+                <div className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span>Сбор данных:</span>
+                  {collectionLoading ? (
+                    <span className="badge badge--gray">Загрузка…</span>
+                  ) : (
+                    <span
+                      className={
+                        collectionState?.dataCollectionStatus === 'На паузе'
+                          ? 'badge badge--orange'
+                          : 'badge badge--green'
+                      }
+                    >
+                      {collectionState?.dataCollectionStatus ?? '—'}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  disabled={
+                    collectionLoading
+                    || collectionActionLoading
+                    || !collectionState
+                    || !collectionState.actionEnabled
+                  }
+                  onClick={() => {
+                    void handleToggleCollection();
+                  }}
+                  title={collectionState?.actionDisabledReason || undefined}
+                >
+                  {collectionActionLoading
+                    ? 'Выполняем…'
+                    : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                </button>
+                {!!collectionState?.actionDisabledReason && (
+                  <span className="sub" style={{ color: '#a55' }}>
+                    {collectionState.actionDisabledReason}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 className="btn btn--primary"
@@ -650,6 +764,38 @@ function AdminClientsScreen({
               <div className="sub">Использовано: {selectedClient.usedTotal}</div>
               <div className="sub">Начислено: {selectedAccrued}</div>
             </div>
+          </div>
+          <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
+            <div className="sub" style={{ marginBottom: 8 }}>
+              Проекты из последней паузы
+            </div>
+            {collectionLoading && <div className="sub">Загрузка списка…</div>}
+            {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
+              <div className="sub">Снимок отсутствует.</div>
+            )}
+            {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {collectionState.snapshotProjects.map((project) => (
+                  <div
+                    key={project.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                  >
+                    <span>{project.name} (id: {project.id})</span>
+                    <span
+                      className={
+                        project.status === 'Активен'
+                          ? 'badge badge--green'
+                          : project.status === 'На паузе'
+                            ? 'badge badge--orange'
+                            : 'badge badge--gray'
+                      }
+                    >
+                      {project.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ) : (

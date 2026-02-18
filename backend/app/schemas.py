@@ -372,6 +372,33 @@ class AdminClientsSummaryOut(BaseModel):
     totals: AdminClientSummaryTotals
 
 
+# -------- Админ: сбор данных (пауза всех проектов клиента) --------
+class AdminCollectionProjectItem(BaseModel):
+    id: int
+    name: str
+    status: ProjectStatus
+
+
+class AdminClientCollectionStateOut(BaseModel):
+    clientId: int
+    dataCollectionStatus: Literal['Активен', 'На паузе']
+    action: Literal['pause', 'resume']
+    actionLabel: str
+    actionEnabled: bool = True
+    actionDisabledReason: Optional[str] = None
+    snapshotProjects: List[AdminCollectionProjectItem] = Field(default_factory=list)
+
+
+class AdminClientCollectionActionOut(BaseModel):
+    state: AdminClientCollectionStateOut
+    message: str
+    pausedCount: int = 0
+    resumedCount: int = 0
+    skippedCount: int = 0
+    failedCount: int = 0
+    errors: List[str] = Field(default_factory=list)
+
+
 # -------- Баланс по номерам (идентификациям) --------
 BalanceOpType = Literal['credit', 'debit']
 

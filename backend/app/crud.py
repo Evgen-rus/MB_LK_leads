@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from .time_utils import now_msk
-from typing import Dict, Iterable, List, Optional, Tuple, Any
+from typing import Dict, Iterable, List, Optional, Tuple, Any, Literal
 import os
 import re
 import secrets
@@ -24,6 +24,12 @@ def _join_days(days: Iterable[str]) -> str:
 
 def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]], sms_sender_name: Optional[str]) -> int:
     return (len(sites or [])) + (len(phones or [])) + (1 if sms_sender_name else 0)
+
+
+def _normalize_project_status(value: Any) -> schemas.ProjectStatus:
+    if value in ("Активен", "На паузе", "Удалён"):
+        return value  # type: ignore[return-value]
+    return "Удалён"
 
 
 def find_duplicates_in_projects(
@@ -1716,6 +1722,125 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
     )
 
 
+def _normalize_pause_snapshot_ids(raw_ids: Any) -> List[int]:
+    if not isinstance(raw_ids, list):
+        return []
+    out: List[int] = []
+    seen: set[int] = set()
+    for raw in raw_ids:
+        try:
+            pid = int(raw)
+        except Exception:
+            continue
+        if pid <= 0 or pid in seen:
+            continue
+        seen.add(pid)
+        out.append(pid)
+    return out
+
+
+def _get_pause_snapshot_row(db: Session, client_id: int) -> Optional[models.ClientProjectPauseSnapshot]:
+    return db.execute(
+        select(models.ClientProjectPauseSnapshot).where(models.ClientProjectPauseSnapshot.client_id == client_id)
+    ).scalar_one_or_none()
+
+
+def admin_replace_pause_snapshot(
+    db: Session,
+    client_id: int,
+    project_ids: List[int],
+    admin_user_id: int,
+) -> Optional[models.ClientProjectPauseSnapshot]:
+    normalized_ids = _normalize_pause_snapshot_ids(project_ids)
+    row = _get_pause_snapshot_row(db, client_id)
+
+    if not normalized_ids:
+        if row:
+            db.delete(row)
+            db.commit()
+        return None
+
+    now = now_msk()
+    if not row:
+        row = models.ClientProjectPauseSnapshot(
+            client_id=client_id,
+            project_ids=normalized_ids,
+            paused_by=admin_user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.project_ids = normalized_ids
+        row.paused_by = admin_user_id
+        row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClientCollectionStateOut:
+    row = _get_pause_snapshot_row(db, client_id)
+    snapshot_ids = _normalize_pause_snapshot_ids(row.project_ids if row else [])
+
+    snapshot_projects: List[schemas.AdminCollectionProjectItem] = []
+    has_active_in_snapshot = False
+    if snapshot_ids:
+        proj_rows = db.execute(
+            select(models.Project).where(
+                models.Project.user_id == client_id,
+                models.Project.id.in_(snapshot_ids),
+            )
+        ).scalars().all()
+        by_id = {int(p.id): p for p in proj_rows}
+        for pid in snapshot_ids:
+            p = by_id.get(pid)
+            if p:
+                status = _normalize_project_status(p.status)
+                if status == "Активен":
+                    has_active_in_snapshot = True
+                snapshot_projects.append(
+                    schemas.AdminCollectionProjectItem(
+                        id=int(p.id),
+                        name=p.name,
+                        status=status,
+                    )
+                )
+            else:
+                snapshot_projects.append(
+                    schemas.AdminCollectionProjectItem(
+                        id=pid,
+                        name=f"Проект {pid} (не найден)",
+                        status="Удалён",
+                    )
+                )
+
+    has_snapshot = len(snapshot_ids) > 0
+    collection_status: Literal["Активен", "На паузе"] = "На паузе" if (has_snapshot and not has_active_in_snapshot) else "Активен"
+    action: Literal["pause", "resume"] = "resume" if has_snapshot else "pause"
+    action_label = (
+        "Включить проекты ранее на паузе"
+        if action == "resume"
+        else "Поставить проекты на паузу"
+    )
+
+    action_enabled = True
+    disabled_reason = None
+    if action == "resume" and has_active_in_snapshot:
+        action_enabled = False
+        disabled_reason = "Восстановление недоступно: часть проектов уже включена вручную."
+
+    return schemas.AdminClientCollectionStateOut(
+        clientId=client_id,
+        dataCollectionStatus=collection_status,
+        action=action,
+        actionLabel=action_label,
+        actionEnabled=action_enabled,
+        actionDisabledReason=disabled_reason,
+        snapshotProjects=snapshot_projects,
+    )
+
+
 # -------- Баланс номеров по клиенту --------
 def _client_leads_usage(
     db: Session,
@@ -2075,6 +2200,36 @@ def admin_update_project(
 
     user_info = _get_user_info(db, p.user_id) or schemas.UserInfo(id=p.user_id or 0, login="(unknown)")
     return _admin_project_to_out(p, user_info)
+
+
+def admin_update_project_status_only(
+    db: Session,
+    project_id: int,
+    status: schemas.ProjectStatus,
+    admin_user_id: int,
+) -> bool:
+    p = db.get(models.Project, project_id)
+    if not p:
+        return False
+    if _normalize_project_status(p.status) == status:
+        return True
+
+    before = _snapshot_project(p)
+    p.status = status
+    p.updated_at = now_msk()
+    after = _snapshot_project(p)
+    changed = [k for k in after.keys() if before.get(k) != after.get(k)]
+
+    db.add(models.AuditEvent(
+        user_id=admin_user_id,
+        project_id=p.id,
+        action='update',
+        before=before,
+        after=after,
+        changed_fields=changed or ['status'],
+    ))
+    db.commit()
+    return True
 
 
 def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bool:
