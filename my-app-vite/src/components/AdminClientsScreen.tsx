@@ -111,6 +111,8 @@ function AdminClientsScreen({
   const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
+  const [collectionRunInfo, setCollectionRunInfo] = useState<{ mode: 'pause' | 'resume'; total: number } | null>(null);
+  const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -293,12 +295,22 @@ function AdminClientsScreen({
       : 'Включить проекты ранее поставленные на паузу?';
     if (!window.confirm(confirmText)) return;
 
+    const estimatedTotal = isPause
+      ? (collectionState.pauseCandidates || 0)
+      : (collectionState.resumeCandidates || 0);
+    setCollectionRunInfo({ mode: isPause ? 'pause' : 'resume', total: estimatedTotal });
+    setCollectionLastInfo(null);
     setCollectionActionLoading(true);
     try {
       const resp = isPause
         ? await pauseAdminClientProjects(selectedClient.id)
         : await resumeAdminClientProjects(selectedClient.id);
       setCollectionState(resp.state);
+      const successCount = isPause ? resp.pausedCount : resp.resumedCount;
+      const processedCount = successCount + resp.skippedCount + resp.failedCount;
+      setCollectionLastInfo(
+        `Выполнено: ${successCount}/${processedCount || 0}. Пропущено: ${resp.skippedCount}. Ошибок: ${resp.failedCount}.`,
+      );
 
       const lines: string[] = [resp.message];
       if (resp.failedCount > 0 || resp.skippedCount > 0) {
@@ -317,6 +329,7 @@ function AdminClientsScreen({
       window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим сбора данных') }));
     } finally {
       setCollectionActionLoading(false);
+      setCollectionRunInfo(null);
     }
   }
 
@@ -736,6 +749,15 @@ function AdminClientsScreen({
                     {collectionState.actionDisabledReason}
                   </span>
                 )}
+                {collectionActionLoading && collectionRunInfo && (
+                  <span className="sub">
+                    {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
+                    {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
+                  </span>
+                )}
+                {!collectionActionLoading && !!collectionLastInfo && (
+                  <span className="sub">{collectionLastInfo}</span>
+                )}
               </div>
               <button
                 type="button"
@@ -773,7 +795,7 @@ function AdminClientsScreen({
           </div>
           <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
             <div className="sub" style={{ marginBottom: 8 }}>
-              Проекты из последней паузы
+              Проекты из последней массовой паузы
             </div>
             {collectionLoading && <div className="sub">Загрузка списка…</div>}
             {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (

@@ -606,6 +606,8 @@ export type AdminClientCollectionState = {
   dataCollectionStatus: 'Активен' | 'На паузе';
   action: 'pause' | 'resume';
   actionLabel: string;
+  pauseCandidates: number;
+  resumeCandidates: number;
   actionEnabled: boolean;
   actionDisabledReason?: string | null;
   snapshotProjects: AdminCollectionProjectItem[];

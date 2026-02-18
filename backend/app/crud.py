@@ -1782,8 +1782,19 @@ def admin_replace_pause_snapshot(
 def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClientCollectionStateOut:
     row = _get_pause_snapshot_row(db, client_id)
     snapshot_ids = _normalize_pause_snapshot_ids(row.project_ids if row else [])
+    pause_candidates = int(
+        db.execute(
+            select(func.count()).where(
+                models.Project.user_id == client_id,
+                models.Project.status == "Активен",
+                models.Project.provider_project_id.is_not(None),
+            )
+        ).scalar_one()
+        or 0
+    )
 
     snapshot_projects: List[schemas.AdminCollectionProjectItem] = []
+    resume_candidates = 0
     has_active_in_snapshot = False
     if snapshot_ids:
         proj_rows = db.execute(
@@ -1799,6 +1810,8 @@ def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClie
                 status = _normalize_project_status(p.status)
                 if status == "Активен":
                     has_active_in_snapshot = True
+                if status == "На паузе" and p.provider_project_id:
+                    resume_candidates += 1
                 snapshot_projects.append(
                     schemas.AdminCollectionProjectItem(
                         id=int(p.id),
@@ -1816,27 +1829,23 @@ def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClie
                 )
 
     has_snapshot = len(snapshot_ids) > 0
-    collection_status: Literal["Активен", "На паузе"] = "На паузе" if (has_snapshot and not has_active_in_snapshot) else "Активен"
-    action: Literal["pause", "resume"] = "resume" if has_snapshot else "pause"
-    action_label = (
-        "Включить проекты ранее на паузе"
-        if action == "resume"
-        else "Поставить проекты на паузу"
-    )
-
-    action_enabled = True
-    disabled_reason = None
-    if action == "resume" and has_active_in_snapshot:
-        action_enabled = False
-        disabled_reason = "Восстановление недоступно: часть проектов уже включена вручную."
+    all_snapshot_paused = has_snapshot and not has_active_in_snapshot
+    collection_status: Literal["Активен", "На паузе"] = "На паузе" if all_snapshot_paused else "Активен"
+    action: Literal["pause", "resume"] = "resume" if all_snapshot_paused else "pause"
+    if action == "resume":
+        action_label = "Возобновить приостановленные"
+    else:
+        action_label = "Поставить проекты на паузу снова" if has_snapshot else "Поставить проекты на паузу"
 
     return schemas.AdminClientCollectionStateOut(
         clientId=client_id,
         dataCollectionStatus=collection_status,
         action=action,
         actionLabel=action_label,
-        actionEnabled=action_enabled,
-        actionDisabledReason=disabled_reason,
+        pauseCandidates=pause_candidates,
+        resumeCandidates=resume_candidates,
+        actionEnabled=True,
+        actionDisabledReason=None,
         snapshotProjects=snapshot_projects,
     )
 

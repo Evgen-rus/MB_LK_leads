@@ -384,6 +384,8 @@ class AdminClientCollectionStateOut(BaseModel):
     dataCollectionStatus: Literal['Активен', 'На паузе']
     action: Literal['pause', 'resume']
     actionLabel: str
+    pauseCandidates: int = 0
+    resumeCandidates: int = 0
     actionEnabled: bool = True
     actionDisabledReason: Optional[str] = None
     snapshotProjects: List[AdminCollectionProjectItem] = Field(default_factory=list)

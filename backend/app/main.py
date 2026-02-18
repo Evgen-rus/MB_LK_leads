@@ -1700,11 +1700,6 @@ def admin_resume_client_projects(
     snapshot_ids = [int(item.id) for item in prev_state.snapshotProjects]
     if not snapshot_ids:
         raise HTTPException(status_code=409, detail={"message": "Нет сохранённых проектов для восстановления."})
-    if prev_state.action == "resume" and not prev_state.actionEnabled:
-        raise HTTPException(
-            status_code=409,
-            detail={"message": prev_state.actionDisabledReason or "Восстановление недоступно."},
-        )
 
     proj_rows = db_sess.execute(
         select(models.Project).where(
@@ -1734,7 +1729,7 @@ def admin_resume_client_projects(
             continue
         if p.status == "Активен":
             skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": уже активен, восстановление заблокировано.')
+            errors.append(f'Проект {p.id} "{p.name}": уже активен, пропущен.')
             continue
         if p.status != "На паузе":
             skipped_count += 1
