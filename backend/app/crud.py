@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from .time_utils import now_msk
-from typing import Dict, Iterable, List, Optional, Tuple, Any, Literal
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import os
 import re
 import secrets
@@ -903,6 +903,82 @@ def create_provider_lead(
     return row
 
 
+def _provider_lead_to_export_row(
+    lead: models.ProviderLead,
+    user_info: Optional[schemas.UserInfo] = None,
+) -> dict:
+    phone_value = lead.phone
+    if not phone_value and lead.phones_raw:
+        try:
+            phone_value = ", ".join([str(x) for x in lead.phones_raw if x is not None])
+        except Exception:
+            phone_value = None
+    display_dt = lead.prov_created_at or lead.imported_at
+    return {
+        "ext_id": lead.vid,
+        "project_id": lead.project_id,
+        "project_name": lead.project_name or "",
+        "source": lead.prov_chanel,
+        "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
+        "phone": phone_value or "",
+        "utm_campaign": lead.prov_source,
+        "user_login": user_info.login if user_info else "",
+        "user_id": user_info.id if user_info else 0,
+    }
+
+
+def iter_provider_leads_for_export(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+    max_rows: int,
+    project_ids: Optional[List[int]] = None,
+    sources: Optional[List[str]] = None,
+    user_info: Optional[schemas.UserInfo] = None,
+) -> Iterator[dict]:
+    remaining = max(0, int(max_rows))
+    if remaining == 0:
+        return
+
+    chunk_size = min(2000, remaining)
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    last_ts: Optional[datetime] = None
+    last_id: Optional[int] = None
+
+    while remaining > 0:
+        limit_value = min(chunk_size, remaining)
+        stmt = select(models.ProviderLead).where(and_(ts_col >= start_local, ts_col < end_local))
+        if project_ids:
+            stmt = stmt.where(models.ProviderLead.project_id.in_(project_ids))
+        if sources:
+            stmt = stmt.where(models.ProviderLead.prov_chanel.in_(sources))
+        if last_ts is not None and last_id is not None:
+            stmt = stmt.where(
+                or_(
+                    ts_col > last_ts,
+                    and_(ts_col == last_ts, models.ProviderLead.id > last_id),
+                ),
+            )
+
+        batch = (
+            db.execute(
+                stmt.order_by(ts_col.asc(), models.ProviderLead.id.asc()).limit(limit_value),
+            )
+            .scalars()
+            .all()
+        )
+        if not batch:
+            break
+
+        for lead in batch:
+            yield _provider_lead_to_export_row(lead, user_info=user_info)
+
+        remaining -= len(batch)
+        tail = batch[-1]
+        last_ts = tail.prov_created_at or tail.imported_at
+        last_id = int(tail.id)
+
+
 def fetch_provider_leads_for_export(
     db: Session,
     start_local: datetime,
@@ -912,42 +988,18 @@ def fetch_provider_leads_for_export(
     sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
 ) -> List[dict]:
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
-    stmt = (
-        select(models.ProviderLead)
-        .where(and_(ts_col >= start_local, ts_col < end_local))
-        .order_by(ts_col.asc())
-        .limit(max_rows)
+    # Совместимость со старым интерфейсом (возврат списка).
+    return list(
+        iter_provider_leads_for_export(
+            db=db,
+            start_local=start_local,
+            end_local=end_local,
+            max_rows=max_rows,
+            project_ids=project_ids,
+            sources=sources,
+            user_info=user_info,
+        ),
     )
-    if project_ids:
-        stmt = stmt.where(models.ProviderLead.project_id.in_(project_ids))
-    if sources:
-        stmt = stmt.where(models.ProviderLead.prov_chanel.in_(sources))
-
-    rows = db.execute(stmt).scalars().all()
-    out: List[dict] = []
-    for lead in rows:
-        phone_value = lead.phone
-        if not phone_value and lead.phones_raw:
-            try:
-                phone_value = ", ".join([str(x) for x in lead.phones_raw if x is not None])
-            except Exception:
-                phone_value = None
-        display_dt = lead.prov_created_at or lead.imported_at
-        out.append(
-            {
-                "ext_id": lead.vid,
-                "project_id": lead.project_id,
-                "project_name": lead.project_name or "",
-                "source": lead.prov_chanel,
-                "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
-                "phone": phone_value or "",
-                "utm_campaign": lead.prov_source,
-                "user_login": user_info.login if user_info else "",
-                "user_id": user_info.id if user_info else 0,
-            }
-        )
-    return out
 
 
 def list_provider_leads_paginated(

@@ -9,6 +9,7 @@
 """
 import os
 import json
+import tempfile
 from dotenv import load_dotenv
 import logging
 import secrets
@@ -20,13 +21,14 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import StreamingResponse, Response, FileResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
+from starlette.background import BackgroundTask
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
 from .time_utils import now_msk
@@ -63,6 +65,15 @@ def get_db():
         yield db_sess
     finally:
         db_sess.close()
+
+
+def _cleanup_temp_file(path: str) -> None:
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    except Exception:
+        logging.getLogger("app").warning("Failed to remove temp export file: %s", path, exc_info=True)
 
 
 app = FastAPI(title="LK Projects API")
@@ -760,66 +771,131 @@ def export_leads(
             logging.getLogger("app").exception("Failed to log report export")
     
     # Максимум строк в одном экспорте отчета /leads/export (CSV/XLSX).
-    max_rows = int(os.getenv("EXPORT_MAX_ROWS", "15000"))
+    try:
+        max_rows = int(os.getenv("EXPORT_MAX_ROWS", "15000"))
+    except ValueError:
+        logging.getLogger("app").warning("Invalid EXPORT_MAX_ROWS value, fallback to 15000")
+        max_rows = 15000
+    max_rows = max(1, max_rows)
     user_info = crud._get_user_info(db_sess, clientId or current_user.id)
-    rows = crud.fetch_provider_leads_for_export(
-        db_sess,
-        project_ids=proj_ids,
-        start_local=start_local,
-        end_local=end_local,
-        max_rows=max_rows,
-        sources=src_list,
-        user_info=user_info,
-    )
+    export_started = time.perf_counter()
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
     is_admin = current_user.id == 1
+
+    def iter_export_rows():
+        yield from crud.iter_provider_leads_for_export(
+            db_sess,
+            project_ids=proj_ids,
+            start_local=start_local,
+            end_local=end_local,
+            max_rows=max_rows,
+            sources=src_list,
+            user_info=user_info,
+        )
+
     if (format or "csv").lower() == "csv":
         def gen():
-            if is_admin:
-                yield ("ext_id;project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
-            else:
-                yield ("project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
-            for r in rows:
-                utm = r["utm_campaign"] or ""
+            rows_count = 0
+            try:
                 if is_admin:
-                    line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                    yield ("ext_id;project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
                 else:
-                    line = f"{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
-                yield line.encode('utf-8')
+                    yield ("project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
+                for r in iter_export_rows():
+                    utm = r["utm_campaign"] or ""
+                    if is_admin:
+                        line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                    else:
+                        line = f"{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                    rows_count += 1
+                    yield line.encode('utf-8')
+            finally:
+                duration_ms = int((time.perf_counter() - export_started) * 1000)
+                logging.getLogger("app").info(
+                    "export_leads_done format=csv rows=%s max_rows=%s user=%s clientId=%s ms=%s",
+                    rows_count,
+                    max_rows,
+                    current_user.id,
+                    clientId,
+                    duration_ms,
+                )
         headers = {"Content-Disposition": f"attachment; filename={filename}"}
         return StreamingResponse(gen(), media_type="text/csv; charset=utf-8", headers=headers)
     else:
-        # XLSX через openpyxl в память
-        import io
+        # XLSX пишем в temp-файл и отдаём как FileResponse.
         from openpyxl import Workbook
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "leads"
-        if is_admin:
-            ws.append(["ext_id", "project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
-        else:
-            ws.append(["project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
-        for r in rows:
-            row = [
-                r["project_id"],
-                r["project_name"],
-                r["source"] or "",
-                r["imported_at"],
-                r["phone"],
-                r["utm_campaign"] or "",
-                r["user_login"],
-                r["user_id"],
-            ]
+        tmp = tempfile.NamedTemporaryFile(prefix="leads_export_", suffix=".xlsx", delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        wb = None
+        rows_count = 0
+        try:
+            wb = Workbook(write_only=True)
+            ws = wb.create_sheet(title="leads")
             if is_admin:
-                row.insert(0, r["ext_id"])
-            ws.append(row)
-        bio = io.BytesIO()
-        wb.save(bio)
-        data = bio.getvalue()
-        headers = {"Content-Disposition": f"attachment; filename={filename}"}
-        return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
+                ws.append(["ext_id", "project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
+            else:
+                ws.append(["project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
+
+            for r in iter_export_rows():
+                row = [
+                    r["project_id"],
+                    r["project_name"],
+                    r["source"] or "",
+                    r["imported_at"],
+                    r["phone"],
+                    r["utm_campaign"] or "",
+                    r["user_login"],
+                    r["user_id"],
+                ]
+                if is_admin:
+                    row.insert(0, r["ext_id"])
+                ws.append(row)
+                rows_count += 1
+
+            wb.save(tmp_path)
+            duration_ms = int((time.perf_counter() - export_started) * 1000)
+            logging.getLogger("app").info(
+                "export_leads_done format=xlsx rows=%s max_rows=%s user=%s clientId=%s ms=%s",
+                rows_count,
+                max_rows,
+                current_user.id,
+                clientId,
+                duration_ms,
+            )
+        except Exception:
+            duration_ms = int((time.perf_counter() - export_started) * 1000)
+            logging.getLogger("app").exception(
+                "export_leads_failed format=xlsx rows=%s max_rows=%s user=%s clientId=%s ms=%s",
+                rows_count,
+                max_rows,
+                current_user.id,
+                clientId,
+                duration_ms,
+            )
+            if wb is not None:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
+            _cleanup_temp_file(tmp_path)
+            raise
+        finally:
+            if wb is not None:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
+
+        return FileResponse(
+            path=tmp_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename,
+            background=BackgroundTask(_cleanup_temp_file, tmp_path),
+        )
 
 
 @app.get("/reports", response_model=schemas.ReportListOut)
