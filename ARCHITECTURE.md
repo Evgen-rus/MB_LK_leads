@@ -1,111 +1,104 @@
 # ARCHITECTURE
 
-Этот документ дает краткую карту проекта: что за что отвечает и где искать изменения.
-Это не подробная документация по реализации, а ориентир для быстрой навигации.
+Короткий контекст проекта для старта нового чата с ИИ.
+Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-## 1) Назначение проекта
+Last updated: 2026-02-19
 
-`MB_LK_leads` — личный кабинет для работы с лидами и проектами:
-- backend на FastAPI принимает запросы UI, обрабатывает вебхук провайдера и работает с БД;
-- frontend на React/Vite показывает таблицы, формы и административные экраны;
-- отдельные скрипты выполняют экспорт лидов и технические операции.
+## 1) System At A Glance
 
-Ключевые интеграции:
-- Prostats (создание/обновление/удаление проектов);
-- Telegram (уведомления);
-- Google Sheets (экспорт лидов по расписанию).
+`MB_LK_leads` — личный кабинет для работы с проектами и лидами.
 
-## 2) Code Map (где что лежит)
+- Backend: FastAPI (`backend/app/main.py`)
+- Frontend: React + Vite (`my-app-vite/src`)
+- БД: PostgreSQL (основной контур), SQLite (fallback локально)
+- Интеграции: Prostats, Telegram, Google Sheets
 
-### Backend
+## 2) Source Of Truth
 
-- `backend/app/main.py` — точка входа FastAPI, роуты API, auth-check, CORS, rate limit.
-- `backend/app/models.py` — SQLAlchemy-модели (User, Project, ProviderLead, AuditEvent, ClientBalanceOperation, ClientProjectPauseSnapshot и др.).
-- `backend/app/crud.py` — основная бизнес-логика и операции с БД.
-- `backend/app/schemas.py` — Pydantic-схемы запросов/ответов.
-- `backend/app/db.py` — engine/session SQLAlchemy.
-- `backend/app/auth.py` — JWT и проверка пароля.
-- `backend/app/providers/prostats.py` — клиент интеграции с Prostats.
-- `backend/app/telegram.py` — отправка сообщений в Telegram.
-- `backend/app/notify_worker.py` — фоновый цикл уведомлений.
-- `backend/app/logging_setup.py` — настройка логгеров и файлов логов.
-- `backend/app/time_utils.py` — функции времени и часового пояса.
+Если есть конфликт между документами и кодом, доверять коду:
 
-### Frontend
+- API endpoints: `backend/app/main.py`
+- Бизнес-логика: `backend/app/crud.py`
+- Модели БД: `backend/app/models.py`
+- Схемы API: `backend/app/schemas.py`
+- Front API client: `my-app-vite/src/api.ts`
+- Запуск/команды: `README.md`
 
-- `my-app-vite/src/main.tsx` — точка входа React, инициализация клиентского логирования.
-- `my-app-vite/src/App.tsx` — маршруты и композиция основных экранов.
-- `my-app-vite/src/api.ts` — HTTP-вызовы backend API.
-- `my-app-vite/src/logger.ts` — отправка frontend-ошибок в backend.
-- `my-app-vite/src/utils/jwt.ts` — вспомогательная работа с JWT.
-- `my-app-vite/src/utils/impersonation.ts` — обработка impersonation-сценария.
+## 3) Critical Invariants
 
-### Скрипты и утилиты
+1. Админ определяется как `user.id == 1`.
+2. `WEBHOOK_SECRET` обязателен: без него backend не стартует.
+3. Операции с проектами должны синхронизироваться с Prostats.
+4. Вебхук провайдера дедуплицирует `provider_leads` по `vid`.
+5. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`).
 
-- `tool_export_provider_leads.py` — экспорт лидов в Google Sheets (cron/ручной запуск).
-- `tool_inspect_db.py` — диагностический просмотр данных БД.
-- `util_01..07_gck_*.py` — служебные утилиты для операций с Prostats/GCK.
-- `webhook_test.py` — локальный/тестовый вебхук-сервер.
+## 4) Key Domain Objects
 
-## 3) Основные runtime-потоки
+- `User` / `ClientProfile`
+- `Project`
+- `ProviderLead`
+- `AuditEvent`
+- `ClientBalanceOperation`
+- `ClientProjectPauseSnapshot`
 
-### Поток A: действия из UI
+Смотри `backend/app/models.py`.
 
-1. Frontend вызывает backend API.
-2. Backend проверяет авторизацию и права.
-3. Бизнес-логика выполняется в `crud.py`.
-4. При необходимости backend обращается в Prostats.
-5. Данные сохраняются/читаются из БД (PostgreSQL в основном контуре, SQLite возможен как локальный fallback), ответ возвращается в UI.
+## 5) Runtime Flows
 
-### Поток B: входящий лид от провайдера
+### A) UI -> API
+Frontend вызывает API -> backend проверяет auth/roles -> `crud.py` -> БД/интеграции -> ответ в UI.
 
-1. Провайдер отправляет POST на webhook endpoint.
-2. Backend валидирует секрет и payload.
-3. Лид записывается в `provider_leads` (с учетом дедупликации по `vid`).
-4. Payload и метаданные логируются; валидные записи сохраняются в БД, дубль по `vid` отбрасывается.
+### B) Provider Webhook
+Провайдер вызывает `POST /api/provider-test/{secret}` -> валидация секрета/payload -> запись в `provider_leads` (или skip дубля по `vid`) -> лог в `logs/provider_webhook.log`.
 
-### Поток C: фоновые уведомления
+### C) Notifications Worker
+На старте backend запускает `notify_worker` -> воркер агрегирует pending-события -> отправляет в Telegram -> помечает обработанные.
 
-1. При старте backend запускает `notify_worker`.
-2. Воркер периодически читает pending-события.
-3. Группирует их и отправляет в Telegram.
-4. Отмечает отправленные события в БД.
+### D) Admin Operations
+`/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/аудит) -> при необходимости синхронизация статусов с Prostats.
 
-### Поток D: админские операции
+## 6) Where To Change Code By Task Type
 
-1. Админ вызывает `/admin/*` endpoint.
-2. Backend проверяет, что пользователь имеет права администратора.
-3. Операции выполняются через `crud.py` (клиенты, проекты, баланс, аудит).
-4. Для статусов проектов при необходимости выполняется синхронизация с Prostats.
+- Новое поле/правило в API: `schemas.py` + `crud.py` + endpoint в `main.py`
+- UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
+- Интеграция Prostats: `backend/app/providers/prostats.py`
+- Telegram-уведомления: `backend/app/telegram.py`, `backend/app/notify_worker.py`
+- Экспорт provider leads: `tool_export_provider_leads.py`
+- Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
 
-## 4) Архитектурные инварианты и границы
+## 7) Env Groups (Quick)
 
-- Изменения проектов синхронизируются с Prostats; ошибка внешнего API должна блокировать локальное подтверждение операции.
-- Проверка ролей завязана на backend-авторизацию; frontend-проверки считаются вспомогательными.
-- Администратор определяется правилом `user.id == 1` (используется в backend-проверках доступа).
-- `crud.py` — центральный слой бизнес-правил и доступа к данным.
-- Логирование, конфиг и обработка ошибок считаются сквозными аспектами и не должны дублироваться в каждом модуле.
-- Время и временные зоны должны обрабатываться единообразно через общие утилиты/настройки.
+База и auth:
+- `DATABASE_URL`
+- `AUTH_SECRET`
+- `CORS_ORIGINS`
 
-## 5) Cross-cutting concerns (сквозные аспекты)
+Webhook и провайдер:
+- `WEBHOOK_SECRET`
+- `PROSTATS_TOKEN`
+- `PROSTATS_API_URL`
 
-- Конфигурация через переменные окружения (`.env` и settings).
-- Логирование в отдельные файлы (приложение/вебхук/экспорт).
-- Обработка ошибок API и ошибок интеграций.
-- Ограничение попыток логина (rate limit).
-- Ретраи для нестабильных внешних вызовов (экспорт в Google API).
+Telegram:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
-## 6) Навигация для новых изменений
+Google Sheets export:
+- `GOOGLE_CREDENTIALS_FILE`
+- `GOOGLE_SHEET_ID`
+- `GOOGLE_SHEET_NAME`
+- `LEADS_EXPORT_LOOKBACK_DAYS`
 
-- Если меняется UI и API-контракт: править `my-app-vite/src/api.ts` + соответствующий endpoint/schema backend.
-- Если меняется бизнес-правило: сначала искать в `backend/app/crud.py`, затем в `main.py`/`schemas.py`.
-- Если меняется внешняя интеграция: смотреть `backend/app/providers/prostats.py` или `backend/app/telegram.py`.
-- Если меняется формат/частота экспорта: `tool_export_provider_leads.py`.
+Дополнительно:
+- `SHEETS_TZ`
+- `DEBOUNCE_WINDOW_MINUTES`
+- `EXPORT_MAX_ROWS`
 
-## 7) Известные технические ограничения
+## 8) Known Pitfalls
 
-- Нет явной системы версионированных миграций (например, Alembic).
-- Существенная часть backend-роутов сосредоточена в `main.py`.
-- Основная бизнес-логика сильно концентрирована в `crud.py`.
+1. Не полагаться только на frontend-проверки прав.
+2. Не менять бизнес-правила только в UI, без `crud.py`.
+3. При изменениях endpoint проверять `my-app-vite/src/api.ts` на совместимость.
+4. Не ломать webhook-дедупликацию по `vid`.
+5. Учитывать, что часть логики сосредоточена в `main.py` и `crud.py`.
 
-Документ специально короткий. Его цель — помочь быстро понять, где искать нужный код, а не описать каждую функцию.

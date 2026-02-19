@@ -758,8 +758,9 @@ def export_leads(
         except Exception:
             # Не блокируем выгрузку, если логирование по какой-то причине не удалось
             logging.getLogger("app").exception("Failed to log report export")
-
-    max_rows = int(os.getenv("EXPORT_MAX_ROWS", "200000"))
+    
+    # Максимум строк в одном экспорте отчета /leads/export (CSV/XLSX).
+    max_rows = int(os.getenv("EXPORT_MAX_ROWS", "15000"))
     user_info = crud._get_user_info(db_sess, clientId or current_user.id)
     rows = crud.fetch_provider_leads_for_export(
         db_sess,
