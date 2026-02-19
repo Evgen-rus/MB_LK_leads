@@ -1,599 +1,263 @@
-# MB_LK_leads — Личный кабинет
+﻿# MB_LK_leads
 
-## 🚀 Быстрый старт
+Личный кабинет для работы с проектами и лидами:
+- backend на FastAPI (`backend/app/main.py`)
+- frontend на React + Vite (`my-app-vite`)
+- интеграции: Prostats, Telegram, Google Sheets
 
-### Предварительные требования
-- Node.js 24.11.0+ (через NVM)
-- Python 3.8+
-- PostgreSQL 18 (настройка см. `docs/PostgreSQL.md`)
+## Быстрые ссылки
 
-### Запуск проекта
+- Архитектура: `ARCHITECTURE.md`
+- Настройка PostgreSQL: `docs/PostgreSQL.md`
+- Тесты Playwright: `docs/test_playwright.md`
+- HTTPS и домен: `docs/setup_https_leadrecordwh.md`
+- Пример проверки вебхука: `docs/webhook_test.md`
 
-1. **Клонирование и установка зависимостей:**
+## Быстрый старт (локально)
+
+### 1) Требования
+
+- Node.js 24.x (рекомендовано)
+- npm 11+
+- Python 3.10+
+- PostgreSQL (рекомендовано) или SQLite (fallback)
+
+### 2) Установка
+
 ```bash
 git clone <repository-url>
 cd MB_LK_leads
 ```
 
-# Python зависимости
 ```bash
+# Python
 python -m venv venv
-venv\Scripts\activate   # Windows
-pip install -r requirements.txt
-
+# Windows
+venv\Scripts\activate
 # Linux/macOS
-python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
 
-# Node.js зависимости
+pip install -r requirements.txt
+```
+
+```bash
+# Frontend
 cd my-app-vite
 npm install
 cd ..
 ```
 
-2. **Запуск бэкенда:**
+### 3) Настройка `.env`
+
+Файл `.env` читается backend-ом и фронтендом (для `VITE_*`, см. `my-app-vite/vite.config.ts`).
+
+Минимально для запуска backend:
+
+```env
+WEBHOOK_SECRET=change-me
+AUTH_SECRET=change-me
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/mb_lk_leads
+CORS_ORIGINS=http://localhost:5173
+USER_1_LOGIN=admin
+USER_1_PASSWORD=admin123
+```
+
+Важно: если `WEBHOOK_SECRET` не задан, backend не стартует.
+
+### 4) Запуск
+
 ```bash
+# backend (из корня)
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-> Перед запуском убедитесь, что в `.env` задан `DATABASE_URL` для Postgres.
 
-3. **Запуск фронтенда (в новом терминале):**
 ```bash
+# frontend (в новом терминале)
 cd my-app-vite
 npm run dev
 ```
 
-4. **Проверка кода фронтенда линтером (опционально, но рекомендуется):**
-```bash
-cd my-app-vite
-npm run lint
-```
-Проверяет код на ошибки и соответствие стандартам качества.
+Открыть:
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8000`
+- Health: `http://localhost:8000/health`
 
-После запуска:
-- **Фронтенд:** http://localhost:5173/
-- **Бэкенд API:** http://localhost:8000/
+## Команды
 
-
-## Правила портов в Linux/Windows:
-
-**Диапазон портов**: 0–65535 (всего 65536 портов)
-
-**Привилегированные порты (0–1023)**:
-- Требуют прав root/admin (sudo)
-- Примеры: 80 (HTTP), 443 (HTTPS), 22 (SSH), 21 (FTP)
-- Без root uvicorn выдаст ошибку: `Permission denied`
-
-**Пользовательские порты (1024–65535)**:
-- Можно использовать без root
-- Рекомендуется для разработки: 8000+, 3000+, 5000+
-- Ваши примеры (8001, 7999) — нормально
-
-## Примеры использования:
+### Frontend (`my-app-vite`)
 
 ```bash
-# Хорошо (пользовательские порты)
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8001
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 7999
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 3000
-
-# Плохо (привилегированные, нужен root)
-sudo uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 80
-
-# Может быть занято (проверьте)
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8080  # Часто занят
+npm run dev      # локальная разработка
+npm run build    # production-сборка
+npm run preview  # локальный preview production-сборки
+npm run lint     # eslint
+npm run test:e2e # Playwright E2E
 ```
 
-## Практические советы:
+### Backend (корень проекта)
 
-1. **Проверьте занятость порта** перед запуском:
-   ```bash
-   netstat -tlnp | grep :8001  # Linux
-   netstat -ano | findstr :8001  # Windows
-   ```
-
-2. **Если порт занят** — uvicorn покажет ошибку `[Errno 98] Address already in use`
-
-3. **Для разработки**: используйте 8000–8999, это стандартно
-
-4. **Для продакшена**: обычно 80/443 (через nginx прокси) или 8000–9999
-
-
-
-## 📋 Детальная настройка
-
-### Node.js установка/обновление
-
-```bash
-# Проверка версии
-node --version  # v24.11.0
-
-# Если версия старая, установка через NVM
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 24
-nvm use 24
-```
-
-### Тестирование API
-
-```bash
-# Проверка здоровья
-curl http://localhost:8000/health
-
-# Получение проектов
-curl http://localhost:8000/projects
-
-# Создание проекта (пример)
-curl -X POST http://localhost:8000/projects \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Новый проект", "status": "active"}'
-```
-
-## 🛠 Текущий стек
-
-- **Frontend:**
-  - React 19.2.0
-  - TypeScript 5.9.3
-  - Vite 7.1.12 + @vitejs/plugin-react 5.0.4
-  - ESLint 9.36.0 + плагины для React
-  - CSS (стили в `App.css`)
-
-- **Backend:**
-  - FastAPI 0.120.2 (Python веб-фреймворк)
-  - Uvicorn 0.38.0 (ASGI сервер)
-  - SQLAlchemy 2.0.44 (ORM для базы данных)
-  - Pydantic 2.12.3 (валидация данных)
-  - PyJWT 2.9.0 (работа с JWT токенами)
-  - bcrypt 4.2.0 (хэширование паролей)
-  - python-dotenv 1.2.1 (переменные окружения)
-  - requests 2.32.5 (HTTP запросы)
-
-- **Интеграции:**
-  - Google Sheets API (google-api-python-client 2.151.0)
-  - Google Auth 2.43.0 (аутентификация Google)
-  - Telegram Bot API
-  - Excel файлы (openpyxl 3.1.5)
-  - tzdata 2024.1 (часовые пояса)
-
-- **DevOps:**
-  - Node.js 24.12.0
-  - npm 11.7.0
-  - Python 3.8+
-  - PostgreSQL (см. `docs/PostgreSQL.md`)
-  - Git + .gitignore
-
-## 📁 Структура проекта
-
-```
-MB_LK_leads/
-├── backend/                          # Python FastAPI бэкенд
-│   └── app/
-│       ├── __init__.py              # Инициализация пакета
-│       ├── main.py                  # Точка входа API (FastAPI приложение)
-│       ├── models.py                # SQLAlchemy модели данных
-│       ├── db.py                    # Настройки базы данных
-│       ├── crud.py                  # CRUD операции с БД
-│       ├── schemas.py               # Pydantic схемы для API
-│       ├── auth.py                  # Аутентификация и авторизация
-│       ├── telegram.py              # Интеграция с Telegram
-│       ├── notify_worker.py         # Фоновые уведомления
-│       ├── logging_setup.py         # Настройка логирования
-│       └── time_utils.py            # Утилиты для работы со временем
-├── my-app-vite/                     # React фронтенд (Vite)
-│   ├── src/
-│   │   ├── components/              # React компоненты UI
-│   │   │   ├── Sidebar.tsx          # Левое меню навигации
-│   │   │   ├── ProjectsTable.tsx    # Таблица проектов
-│   │   │   ├── LeadsTable.tsx       # Таблица лидов
-│   │   │   ├── AdminClientsScreen.tsx # Админ-панель клиентов
-│   │   │   ├── Login.tsx            # Форма авторизации
-│   │   │   └── ... (30+ компонентов)
-│   │   ├── types/                   # TypeScript типы
-│   │   │   └── project.ts           # Типы для проектов
-│   │   ├── utils/                   # Утилиты фронтенда
-│   │   │   ├── jwt.ts              # Работа с JWT токенами
-│   │   │   ├── phones.ts           # Обработка телефонов
-│   │   │   └── impersonation.ts    # Имперсонация пользователей
-│   │   ├── data/
-│   │   │   └── regions.ts          # Данные регионов
-│   │   ├── api.ts                  # HTTP-клиент для API
-│   │   ├── App.tsx                 # Главный компонент приложения
-│   │   ├── main.tsx                # Точка входа Vite
-│   │   ├── index.css               # Глобальные стили
-│   │   └── logger.ts               # Логирование на фронте
-│   ├── public/                     # Статические файлы
-│   ├── package.json                # Зависимости Node.js
-│   ├── vite.config.ts              # Конфигурация Vite
-│   ├── tsconfig.json               # Конфигурация TypeScript
-│   └── README.md                   # Документация фронтенда
-├── venv/                           # Python виртуальное окружение
-├── credentials/                    # Ключи и credentials
-│   └── sheets-data-bot-b8f4cc6634fc.json  # Google Sheets API ключ
-├── logs/                          # Логи приложения
-│   └── app.log                    # Основной лог-файл            
-├── requirements.txt               # Python зависимости
-├── .gitignore                     # Исключаемые из Git файлы
-├── tool_*.py                      # CLI утилиты для управления
-│   ├── tool_user_tools.py         # Управление пользователями
-│   ├── tool_db_tools.py           # Работа с БД
-│   ├── tool_inspect_db.py         # Инспекция БД
-│   ├── tool_map_projects.py       # Маппинг проектов
-│   └── tool_create_unmapped_project.py # Создание fallback-проекта
-├── task.md                        # Задачи проекта
-├── SWAP_SETUP.md                  # Настройка swap-файла
-├── bitrix_widget_restore.md       # Восстановление Bitrix виджета
-├── защита_от_перебора.md          # Защита от перебора паролей
-└── README.md                      # Эта документация
-```
-
-## 🔧 Скрипты
-
-### Фронтенд (в папке `my-app-vite`)
-```bash
-npm install      # Установка зависимостей
-npm run dev      # Dev сервер (http://localhost:5173)
-npm run build    # Сборка для продакшена
-npm run preview  # Превью продакшен сборки
-```
-
-### Бэкенд (в корне проекта)
 ```bash
 uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Управление пользователями (CLI)
+## Переменные окружения
 
-- Пользователи для первого запуска создаются из `.env` (пары `USER_1_LOGIN` / `USER_1_PASSWORD` и т.д.) **только если БД пустая**.
+### Backend
 
-### CLI утилиты для работы с проектом
+| Переменная | Обязательность | Назначение |
+|---|---|---|
+| `WEBHOOK_SECRET` | обязательно | Секрет для `POST /api/provider-test/{secret}`; без него backend не стартует |
+| `DATABASE_URL` | желательно | URL БД (`postgresql+psycopg://...`), по умолчанию `sqlite:///./app.db` |
+| `AUTH_SECRET` | обязательно для прод | Секрет подписи JWT |
+| `CORS_ORIGINS` | желательно | Разрешённые origin через запятую |
+| `USER_1_LOGIN`, `USER_1_PASSWORD`, ... | опционально | Первичный seed пользователей при пустой БД |
+| `DEBOUNCE_WINDOW_MINUTES` | опционально | Окно debounce для уведомлений |
+| `SHEETS_TZ` | опционально | Таймзона отчётов/фильтров (по умолчанию `Europe/Moscow`) |
+| `EXPORT_MAX_ROWS` | опционально | Лимит строк при `/leads/export` |
+| `PROSTATS_TOKEN` | обязательно для CRUD проектов | Токен API Prostats |
+| `PROSTATS_API_URL` | опционально | URL API Prostats (есть дефолт) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | обязательно для Telegram-функций | Уведомления и `/support-message` |
+| `GOOGLE_CREDENTIALS_FILE`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_NAME` | обязательно для экспорта в Sheets | Используются `tool_export_provider_leads.py` |
+| `LEADS_EXPORT_LOOKBACK_DAYS` | опционально | Глубина выгрузки в днях (для `tool_export_provider_leads.py`) |
 
-```bash
-# Инспекция базы данных
-python tool_inspect_db.py                    # Просмотр всех проектов и provider_leads
+### Frontend (`VITE_*`)
 
-```
+| Переменная | Обязательность | Назначение |
+|---|---|---|
+| `VITE_API_BASE` | опционально | Базовый URL API (например, `/api`) |
+| `VITE_REPORT_ERRORS` | опционально | Принудительная отправка ошибок с фронта в dev |
+| `VITE_CLIENT_PORTAL_URL` | опционально | Базовый URL клиентского портала в админских карточках |
 
-## 🔌 Вебхук провайдера (provider leads)
+## API (краткая карта)
 
-### Назначение
-Принимает лиды от провайдера и сохраняет их в новую таблицу `provider_leads`.
+### Публичные/клиентские
 
-### Эндпоинт
-- `POST /api/provider-test/{WEBHOOK_SECRET}`
-- Секрет берётся из `.env` (`WEBHOOK_SECRET`)
+- `GET /health`
+- `POST /client-errors`
+- `POST /api/provider-test/{secret}`
+- `POST /login`
+- `POST /auth/logout`
+- `GET /me`
+- `GET /projects`
+- `POST /projects`
+- `GET /projects/{project_id}`
+- `PATCH /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `GET /projects/{project_id}/history`
+- `POST /support-message`
+- `GET /leads`
+- `GET /leads/export`
+- `GET /reports`
+- `POST /reports`
+- `GET /activity/events`
+- `GET /blacklist`
+- `POST /blacklist`
+- `DELETE /blacklist/{row_id}`
+- `GET /balance`
+- `GET /balance/ops`
 
-### Логирование
-- Лог: `logs/provider_webhook.log`
-- Ротация: раз в сутки, хранение 30 дней
+### Админские
 
-### Таблица `provider_leads`
-Основные поля:
-- `vid` — уникальный внешний ID (дедупликация по нему)
-- `phone` — строка (если несколько телефонов, объединяем через запятую)
-- `phones_raw` — JSON‑массив исходных телефонов
-- `project_name` — название проекта из `page`
-- `prov_created_at` — время из `time` (MSK)
-- `prov_chanel` — `B1/B2/B3/B4` из начала `page`
-- `prov_source` — часть после второго `_` в `page` (если есть)
-- `subdomain` — если пришло в payload
-- `imported_at` — время записи в БД (MSK)
-- `project_id` — сопоставляется по `projects.name == project_name` (может быть `NULL`)
+- `POST /admin/clients`
+- `POST /admin/clients/{client_id}/impersonate`
+- `PATCH /admin/clients/{client_id}`
+- `GET /admin/users`
+- `GET /admin/projects`
+- `GET /admin/projects/{project_id}`
+- `GET /admin/projects/{project_id}/history`
+- `PATCH /admin/projects/{project_id}`
+- `DELETE /admin/projects/{project_id}`
+- `GET /admin/leads`
+- `GET /admin/blacklist`
+- `GET /admin/reports`
+- `POST /admin/reports`
+- `GET /admin/changes/summary`
+- `GET /admin/changes/{client_id}`
+- `POST /admin/changes/{event_id}/resolve`
+- `GET /admin/clients/summary`
+- `GET /admin/clients/{client_id}/collection-state`
+- `POST /admin/clients/{client_id}/collection/pause`
+- `POST /admin/clients/{client_id}/collection/resume`
+- `GET /admin/clients/{client_id}/balance`
+- `GET /admin/clients/{client_id}/balance/ops`
+- `POST /admin/clients/{client_id}/balance/ops`
 
-### nginx (прокси)
-Пример прокси для вебхука:
-```nginx
-location /api/provider-test/<secret> {
-    proxy_pass http://127.0.0.1:8000/api/provider-test/<secret>;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
+## Вебхук провайдера и экспорт в Google Sheets
 
-### Экспорт `provider_leads` в Google Sheets (cron)
+### Вебхук
+
+- Endpoint: `POST /api/provider-test/{WEBHOOK_SECRET}`
+- Лог запроса: `logs/provider_webhook.log`
+- Дедупликация по `vid`
+- Данные сохраняются в таблицу `provider_leads`
+
+Для ручной проверки есть отдельный сервер-скрипт `webhook_test.py`.
+
+### Экспорт provider leads
+
 Скрипт: `tool_export_provider_leads.py`
-в env прописываем
-
-GOOGLE_SHEET_ID=id гугл таблицы куда из БД выгружать лиды
-GOOGLE_SHEET_NAME=имя листа
-# Фильтр “данные из бд в выгрузку в гугл таблицу за последние N дней”
-LEADS_EXPORT_LOOKBACK_DAYS=3
-
-Cron‑расписание (каждый час в 08:05 и 08:20 по МСК до 17:20):
-```
-CRON_TZ=Europe/Moscow
-5 8-17 * * * cd /opt/MB_LK_leads && /opt/MB_LK_leads/venv/bin/python tool_export_provider_leads.py
-20 8-17 * * * cd /opt/MB_LK_leads && /opt/MB_LK_leads/venv/bin/python tool_export_provider_leads.py
-```
-
-Проверка:
-```
-crontab -l
-```
-
-## 📝 API Endpoints
-
-**Общие:**
-- `GET /health` - Проверка работоспособности
-- `POST /client-errors` - Сбор ошибок клиента
-- `POST /api/provider-test/{secret}` - Тестовый вебхук провайдера
-
-**Клиентские:**
-- `POST /login` - Авторизация
-- `POST /auth/logout` - Выход
-- `GET /me` - Профиль текущего пользователя
-- `POST /support-message` - Сообщение в поддержку
-- `GET /projects` - Список проектов
-- `POST /projects` - Создание проектов
-- `GET /projects/{project_id}` - Проект по id
-- `PATCH /projects/{project_id}` - Обновление проекта
-- `DELETE /projects/{project_id}` - Удаление проекта
-- `GET /projects/{project_id}/history` - История изменений проекта
-- `GET /leads` - Список лидов
-- `GET /leads/export` - Экспорт лидов
-- `GET /reports` - Список отчётов
-- `POST /reports` - Создание отчёта
-- `GET /blacklist` - Список чёрного списка
-- `POST /blacklist` - Добавить телефоны в чёрный список
-- `DELETE /blacklist/{row_id}` - Удалить запись из чёрного списка
-- `GET /balance` - Баланс клиента
-- `GET /balance/ops` - Операции по балансу
-
-## 👑 Админская версия
-
-**Доступ:** Пользователь с `id=1` автоматически получает права администратора.
-
-**Возможности:**
-- **Вкладка "Клиенты"** — просмотр и управление проектами всех клиентов
-- **Управление статусом отгрузки** — изменение `delivery_status` (Активна/На модерации/Отключена) прямо в таблице через dropdown
-- **Расширенный просмотр** — во всех разделах (Идентификации, Отчёты, Черный список) добавлен столбец "Клиент" с логином и id
-- **Фильтрация по клиенту** — во всех админских таблицах доступна фильтрация по пользователю
-
-**Админские эндпоинты:**
-- `POST /admin/clients` - Создать клиента
-- `POST /admin/clients/{client_id}/impersonate` - Токен для входа под клиентом
-- `PATCH /admin/clients/{client_id}` - Обновить клиента
-- `GET /admin/clients/summary` - Сводка по клиентам
-- `GET /admin/clients/{client_id}/balance` - Баланс клиента
-- `GET /admin/clients/{client_id}/balance/ops` - Операции по балансу клиента
-- `POST /admin/clients/{client_id}/balance/ops` - Создать операцию по балансу клиента
-- `GET /admin/users` - Список всех пользователей
-- `GET /admin/projects` - Все проекты всех клиентов
-- `GET /admin/projects/{project_id}` - Проект по id (админ)
-- `GET /admin/projects/{project_id}/history` - История изменений проекта (админ)
-- `PATCH /admin/projects/{project_id}` - Редактирование проекта (включая delivery_status)
-- `DELETE /admin/projects/{project_id}` - Удалить проект
-- `GET /admin/leads` - Все лиды с информацией о клиентах
-- `GET /admin/blacklist` - Весь чёрный список
-- `GET /admin/reports` - Все отчёты
-- `POST /admin/reports` - Создать отчёт
-- `GET /admin/changes/summary` - Сводка по изменениям клиентов
-- `GET /admin/changes/{client_id}` - Изменения клиента
-- `POST /admin/changes/{event_id}/resolve` - Отметить изменение обработанным
-
-
----
-
-## 🧭 Краткая инструкция деплоя и привязки домена (пример leadrecordwh.ru)
-
-Шпаргалка для развёртывания на новом сервере (Ubuntu), привязки домена и запуска как сервиса.
-
-1) DNS (в панели регистратора)
-
-```
-Тип: A
-Имя: @
-Значение: IP_СЕРВЕРА (пример: 82.147.71.51)
-TTL: 600
-```
-
-Проверка: whatsmydns или `nslookup leadrecordwh.ru` — должен резолвиться в IP сервера.
-
-2) Сервер: подготовка окружения
 
 ```bash
-ssh root@IP_СЕРВЕРА
-apt update && apt install -y git python3 python3-venv python3-pip nginx
-
-# Node.js через NVM (для сборки фронтенда)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 24 && nvm use 24
+python tool_export_provider_leads.py
 ```
 
-3) Деплой проекта в /opt/MB_LK_leads
+Лог экспорта: `logs/provider_export.log`.
 
-```bash
-cd /opt
-git clone <repository-url> MB_LK_leads
-cd MB_LK_leads
+## Полезные утилиты
 
-# Python зависимости
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+- `tool_inspect_db.py` — просмотр `projects` и выборок `provider_leads`
+- `util_01_gck_projects_dump.py` — дамп проектов Prostats
+- `util_02_gck_project_dump.py` — дамп одного проекта Prostats
+- `util_03_gck_project_create_and_dump.py` — создать проект и сразу получить дамп
+- `util_04_projects_compare_dump.py` — сравнение проектов
+- `util_05_gck_project_delete.py` — удаление проекта в Prostats
+- `util_06_prostats_sync_check.py` — проверка синхронизации с Prostats
+- `util_07_gck_project_update.py` — обновление проекта в Prostats
+- `util_table_explorer.py` — обзор таблиц БД
 
-# Фронтенд: сборка прод-версии
-cd my-app-vite
-echo 'VITE_API_BASE=/api' > .env.production
-npm install
-npm run build
+## Структура проекта
+
+```text
+MB_LK_leads/
+├── backend/                 # FastAPI backend
+│   └── app/
+│       ├── main.py          # API endpoints и запуск приложения
+│       ├── models.py        # SQLAlchemy модели
+│       ├── crud.py          # Операции с БД
+│       ├── schemas.py       # Pydantic схемы
+│       ├── auth.py          # JWT/bcrypt
+│       ├── providers/       # Интеграция с Prostats
+│       └── ...
+├── my-app-vite/             # React + Vite frontend
+│   ├── src/
+│   ├── e2e/                 # Playwright тесты
+│   └── package.json
+├── docs/                    # Доп. документация
+├── tool_*.py                # Утилиты проекта
+├── util_*.py                # Утилиты интеграции/диагностики
+├── ARCHITECTURE.md
+├── requirements.txt
+└── README.md
 ```
 
-4) Nginx (раздача фронта + прокси на API)
+## Тестирование
 
-Создаём файл конфига:
-```bash
-sudo nano /etc/nginx/sites-available/leadrecordwh.ru
-```
+- Frontend lint: `cd my-app-vite && npm run lint`
+- E2E: `cd my-app-vite && npm run test:e2e`
+- Проверка backend: `GET /health`
 
-Вставляем содержимое и сохраняем (Ctrl+O → Enter → Ctrl+X):
-```nginx
-server {
-    listen 80;
-    server_name leadrecordwh.ru www.leadrecordwh.ru;
+Подробности по e2e: `docs/test_playwright.md`.
 
-    access_log /var/log/nginx/leadrecordwh.ru_access.log;
-    error_log  /var/log/nginx/leadrecordwh.ru_error.log;
+## Деплой
 
-    location / {
-        root /opt/MB_LK_leads/my-app-vite/dist;
-        index index.html index.htm;
-        try_files $uri $uri/ /index.html;
-    }
+См. отдельные инструкции:
+- `docs/setup-https-leadrecordwh.md`
+- `docs/SWAP-SETUP.md`
+- `docs/git-ssh-setup.md`
+- `docs/deployment-guide.md`
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+## Примечания
 
-Включаем сайт и перезапускаем Nginx:
-```bash
-sudo ln -sf /etc/nginx/sites-available/leadrecordwh.ru /etc/nginx/sites-enabled/leadrecordwh.ru
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-5) Uvicorn как сервис (systemd)
-
-Создаём unit-файл сервиса:
-```bash
-sudo nano /etc/systemd/system/lk-backend.service
-```
-
-Вставляем содержимое и сохраняем:
-```ini
-[Unit]
-Description=FastAPI backend (LK)
-After=network.target
-
-[Service]
-User=root
-WorkingDirectory=/opt/MB_LK_leads
-ExecStart=/opt/MB_LK_leads/venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Активируем и запускаем сервис:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable lk-backend
-sudo systemctl start lk-backend
-sudo systemctl status lk-backend --no-pager
-```
-
-6) Проверка
-
-```bash
-curl http://leadrecordwh.ru/            # фронт
-curl http://leadrecordwh.ru/api/health  # API через домен
-```
-
-7) .env (минимум для прод)
-
-```
-# Разрешённые источники для CORS
-CORS_ORIGINS=http://leadrecordwh.ru,https://leadrecordwh.ru,http://localhost:5173
-
-# Простейшая аутентификация
-AUTH_USER=<логин>
-AUTH_PASSWORD=<пароль>
-AUTH_SECRET=<случайная_строка>
-
-# Для HTTPS позже переключите на 1
-COOKIE_SECURE=0
-```
-
-8) (Опционально позже) HTTPS через Let's Encrypt
-
-```bash
-apt install -y certbot python3-certbot-nginx
-certbot --nginx -d leadrecordwh.ru -d www.leadrecordwh.ru
-# затем в .env: COOKIE_SECURE=1 и перезапуск сервиса
-```
-
-Примечание: для развёртывания на другом сервере поменяйте IP и домен, пути оставьте `/opt/MB_LK_leads` как в примере — так проще переносить.
-
-Отлично, проект запущен. Коротко, как обновлять его через GitHub и что пересобирать.
-
-### Базовый цикл обновления
-
-1) Локально (на вашем ПК)
-- Вносите изменения → коммит → push в GitHub:
-```bash
-git add .
-git commit -m "feature: описание"
-git push origin main
-```
-
-2) На сервере (обновление кода)
-```bash
-ssh root@82.147.71.51
-cd /opt/MB_LK_leads
-git pull
-```
-
-3) Если менялся бэкенд (Python)
-- Обновить зависимости и перезапустить сервис:
-```bash
-source venv/bin/activate
-pip install -r requirements.txt
-systemctl restart lk-backend
-journalctl -u lk-backend -n 50 --no-pager
-```
-
-4) Если менялся фронтенд (React/Vite)
-- Пересобрать статические файлы:
-```bash
-# убедиться, что активен Node 24 (если nvm)
-source ~/.bashrc && nvm use 24
-
-cd /opt/MB_LK_leads/my-app-vite
-npm ci   # или npm install
-npm run build
-```
-Nginx отдаёт `dist/` автоматически — перезапуск Nginx не нужен (только если меняли конфиг).
-
-5) Проверка
-```bash
-curl http://leadrecordwh.ru/api/health
-# в браузере: http://leadrecordwh.ru/ (жёсткое обновление: Ctrl+F5)
-```
-
-### Быстрые сценарии
-
-- Только фронтенд менялся:
-```bash
-cd /opt/MB_LK_leads && git pull --rebase
-source ~/.bashrc && nvm use 24
-cd my-app-vite && npm ci && npm run build
-```
-
-- Только бэкенд менялся:
-```bash
-cd /opt/MB_LK_leads && git pull --rebase
-source venv/bin/activate && pip install -r requirements.txt
-systemctl restart lk-backend
-```
-
-### Важные примечания
-- `.env` и `app.db` не в Git — они остаются на сервере как есть (это правильно).
-- Переменная `VITE_API_BASE=/api` уже задана в `my-app-vite/.env.production` — при каждой сборке учитывается автоматически.
-- Если меняли Nginx-конфиг, применяйте:
-```bash
-nginx -t && systemctl reload nginx
-```
-
- 
+- Админ определяется как пользователь с `id=1` (логика в `backend/app/main.py`).
+- Таблицы создаются автоматически через `models.Base.metadata.create_all(...)` при старте.
+- В репозиторий не коммитятся `.env`, `credentials/`, `logs/`, `*.db` (см. `.gitignore`).
