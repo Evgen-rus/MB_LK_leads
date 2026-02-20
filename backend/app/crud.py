@@ -357,7 +357,44 @@ def _audit_event_compact_description(ev: models.AuditEvent) -> str:
     return action
 
 
-def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistoryItem:
+def _audit_event_actor_user_id(ev: models.AuditEvent) -> Optional[int]:
+    raw_actor = getattr(ev, "actor_user_id", None)
+    try:
+        if raw_actor is not None:
+            actor_id = int(raw_actor)
+            if actor_id > 0:
+                return actor_id
+    except Exception:
+        pass
+    if ev.user_id:
+        return int(ev.user_id)
+    return None
+
+
+def _audit_event_actor_mode(ev: models.AuditEvent, actor_user_id: Optional[int]) -> Optional[str]:
+    """
+    Режим актора:
+    - admin_impersonation: действие админа через ЛК клиента;
+    - admin: действие админа не через имперсонацию;
+    - client: действие клиента.
+    """
+    try:
+        if bool(getattr(ev, "via_impersonation", False)):
+            return "admin_impersonation"
+    except Exception:
+        pass
+    if actor_user_id == 1:
+        return "admin"
+    if actor_user_id:
+        return "client"
+    return None
+
+
+def _audit_event_to_history_item(
+    ev: models.AuditEvent,
+    actor: Optional[schemas.UserInfo] = None,
+    actor_mode: Optional[str] = None,
+) -> schemas.ProjectHistoryItem:
     """
     Преобразует AuditEvent в компактный элемент истории для фронтенда.
     Здесь мы формируем человекочитаемое краткое описание изменения.
@@ -373,6 +410,8 @@ def _audit_event_to_history_item(ev: models.AuditEvent) -> schemas.ProjectHistor
         action=action,  # type: ignore[arg-type]
         createdAt=created_at_str,
         description=desc,
+        actor=actor,
+        actorMode=actor_mode,  # type: ignore[arg-type]
     )
 
 
@@ -469,7 +508,8 @@ def list_client_activity_events(
         audit_rows = db.execute(audit_stmt).all()
         for ev, project_name, _project_owner_id in audit_rows:
             entity = "blacklist" if ev.action in ("blacklist_add", "blacklist_delete") else "project"
-            actor = get_user_info(ev.user_id)
+            actor_id = _audit_event_actor_user_id(ev)
+            actor = get_user_info(actor_id)
             description = _audit_event_compact_description(ev)
             event_id = f"AE-{ev.id}"
             actor_login = actor.login if actor else ""
@@ -616,7 +656,20 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
         .limit(limit)
     )
     rows = db.execute(stmt).scalars().all()
-    return [_audit_event_to_history_item(ev) for ev in rows]
+    actor_ids = {aid for aid in (_audit_event_actor_user_id(ev) for ev in rows) if aid}
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if actor_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(actor_ids))).scalars().all()
+        for u in users:
+            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.ProjectHistoryItem] = []
+    for ev in rows:
+        actor_id = _audit_event_actor_user_id(ev)
+        actor = users_map.get(actor_id) if actor_id else None
+        actor_mode = _audit_event_actor_mode(ev, actor_id)
+        items.append(_audit_event_to_history_item(ev, actor=actor, actor_mode=actor_mode))
+    return items
 
 
 def admin_list_project_history(
@@ -637,8 +690,9 @@ def admin_list_project_history(
         .where(models.AuditEvent.project_id == project_id)
         .where(models.AuditEvent.action.in_(["create", "update", "delete"]))
     )
+    actor_expr = func.coalesce(models.AuditEvent.actor_user_id, models.AuditEvent.user_id)
     if user_id_filter:
-        base = base.where(models.AuditEvent.user_id == user_id_filter)
+        base = base.where(actor_expr == user_id_filter)
     if start_local:
         base = base.where(models.AuditEvent.created_at >= start_local)
     if end_local:
@@ -657,8 +711,8 @@ def admin_list_project_history(
         .all()
     )
 
-    # Собираем user info
-    user_ids = {ev.user_id for ev in rows if ev.user_id}
+    # Собираем actor info
+    user_ids = {aid for aid in (_audit_event_actor_user_id(ev) for ev in rows) if aid}
     users_map: Dict[int, schemas.UserInfo] = {}
     if user_ids:
         users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
@@ -667,7 +721,13 @@ def admin_list_project_history(
 
     items: List[schemas.AdminProjectHistoryItem] = []
     for ev in rows:
-        hist_item = _audit_event_to_history_item(ev)
+        actor_id = _audit_event_actor_user_id(ev)
+        actor_mode = _audit_event_actor_mode(ev, actor_id)
+        hist_item = _audit_event_to_history_item(
+            ev,
+            actor=users_map.get(actor_id) if actor_id else None,
+            actor_mode=actor_mode,
+        )
         status_val = "done" if ev.admin_processed_at is not None else "pending"
         items.append(
             schemas.AdminProjectHistoryItem(
@@ -675,7 +735,8 @@ def admin_list_project_history(
                 action=hist_item.action,
                 createdAt=hist_item.createdAt,
                 description=hist_item.description,
-                user=users_map.get(ev.user_id) if ev.user_id else None,
+                user=hist_item.actor,
+                actorMode=hist_item.actorMode,  # type: ignore[arg-type]
                 status=status_val,  # type: ignore[arg-type]
                 projectSnapshot=ev.after or ev.before,
             )
@@ -695,6 +756,8 @@ def create_projects(
     items: List[schemas.CreateProjectItem],
     user_id: int,
     provider_ids: Optional[List[Optional[str]]] = None,
+    actor_user_id: Optional[int] = None,
+    via_impersonation: bool = False,
 ) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = now_msk()
@@ -738,12 +801,14 @@ def create_projects(
         after = _project_to_out(p).dict()
         db.add(models.AuditEvent(
             user_id=user_id,
+            actor_user_id=actor_user_id or user_id,
             project_id=p.id,
             batch_id=batch_id,
             action='create',
             before=None,
             after=after,
             changed_fields=list(after.keys()),
+            via_impersonation=via_impersonation,
         ))
         created.append(_project_to_out(p))
 
@@ -767,7 +832,14 @@ def _keep_first_item(value: Any) -> Optional[List[Any]]:
     return None
 
 
-def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate, user_id: int) -> Optional[schemas.ProjectOut]:
+def update_project(
+    db: Session,
+    project_id: int,
+    update: schemas.ProjectUpdate,
+    user_id: int,
+    actor_user_id: Optional[int] = None,
+    via_impersonation: bool = False,
+) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
     if not p:
         return None
@@ -792,18 +864,26 @@ def update_project(db: Session, project_id: int, update: schemas.ProjectUpdate, 
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
     db.add(models.AuditEvent(
         user_id=user_id,
+        actor_user_id=actor_user_id or user_id,
         project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed,
+        via_impersonation=via_impersonation,
     ))
     db.commit()
     db.refresh(p)
     return _project_to_out(p)
 
 
-def delete_project(db: Session, project_id: int, user_id: int) -> bool:
+def delete_project(
+    db: Session,
+    project_id: int,
+    user_id: int,
+    actor_user_id: Optional[int] = None,
+    via_impersonation: bool = False,
+) -> bool:
     p = db.get(models.Project, project_id)
     if not p:
         return False
@@ -816,11 +896,13 @@ def delete_project(db: Session, project_id: int, user_id: int) -> bool:
     after = _snapshot_project(p)
     db.add(models.AuditEvent(
         user_id=user_id,
+        actor_user_id=actor_user_id or user_id,
         project_id=project_id,
         action='delete',
         before=before,
         after=after,
         changed_fields=['status'],
+        via_impersonation=via_impersonation,
     ))
     db.commit()
     return True
@@ -1146,7 +1228,13 @@ def list_blacklist(db: Session, user_id: int) -> List[schemas.BlacklistPhoneOut]
     return out
 
 
-def add_to_blacklist(db: Session, user_id: int, phones: List[str]) -> List[schemas.BlacklistPhoneOut]:
+def add_to_blacklist(
+    db: Session,
+    user_id: int,
+    phones: List[str],
+    actor_user_id: Optional[int] = None,
+    via_impersonation: bool = False,
+) -> List[schemas.BlacklistPhoneOut]:
     created: List[schemas.BlacklistPhoneOut] = []
     now = now_msk()
     normalized_seen = set()
@@ -1183,17 +1271,25 @@ def add_to_blacklist(db: Session, user_id: int, phones: List[str]) -> List[schem
         }
         db.add(models.AuditEvent(
             user_id=user_id,
+            actor_user_id=actor_user_id or user_id,
             project_id=None,
             action='blacklist_add',
             before=None,
             after=payload_after,
             changed_fields=list(payload_after.keys()),
+            via_impersonation=via_impersonation,
         ))
     db.commit()
     return created
 
 
-def delete_from_blacklist(db: Session, user_id: int, row_id: int) -> bool:
+def delete_from_blacklist(
+    db: Session,
+    user_id: int,
+    row_id: int,
+    actor_user_id: Optional[int] = None,
+    via_impersonation: bool = False,
+) -> bool:
     row = db.get(models.BlacklistPhone, row_id)
     if not row:
         return False
@@ -1205,11 +1301,13 @@ def delete_from_blacklist(db: Session, user_id: int, row_id: int) -> bool:
     # Аудит: фиксируем удалённый номер
     db.add(models.AuditEvent(
         user_id=user_id,
+        actor_user_id=actor_user_id or user_id,
         project_id=None,
         action='blacklist_delete',
         before={"phone": before_phone},
         after=None,
         changed_fields=["phone"],
+        via_impersonation=via_impersonation,
     ))
     db.commit()
     return True
@@ -1742,6 +1840,13 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
         .order_by(models.AuditEvent.created_at.desc())
     ).all()
 
+    actor_ids = {aid for aid in (_audit_event_actor_user_id(ev) for ev, _ in rows) if aid}
+    actors_map: Dict[int, schemas.UserInfo] = {}
+    if actor_ids:
+        actor_rows = db.execute(select(models.User).where(models.User.id.in_(actor_ids))).scalars().all()
+        for actor_row in actor_rows:
+            actors_map[actor_row.id] = schemas.UserInfo(id=actor_row.id, login=actor_row.login)
+
     items: List[schemas.AdminChangeOut] = []
     for ev, proj_name in rows:
         created_at_str = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -1751,6 +1856,9 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
             snapshot = ev.after or ev.before
         except Exception:
             snapshot = None
+        actor_id = _audit_event_actor_user_id(ev)
+        actor = actors_map.get(actor_id) if actor_id else None
+        actor_mode = _audit_event_actor_mode(ev, actor_id)
         status = "done" if ev.admin_processed_at is not None else "pending"
         items.append(
             schemas.AdminChangeOut(
@@ -1765,6 +1873,8 @@ def admin_list_client_changes(db: Session, client_id: int, actions: Optional[Lis
                 projectSnapshot=snapshot,
                 beforeSnapshot=ev.before,
                 changedFields=ev.changed_fields if isinstance(ev.changed_fields, list) else None,
+                actor=actor,
+                actorMode=actor_mode,  # type: ignore[arg-type]
             )
         )
 
@@ -2250,11 +2360,13 @@ def admin_update_project(
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
     db.add(models.AuditEvent(
         user_id=admin_user_id,
+        actor_user_id=admin_user_id,
         project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed,
+        via_impersonation=False,
     ))
     db.commit()
     db.refresh(p)
@@ -2283,11 +2395,13 @@ def admin_update_project_status_only(
 
     db.add(models.AuditEvent(
         user_id=admin_user_id,
+        actor_user_id=admin_user_id,
         project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed or ['status'],
+        via_impersonation=False,
     ))
     db.commit()
     return True
@@ -2305,11 +2419,13 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
     after = _snapshot_project(p)
     db.add(models.AuditEvent(
         user_id=admin_user_id,
+        actor_user_id=admin_user_id,
         project_id=project_id,
         action='delete',
         before=before,
         after=after,
         changed_fields=['status'],
+        via_impersonation=False,
     ))
     db.commit()
     return True

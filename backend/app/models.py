@@ -101,12 +101,16 @@ class AuditEvent(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # Фактический актор (кто сделал действие). Для старых записей может быть NULL.
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     project_id = Column(Integer, nullable=True)
     batch_id = Column(String, nullable=True, index=True)  # идентификатор батча (для группировки созданий)
     action = Column(String, nullable=False)  # 'create' | 'update' | 'delete'
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)
     changed_fields = Column(JSON, nullable=True)  # list[str]
+    # Признак, что действие выполнено админом в режиме имперсонации клиента.
+    via_impersonation = Column(Boolean, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
     sent = Column(Boolean, default=False, nullable=False)
     # Поля для админской отметки обработки изменений (review)

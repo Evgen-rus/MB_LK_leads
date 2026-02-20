@@ -27,7 +27,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from starlette.background import BackgroundTask
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
@@ -57,6 +57,27 @@ provider_webhook_logger = logging_setup.setup_provider_webhook_logger()
 
 engine, SessionLocal = db.init_engine_and_session(settings["DATABASE_URL"]) 
 models.Base.metadata.create_all(bind=engine)
+
+
+def _ensure_audit_event_columns() -> None:
+    """
+    Лёгкая схема-эволюция для существующих БД без отдельного мигратора.
+    Новые поля nullable, чтобы старые записи оставались валидными.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "audit_events" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("audit_events")}
+    with engine.begin() as conn:
+        if "actor_user_id" not in columns:
+            conn.execute(text("ALTER TABLE audit_events ADD COLUMN actor_user_id INTEGER"))
+        if "via_impersonation" not in columns:
+            conn.execute(text("ALTER TABLE audit_events ADD COLUMN via_impersonation BOOLEAN"))
+
+
+_ensure_audit_event_columns()
 
 
 def get_db():
@@ -278,13 +299,41 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    user_id = auth.decode_access_token(token or "")
-    if not user_id:
+    payload = auth.decode_token_payload(token or "")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        user_id = int(payload.get("user_id"))
+    except Exception:
         raise HTTPException(status_code=401, detail="Unauthorized")
     user = db_sess.get(models.User, int(user_id))
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    impersonator_raw = payload.get("impersonator_user_id")
+    impersonator_id: Optional[int] = None
+    try:
+        if impersonator_raw is not None:
+            impersonator_id = int(impersonator_raw)
+    except Exception:
+        impersonator_id = None
+
+    if impersonator_id and impersonator_id != user.id:
+        setattr(user, "_actor_user_id", impersonator_id)
+        setattr(user, "_via_impersonation", True)
+    else:
+        setattr(user, "_actor_user_id", user.id)
+        setattr(user, "_via_impersonation", False)
     return user
+
+
+def _audit_actor_context(current_user: models.User) -> tuple[int, bool]:
+    raw_actor = getattr(current_user, "_actor_user_id", None)
+    try:
+        actor_user_id = int(raw_actor)
+    except Exception:
+        actor_user_id = int(current_user.id)
+    via_impersonation = bool(getattr(current_user, "_via_impersonation", False))
+    return actor_user_id, via_impersonation
 
 
 @app.get("/me", response_model=schemas.SelfProfileOut)
@@ -349,6 +398,7 @@ def list_projects(
 
 @app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
     # 1) Создаём проекты у поставщика (частичный успех допустим)
     notices: List[str] = []
     adjusted_items: List[schemas.CreateProjectItem] = []
@@ -397,7 +447,14 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         warning_text = "\n\n".join(notices) if notices else "Не удалось создать проекты."
         raise HTTPException(status_code=422, detail={"message": warning_text})
 
-    created = crud.create_projects(db_sess, adjusted_items, user_id=current_user.id, provider_ids=provider_ids)
+    created = crud.create_projects(
+        db_sess,
+        adjusted_items,
+        user_id=current_user.id,
+        provider_ids=provider_ids,
+        actor_user_id=actor_user_id,
+        via_impersonation=via_impersonation,
+    )
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     warning_text = "\n\n".join(notices) if notices else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)
@@ -413,6 +470,7 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
 
 @app.patch("/projects/{project_id}", response_model=schemas.UpdateProjectOut)
 def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -475,14 +533,27 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
-        ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)
+        ok = crud.delete_project(
+            db_sess,
+            project_id,
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            via_impersonation=via_impersonation,
+        )
         if not ok:
             raise HTTPException(status_code=404, detail="Project not found")
         updated = crud.get_project(db_sess, project_id, user_id=current_user.id)
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
     else:
-        updated = crud.update_project(db_sess, project_id, payload, user_id=current_user.id)
+        updated = crud.update_project(
+            db_sess,
+            project_id,
+            payload,
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            via_impersonation=via_impersonation,
+        )
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
@@ -510,6 +581,7 @@ def project_history(
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -521,7 +593,13 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
-    ok = crud.delete_project(db_sess, project_id, user_id=current_user.id)
+    ok = crud.delete_project(
+        db_sess,
+        project_id,
+        user_id=current_user.id,
+        actor_user_id=actor_user_id,
+        via_impersonation=via_impersonation,
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
@@ -1042,14 +1120,28 @@ def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, curre
 
 @app.post("/blacklist", response_model=List[schemas.BlacklistPhoneOut])
 def add_blacklist(payload: schemas.BlacklistAddIn, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    items = crud.add_to_blacklist(db_sess, current_user.id, payload.phones)
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    items = crud.add_to_blacklist(
+        db_sess,
+        current_user.id,
+        payload.phones,
+        actor_user_id=actor_user_id,
+        via_impersonation=via_impersonation,
+    )
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return items
 
 
 @app.delete("/blacklist/{row_id}")
 def delete_blacklist(row_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    ok = crud.delete_from_blacklist(db_sess, current_user.id, row_id)
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    ok = crud.delete_from_blacklist(
+        db_sess,
+        current_user.id,
+        row_id,
+        actor_user_id=actor_user_id,
+        via_impersonation=via_impersonation,
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="Not found")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
@@ -1090,7 +1182,7 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
     return user
 
 
-def create_impersonation_token(client_user_id: int, ttl_minutes: int = 1440) -> str:
+def create_impersonation_token(client_user_id: int, admin_user_id: int, ttl_minutes: int = 1440) -> str:
     """Генерируем JWT для входа под клиентом (без флага is_admin)."""
     from datetime import timedelta
 
@@ -1098,6 +1190,7 @@ def create_impersonation_token(client_user_id: int, ttl_minutes: int = 1440) -> 
         user_id=client_user_id,
         is_admin=False,
         expires_delta=timedelta(minutes=max(1, ttl_minutes)),
+        extra_claims={"impersonator_user_id": int(admin_user_id)},
     )
 
 
@@ -1135,7 +1228,7 @@ def admin_impersonate_client(
     if not client_user:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    token = create_impersonation_token(client_user.id, ttl_minutes=1440)
+    token = create_impersonation_token(client_user.id, admin_user_id=current_admin.id, ttl_minutes=1440)
     return {"access_token": token, "ttl_minutes": 1440}
 
 

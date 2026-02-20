@@ -172,6 +172,7 @@ function AdminClientBlacklistChanges({
             <tr>
               <th style={{ width: 170 }}>Дата</th>
               <th style={{ width: 140 }}>Тип</th>
+              <th style={{ width: 220 }}>Кто</th>
               <th>Описание</th>
               <th style={{ width: 260, textAlign: 'right' }}>Действия</th>
             </tr>
@@ -179,13 +180,13 @@ function AdminClientBlacklistChanges({
           <tbody>
             {loading ? (
               <tr>
-                <td className="muted" colSpan={4} style={{ padding: 16 }}>
+                <td className="muted" colSpan={5} style={{ padding: 16 }}>
                   Загрузка…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="muted" colSpan={4} style={{ padding: 16 }}>
+                <td className="muted" colSpan={5} style={{ padding: 16 }}>
                   Список пуст
                 </td>
               </tr>
@@ -195,6 +196,21 @@ function AdminClientBlacklistChanges({
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={c.createdAt} /></td>
                   <td className="name" style={{ whiteSpace: 'nowrap' }}>
                     {c.action === 'blacklist_add' ? 'Добавление' : c.action === 'blacklist_delete' ? 'Удаление' : c.action}
+                  </td>
+                  <td>
+                    {c.actor ? (
+                      <div>
+                        <div className="name">{c.actor.login}</div>
+                        <div className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span>id: {c.actor.id}</span>
+                          {c.actorMode === 'admin_impersonation' && (
+                            <span className="badge badge--gray">через имперсонацию</span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                   </td>
                   <td>{c.description}</td>
                   <td style={{ textAlign: 'right' }}>

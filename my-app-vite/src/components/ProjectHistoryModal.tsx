@@ -118,6 +118,7 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                 <tr>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 150 }}>Дата</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Действие</th>
+                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 220 }}>Кто</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666' }}>Описание</th>
                 </tr>
               </thead>
@@ -129,6 +130,18 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 120 }}>
                       {item.action === 'create' ? 'Создание' : item.action === 'update' ? 'Изменение' : 'Удаление'}
+                    </td>
+                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 220 }}>
+                      {item.actor ? (
+                        <>
+                          {item.actor.login}
+                          <span className="sub" style={{ marginLeft: 6 }}>
+                            id: {item.actor.id}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#111' }}>
                       {item.description}

@@ -260,6 +260,7 @@ class AdminBlacklistListOut(BaseModel):
 
 # -------- История активности клиента --------
 ActivityEntity = Literal['project', 'blacklist', 'balance', 'report']
+ActorMode = Literal['client', 'admin', 'admin_impersonation']
 
 
 class ActivityEventOut(BaseModel):
@@ -287,6 +288,8 @@ class ProjectHistoryItem(BaseModel):
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
+    actor: Optional[UserInfo] = None
+    actorMode: Optional[ActorMode] = None
 
 
 class AdminProjectHistoryItem(BaseModel):
@@ -295,6 +298,7 @@ class AdminProjectHistoryItem(BaseModel):
     createdAt: str
     description: str
     user: Optional[UserInfo] = None
+    actorMode: Optional[ActorMode] = None
     status: Literal['pending', 'done'] = 'pending'
     projectSnapshot: Optional[dict] = None
 
@@ -317,6 +321,8 @@ class AdminChangeOut(BaseModel):
     projectSnapshot: Optional[dict] = None
     beforeSnapshot: Optional[dict] = None
     changedFields: Optional[List[str]] = None
+    actor: Optional[UserInfo] = None
+    actorMode: Optional[ActorMode] = None
 
 
 class AdminClientChangesOut(BaseModel):

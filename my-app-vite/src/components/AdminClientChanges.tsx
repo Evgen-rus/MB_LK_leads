@@ -345,6 +345,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                   <tr>
                     <th style={{ width: '24%' }}>Когда</th>
                     <th style={{ width: '14%' }}>Действие</th>
+                    <th style={{ width: '18%' }}>Кто</th>
                     <th>Описание изменения</th>
                     <th style={{ width: '16%' }}>Статус</th>
                     <th style={{ width: 210 }}>Действия</th>
@@ -356,6 +357,21 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={c.createdAt} /></td>
                       <td className="muted">
                         {c.action === 'create' ? 'Создание' : c.action === 'delete' ? 'Удаление' : 'Изменение'}
+                      </td>
+                      <td>
+                        {c.actor ? (
+                          <div>
+                            <div className="name">{c.actor.login}</div>
+                            <div className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span>id: {c.actor.id}</span>
+                              {c.actorMode === 'admin_impersonation' && (
+                                <span className="badge badge--gray">через имперсонацию</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                       </td>
                       <td>{c.description}</td>
                       <td>

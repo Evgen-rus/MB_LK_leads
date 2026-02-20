@@ -118,7 +118,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
           </select>
           <input
             type="number"
-            placeholder="ID менеджера"
+            placeholder="ID пользователя"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             style={{ width: 140 }}
@@ -142,7 +142,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                   <th>Дата</th>
                   <th>Действие</th>
                   <th>Статус</th>
-                  <th>Менеджер</th>
+                  <th>Кто</th>
                   <th>Описание</th>
                 </tr>
               </thead>
@@ -160,7 +160,12 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                       {item.user ? (
                         <div>
                           <div className="name">{item.user.login}</div>
-                          <div className="sub">id: {item.user.id}</div>
+                          <div className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span>id: {item.user.id}</span>
+                            {item.actorMode === 'admin_impersonation' && (
+                              <span className="badge badge--gray">через имперсонацию</span>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <span className="muted">—</span>

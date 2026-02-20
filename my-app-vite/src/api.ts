@@ -390,6 +390,8 @@ export type ProjectHistoryItem = {
   action: 'create' | 'update' | 'delete';
   createdAt: string;      // 'YYYY-MM-DD HH:MM:SS'
   description: string;    // краткое текстовое описание изменения
+  actor?: UserInfo | null;
+  actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
 };
 
 export async function fetchProjectHistory(projectId: number, limit: number = 100): Promise<ProjectHistoryItem[]> {
@@ -794,6 +796,8 @@ export type AdminChange = {
   projectSnapshot?: Record<string, unknown> | null;
   beforeSnapshot?: Record<string, unknown> | null;
   changedFields?: string[] | null;
+  actor?: UserInfo | null;
+  actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
 };
 
 export type AdminClientChangesOut = {
@@ -994,6 +998,7 @@ export type AdminProjectHistoryItem = {
   createdAt: string;
   description: string;
   user?: UserInfo;
+  actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
   status: AdminChangeStatus;
 };
 

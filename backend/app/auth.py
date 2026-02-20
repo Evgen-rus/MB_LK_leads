@@ -30,7 +30,12 @@ def verify_password(plain: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, is_admin: bool = False, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    user_id: int,
+    is_admin: bool = False,
+    expires_delta: Optional[timedelta] = None,
+    extra_claims: Optional[dict] = None,
+) -> str:
     """Создаёт JWT с полями user_id, is_admin и временем жизни (по умолчанию 24 часа)."""
     secret = os.getenv("AUTH_SECRET", "dev-secret-change-me")
     ttl = int(expires_delta.total_seconds()) if expires_delta else 24 * 60 * 60
@@ -39,6 +44,8 @@ def create_access_token(user_id: int, is_admin: bool = False, expires_delta: Opt
         "is_admin": is_admin,
         "exp": int(time.time()) + ttl,
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
