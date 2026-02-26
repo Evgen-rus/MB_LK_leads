@@ -140,6 +140,8 @@ def _type_from_collection(collection: schemas.CollectionSource) -> str:
         return "calls"
     if collection == "Пересечение":
         return "complex"
+    if collection == "СМС":
+        return "sms"
     raise ProstatsError(f"Collection source {collection} is not supported", status_code=400)
 
 
@@ -231,6 +233,10 @@ def build_create_payload(item: schemas.CreateProjectItem) -> dict:
         content = ",".join(sites)
     elif p_type == "calls":
         content = ",".join(phones)
+    elif p_type == "sms":
+        if not sms:
+            raise ProstatsError("SMS sender name is required for SMS projects", status_code=400)
+        content = sms
     else:
         content = _build_complex_content(sites, phones, sms)
 
@@ -278,6 +284,10 @@ def build_update_payload(
         content = ",".join(sites)
     elif p_type == "calls":
         content = ",".join(phones)
+    elif p_type == "sms":
+        if not sms:
+            raise ProstatsError("SMS sender name is required for SMS projects", status_code=400)
+        content = sms
     else:
         content = _build_complex_content(sites, phones, sms)
 
@@ -458,8 +468,8 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
 
     result = parsed.get("result") or {}
     provider_id = result.get("id")
-    warning = None
     missing_items: List[str] = []
+    detail: Optional[dict] = None
 
     target_type = payload.get("type")
     if provider_id and target_type in ("hosts", "calls"):

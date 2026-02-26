@@ -63,6 +63,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   }, [project.daysReceived]);
   const originalDaysRef = useRef<DayAbbrev[]>(initialDays);
   const [days, setDays] = useState<DayAbbrev[]>(initialDays);
+  const isSmsSenderValid =
+    (project.collectionSource !== 'СМС' && project.collectionSource !== 'Пересечение')
+      || (smsSenderName.trim() !== '' && smsSenderName.replace(/\D+/g, '').length < 10);
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -229,9 +232,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     e.preventDefault();
     if (!name.trim()) return;
     if (!isDirty || saving) return;
-    if (project.collectionSource === 'СМС' || project.collectionSource === 'Пересечение') {
-      const digits = (smsSenderName || '').replace(/\D+/g, '');
-      if (!smsSenderName.trim() || digits.length >= 10) return;
+    if (!isSmsSenderValid) {
+      setError('Для СМС укажите корректное имя отправителя: не номер и не пустое значение.');
+      return;
     }
 
     const source: CollectionSource = project.collectionSource;
@@ -384,6 +387,11 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Наименование отправителя (СМС)</span>
                 <input type="text" placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен" value={smsSenderName} onChange={(e) => setSmsSenderName(e.target.value)} />
+                {!isSmsSenderValid && (
+                  <div className="sub" style={{ color: '#d00' }}>
+                    Укажите корректный sender: не номер и не пустое значение.
+                  </div>
+                )}
               </label>
             )}
 
@@ -490,7 +498,11 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 Нет изменений
               </span>
             )}
-            <button type="submit" className="btn btn--primary" disabled={!isDirty || isDeleted || saving}>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={!isDirty || !isSmsSenderValid || isDeleted || saving}
+            >
               {saving ? 'Сохранение…' : 'Сохранить'}
             </button>
           </div>

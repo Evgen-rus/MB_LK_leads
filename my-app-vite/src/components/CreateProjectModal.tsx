@@ -69,6 +69,9 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
   const hasName = name.trim().length > 0;
+  const trimmedSmsSender = smsSenderName.trim();
+  const isSmsSenderValid =
+    collectionSource !== 'СМС' || (trimmedSmsSender.length > 0 && !isLikelyPhone(trimmedSmsSender));
 
   const availableSources = useMemo(() => (
     ALL_COLLECTION_SOURCES.filter((src) => !DISABLED_COLLECTION_SOURCES.has(src))
@@ -471,6 +474,11 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   value={smsSenderName}
                   onChange={(e) => setSmsSenderName(e.target.value)}
                 />
+                {!isSmsSenderValid && (
+                  <div className="sub" style={{ color: '#d00' }}>
+                    Для СМС обязателен корректный sender (не пустой и не номер).
+                  </div>
+                )}
               </label>
             )}
 
@@ -542,7 +550,11 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button type="button" className="btn" onClick={onClose} disabled={isSubmitting}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={!hasName || isSubmitting}>
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={!hasName || !isSmsSenderValid || isSubmitting}
+            >
               {isSubmitting ? 'Создание...' : 'Создать'}
             </button>
           </div>

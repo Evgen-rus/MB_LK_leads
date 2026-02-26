@@ -36,6 +36,9 @@ type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status';
 
 const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
 const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
+const SMS_SOURCE = 'СМС';
+const SMS_EDIT_BLOCKED_MESSAGE =
+  'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
 
 function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
@@ -255,6 +258,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
     if (row.status === 'Удалён') return;
+    if (row.collectionSource === SMS_SOURCE) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
+      return;
+    }
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
       const payload = buildUpdatePayloadFromProject(row, { status: nextStatus });
@@ -282,6 +289,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
         : 'Не удалось удалить проект. Попробуйте позже.';
       window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
+  }
+
+  function handleBlockedSmsEditNotice() {
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
   }
 
   async function handleBulkDaysSubmit(days: Day[]) {
@@ -529,7 +540,15 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                       {
                         key: 'settings',
                         label: 'Настройки проекта',
-                        onSelect: () => onEdit?.(row),
+                        onSelect: () => {
+                          if (row.collectionSource === SMS_SOURCE) {
+                            handleBlockedSmsEditNotice();
+                            return;
+                          }
+                          onEdit?.(row);
+                        },
+                        disabled: row.collectionSource === SMS_SOURCE,
+                        title: row.collectionSource === SMS_SOURCE ? SMS_EDIT_BLOCKED_MESSAGE : undefined,
                       },
                       {
                         key: 'history',
@@ -564,10 +583,20 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                         ? 'badge badge--orange'
                         : 'badge badge--gray'
                   }
-                  style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
-                  title={row.status === 'Удалён' ? 'Проект помечен как удалённый' : 'Нажмите, чтобы переключить статус проекта'}
+                  style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' || row.collectionSource === SMS_SOURCE ? 'default' : 'pointer' }}
+                  title={
+                    row.status === 'Удалён'
+                      ? 'Проект помечен как удалённый'
+                      : row.collectionSource === SMS_SOURCE
+                        ? SMS_EDIT_BLOCKED_MESSAGE
+                        : 'Нажмите, чтобы переключить статус проекта'
+                  }
                   onClick={() => {
                     if (row.status === 'Удалён') return;
+                    if (row.collectionSource === SMS_SOURCE) {
+                      handleBlockedSmsEditNotice();
+                      return;
+                    }
                     handleToggleStatus(row);
                   }}
                 >
@@ -613,7 +642,19 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                   >
                     📜
                   </button>
-                  <button className="icon-btn" title="Настройки" onClick={() => onEdit?.(row)}>⚙️</button>
+                  <button
+                    className="icon-btn"
+                    title={row.collectionSource === SMS_SOURCE ? SMS_EDIT_BLOCKED_MESSAGE : 'Настройки'}
+                    onClick={() => {
+                      if (row.collectionSource === SMS_SOURCE) {
+                        handleBlockedSmsEditNotice();
+                        return;
+                      }
+                      onEdit?.(row);
+                    }}
+                  >
+                    ⚙️
+                  </button>
                   <button
                     className="icon-btn"
                     title={row.status === 'Удалён' ? 'Проект уже удален' : 'Удалить проект навсегда'}
