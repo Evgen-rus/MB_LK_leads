@@ -1880,7 +1880,7 @@ def admin_pause_client_projects(
         client_id=client_id,
         locked=True,
         admin_user_id=current_admin.id,
-        reason="Пауза сбора данных по всем проектам клиента",
+        reason="Проекты во временной блокировке",
     )
 
     if paused_ids:

@@ -769,18 +769,13 @@ function AdminClientsScreen({
                     {collectionState.actionDisabledReason}
                   </span>
                 )}
-                {!!collectionState?.projectsMutationLocked && !!collectionState?.projectsMutationLockReason && (
-                  <span className="sub" style={{ color: '#8a5a00' }}>
-                    Причина блокировки: {collectionState.projectsMutationLockReason}
-                  </span>
-                )}
                 {collectionActionLoading && collectionRunInfo && (
                   <span className="sub">
                     {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
                     {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
                   </span>
                 )}
-                {!collectionActionLoading && !!collectionLastInfo && (
+                {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
                   <span className="sub">{collectionLastInfo}</span>
                 )}
               </div>
