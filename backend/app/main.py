@@ -1922,7 +1922,23 @@ def admin_resume_client_projects(
     prev_state = crud.admin_get_collection_state(db_sess, client_id=client_id)
     snapshot_ids = [int(item.id) for item in prev_state.snapshotProjects]
     if not snapshot_ids:
-        raise HTTPException(status_code=409, detail={"message": "Нет сохранённых проектов для восстановления."})
+        crud.admin_set_client_projects_mutation_lock(
+            db_sess,
+            client_id=client_id,
+            locked=False,
+            admin_user_id=current_admin.id,
+            reason=None,
+        )
+        state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+        return schemas.AdminClientCollectionActionOut(
+            state=state,
+            message="Сохранённых проектов для восстановления нет. Блокировка раздела проектов снята.",
+            pausedCount=0,
+            resumedCount=0,
+            skippedCount=0,
+            failedCount=0,
+            errors=[],
+        )
 
     proj_rows = db_sess.execute(
         select(models.Project).where(

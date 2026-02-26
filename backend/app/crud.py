@@ -2018,14 +2018,20 @@ def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClie
 
     has_snapshot = len(snapshot_ids) > 0
     all_snapshot_paused = has_snapshot and not has_active_in_snapshot
-    collection_status: Literal["Активен", "На паузе"] = "На паузе" if all_snapshot_paused else "Активен"
-    action: Literal["pause", "resume"] = "resume" if all_snapshot_paused else "pause"
-    if action == "resume":
-        action_label = "Возобновить приостановленные"
-    else:
-        action_label = "Поставить проекты на паузу снова" if has_snapshot else "Поставить проекты на паузу"
-
     client_user = db.get(models.User, client_id)
+    client_locked = bool(getattr(client_user, "projects_mutation_locked", False)) if client_user else False
+    # UI-статус должен отражать фактическое состояние проектов клиента:
+    # если есть хотя бы 1 активный синхронизированный проект -> "Активен",
+    # иначе -> "На паузе".
+    collection_status: Literal["Активен", "На паузе"] = "Активен" if pause_candidates > 0 else "На паузе"
+    # Если клиентский раздел уже заблокирован, приоритетно предлагаем "resume":
+    # это снимает блокировку и (если есть snapshot) восстанавливает проекты.
+    action: Literal["pause", "resume"] = "resume" if (all_snapshot_paused or client_locked) else "pause"
+    if action == "resume":
+        action_label = "Возобновить сбор и разблокировать проекты"
+    else:
+        action_label = "Поставить проекты на паузу снова" if has_snapshot else "Пауза + блокировка раздела проекты"
+
     return schemas.AdminClientCollectionStateOut(
         clientId=client_id,
         dataCollectionStatus=collection_status,
