@@ -80,6 +80,34 @@ def _ensure_audit_event_columns() -> None:
 _ensure_audit_event_columns()
 
 
+def _ensure_user_projects_lock_columns() -> None:
+    """
+    Лёгкая schema-evolution: добавляем поля блокировки изменений проектов у клиентов.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "users" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("users")}
+    with engine.begin() as conn:
+        if "projects_mutation_locked" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_locked BOOLEAN DEFAULT FALSE"))
+        if "projects_mutation_locked_at" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_locked_at TIMESTAMP"))
+        if "projects_mutation_locked_by" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_locked_by INTEGER"))
+        if "projects_mutation_lock_reason" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_lock_reason VARCHAR"))
+
+    # На старых БД гарантируем не-null значение для bool флага.
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE users SET projects_mutation_locked = FALSE WHERE projects_mutation_locked IS NULL"))
+
+
+_ensure_user_projects_lock_columns()
+
+
 def get_db():
     db_sess = SessionLocal()
     try:
@@ -345,6 +373,10 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         id=current_user.id,
         login=current_user.login,
         name=profile.name if profile else None,
+        projectsMutationLocked=bool(getattr(current_user, "projects_mutation_locked", False)),
+        projectsMutationLockedAt=current_user.projects_mutation_locked_at.isoformat() if getattr(current_user, "projects_mutation_locked_at", None) else None,
+        projectsMutationLockedBy=(int(current_user.projects_mutation_locked_by) if getattr(current_user, "projects_mutation_locked_by", None) is not None else None),
+        projectsMutationLockReason=(current_user.projects_mutation_lock_reason or None),
     )
 
 
@@ -398,6 +430,7 @@ def list_projects(
 
 @app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
     # 1) Создаём проекты у поставщика (частичный успех допустим)
     notices: List[str] = []
@@ -470,6 +503,7 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
 
 @app.patch("/projects/{project_id}", response_model=schemas.UpdateProjectOut)
 def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
@@ -581,6 +615,7 @@ def project_history(
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
+    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
@@ -1769,6 +1804,17 @@ def _ensure_admin_client_exists(db_sess: Session, client_id: int) -> models.User
     return user
 
 
+def _assert_projects_mutation_allowed(current_user: models.User) -> None:
+    if bool(getattr(current_user, "projects_mutation_locked", False)):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECTS_LOCKED_BY_ADMIN",
+                "message": "Изменение проектов временно заблокировано администратором.",
+            },
+        )
+
+
 @app.get("/admin/clients/{client_id}/collection-state", response_model=schemas.AdminClientCollectionStateOut)
 def admin_client_collection_state(
     client_id: int,
@@ -1828,6 +1874,13 @@ def admin_pause_client_projects(
         client_id=client_id,
         project_ids=paused_ids,
         admin_user_id=current_admin.id,
+    )
+    crud.admin_set_client_projects_mutation_lock(
+        db_sess,
+        client_id=client_id,
+        locked=True,
+        admin_user_id=current_admin.id,
+        reason="Пауза сбора данных по всем проектам клиента",
     )
 
     if paused_ids:
@@ -1937,6 +1990,13 @@ def admin_resume_client_projects(
         client_id=client_id,
         project_ids=next_snapshot_ids,
         admin_user_id=current_admin.id,
+    )
+    crud.admin_set_client_projects_mutation_lock(
+        db_sess,
+        client_id=client_id,
+        locked=False,
+        admin_user_id=current_admin.id,
+        reason=None,
     )
 
     if resumed_ids:

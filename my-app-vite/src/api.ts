@@ -340,6 +340,10 @@ export type MeResponse = {
   id: number;
   login: string;
   name?: string | null;
+  projectsMutationLocked: boolean;
+  projectsMutationLockedAt?: string | null;
+  projectsMutationLockedBy?: number | null;
+  projectsMutationLockReason?: string | null;
 };
 
 export async function fetchMe(): Promise<MeResponse> {
@@ -612,6 +616,10 @@ export type AdminClientCollectionState = {
   resumeCandidates: number;
   actionEnabled: boolean;
   actionDisabledReason?: string | null;
+  projectsMutationLocked: boolean;
+  projectsMutationLockedAt?: string | null;
+  projectsMutationLockedBy?: number | null;
+  projectsMutationLockReason?: string | null;
   snapshotProjects: AdminCollectionProjectItem[];
 };
 

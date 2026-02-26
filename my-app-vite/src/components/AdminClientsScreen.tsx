@@ -729,29 +729,49 @@ function AdminClientsScreen({
                       ? 'Выполняем…'
                       : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
                   </span>
-                  <span
-                    className="sub"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.9 }}
-                  >
-                    <span>Сбор данных:</span>
-                    {collectionLoading ? (
-                      <span className="badge badge--gray">Загрузка…</span>
-                    ) : (
-                      <span
-                        className={
-                          collectionState?.dataCollectionStatus === 'На паузе'
-                            ? 'badge badge--orange'
-                            : 'badge badge--green'
-                        }
-                      >
-                        {collectionState?.dataCollectionStatus ?? '—'}
-                      </span>
-                    )}
+                  <span className="sub" style={{ display: 'grid', gap: 4, justifyItems: 'center', opacity: 0.9 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span>Сбор данных:</span>
+                      {collectionLoading ? (
+                        <span className="badge badge--gray">Загрузка…</span>
+                      ) : (
+                        <span
+                          className={
+                            collectionState?.dataCollectionStatus === 'На паузе'
+                              ? 'badge badge--orange'
+                              : 'badge badge--green'
+                          }
+                        >
+                          {collectionState?.dataCollectionStatus ?? '—'}
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span>Изменения проектов:</span>
+                      {collectionLoading ? (
+                        <span className="badge badge--gray">Загрузка…</span>
+                      ) : (
+                        <span
+                          className={
+                            collectionState?.projectsMutationLocked
+                              ? 'badge badge--orange'
+                              : 'badge badge--green'
+                          }
+                        >
+                          {collectionState?.projectsMutationLocked ? 'Заблокированы' : 'Разрешены'}
+                        </span>
+                      )}
+                    </span>
                   </span>
                 </button>
                 {!!collectionState?.actionDisabledReason && (
                   <span className="sub" style={{ color: '#a55' }}>
                     {collectionState.actionDisabledReason}
+                  </span>
+                )}
+                {!!collectionState?.projectsMutationLocked && !!collectionState?.projectsMutationLockReason && (
+                  <span className="sub" style={{ color: '#8a5a00' }}>
+                    Причина блокировки: {collectionState.projectsMutationLockReason}
                   </span>
                 )}
                 {collectionActionLoading && collectionRunInfo && (

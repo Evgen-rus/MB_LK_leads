@@ -18,6 +18,8 @@ type ProjectsTableProps = {
   onCreate?: () => void;
   onHistory?: (row: Project) => void;
   onOpenLeads?: (params: { projectId: number; fromDate: string; toDate: string }) => void;
+  projectsMutationLocked?: boolean;
+  projectsMutationLockMessage?: string;
 };
 
 // Для режима "за всё время" нам всё равно нужен диапазон,
@@ -40,7 +42,14 @@ const SMS_SOURCE = 'СМС';
 const SMS_EDIT_BLOCKED_MESSAGE =
   'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
 
-function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTableProps) {
+function ProjectsTable({
+  onEdit,
+  onCreate,
+  onHistory,
+  onOpenLeads,
+  projectsMutationLocked = false,
+  projectsMutationLockMessage = 'Изменение проектов временно заблокировано администратором.',
+}: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
@@ -225,6 +234,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
     options?: { skippedReasonLabel?: string },
   ) {
     if (selectedRows.length === 0) return;
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
     setBulkSaving(true);
     setBulkProgress(null);
     try {
@@ -258,6 +271,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
     if (row.status === 'Удалён') return;
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
     if (row.collectionSource === SMS_SOURCE) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
       return;
@@ -278,6 +295,10 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
   }
 
   async function handleSoftDelete(row: Project) {
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
     if (!window.confirm(`Удалить проект ${row.id} навсегда?`)) return;
     try {
       await apiDeleteProject(row.id);
@@ -335,6 +356,20 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
 
   return (
     <div className="table-card">
+      {projectsMutationLocked && (
+        <div
+          style={{
+            margin: '12px',
+            padding: '10px 12px',
+            border: '1px solid #f2d59c',
+            background: '#fff7e6',
+            borderRadius: 10,
+            color: '#8a5a00',
+          }}
+        >
+          {projectsMutationLockMessage}
+        </div>
+      )}
       <div className="table-toolbar">
         <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           {/* Период для пересчёта показателей проектов */}
@@ -380,7 +415,14 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
           </label>
         </div>
         <div className="actions">
-          <button className="btn btn--primary" onClick={onCreate}>+ Добавить проект</button>
+          <button
+            className="btn btn--primary"
+            onClick={onCreate}
+            disabled={projectsMutationLocked}
+            title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
+          >
+            + Добавить проект
+          </button>
         </div>
       </div>
       {selectedRows.length > 0 && (
@@ -406,7 +448,8 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
             <button
               className="btn btn--primary"
               onClick={() => setBulkMenuOpen((prev) => !prev)}
-              disabled={bulkSaving}
+              disabled={bulkSaving || projectsMutationLocked}
+              title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
             >
               Массовые действия
             </button>
@@ -489,9 +532,11 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(row.id)}
-                  disabled={row.status === 'Удалён' || bulkSaving}
+                  disabled={row.status === 'Удалён' || bulkSaving || projectsMutationLocked}
                   title={
-                    row.status === 'Удалён'
+                    projectsMutationLocked
+                      ? projectsMutationLockMessage
+                      : row.status === 'Удалён'
                       ? 'Удалённые проекты нельзя редактировать'
                       : 'Выбрать проект'
                   }
@@ -541,14 +586,22 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                         key: 'settings',
                         label: 'Настройки проекта',
                         onSelect: () => {
+                          if (projectsMutationLocked) {
+                            window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+                            return;
+                          }
                           if (row.collectionSource === SMS_SOURCE) {
                             handleBlockedSmsEditNotice();
                             return;
                           }
                           onEdit?.(row);
                         },
-                        disabled: row.collectionSource === SMS_SOURCE,
-                        title: row.collectionSource === SMS_SOURCE ? SMS_EDIT_BLOCKED_MESSAGE : undefined,
+                        disabled: projectsMutationLocked || row.collectionSource === SMS_SOURCE,
+                        title: projectsMutationLocked
+                          ? projectsMutationLockMessage
+                          : row.collectionSource === SMS_SOURCE
+                            ? SMS_EDIT_BLOCKED_MESSAGE
+                            : undefined,
                       },
                       {
                         key: 'history',
@@ -562,10 +615,12 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                           if (row.status === 'Удалён') return;
                           handleSoftDelete(row);
                         },
-                        disabled: row.status === 'Удалён',
+                        disabled: projectsMutationLocked || row.status === 'Удалён',
                         danger: true,
                         title:
-                          row.status === 'Удалён'
+                          projectsMutationLocked
+                            ? projectsMutationLockMessage
+                            : row.status === 'Удалён'
                             ? 'Проект уже удален'
                             : 'Удалить проект навсегда',
                       },
@@ -583,15 +638,27 @@ function ProjectsTable({ onEdit, onCreate, onHistory, onOpenLeads }: ProjectsTab
                         ? 'badge badge--orange'
                         : 'badge badge--gray'
                   }
-                  style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' || row.collectionSource === SMS_SOURCE ? 'default' : 'pointer' }}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    cursor:
+                      projectsMutationLocked || row.status === 'Удалён' || row.collectionSource === SMS_SOURCE
+                        ? 'default'
+                        : 'pointer',
+                  }}
                   title={
-                    row.status === 'Удалён'
+                    projectsMutationLocked
+                      ? projectsMutationLockMessage
+                      : row.status === 'Удалён'
                       ? 'Проект помечен как удалённый'
                       : row.collectionSource === SMS_SOURCE
                         ? SMS_EDIT_BLOCKED_MESSAGE
                         : 'Нажмите, чтобы переключить статус проекта'
                   }
                   onClick={() => {
+                    if (projectsMutationLocked) {
+                      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+                      return;
+                    }
                     if (row.status === 'Удалён') return;
                     if (row.collectionSource === SMS_SOURCE) {
                       handleBlockedSmsEditNotice();

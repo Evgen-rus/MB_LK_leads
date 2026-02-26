@@ -20,6 +20,11 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     login = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
+    # Админская блокировка изменений проектов в клиентском кабинете.
+    projects_mutation_locked = Column(Boolean, nullable=False, default=False)
+    projects_mutation_locked_at = Column(DateTime, nullable=True)
+    projects_mutation_locked_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    projects_mutation_lock_reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 

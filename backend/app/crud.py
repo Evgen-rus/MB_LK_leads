@@ -1941,6 +1941,32 @@ def admin_replace_pause_snapshot(
     return row
 
 
+def admin_set_client_projects_mutation_lock(
+    db: Session,
+    client_id: int,
+    locked: bool,
+    admin_user_id: int,
+    reason: Optional[str] = None,
+) -> Optional[models.User]:
+    user = db.get(models.User, client_id)
+    if not user:
+        return None
+
+    lock_enabled = bool(locked)
+    user.projects_mutation_locked = lock_enabled
+    if lock_enabled:
+        user.projects_mutation_locked_at = now_msk()
+        user.projects_mutation_locked_by = int(admin_user_id)
+        user.projects_mutation_lock_reason = (reason or None)
+    else:
+        user.projects_mutation_locked_at = None
+        user.projects_mutation_locked_by = None
+        user.projects_mutation_lock_reason = None
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClientCollectionStateOut:
     row = _get_pause_snapshot_row(db, client_id)
     snapshot_ids = _normalize_pause_snapshot_ids(row.project_ids if row else [])
@@ -1999,6 +2025,7 @@ def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClie
     else:
         action_label = "Поставить проекты на паузу снова" if has_snapshot else "Поставить проекты на паузу"
 
+    client_user = db.get(models.User, client_id)
     return schemas.AdminClientCollectionStateOut(
         clientId=client_id,
         dataCollectionStatus=collection_status,
@@ -2008,6 +2035,10 @@ def admin_get_collection_state(db: Session, client_id: int) -> schemas.AdminClie
         resumeCandidates=resume_candidates,
         actionEnabled=True,
         actionDisabledReason=None,
+        projectsMutationLocked=bool(getattr(client_user, "projects_mutation_locked", False)) if client_user else False,
+        projectsMutationLockedAt=client_user.projects_mutation_locked_at.isoformat() if client_user and client_user.projects_mutation_locked_at else None,
+        projectsMutationLockedBy=int(client_user.projects_mutation_locked_by) if client_user and client_user.projects_mutation_locked_by is not None else None,
+        projectsMutationLockReason=(client_user.projects_mutation_lock_reason or None) if client_user else None,
         snapshotProjects=snapshot_projects,
     )
 

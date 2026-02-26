@@ -100,6 +100,10 @@ class SelfProfileOut(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    projectsMutationLocked: bool = False
+    projectsMutationLockedAt: Optional[str] = None
+    projectsMutationLockedBy: Optional[int] = None
+    projectsMutationLockReason: Optional[str] = None
 
 
 class ClientProfileOut(BaseModel):
@@ -394,6 +398,10 @@ class AdminClientCollectionStateOut(BaseModel):
     resumeCandidates: int = 0
     actionEnabled: bool = True
     actionDisabledReason: Optional[str] = None
+    projectsMutationLocked: bool = False
+    projectsMutationLockedAt: Optional[str] = None
+    projectsMutationLockedBy: Optional[int] = None
+    projectsMutationLockReason: Optional[str] = None
     snapshotProjects: List[AdminCollectionProjectItem] = Field(default_factory=list)
 
 

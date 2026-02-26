@@ -85,6 +85,8 @@ function App() {
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
+  const [projectsMutationLocked, setProjectsMutationLocked] = useState(false);
+  const [projectsMutationLockReason, setProjectsMutationLockReason] = useState<string | null>(null);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -229,15 +231,21 @@ function App() {
   useEffect(() => {
     if (!authChecked || needLogin || isAdmin) {
       setClientName(null);
+      setProjectsMutationLocked(false);
+      setProjectsMutationLockReason(null);
       return;
     }
     (async () => {
       try {
         const me = await fetchMe();
         setClientName(me.name || me.login || null);
+        setProjectsMutationLocked(Boolean(me.projectsMutationLocked));
+        setProjectsMutationLockReason(me.projectsMutationLockReason || null);
       } catch (e) {
         console.error(e);
         setClientName(null);
+        setProjectsMutationLocked(false);
+        setProjectsMutationLockReason(null);
       }
     })();
   }, [authChecked, needLogin, isAdmin]);
@@ -429,8 +437,32 @@ function App() {
               />
             ) : (
               <ProjectsTable
-                onCreate={() => setIsCreateOpen(true)}
-                onEdit={(row) => setEditing(row)}
+                projectsMutationLocked={projectsMutationLocked}
+                projectsMutationLockMessage={
+                  projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.'
+                }
+                onCreate={() => {
+                  if (projectsMutationLocked) {
+                    window.dispatchEvent(
+                      new CustomEvent('app-toast', {
+                        detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
+                      }),
+                    );
+                    return;
+                  }
+                  setIsCreateOpen(true);
+                }}
+                onEdit={(row) => {
+                  if (projectsMutationLocked) {
+                    window.dispatchEvent(
+                      new CustomEvent('app-toast', {
+                        detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
+                      }),
+                    );
+                    return;
+                  }
+                  setEditing(row);
+                }}
                 onHistory={(row) => setHistoryFor(row)}
                 onOpenLeads={({ projectId, fromDate, toDate }) => {
                   setLeadsPrefill({ projectId, from: fromDate, to: toDate });
