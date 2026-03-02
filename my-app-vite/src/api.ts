@@ -14,6 +14,7 @@ type HttpError = Error & {
   status?: number;
   isNetworkError?: boolean;
   errorDetail?: string | null;
+  errorCode?: string | null;
 };
 
 const env = import.meta.env as Record<string, unknown>;
@@ -167,6 +168,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const errorMessage = res.statusText;
     let errorDetail: string | null = null;
+    let errorCode: string | null = null;
 
     function buildDuplicateMessage(
       message: string,
@@ -202,8 +204,10 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
         if (json.detail && typeof json.detail === 'object') {
           const detail = json.detail as {
             message?: string;
+            code?: string;
             duplicates?: Record<string, string[]>;
           };
+          errorCode = typeof detail.code === 'string' ? detail.code : null;
           if (detail.duplicates && Object.keys(detail.duplicates).length > 0) {
             const methodValue = (init?.method || 'GET').toUpperCase();
             return buildDuplicateMessage(detail.message || 'Ошибка', detail.duplicates, path, methodValue);
@@ -240,6 +244,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     const err: HttpError = Object.assign(new Error(errorDetail || errorMessage), {
       status: res.status,
       errorDetail,
+      errorCode,
     });
     throw err;
   }

@@ -42,6 +42,20 @@ const SMS_SOURCE = 'СМС';
 const SMS_EDIT_BLOCKED_MESSAGE =
   'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
 
+type ApiError = Error & {
+  status?: number;
+  errorCode?: string | null;
+};
+
+function buildLimitControlBlockedMessage(rawReason?: string): string {
+  const reason = (rawReason || '').trim();
+  return [
+    'Не удалось включить проект: сработал авто-контроль лимитов клиента.',
+    reason || 'Сумма лимитов активных проектов превышает доступный остаток.',
+    'Что сделать: уменьшите лимиты активных проектов или пополните баланс, затем повторите включение.',
+  ].join('\n');
+}
+
 function ProjectsTable({
   onEdit,
   onCreate,
@@ -290,7 +304,19 @@ function ProjectsTable({
       }
     } catch (e) {
       console.error(e);
-      alert('Не удалось изменить статус проекта');
+      const err = e as ApiError;
+      if (err?.errorCode === 'LIMIT_CONTROL_BLOCK') {
+        window.dispatchEvent(
+          new CustomEvent('app-toast', {
+            detail: buildLimitControlBlockedMessage(err.message),
+          }),
+        );
+        return;
+      }
+      const message = e instanceof Error && e.message
+        ? e.message
+        : 'Не удалось изменить статус проекта.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
     }
   }
 
