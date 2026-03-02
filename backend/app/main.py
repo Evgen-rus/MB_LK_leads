@@ -39,6 +39,7 @@ def get_settings():
     return {
         "DATABASE_URL": os.getenv("DATABASE_URL", "sqlite:///./app.db"),
         "DEBOUNCE_WINDOW_MINUTES": int(os.getenv("DEBOUNCE_WINDOW_MINUTES", "30")),
+        "AUTO_LIMIT_CHECK_SECONDS": int(os.getenv("AUTO_LIMIT_CHECK_SECONDS", "300")),
         "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
         "SHEETS_TZ": os.getenv("SHEETS_TZ", "Europe/Moscow"),
@@ -99,10 +100,13 @@ def _ensure_user_projects_lock_columns() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_locked_by INTEGER"))
         if "projects_mutation_lock_reason" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_lock_reason VARCHAR"))
+        if "auto_limit_control_enabled" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN auto_limit_control_enabled BOOLEAN DEFAULT FALSE"))
 
     # На старых БД гарантируем не-null значение для bool флага.
     with engine.begin() as conn:
         conn.execute(text("UPDATE users SET projects_mutation_locked = FALSE WHERE projects_mutation_locked IS NULL"))
+        conn.execute(text("UPDATE users SET auto_limit_control_enabled = FALSE WHERE auto_limit_control_enabled IS NULL"))
 
 
 _ensure_user_projects_lock_columns()
@@ -252,6 +256,124 @@ def startup_event():
     )
     worker.start()
 
+    # Периодический контроль лимитов клиентов (пер-клиентный флаг в users.auto_limit_control_enabled).
+    limit_worker = threading.Thread(
+        target=run_limit_control_loop,
+        kwargs={
+            "SessionLocal": SessionLocal,
+            "sleep_seconds": max(30, int(settings["AUTO_LIMIT_CHECK_SECONDS"])),
+        },
+        daemon=True,
+        name="limit-control-thread",
+    )
+    limit_worker.start()
+
+
+def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
+    while True:
+        try:
+            with SessionLocal() as s:  # type: Session
+                client_ids = crud.list_clients_with_auto_limit_control(s)
+                for client_id in client_ids:
+                    _run_limit_control_for_client(s, client_id=client_id, trigger="schedule")
+        except Exception:
+            logging.getLogger("app").warning("limit-control loop failed", exc_info=True)
+        time.sleep(max(30, int(sleep_seconds)))
+
+
+def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
+    user = db_sess.get(models.User, int(client_id))
+    if not user or not bool(getattr(user, "auto_limit_control_enabled", False)):
+        return {"paused": 0, "errors": [], "skipped": 0}
+
+    remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
+    active_projects = db_sess.execute(
+        select(models.Project).where(
+            models.Project.user_id == int(client_id),
+            models.Project.status == "Активен",
+            models.Project.provider_project_id.is_not(None),
+        )
+    ).scalars().all()
+
+    active_sum = sum(int(p.data_limit or 0) for p in active_projects)
+    if active_sum <= remaining:
+        return {"paused": 0, "errors": [], "skipped": 0}
+
+    pause_candidates = sorted(
+        active_projects,
+        key=lambda p: (int(p.data_limit or 0), int(p.id or 0)),
+        reverse=True,
+    )
+    paused_projects: List[models.Project] = []
+    skipped = 0
+    errors: List[str] = []
+
+    for project in pause_candidates:
+        if active_sum <= remaining:
+            break
+        if not project.provider_project_id:
+            skipped += 1
+            continue
+        try:
+            prostats.update_project_status(str(project.provider_project_id), project, "На паузе")
+            ok = crud.update_project_status_with_audit(
+                db_sess,
+                project_id=int(project.id),
+                status="На паузе",
+                event_user_id=int(client_id),
+                actor_user_id=None,
+                audit_reason=(
+                    f"Автопауза по лимитам ({trigger}): сумма активных лимитов была {active_sum}, остаток {remaining}."
+                ),
+            )
+            if ok:
+                paused_projects.append(project)
+                active_sum -= int(project.data_limit or 0)
+        except prostats.ProstatsError as exc:
+            errors.append(f'Проект {project.id} "{project.name}": {exc.message}')
+
+    if paused_projects:
+        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        _notify_auto_limit_pause(
+            user=user,
+            remaining=remaining,
+            sum_before=sum(int(p.data_limit or 0) for p in active_projects),
+            paused_projects=paused_projects,
+            trigger=trigger,
+            errors=errors,
+        )
+    return {"paused": len(paused_projects), "errors": errors, "skipped": skipped}
+
+
+def _notify_auto_limit_pause(
+    user: models.User,
+    remaining: int,
+    sum_before: int,
+    paused_projects: List[models.Project],
+    trigger: str,
+    errors: List[str],
+) -> None:
+    bot_token = settings.get("TELEGRAM_BOT_TOKEN") or ""
+    chat_id = settings.get("TELEGRAM_CHAT_ID") or ""
+    if not bot_token or not chat_id:
+        return
+    paused_lines = [f'- {p.name} (id: {p.id}, лимит: {int(p.data_limit or 0)})' for p in paused_projects]
+    details = "\n".join(paused_lines)
+    text = (
+        "<b>[ЛК | Автопауза по лимитам]</b>\n"
+        f"Клиент: <code>{user.login}</code> (id={user.id})\n"
+        f"Триггер: <code>{trigger}</code>\n"
+        f"Сумма активных лимитов: <b>{sum_before}</b>\n"
+        f"Остаток клиента: <b>{remaining}</b>\n\n"
+        "Отключены проекты:\n"
+        f"{details}\n\n"
+        "Чтобы включить обратно: уменьшите лимиты активных проектов и/или пополните баланс, "
+        "после этого включите проекты вручную."
+    )
+    if errors:
+        text += "\n\nОшибки:\n" + "\n".join(errors[:5])
+    telegram.send_text(bot_token, chat_id, text, parse_mode="HTML")
+
 
 @app.get("/health")
 def health() -> dict:
@@ -308,6 +430,11 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     except IntegrityError:
         db_sess.rollback()
         return {"ok": True, "stored": False, "reason": "duplicate"}
+
+    if project_id:
+        proj = db_sess.get(models.Project, int(project_id))
+        if proj and proj.user_id:
+            _run_limit_control_for_client(db_sess, client_id=int(proj.user_id), trigger="provider_lead")
 
     return {"ok": True, "stored": True, "id": row.id}
 
@@ -377,6 +504,7 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         projectsMutationLockedAt=current_user.projects_mutation_locked_at.isoformat() if getattr(current_user, "projects_mutation_locked_at", None) else None,
         projectsMutationLockedBy=(int(current_user.projects_mutation_locked_by) if getattr(current_user, "projects_mutation_locked_by", None) is not None else None),
         projectsMutationLockReason=(current_user.projects_mutation_lock_reason or None),
+        autoLimitControlEnabled=bool(getattr(current_user, "auto_limit_control_enabled", False)),
     )
 
 
@@ -488,6 +616,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         actor_user_id=actor_user_id,
         via_impersonation=via_impersonation,
     )
+    _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="projects_create")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     warning_text = "\n\n".join(notices) if notices else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)
@@ -512,6 +641,20 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    if payload.status == "Активен" and project_row.status != "Активен":
+        can_activate, reason = crud.can_activate_project_under_limit_control(
+            db_sess,
+            project_id=project_id,
+            projected_data_limit=int(payload.dataLimit),
+        )
+        if not can_activate:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "LIMIT_CONTROL_BLOCK",
+                    "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
+                },
+            )
     warning_text = None
     try:
         if payload.status == "Удалён":
@@ -590,6 +733,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
+        _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="project_update")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return schemas.UpdateProjectOut(project=updated, warning=warning_text)
 
@@ -1244,6 +1388,7 @@ def admin_create_client(
             contact=payload.contact,
             login=payload.login,
             password=payload.password,
+            auto_limit_control_enabled=bool(payload.autoLimitControlEnabled or False),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1275,7 +1420,7 @@ def admin_update_client(
     db_sess: Session = Depends(get_db),
 ):
     try:
-        return crud.admin_update_client(
+        result = crud.admin_update_client(
             db_sess,
             client_id=client_id,
             name=payload.name,
@@ -1284,7 +1429,11 @@ def admin_update_client(
             contact=payload.contact,
             login=payload.login,
             password=payload.password,
+            auto_limit_control_enabled=payload.autoLimitControlEnabled,
         )
+        if payload.autoLimitControlEnabled is True:
+            _run_limit_control_for_client(db_sess, client_id=client_id, trigger="admin_toggle_on")
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1418,6 +1567,20 @@ def admin_update_project(
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    if payload.status == "Активен" and project_row.status != "Активен":
+        can_activate, reason = crud.can_activate_project_under_limit_control(
+            db_sess,
+            project_id=project_id,
+            projected_data_limit=int(payload.dataLimit),
+        )
+        if not can_activate:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "LIMIT_CONTROL_BLOCK",
+                    "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
+                },
+            )
     warning_text = None
     try:
         if payload.status == "Удалён":
@@ -1483,6 +1646,8 @@ def admin_update_project(
         updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
+        if project_row.user_id:
+            _run_limit_control_for_client(db_sess, client_id=int(project_row.user_id), trigger="admin_project_update")
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return schemas.AdminUpdateProjectOut(project=updated, warning=warning_text)
 
@@ -1974,6 +2139,11 @@ def admin_resume_client_projects(
             skipped_count += 1
             errors.append(f'Проект {p.id} "{p.name}": неожиданный статус "{p.status}", пропущен.')
             continue
+        can_activate, reason = crud.can_activate_project_under_limit_control(db_sess, project_id=int(p.id))
+        if not can_activate:
+            skipped_count += 1
+            errors.append(f'Проект {p.id} "{p.name}": {reason or "ограничение по лимитам клиента"}.')
+            continue
         try:
             prostats.update_project_status(str(p.provider_project_id), p, "Активен")
             ok = crud.admin_update_project_status_only(
@@ -2121,7 +2291,7 @@ def admin_create_balance_op(
         raise HTTPException(status_code=400, detail="amount must be positive")
     if payload.type not in ("credit", "debit"):
         raise HTTPException(status_code=400, detail="type must be credit or debit")
-    return crud.create_client_balance_operation(
+    op = crud.create_client_balance_operation(
         db_sess,
         client_id=client_id,
         admin_id=current_admin.id,
@@ -2129,6 +2299,8 @@ def admin_create_balance_op(
         op_type=payload.type,
         comment=payload.comment,
     )
+    _run_limit_control_for_client(db_sess, client_id=client_id, trigger="balance_operation")
+    return op
 
 
 @app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)

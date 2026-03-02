@@ -93,6 +93,7 @@ class UserInfo(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    autoLimitControlEnabled: Optional[bool] = None
 
 
 class SelfProfileOut(BaseModel):
@@ -104,6 +105,7 @@ class SelfProfileOut(BaseModel):
     projectsMutationLockedAt: Optional[str] = None
     projectsMutationLockedBy: Optional[int] = None
     projectsMutationLockReason: Optional[str] = None
+    autoLimitControlEnabled: bool = False
 
 
 class ClientProfileOut(BaseModel):
@@ -123,6 +125,7 @@ class AdminClientCreateIn(BaseModel):
     contact: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None
+    autoLimitControlEnabled: bool = False
 
 
 class AdminClientCreateOut(BaseModel):
@@ -139,6 +142,7 @@ class AdminClientUpdateIn(BaseModel):
     contact: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None
+    autoLimitControlEnabled: Optional[bool] = None
 
 
 class AdminClientUpdateOut(BaseModel):
@@ -364,6 +368,7 @@ class AdminClientSummaryItem(BaseModel):
     numbersBalance: int | None = None
     numbersUsed: int | None = None
     numbersUsedPeriod: int | None = None
+    autoLimitControlEnabled: bool = False
 
 
 class AdminClientSummaryTotals(BaseModel):

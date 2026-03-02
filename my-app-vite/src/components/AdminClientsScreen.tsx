@@ -5,6 +5,7 @@ import {
   fetchAdminClientsSummary,
   fetchAdminChangesSummary,
   impersonateClient,
+  updateAdminClient,
   fetchAdminClientCollectionState,
   pauseAdminClientProjects,
   resumeAdminClientProjects,
@@ -53,6 +54,7 @@ type ClientRow = {
   pendingCreates: number;
   pendingBlacklistAdds: number;
   pendingBlacklistDeletes: number;
+  autoLimitControlEnabled: boolean;
   inn?: string | null;
   phone?: string | null;
   contact?: string | null;
@@ -159,6 +161,7 @@ function AdminClientsScreen({
             pendingCreates: createsMap[it.user.id] ?? it.pendingCreates ?? 0,
             pendingBlacklistAdds: blAddsMap[it.user.id] ?? 0,
             pendingBlacklistDeletes: blDeletesMap[it.user.id] ?? 0,
+            autoLimitControlEnabled: Boolean(it.autoLimitControlEnabled),
             inn: profile?.inn,
             phone: profile?.phone,
             contact: profile?.contact,
@@ -335,6 +338,35 @@ function AdminClientsScreen({
     } finally {
       setCollectionActionLoading(false);
       setCollectionRunInfo(null);
+    }
+  }
+
+  async function handleToggleAutoLimitControl() {
+    if (!selectedClient) return;
+    const nextEnabled = !selectedClient.autoLimitControlEnabled;
+    const confirmText = nextEnabled
+      ? 'Включить авто-контроль лимитов для этого клиента?'
+      : 'Выключить авто-контроль лимитов для этого клиента? После этого управление будет полностью ручным.';
+    if (!window.confirm(confirmText)) return;
+    try {
+      await updateAdminClient(selectedClient.id, { autoLimitControlEnabled: nextEnabled });
+      setBaseClients((prev) =>
+        prev.map((row) =>
+          row.id === selectedClient.id ? { ...row, autoLimitControlEnabled: nextEnabled } : row,
+        ),
+      );
+      window.dispatchEvent(
+        new CustomEvent('app-toast', {
+          detail: nextEnabled
+            ? 'Авто-контроль лимитов включён.'
+            : 'Авто-контроль лимитов выключен. Управление проектами полностью ручное.',
+        }),
+      );
+      setRefreshKey((x) => x + 1);
+    } catch (err: unknown) {
+      window.dispatchEvent(
+        new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим авто-контроля лимитов') }),
+      );
     }
   }
 
@@ -709,6 +741,20 @@ function AdminClientsScreen({
                 </button>
               )}
               <div style={{ display: 'grid', gap: 4, minWidth: 320 }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    void handleToggleAutoLimitControl();
+                  }}
+                >
+                  {selectedClient.autoLimitControlEnabled
+                    ? 'Выключить авто-контроль лимитов'
+                    : 'Включить авто-контроль лимитов'}
+                </button>
+                <span className="sub">
+                  Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                </span>
                 <button
                   type="button"
                   className="btn btn--secondary"

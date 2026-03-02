@@ -139,6 +139,7 @@ def _format_changes_compact(diff: Dict[str, Tuple[Any, Any]]) -> str:
         "collectionSource": "Источник данных",
         "dataSourceCode": "Код источника",
         "sourcesCount": "Источники",
+        "limitControlReason": "Причина автопаузы",
     }
 
     def _human_region_mode(v: Any) -> str:
@@ -1378,6 +1379,7 @@ def admin_create_client(
     contact: Optional[str],
     login: Optional[str],
     password: Optional[str],
+    auto_limit_control_enabled: bool = False,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
     name_clean = (name or "").strip()
@@ -1408,6 +1410,7 @@ def admin_create_client(
     user = models.User(
         login=final_login,
         password_hash=auth.hash_password(raw_password),
+        auto_limit_control_enabled=bool(auto_limit_control_enabled),
         created_at=now,
     )
     db.add(user)
@@ -1428,7 +1431,11 @@ def admin_create_client(
     db.refresh(profile)
 
     return schemas.AdminClientCreateOut(
-        user=schemas.UserInfo(id=user.id, login=user.login),
+        user=schemas.UserInfo(
+            id=user.id,
+            login=user.login,
+            autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+        ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=final_login,
         password=raw_password,
@@ -1444,6 +1451,7 @@ def admin_update_client(
     contact: Optional[str],
     login: Optional[str],
     password: Optional[str],
+    auto_limit_control_enabled: Optional[bool] = None,
 ) -> schemas.AdminClientUpdateOut:
     user = db.get(models.User, client_id)
     if not user:
@@ -1472,6 +1480,8 @@ def admin_update_client(
             password_changed = True
     if login_changed or password_changed:
         user.created_at = user.created_at or now  # safety
+    if auto_limit_control_enabled is not None:
+        user.auto_limit_control_enabled = bool(auto_limit_control_enabled)
 
     # Профиль
     name_clean = name.strip() if name else None
@@ -1522,7 +1532,11 @@ def admin_update_client(
     db.refresh(profile)
 
     return schemas.AdminClientUpdateOut(
-        user=schemas.UserInfo(id=user.id, login=user.login),
+        user=schemas.UserInfo(
+            id=user.id,
+            login=user.login,
+            autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+        ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=user.login,
         password=raw_password,
@@ -1679,7 +1693,12 @@ def admin_clients_summary(
         select(models.User).where(models.User.id != 1)
     ).scalars().all()
     users_map: Dict[int, schemas.UserInfo] = {
-        u.id: schemas.UserInfo(id=u.id, login=u.login) for u in users
+        u.id: schemas.UserInfo(
+            id=u.id,
+            login=u.login,
+            autoLimitControlEnabled=bool(getattr(u, "auto_limit_control_enabled", False)),
+        )
+        for u in users
     }
 
     # Профили клиентов
@@ -1788,6 +1807,7 @@ def admin_clients_summary(
             numbersBalance=manual_balance,
             numbersUsed=used_total,
             numbersUsedPeriod=used_period,
+            autoLimitControlEnabled=bool(getattr(info, "autoLimitControlEnabled", False)),
         )
         totals_projects += item.projectCount
         totals_limit += item.totalLimit
@@ -2071,6 +2091,83 @@ def _client_leads_usage(
     if end_local:
         stmt = stmt.where(ts_col <= end_local)
     return int(db.execute(stmt).scalar_one() or 0)
+
+
+def get_client_remaining_numbers(db: Session, client_id: int) -> int:
+    credits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == client_id,
+            models.ClientBalanceOperation.op_type == "credit",
+        )
+    ).scalar_one()
+    debits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == client_id,
+            models.ClientBalanceOperation.op_type == "debit",
+        )
+    ).scalar_one()
+    manual_balance = int(credits or 0) - int(debits or 0)
+    used_total = _client_leads_usage(db, client_id)
+    return manual_balance - used_total
+
+
+def get_client_active_projects_limit_sum(
+    db: Session,
+    client_id: int,
+    exclude_project_id: Optional[int] = None,
+) -> int:
+    stmt = select(func.coalesce(func.sum(models.Project.data_limit), 0)).where(
+        models.Project.user_id == client_id,
+        models.Project.status == "Активен",
+        models.Project.provider_project_id.is_not(None),
+    )
+    if exclude_project_id is not None:
+        stmt = stmt.where(models.Project.id != int(exclude_project_id))
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
+def can_activate_project_under_limit_control(
+    db: Session,
+    project_id: int,
+    projected_data_limit: Optional[int] = None,
+) -> Tuple[bool, Optional[str]]:
+    p = db.get(models.Project, project_id)
+    if not p:
+        return False, "Проект не найден."
+    if p.status == "Удалён":
+        return False, "Проект удалён. Включение запрещено."
+
+    owner = db.get(models.User, int(p.user_id)) if p.user_id else None
+    if not owner:
+        return False, "Клиент проекта не найден."
+    if not bool(getattr(owner, "auto_limit_control_enabled", False)):
+        return True, None
+
+    if p.status == "Активен":
+        return True, None
+
+    remaining = get_client_remaining_numbers(db, int(owner.id))
+    current_active_sum = get_client_active_projects_limit_sum(db, int(owner.id), exclude_project_id=int(p.id))
+    next_limit = int(projected_data_limit if projected_data_limit is not None else (p.data_limit or 0))
+    next_sum = current_active_sum + next_limit
+    if next_sum <= remaining:
+        return True, None
+
+    reason = (
+        "Нельзя включить проект: сумма лимитов активных проектов станет "
+        f"{next_sum}, а остаток клиента {remaining}. Уменьшите лимиты или пополните баланс."
+    )
+    return False, reason
+
+
+def list_clients_with_auto_limit_control(db: Session) -> List[int]:
+    rows = db.execute(
+        select(models.User.id).where(
+            models.User.id != 1,
+            models.User.auto_limit_control_enabled == True,  # noqa: E712
+        )
+    ).all()
+    return [int(uid) for (uid,) in rows if uid is not None]
 
 
 def get_client_balance_summary(
@@ -2412,11 +2509,13 @@ def admin_update_project(
     return _admin_project_to_out(p, user_info)
 
 
-def admin_update_project_status_only(
+def update_project_status_with_audit(
     db: Session,
     project_id: int,
     status: schemas.ProjectStatus,
-    admin_user_id: int,
+    event_user_id: int,
+    actor_user_id: Optional[int],
+    audit_reason: Optional[str] = None,
 ) -> bool:
     p = db.get(models.Project, project_id)
     if not p:
@@ -2428,11 +2527,13 @@ def admin_update_project_status_only(
     p.status = status
     p.updated_at = now_msk()
     after = _snapshot_project(p)
+    if audit_reason:
+        after["limitControlReason"] = audit_reason
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
 
     db.add(models.AuditEvent(
-        user_id=admin_user_id,
-        actor_user_id=admin_user_id,
+        user_id=event_user_id,
+        actor_user_id=actor_user_id,
         project_id=p.id,
         action='update',
         before=before,
@@ -2442,6 +2543,21 @@ def admin_update_project_status_only(
     ))
     db.commit()
     return True
+
+
+def admin_update_project_status_only(
+    db: Session,
+    project_id: int,
+    status: schemas.ProjectStatus,
+    admin_user_id: int,
+) -> bool:
+    return update_project_status_with_audit(
+        db,
+        project_id=project_id,
+        status=status,
+        event_user_id=admin_user_id,
+        actor_user_id=admin_user_id,
+    )
 
 
 def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bool:

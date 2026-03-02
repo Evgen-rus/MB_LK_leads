@@ -344,6 +344,7 @@ export type MeResponse = {
   projectsMutationLockedAt?: string | null;
   projectsMutationLockedBy?: number | null;
   projectsMutationLockReason?: string | null;
+  autoLimitControlEnabled: boolean;
 };
 
 export async function fetchMe(): Promise<MeResponse> {
@@ -569,6 +570,7 @@ export type UserInfo = {
   id: number;
   login: string;
   name?: string | null;
+  autoLimitControlEnabled?: boolean | null;
 };
 
 export type ClientProfile = {
@@ -864,6 +866,7 @@ export type AdminClientSummaryItem = {
   numbersBalance?: number | null;
   numbersUsed?: number | null;
   numbersUsedPeriod?: number | null;
+  autoLimitControlEnabled: boolean;
 };
 
 export type AdminClientsSummaryOut = {
@@ -885,6 +888,7 @@ export type AdminClientCreatePayload = {
   contact?: string;
   login?: string;
   password?: string;
+  autoLimitControlEnabled?: boolean;
 };
 
 export type AdminClientCreateResp = {
@@ -901,6 +905,7 @@ export type AdminClientUpdatePayload = {
   contact?: string;
   login?: string;
   password?: string;
+  autoLimitControlEnabled?: boolean;
 };
 
 export type AdminClientUpdateResp = {

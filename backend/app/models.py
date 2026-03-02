@@ -25,6 +25,8 @@ class User(Base):
     projects_mutation_locked_at = Column(DateTime, nullable=True)
     projects_mutation_locked_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     projects_mutation_lock_reason = Column(String, nullable=True)
+    # Пер-клиентный флаг: включен ли автоматический контроль лимитов.
+    auto_limit_control_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 
