@@ -10,6 +10,7 @@
 import os
 import json
 import tempfile
+import html
 from dotenv import load_dotenv
 import logging
 import secrets
@@ -395,6 +396,37 @@ def _get_client_telegram_chat_id_for_auto_pause(user: models.User) -> str:
     if use_client_route and client_chat_id:
         return client_chat_id
     return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _should_send_auto_pause_test_message(
+    prev_enabled: bool,
+    prev_chat_id: str,
+    next_enabled: bool,
+    next_chat_id: str,
+) -> bool:
+    """
+    Тестовое сообщение шлём только в двух случаях:
+    1) маршрут включили впервые (False -> True);
+    2) chat id изменили при уже включённом маршруте.
+
+    Если новый chat id пустой, тест отправлять некуда — пропускаем.
+    """
+    if not next_enabled or not next_chat_id:
+        return False
+    if not prev_enabled:
+        return True
+    return prev_chat_id != next_chat_id
+
+
+def _build_auto_pause_test_message(user: models.User) -> str:
+    client_login = html.escape(str(getattr(user, "login", "") or ""))
+    client_id = html.escape(str(getattr(user, "id", "") or ""))
+    return (
+        "<b>[ЛК | Тест Telegram-маршрута]</b>\n"
+        "Это тестовое сообщение подтверждает, что персональный Telegram-чат для автопаузы настроен корректно.\n\n"
+        f"Клиент: <code>{client_login}</code> (id={client_id})\n"
+        "Дальше сюда будут приходить уведомления об автопаузе проектов по лимитам."
+    )
 
 
 @app.get("/health")
@@ -1446,6 +1478,29 @@ def admin_update_client(
     db_sess: Session = Depends(get_db),
 ):
     try:
+        existing_user = db_sess.get(models.User, client_id)
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        prev_enabled = bool(getattr(existing_user, "telegram_auto_pause_enabled", False))
+        prev_chat_id = str(getattr(existing_user, "telegram_notifications_chat_id", "") or "").strip()
+        next_enabled = (
+            bool(payload.telegramAutoPauseEnabled)
+            if payload.telegramAutoPauseEnabled is not None
+            else prev_enabled
+        )
+        next_chat_id = (
+            str(payload.telegramNotificationsChatId or "").strip()
+            if payload.telegramNotificationsChatId is not None
+            else prev_chat_id
+        )
+        should_send_test = _should_send_auto_pause_test_message(
+            prev_enabled=prev_enabled,
+            prev_chat_id=prev_chat_id,
+            next_enabled=next_enabled,
+            next_chat_id=next_chat_id,
+        )
+
         result = crud.admin_update_client(
             db_sess,
             client_id=client_id,
@@ -1458,11 +1513,35 @@ def admin_update_client(
             auto_limit_control_enabled=payload.autoLimitControlEnabled,
             telegram_notifications_chat_id=payload.telegramNotificationsChatId,
             telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
+            commit=False,
         )
+
+        if should_send_test:
+            bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+            test_ok = telegram.send_text(
+                bot_token,
+                next_chat_id,
+                _build_auto_pause_test_message(existing_user),
+                parse_mode="HTML",
+            )
+            if not test_ok:
+                db_sess.rollback()
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Не удалось отправить тестовое сообщение в Telegram. "
+                        "Проверьте chat id и убедитесь, что бот добавлен в группу."
+                    ),
+                )
+
+        db_sess.commit()
         if payload.autoLimitControlEnabled is True:
             _run_limit_control_for_client(db_sess, client_id=client_id, trigger="admin_toggle_on")
         return result
+    except HTTPException:
+        raise
     except ValueError as exc:
+        db_sess.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
 
 

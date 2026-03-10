@@ -1461,6 +1461,7 @@ def admin_update_client(
     auto_limit_control_enabled: Optional[bool] = None,
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: Optional[bool] = None,
+    commit: bool = True,
 ) -> schemas.AdminClientUpdateOut:
     user = db.get(models.User, client_id)
     if not user:
@@ -1540,9 +1541,15 @@ def admin_update_client(
             profile.contact = (contact or "").strip() or None
         profile.updated_at = now
 
-    db.commit()
-    db.refresh(user)
-    db.refresh(profile)
+    if commit:
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+    else:
+        # Нужен flush, чтобы caller мог:
+        # 1) проверить/отправить тестовое внешнее сообщение,
+        # 2) затем либо commit, либо rollback без рассинхронизации настроек.
+        db.flush()
 
     return schemas.AdminClientUpdateOut(
         user=schemas.UserInfo(
