@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Простой скрипт: при получении сообщения бот отвечает ID пользователя и ID чата (группы).
-Запуск: python scripts/telegram_echo_ids.py
+Запуск: python tool_telegram_echo_ids.py
 Остановка: Ctrl+C
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Подключаем .env из корня проекта
-root = Path(__file__).resolve().parent.parent
+root = Path(__file__).resolve().parent
 env_path = root / ".env"
 if env_path.exists():
     for line in env_path.read_text(encoding="utf-8").splitlines():
