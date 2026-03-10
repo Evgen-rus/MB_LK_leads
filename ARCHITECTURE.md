@@ -53,7 +53,9 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 Провайдер вызывает `POST /api/provider-test/{secret}` -> валидация секрета/payload -> запись в `provider_leads` (или skip дубля по `vid`) -> лог в `logs/provider_webhook.log`.
 
 ### C) Notifications Worker
-На старте backend запускает `notify_worker` -> воркер агрегирует pending-события -> отправляет в Telegram -> помечает обработанные.
+На старте backend запускает `notify_worker` -> воркер закрывает debounce-очередь по `audit_events` и помечает события как обработанные для отправки.
+Важно: с 2026-03-10 батч-уведомления по изменениям проектов и чёрного списка в Telegram отключены.
+В Telegram остаются только отдельные сообщения из логики автопаузы по лимитам и из формы поддержки.
 
 ### D) Admin Operations
 `/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/аудит) -> при необходимости синхронизация статусов с Prostats.
@@ -63,7 +65,8 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 - Новое поле/правило в API: `schemas.py` + `crud.py` + endpoint в `main.py`
 - UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
 - Интеграция Prostats: `backend/app/providers/prostats.py`
-- Telegram-уведомления: `backend/app/telegram.py`, `backend/app/notify_worker.py`
+- Telegram-отправка: `backend/app/telegram.py`
+- Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
 - Экспорт provider leads: `tool_export_provider_leads.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
 
