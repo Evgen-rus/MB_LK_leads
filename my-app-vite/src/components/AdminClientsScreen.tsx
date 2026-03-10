@@ -55,6 +55,8 @@ type ClientRow = {
   pendingBlacklistAdds: number;
   pendingBlacklistDeletes: number;
   autoLimitControlEnabled: boolean;
+  telegramNotificationsChatId?: string | null;
+  telegramAutoPauseEnabled: boolean;
   inn?: string | null;
   phone?: string | null;
   contact?: string | null;
@@ -121,6 +123,8 @@ function AdminClientsScreen({
     inn?: string | null;
     phone?: string | null;
     contact?: string | null;
+    telegramNotificationsChatId?: string | null;
+    telegramAutoPauseEnabled: boolean;
     login: string;
   } | null>(null);
 
@@ -162,6 +166,8 @@ function AdminClientsScreen({
             pendingBlacklistAdds: blAddsMap[it.user.id] ?? 0,
             pendingBlacklistDeletes: blDeletesMap[it.user.id] ?? 0,
             autoLimitControlEnabled: Boolean(it.autoLimitControlEnabled),
+            telegramNotificationsChatId: it.user.telegramNotificationsChatId ?? null,
+            telegramAutoPauseEnabled: Boolean(it.user.telegramAutoPauseEnabled),
             inn: profile?.inn,
             phone: profile?.phone,
             contact: profile?.contact,
@@ -586,6 +592,8 @@ function AdminClientsScreen({
                               inn: row.inn,
                               phone: row.phone,
                               contact: row.contact,
+                              telegramNotificationsChatId: row.telegramNotificationsChatId,
+                              telegramAutoPauseEnabled: row.telegramAutoPauseEnabled,
                               login: row.login,
                             });
                           }}
@@ -981,6 +989,8 @@ function AdminClientsScreen({
         initialInn={cardClientData.inn || undefined}
         initialPhone={cardClientData.phone || undefined}
         initialContact={cardClientData.contact || undefined}
+        initialTelegramNotificationsChatId={cardClientData.telegramNotificationsChatId || undefined}
+        initialTelegramAutoPauseEnabled={cardClientData.telegramAutoPauseEnabled}
         initialLogin={cardClientData.login}
         onClose={() => setCardClientId(null)}
         onUpdated={() => {

@@ -27,6 +27,12 @@ class User(Base):
     projects_mutation_lock_reason = Column(String, nullable=True)
     # Пер-клиентный флаг: включен ли автоматический контроль лимитов.
     auto_limit_control_enabled = Column(Boolean, nullable=False, default=False)
+    # Необязательный chat id конкретной Telegram-группы/чата клиента.
+    # Используется для маршрутизации системных уведомлений по клиенту.
+    telegram_notifications_chat_id = Column(String, nullable=True)
+    # Если True, автопауза по лимитам старается уйти в клиентский чат.
+    # Если chat id не задан, используем глобальный TELEGRAM_CHAT_ID как fallback.
+    telegram_auto_pause_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 

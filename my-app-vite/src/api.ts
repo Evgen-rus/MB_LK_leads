@@ -350,6 +350,8 @@ export type MeResponse = {
   projectsMutationLockedBy?: number | null;
   projectsMutationLockReason?: string | null;
   autoLimitControlEnabled: boolean;
+  telegramNotificationsChatId?: string | null;
+  telegramAutoPauseEnabled: boolean;
 };
 
 export async function fetchMe(): Promise<MeResponse> {
@@ -576,6 +578,8 @@ export type UserInfo = {
   login: string;
   name?: string | null;
   autoLimitControlEnabled?: boolean | null;
+  telegramNotificationsChatId?: string | null;
+  telegramAutoPauseEnabled?: boolean | null;
 };
 
 export type ClientProfile = {
@@ -894,6 +898,8 @@ export type AdminClientCreatePayload = {
   login?: string;
   password?: string;
   autoLimitControlEnabled?: boolean;
+  telegramNotificationsChatId?: string;
+  telegramAutoPauseEnabled?: boolean;
 };
 
 export type AdminClientCreateResp = {
@@ -911,6 +917,8 @@ export type AdminClientUpdatePayload = {
   login?: string;
   password?: string;
   autoLimitControlEnabled?: boolean;
+  telegramNotificationsChatId?: string;
+  telegramAutoPauseEnabled?: boolean;
 };
 
 export type AdminClientUpdateResp = {

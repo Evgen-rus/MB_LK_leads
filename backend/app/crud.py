@@ -1380,6 +1380,8 @@ def admin_create_client(
     login: Optional[str],
     password: Optional[str],
     auto_limit_control_enabled: bool = False,
+    telegram_notifications_chat_id: Optional[str] = None,
+    telegram_auto_pause_enabled: bool = False,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
     name_clean = (name or "").strip()
@@ -1407,10 +1409,13 @@ def admin_create_client(
     final_login = _ensure_unique_login(db, preferred_login)
 
     raw_password = password.strip() if password else _generate_password()
+    telegram_chat_id = (telegram_notifications_chat_id or "").strip() or None
     user = models.User(
         login=final_login,
         password_hash=auth.hash_password(raw_password),
         auto_limit_control_enabled=bool(auto_limit_control_enabled),
+        telegram_notifications_chat_id=telegram_chat_id,
+        telegram_auto_pause_enabled=bool(telegram_auto_pause_enabled),
         created_at=now,
     )
     db.add(user)
@@ -1435,6 +1440,8 @@ def admin_create_client(
             id=user.id,
             login=user.login,
             autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+            telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
+            telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
         ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=final_login,
@@ -1452,6 +1459,8 @@ def admin_update_client(
     login: Optional[str],
     password: Optional[str],
     auto_limit_control_enabled: Optional[bool] = None,
+    telegram_notifications_chat_id: Optional[str] = None,
+    telegram_auto_pause_enabled: Optional[bool] = None,
 ) -> schemas.AdminClientUpdateOut:
     user = db.get(models.User, client_id)
     if not user:
@@ -1482,6 +1491,10 @@ def admin_update_client(
         user.created_at = user.created_at or now  # safety
     if auto_limit_control_enabled is not None:
         user.auto_limit_control_enabled = bool(auto_limit_control_enabled)
+    if telegram_notifications_chat_id is not None:
+        user.telegram_notifications_chat_id = telegram_notifications_chat_id.strip() or None
+    if telegram_auto_pause_enabled is not None:
+        user.telegram_auto_pause_enabled = bool(telegram_auto_pause_enabled)
 
     # Профиль
     name_clean = name.strip() if name else None
@@ -1536,6 +1549,8 @@ def admin_update_client(
             id=user.id,
             login=user.login,
             autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+            telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
+            telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
         ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=user.login,
@@ -1697,6 +1712,8 @@ def admin_clients_summary(
             id=u.id,
             login=u.login,
             autoLimitControlEnabled=bool(getattr(u, "auto_limit_control_enabled", False)),
+            telegramNotificationsChatId=(getattr(u, "telegram_notifications_chat_id", None) or None),
+            telegramAutoPauseEnabled=bool(getattr(u, "telegram_auto_pause_enabled", False)),
         )
         for u in users
     }
@@ -2333,7 +2350,13 @@ def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
     user = db.get(models.User, user_id)
     if not user:
         return None
-    return schemas.UserInfo(id=user.id, login=user.login)
+    return schemas.UserInfo(
+        id=user.id,
+        login=user.login,
+        autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+        telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
+        telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+    )
 
 
 def _admin_project_to_out(
@@ -2767,5 +2790,14 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
     rows = db.execute(stmt).all()
     out: List[schemas.UserInfo] = []
     for user, name in rows:
-        out.append(schemas.UserInfo(id=user.id, login=user.login, name=name))
+        out.append(
+            schemas.UserInfo(
+                id=user.id,
+                login=user.login,
+                name=name,
+                autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
+                telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
+                telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+            )
+        )
     return out

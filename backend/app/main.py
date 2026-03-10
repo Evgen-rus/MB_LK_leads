@@ -83,7 +83,8 @@ _ensure_audit_event_columns()
 
 def _ensure_user_projects_lock_columns() -> None:
     """
-    Лёгкая schema-evolution: добавляем поля блокировки изменений проектов у клиентов.
+    Лёгкая schema-evolution: добавляем поля блокировки изменений проектов,
+    автоконтроля лимитов и Telegram-настроек клиента.
     """
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -102,11 +103,16 @@ def _ensure_user_projects_lock_columns() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_lock_reason VARCHAR"))
         if "auto_limit_control_enabled" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN auto_limit_control_enabled BOOLEAN DEFAULT FALSE"))
+        if "telegram_notifications_chat_id" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_notifications_chat_id VARCHAR"))
+        if "telegram_auto_pause_enabled" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_auto_pause_enabled BOOLEAN DEFAULT FALSE"))
 
-    # На старых БД гарантируем не-null значение для bool флага.
+    # На старых БД гарантируем не-null значение для bool-флагов.
     with engine.begin() as conn:
         conn.execute(text("UPDATE users SET projects_mutation_locked = FALSE WHERE projects_mutation_locked IS NULL"))
         conn.execute(text("UPDATE users SET auto_limit_control_enabled = FALSE WHERE auto_limit_control_enabled IS NULL"))
+        conn.execute(text("UPDATE users SET telegram_auto_pause_enabled = FALSE WHERE telegram_auto_pause_enabled IS NULL"))
 
 
 _ensure_user_projects_lock_columns()
@@ -354,7 +360,7 @@ def _notify_auto_limit_pause(
     errors: List[str],
 ) -> None:
     bot_token = settings.get("TELEGRAM_BOT_TOKEN") or ""
-    chat_id = settings.get("TELEGRAM_CHAT_ID") or ""
+    chat_id = _get_client_telegram_chat_id_for_auto_pause(user)
     if not bot_token or not chat_id:
         return
     paused_lines = [f'- {p.name} (id: {p.id}, лимит: {int(p.data_limit or 0)})' for p in paused_projects]
@@ -373,6 +379,22 @@ def _notify_auto_limit_pause(
     if errors:
         text += "\n\nОшибки:\n" + "\n".join(errors[:5])
     telegram.send_text(bot_token, chat_id, text, parse_mode="HTML")
+
+
+def _get_client_telegram_chat_id_for_auto_pause(user: models.User) -> str:
+    """
+    Определяет, куда отправлять автопаузу по лимитам.
+
+    Поведение специально безопасное:
+    - если у клиента включён персональный Telegram-маршрут и задан chat id,
+      отправляем туда;
+    - иначе используем общий TELEGRAM_CHAT_ID из env, чтобы не потерять уведомление.
+    """
+    use_client_route = bool(getattr(user, "telegram_auto_pause_enabled", False))
+    client_chat_id = str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
+    if use_client_route and client_chat_id:
+        return client_chat_id
+    return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
 
 
 @app.get("/health")
@@ -505,6 +527,8 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         projectsMutationLockedBy=(int(current_user.projects_mutation_locked_by) if getattr(current_user, "projects_mutation_locked_by", None) is not None else None),
         projectsMutationLockReason=(current_user.projects_mutation_lock_reason or None),
         autoLimitControlEnabled=bool(getattr(current_user, "auto_limit_control_enabled", False)),
+        telegramNotificationsChatId=(getattr(current_user, "telegram_notifications_chat_id", None) or None),
+        telegramAutoPauseEnabled=bool(getattr(current_user, "telegram_auto_pause_enabled", False)),
     )
 
 
@@ -1389,6 +1413,8 @@ def admin_create_client(
             login=payload.login,
             password=payload.password,
             auto_limit_control_enabled=bool(payload.autoLimitControlEnabled or False),
+            telegram_notifications_chat_id=payload.telegramNotificationsChatId,
+            telegram_auto_pause_enabled=bool(payload.telegramAutoPauseEnabled or False),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1430,6 +1456,8 @@ def admin_update_client(
             login=payload.login,
             password=payload.password,
             auto_limit_control_enabled=payload.autoLimitControlEnabled,
+            telegram_notifications_chat_id=payload.telegramNotificationsChatId,
+            telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
         )
         if payload.autoLimitControlEnabled is True:
             _run_limit_control_for_client(db_sess, client_id=client_id, trigger="admin_toggle_on")

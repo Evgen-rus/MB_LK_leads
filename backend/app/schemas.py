@@ -94,6 +94,8 @@ class UserInfo(BaseModel):
     login: str
     name: Optional[str] = None
     autoLimitControlEnabled: Optional[bool] = None
+    telegramNotificationsChatId: Optional[str] = None
+    telegramAutoPauseEnabled: Optional[bool] = None
 
 
 class SelfProfileOut(BaseModel):
@@ -106,6 +108,8 @@ class SelfProfileOut(BaseModel):
     projectsMutationLockedBy: Optional[int] = None
     projectsMutationLockReason: Optional[str] = None
     autoLimitControlEnabled: bool = False
+    telegramNotificationsChatId: Optional[str] = None
+    telegramAutoPauseEnabled: bool = False
 
 
 class ClientProfileOut(BaseModel):
@@ -126,6 +130,8 @@ class AdminClientCreateIn(BaseModel):
     login: Optional[str] = None
     password: Optional[str] = None
     autoLimitControlEnabled: bool = False
+    telegramNotificationsChatId: Optional[str] = None
+    telegramAutoPauseEnabled: bool = False
 
 
 class AdminClientCreateOut(BaseModel):
@@ -143,6 +149,8 @@ class AdminClientUpdateIn(BaseModel):
     login: Optional[str] = None
     password: Optional[str] = None
     autoLimitControlEnabled: Optional[bool] = None
+    telegramNotificationsChatId: Optional[str] = None
+    telegramAutoPauseEnabled: Optional[bool] = None
 
 
 class AdminClientUpdateOut(BaseModel):

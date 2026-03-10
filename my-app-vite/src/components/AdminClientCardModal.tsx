@@ -7,6 +7,8 @@ type AdminClientCardModalProps = {
   initialInn?: string;
   initialPhone?: string;
   initialContact?: string;
+  initialTelegramNotificationsChatId?: string;
+  initialTelegramAutoPauseEnabled?: boolean;
   initialLogin: string;
   onClose: () => void;
   onUpdated?: (resp: AdminClientUpdateResp) => void;
@@ -28,6 +30,8 @@ function AdminClientCardModal({
   initialInn,
   initialPhone,
   initialContact,
+  initialTelegramNotificationsChatId,
+  initialTelegramAutoPauseEnabled,
   initialLogin,
   onClose,
   onUpdated,
@@ -36,6 +40,8 @@ function AdminClientCardModal({
   const [inn, setInn] = useState(initialInn || '');
   const [phone, setPhone] = useState(initialPhone || '');
   const [contact, setContact] = useState(initialContact || '');
+  const [telegramNotificationsChatId, setTelegramNotificationsChatId] = useState(initialTelegramNotificationsChatId || '');
+  const [telegramAutoPauseEnabled, setTelegramAutoPauseEnabled] = useState(Boolean(initialTelegramAutoPauseEnabled));
   const [login, setLogin] = useState(initialLogin);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -92,6 +98,8 @@ function AdminClientCardModal({
         inn: inn.trim(),
         phone: phone.trim(),
         contact: contact.trim(),
+        telegramNotificationsChatId: telegramNotificationsChatId.trim(),
+        telegramAutoPauseEnabled,
         login: login.trim(),
         password: password.trim() || undefined,
       });
@@ -174,6 +182,38 @@ function AdminClientCardModal({
               onChange={(e) => setPhone(e.target.value)}
             />
           </label>
+          <div
+            style={{
+              display: 'grid',
+              gap: 10,
+              padding: 12,
+              border: '1px solid #eee',
+              borderRadius: 8,
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>Telegram для автопаузы по лимитам</div>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">Telegram chat ID</span>
+              <input
+                type="text"
+                placeholder="-1001234567890"
+                value={telegramNotificationsChatId}
+                onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
+              />
+              <span className="hint">
+                Если поле пустое или маршрут выключен, автопауза уйдёт в общий Telegram-чат из настроек сервера.
+              </span>
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={telegramAutoPauseEnabled}
+                onChange={(e) => setTelegramAutoPauseEnabled(e.target.checked)}
+              />
+              <span>Использовать этот чат для уведомлений об автопаузе</span>
+            </label>
+          </div>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Логин</span>
