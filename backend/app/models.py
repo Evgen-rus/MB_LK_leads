@@ -33,6 +33,9 @@ class User(Base):
     # Если True, автопауза по лимитам старается уйти в клиентский чат.
     # Если chat id не задан, используем глобальный TELEGRAM_CHAT_ID как fallback.
     telegram_auto_pause_enabled = Column(Boolean, nullable=False, default=False)
+    # Последний отправленный порог уведомления по остатку: 3 / 2 / 1 / 0.
+    # Нужен, чтобы не слать одно и то же сообщение повторно на каждом пересчёте.
+    telegram_balance_alert_level = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 

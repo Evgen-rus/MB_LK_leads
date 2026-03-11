@@ -192,7 +192,7 @@ function AdminClientCardModal({
               background: '#fafbff',
             }}
           >
-            <div style={{ fontWeight: 600 }}>Telegram для автопаузы по лимитам</div>
+            <div style={{ fontWeight: 600 }}>Telegram для уведомлений</div>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Telegram chat ID</span>
               <input
@@ -202,7 +202,7 @@ function AdminClientCardModal({
                 onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
               />
               <span className="hint">
-                Если поле пустое или маршрут выключен, автопауза уйдёт в общий Telegram-чат из настроек сервера.
+                Если поле пустое или маршрут выключен, уведомление уйдёт в общий Telegram-чат из настроек сервера.
               </span>
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -211,7 +211,7 @@ function AdminClientCardModal({
                 checked={telegramAutoPauseEnabled}
                 onChange={(e) => setTelegramAutoPauseEnabled(e.target.checked)}
               />
-              <span>Использовать этот чат для уведомлений об автопаузе</span>
+              <span>Использовать этот чат для уведомлений клиенту</span>
             </label>
           </div>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>

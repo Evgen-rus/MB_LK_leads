@@ -108,6 +108,8 @@ def _ensure_user_projects_lock_columns() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_notifications_chat_id VARCHAR"))
         if "telegram_auto_pause_enabled" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_auto_pause_enabled BOOLEAN DEFAULT FALSE"))
+        if "telegram_balance_alert_level" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_balance_alert_level INTEGER"))
 
     # На старых БД гарантируем не-null значение для bool-флагов.
     with engine.begin() as conn:
@@ -290,7 +292,7 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
 
 def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
     user = db_sess.get(models.User, int(client_id))
-    if not user or not bool(getattr(user, "auto_limit_control_enabled", False)):
+    if not user:
         return {"paused": 0, "errors": [], "skipped": 0}
 
     remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
@@ -301,8 +303,17 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
             models.Project.provider_project_id.is_not(None),
         )
     ).scalars().all()
-
     active_sum = sum(int(p.data_limit or 0) for p in active_projects)
+
+    _sync_client_balance_alert(
+        db_sess,
+        user=user,
+        remaining=remaining,
+        active_limit_sum=active_sum,
+    )
+
+    if not bool(getattr(user, "auto_limit_control_enabled", False)):
+        return {"paused": 0, "errors": [], "skipped": 0}
     if active_sum <= remaining:
         return {"paused": 0, "errors": [], "skipped": 0}
 
@@ -361,7 +372,7 @@ def _notify_auto_limit_pause(
     errors: List[str],
 ) -> None:
     bot_token = settings.get("TELEGRAM_BOT_TOKEN") or ""
-    chat_id = _get_client_telegram_chat_id_for_auto_pause(user)
+    chat_id = _get_client_telegram_chat_id_for_notifications(user)
     if not bot_token or not chat_id:
         return
     paused_lines = [f'- {p.name} (id: {p.id}, лимит: {int(p.data_limit or 0)})' for p in paused_projects]
@@ -382,9 +393,9 @@ def _notify_auto_limit_pause(
     telegram.send_text(bot_token, chat_id, text, parse_mode="HTML")
 
 
-def _get_client_telegram_chat_id_for_auto_pause(user: models.User) -> str:
+def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
     """
-    Определяет, куда отправлять автопаузу по лимитам.
+    Определяет, куда отправлять системные Telegram-уведомления по клиенту.
 
     Поведение специально безопасное:
     - если у клиента включён персональный Telegram-маршрут и задан chat id,
@@ -396,6 +407,108 @@ def _get_client_telegram_chat_id_for_auto_pause(user: models.User) -> str:
     if use_client_route and client_chat_id:
         return client_chat_id
     return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _resolve_client_balance_alert_level(remaining: int, active_limit_sum: int) -> Optional[int]:
+    if active_limit_sum <= 0:
+        return None
+    if remaining <= 0:
+        return 0
+
+    days_left = float(remaining) / float(active_limit_sum)
+    if days_left <= 1:
+        return 1
+    if days_left <= 2:
+        return 2
+    if days_left <= 3:
+        return 3
+    return None
+
+
+def _format_client_balance_days_left(remaining: int, active_limit_sum: int) -> str:
+    if active_limit_sum <= 0:
+        return "inf"
+    if remaining <= 0:
+        return "0.00"
+    days_left = float(remaining) / float(active_limit_sum)
+    return f"{days_left:.2f}"
+
+
+def _build_client_balance_alert_message(
+    user: models.User,
+    remaining: int,
+    active_limit_sum: int,
+    alert_level: int,
+) -> str:
+    login = html.escape(str(getattr(user, "login", "") or ""))
+    user_id = html.escape(str(getattr(user, "id", "") or ""))
+    remaining_text = html.escape(str(int(remaining)))
+    active_sum_text = html.escape(str(int(active_limit_sum)))
+    days_left_text = html.escape(_format_client_balance_days_left(remaining, active_limit_sum))
+
+    if alert_level == 0:
+        title = "Остаток клиента закончился"
+        status_line = "Остаток достиг нуля или ушёл в минус."
+    else:
+        suffix = "день" if alert_level == 1 else ("дня" if alert_level in (2, 3) else "дней")
+        title = f"Остаток клиента: {alert_level} {suffix}"
+        status_line = f"Расчётно остатка хватит примерно на <b>{alert_level} {suffix}</b> или меньше."
+
+    return (
+        f"<b>[ЛК | {title}]</b>\n"
+        f"Клиент: <code>{login}</code> (id={user_id})\n"
+        f"Текущий остаток: <b>{remaining_text}</b>\n"
+        f"Сумма лимитов активных проектов: <b>{active_sum_text}</b>\n"
+        f"Расчётный горизонт: <b>{days_left_text}</b> дн.\n\n"
+        f"{status_line}\n"
+        "Рекомендуем пополнить баланс и/или снизить лимиты активных проектов."
+    )
+
+
+def _sync_client_balance_alert(
+    db_sess: Session,
+    user: models.User,
+    remaining: int,
+    active_limit_sum: int,
+) -> Optional[int]:
+    saved_level_raw = getattr(user, "telegram_balance_alert_level", None)
+    try:
+        saved_level = int(saved_level_raw) if saved_level_raw is not None else None
+    except (TypeError, ValueError):
+        saved_level = None
+
+    next_level = _resolve_client_balance_alert_level(remaining, active_limit_sum)
+    if next_level is None:
+        if saved_level is not None:
+            user.telegram_balance_alert_level = None
+            db_sess.add(user)
+        return None
+
+    if saved_level == next_level:
+        return next_level
+
+    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = _get_client_telegram_chat_id_for_notifications(user)
+    if not bot_token or not chat_id:
+        return None
+
+    text = _build_client_balance_alert_message(
+        user=user,
+        remaining=remaining,
+        active_limit_sum=active_limit_sum,
+        alert_level=next_level,
+    )
+    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
+        logging.getLogger("app").warning(
+            "Failed to send balance alert to Telegram for client_id=%s level=%s",
+            getattr(user, "id", None),
+            next_level,
+        )
+        return None
+
+    user.telegram_balance_alert_level = next_level
+    db_sess.add(user)
+    return next_level
 
 
 def _should_send_auto_pause_test_message(
@@ -778,6 +891,12 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         updated = crud.get_project(db_sess, project_id, user_id=current_user.id)
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
+        _sync_client_balance_alert(
+            db_sess,
+            user=current_user,
+            remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
+            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
+        )
     else:
         updated = crud.update_project(
             db_sess,
@@ -837,6 +956,12 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
+    _sync_client_balance_alert(
+        db_sess,
+        user=current_user,
+        remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
+        active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
+    )
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
 
@@ -1749,6 +1874,15 @@ def admin_update_project(
         updated = crud.admin_get_project(db_sess, project_id)
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
+        if project_row.user_id:
+            user = db_sess.get(models.User, int(project_row.user_id))
+            if user:
+                _sync_client_balance_alert(
+                    db_sess,
+                    user=user,
+                    remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
+                    active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
+                )
     else:
         updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
         if not updated:
@@ -1780,6 +1914,15 @@ def admin_delete_project(
     ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project_row.user_id:
+        user = db_sess.get(models.User, int(project_row.user_id))
+        if user:
+            _sync_client_balance_alert(
+                db_sess,
+                user=user,
+                remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
+                active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
+            )
     crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
 
@@ -2157,6 +2300,14 @@ def admin_pause_client_projects(
 
     if paused_ids:
         crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    user = db_sess.get(models.User, client_id)
+    if user:
+        _sync_client_balance_alert(
+            db_sess,
+            user=user,
+            remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
+            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
+        )
 
     state = crud.admin_get_collection_state(db_sess, client_id=client_id)
 
@@ -2294,6 +2445,14 @@ def admin_resume_client_projects(
 
     if resumed_ids:
         crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    user = db_sess.get(models.User, client_id)
+    if user:
+        _sync_client_balance_alert(
+            db_sess,
+            user=user,
+            remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
+            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
+        )
 
     state = crud.admin_get_collection_state(db_sess, client_id=client_id)
 
