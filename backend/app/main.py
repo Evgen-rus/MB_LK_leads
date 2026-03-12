@@ -482,6 +482,10 @@ def _sync_client_balance_alert(
         if saved_level is not None:
             user.telegram_balance_alert_level = None
             db_sess.add(user)
+            # В большинстве потоков выше уже был отдельный commit бизнес-операции
+            # (новый лид, баланс, изменение проекта). Здесь нужно закрепить только
+            # состояние антидублей, иначе следующий запрос снова увидит старый уровень.
+            db_sess.commit()
         return None
 
     if saved_level == next_level:
@@ -508,6 +512,9 @@ def _sync_client_balance_alert(
 
     user.telegram_balance_alert_level = next_level
     db_sess.add(user)
+    # Сохраняем отправленный порог сразу, чтобы следующий webhook/пересчёт
+    # не отправил то же самое уведомление повторно.
+    db_sess.commit()
     return next_level
 
 
