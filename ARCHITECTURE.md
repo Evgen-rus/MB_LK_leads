@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-02-19
+Last updated: 2026-03-12
 
 ## 1) System At A Glance
 
@@ -31,7 +31,10 @@ Last updated: 2026-02-19
 2. `WEBHOOK_SECRET` обязателен: без него backend не стартует.
 3. Операции с проектами должны синхронизироваться с Prostats.
 4. Вебхук провайдера дедуплицирует `provider_leads` по `vid`.
-5. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`).
+5. Вебхук матчит лиды по имени проекта только среди неудалённых проектов; при `0` или `>1` совпадениях лид сохраняется без `project_id`, без падения backend.
+6. Для части клиентов новые проекты могут создаваться с обязательным маркером `[MB{id}]` в имени; если маркер применён, его нельзя удалять при редактировании.
+7. Технический префикс источника `B1_` / `B2_` / `B3_` / `B4_` обязателен в названии проекта.
+8. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`).
 
 ## 4) Key Domain Objects
 
@@ -42,6 +45,10 @@ Last updated: 2026-02-19
 - `ClientBalanceOperation`
 - `ClientProjectPauseSnapshot`
 
+Важно:
+- `User` содержит пер-клиентные флаги, в т.ч. `auto_limit_control_enabled`, Telegram-настройки и `unique_project_names_enabled`.
+- `Project` содержит `provider_project_id` и флаг `unique_name_applied` для проектов, где имя зафиксировано в формате с `[MB{id}]`.
+
 Смотри `backend/app/models.py`.
 
 ## 5) Runtime Flows
@@ -50,7 +57,12 @@ Last updated: 2026-02-19
 Frontend вызывает API -> backend проверяет auth/roles -> `crud.py` -> БД/интеграции -> ответ в UI.
 
 ### B) Provider Webhook
-Провайдер вызывает `POST /api/provider-test/{secret}` -> валидация секрета/payload -> запись в `provider_leads` (или skip дубля по `vid`) -> лог в `logs/provider_webhook.log`.
+Провайдер вызывает `POST /api/provider-test/{secret}` -> валидация секрета/payload -> поиск проекта по `payload.page` только среди неудалённых проектов -> запись в `provider_leads` (или skip дубля по `vid`) -> лог в `logs/provider_webhook.log`.
+
+Матчинг по имени:
+- `0` совпадений -> лид сохраняется без `project_id`;
+- `1` совпадение -> лид привязывается к проекту;
+- `>1` совпадений -> лид сохраняется без `project_id`, в общий Telegram уходит alert о неоднозначной привязке.
 
 ### C) Notifications Worker
 На старте backend запускает `notify_worker` -> воркер закрывает debounce-очередь по `audit_events` и помечает события как обработанные для отправки.
@@ -60,11 +72,21 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 ### D) Admin Operations
 `/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/аудит) -> при необходимости синхронизация статусов с Prostats.
 
+### E) Project Create With Unique Name
+Для клиентов с `unique_project_names_enabled=true` создание проекта двухшаговое:
+UI отправляет обычное имя вида `B1_Магнум` -> backend создаёт проект у Prostats -> создаёт локальный `Project` и получает `project.id` -> backend делает rename у Prostats в формат `B1_[MB54] Магнум` -> сохраняет финальное имя у нас.
+
+Если rename у Prostats не подтверждён:
+- backend делает retry с коротким backoff;
+- пользователь получает понятный warning;
+- в общий Telegram уходит техническое уведомление.
+
 ## 6) Where To Change Code By Task Type
 
 - Новое поле/правило в API: `schemas.py` + `crud.py` + endpoint в `main.py`
 - UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
 - Интеграция Prostats: `backend/app/providers/prostats.py`
+- Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
 - Telegram-отправка: `backend/app/telegram.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
 - Экспорт provider leads: `tool_export_provider_leads.py`
@@ -103,5 +125,6 @@ Google Sheets export:
 2. Не менять бизнес-правила только в UI, без `crud.py`.
 3. При изменениях endpoint проверять `my-app-vite/src/api.ts` на совместимость.
 4. Не ломать webhook-дедупликацию по `vid`.
-5. Учитывать, что часть логики сосредоточена в `main.py` и `crud.py`.
-
+5. Не убирать server-side защиту технических префиксов имени проекта: `B1_...B4_` и `[MB{id}]` для `unique_name_applied`.
+6. Для клиентов с уникальными именами создание проекта не атомарно в одном внешнем вызове: после create нужен rename в Prostats с retry-логикой.
+7. Учитывать, что часть логики сосредоточена в `main.py` и `crud.py`.
