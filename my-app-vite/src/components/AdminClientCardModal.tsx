@@ -202,7 +202,12 @@ function AdminClientCardModal({
                 onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
               />
               <span className="hint">
-                Если поле пустое или маршрут выключен, уведомление уйдёт в общий Telegram-чат из настроек сервера.
+                Для персональных уведомлений создайте Telegram-группу клиента, добавьте в неё бота
+                {" "}
+                <code>@MB_Info_LK_Bot</code> и укажите chat ID группы.
+              </span>
+              <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
+                Если chat ID не задан или маршрут выключен, уведомления будут уходить в общий чат.
               </span>
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -211,7 +216,7 @@ function AdminClientCardModal({
                 checked={telegramAutoPauseEnabled}
                 onChange={(e) => setTelegramAutoPauseEnabled(e.target.checked)}
               />
-              <span>Использовать этот чат для уведомлений клиенту</span>
+              <span>Использовать этот чат для уведомлений</span>
             </label>
           </div>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
