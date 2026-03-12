@@ -21,6 +21,7 @@ type SubmitItem = {
 type CreateProjectModalProps = {
   onClose: () => void;
   onSubmit?: (payloads: SubmitItem[]) => Promise<string | null> | string | null | void;
+  uniqueProjectNamesEnabled?: boolean;
 };
 
 // Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
@@ -39,7 +40,7 @@ const ALL_COLLECTION_SOURCES: CollectionSource[] = [
   'Пересечение',
 ];
 
-function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
+function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = false }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -347,6 +348,11 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
                   Сначала введите название проекта — затем станут доступны остальные настройки.
                 </span>
               )}
+              {hasName && uniqueProjectNamesEnabled && (
+                <span className="hint" style={{ color: '#666' }}>
+                  Для этого клиента уникальное имя будет добавлено автоматически после создания. Пример: `B1_[MB54] Магнум`.
+                </span>
+              )}
             </label>
 
             <fieldset
@@ -555,9 +561,16 @@ function CreateProjectModal({ onClose, onSubmit }: CreateProjectModalProps) {
               className="btn btn--primary"
               disabled={!hasName || !isSmsSenderValid || isSubmitting}
             >
-              {isSubmitting ? 'Создание...' : 'Создать'}
+              {isSubmitting
+                ? (uniqueProjectNamesEnabled ? 'Создаём и присваиваем уникальные имена...' : 'Создание...')
+                : 'Создать'}
             </button>
           </div>
+          {isSubmitting && uniqueProjectNamesEnabled && (
+            <div className="sub" style={{ marginTop: 10 }}>
+              Создаём проекты и подтверждаем уникальные имена у поставщика. Это может занять несколько секунд.
+            </div>
+          )}
         </form>
       </div>
     </div>

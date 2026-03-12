@@ -752,6 +752,43 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
     return _project_to_out(p) if p else None
 
 
+def build_project_model_from_create_item(
+    item: schemas.CreateProjectItem,
+    *,
+    user_id: int,
+    provider_id: Optional[str],
+    created_at: Optional[datetime] = None,
+    unique_name_applied: bool = False,
+) -> models.Project:
+    now = created_at or now_msk()
+    sites = item.sites or None
+    phones = item.phones or None
+    sms = item.smsSenderName or None
+    return models.Project(
+        user_id=user_id,
+        provider_project_id=(str(provider_id).strip() if provider_id is not None and str(provider_id).strip() else None),
+        name=item.name,
+        tag=item.tag or item.name,
+        unique_name_applied=bool(unique_name_applied),
+        collection_source=item.collectionSource,
+        data_source_code=item.dataSourceCode,
+        region_mode=item.regionMode,
+        regions=item.regions or None,
+        sites=sites,
+        phones=phones,
+        sms_sender_name=sms,
+        status=item.status,
+        delivery_status='На модерации',
+        data_limit=item.dataLimit,
+        numbers_today=0,
+        numbers_total=0,
+        days_received=_join_days(item.days),
+        sources_count=_calc_sources_count(sites, phones, sms),
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def create_projects(
     db: Session,
     items: List[schemas.CreateProjectItem],
@@ -768,33 +805,12 @@ def create_projects(
         if provider_ids and idx < len(provider_ids):
             raw_provider_id = provider_ids[idx]
             provider_id = str(raw_provider_id).strip() if raw_provider_id is not None else None
-        sites = it.sites or None
-        phones = it.phones or None
-        sms = (it.smsSenderName or None)
-        days_received = _join_days(it.days)
-        sources_count = _calc_sources_count(sites, phones, sms)
-
-        p = models.Project(
+        p = build_project_model_from_create_item(
+            it,
             user_id=user_id,
-            provider_project_id=provider_id or None,
-            name=it.name,
-            tag=it.tag or it.name,
-            collection_source=it.collectionSource,
-            data_source_code=it.dataSourceCode,
-            region_mode=it.regionMode,
-            regions=it.regions or None,
-            sites=sites,
-            phones=phones,
-            sms_sender_name=sms,
-            status=it.status,
-            delivery_status='На модерации',
-            data_limit=it.dataLimit,
-            numbers_today=0,
-            numbers_total=0,
-            days_received=days_received,
-            sources_count=sources_count,
+            provider_id=provider_id,
             created_at=now,
-            updated_at=now,
+            unique_name_applied=False,
         )
         db.add(p)
         db.flush()
@@ -1400,6 +1416,7 @@ def admin_create_client(
     auto_limit_control_enabled: bool = False,
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: bool = False,
+    unique_project_names_enabled: bool = False,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
     name_clean = (name or "").strip()
@@ -1434,6 +1451,7 @@ def admin_create_client(
         auto_limit_control_enabled=bool(auto_limit_control_enabled),
         telegram_notifications_chat_id=telegram_chat_id,
         telegram_auto_pause_enabled=bool(telegram_auto_pause_enabled),
+        unique_project_names_enabled=bool(unique_project_names_enabled),
         created_at=now,
     )
     db.add(user)
@@ -1460,6 +1478,7 @@ def admin_create_client(
             autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
             telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
             telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+            uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
         ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=final_login,
@@ -1479,6 +1498,7 @@ def admin_update_client(
     auto_limit_control_enabled: Optional[bool] = None,
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: Optional[bool] = None,
+    unique_project_names_enabled: Optional[bool] = None,
     commit: bool = True,
 ) -> schemas.AdminClientUpdateOut:
     user = db.get(models.User, client_id)
@@ -1514,6 +1534,8 @@ def admin_update_client(
         user.telegram_notifications_chat_id = telegram_notifications_chat_id.strip() or None
     if telegram_auto_pause_enabled is not None:
         user.telegram_auto_pause_enabled = bool(telegram_auto_pause_enabled)
+    if unique_project_names_enabled is not None:
+        user.unique_project_names_enabled = bool(unique_project_names_enabled)
 
     # Профиль
     name_clean = name.strip() if name else None
@@ -1576,6 +1598,7 @@ def admin_update_client(
             autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
             telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
             telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+            uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
         ),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=user.login,
@@ -1739,6 +1762,7 @@ def admin_clients_summary(
             autoLimitControlEnabled=bool(getattr(u, "auto_limit_control_enabled", False)),
             telegramNotificationsChatId=(getattr(u, "telegram_notifications_chat_id", None) or None),
             telegramAutoPauseEnabled=bool(getattr(u, "telegram_auto_pause_enabled", False)),
+            uniqueProjectNamesEnabled=bool(getattr(u, "unique_project_names_enabled", False)),
         )
         for u in users
     }
@@ -2381,6 +2405,7 @@ def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
         autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
         telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
         telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+        uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
     )
 
 
@@ -2823,6 +2848,7 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
                 autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
                 telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
                 telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
+                uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
             )
         )
     return out

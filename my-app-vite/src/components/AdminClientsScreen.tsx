@@ -57,6 +57,7 @@ type ClientRow = {
   autoLimitControlEnabled: boolean;
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled: boolean;
+  uniqueProjectNamesEnabled: boolean;
   inn?: string | null;
   phone?: string | null;
   contact?: string | null;
@@ -125,6 +126,7 @@ function AdminClientsScreen({
     contact?: string | null;
     telegramNotificationsChatId?: string | null;
     telegramAutoPauseEnabled: boolean;
+    uniqueProjectNamesEnabled: boolean;
     login: string;
   } | null>(null);
 
@@ -168,6 +170,7 @@ function AdminClientsScreen({
             autoLimitControlEnabled: Boolean(it.autoLimitControlEnabled),
             telegramNotificationsChatId: it.user.telegramNotificationsChatId ?? null,
             telegramAutoPauseEnabled: Boolean(it.user.telegramAutoPauseEnabled),
+            uniqueProjectNamesEnabled: Boolean(it.user.uniqueProjectNamesEnabled),
             inn: profile?.inn,
             phone: profile?.phone,
             contact: profile?.contact,
@@ -594,6 +597,7 @@ function AdminClientsScreen({
                               contact: row.contact,
                               telegramNotificationsChatId: row.telegramNotificationsChatId,
                               telegramAutoPauseEnabled: row.telegramAutoPauseEnabled,
+                              uniqueProjectNamesEnabled: row.uniqueProjectNamesEnabled,
                               login: row.login,
                             });
                           }}
@@ -991,6 +995,7 @@ function AdminClientsScreen({
         initialContact={cardClientData.contact || undefined}
         initialTelegramNotificationsChatId={cardClientData.telegramNotificationsChatId || undefined}
         initialTelegramAutoPauseEnabled={cardClientData.telegramAutoPauseEnabled}
+        initialUniqueProjectNamesEnabled={cardClientData.uniqueProjectNamesEnabled}
         initialLogin={cardClientData.login}
         onClose={() => setCardClientId(null)}
         onUpdated={() => {

@@ -66,6 +66,11 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const isSmsSenderValid =
     (project.collectionSource !== 'СМС' && project.collectionSource !== 'Пересечение')
       || (smsSenderName.trim() !== '' && smsSenderName.replace(/\D+/g, '').length < 10);
+  const uniqueNamePrefix = `${project.dataSourceCode}_[MB${project.id}] `;
+  const protectedNamePrefix = project.name.startsWith(uniqueNamePrefix) ? uniqueNamePrefix : `${project.dataSourceCode}_`;
+  const protectedNameHint = project.name.startsWith(uniqueNamePrefix)
+    ? `Технический префикс "${uniqueNamePrefix}" обязателен и не редактируется.`
+    : `Префикс источника "${project.dataSourceCode}_" обязателен и не должен удаляться.`;
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -232,6 +237,15 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     e.preventDefault();
     if (!name.trim()) return;
     if (!isDirty || saving) return;
+    const normalizedName = name.trim();
+    if (!normalizedName.startsWith(protectedNamePrefix)) {
+      setError(protectedNameHint);
+      return;
+    }
+    if (!normalizedName.slice(protectedNamePrefix.length).trim()) {
+      setError('Название проекта после технического префикса не может быть пустым.');
+      return;
+    }
     if (!isSmsSenderValid) {
       setError('Для СМС укажите корректное имя отправителя: не номер и не пустое значение.');
       return;
@@ -267,7 +281,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       phones = res.normalized;
     }
     const update: SubmitUpdate = {
-      name: name.trim(),
+      name: normalizedName,
       // tag пользователь не редактирует в модалке — сохраняем текущий tag проекта.
       // Это предотвращает "ложные изменения" при нажатии Сохранить без правок.
       tag: project.tag,
@@ -308,6 +322,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <span className="hint" style={{ color: '#666' }}>
+                {protectedNameHint}
+              </span>
             </label>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

@@ -96,6 +96,7 @@ class UserInfo(BaseModel):
     autoLimitControlEnabled: Optional[bool] = None
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: Optional[bool] = None
+    uniqueProjectNamesEnabled: Optional[bool] = None
 
 
 class SelfProfileOut(BaseModel):
@@ -110,6 +111,7 @@ class SelfProfileOut(BaseModel):
     autoLimitControlEnabled: bool = False
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: bool = False
+    uniqueProjectNamesEnabled: bool = False
 
 
 class ClientProfileOut(BaseModel):
@@ -132,6 +134,7 @@ class AdminClientCreateIn(BaseModel):
     autoLimitControlEnabled: bool = False
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: bool = False
+    uniqueProjectNamesEnabled: bool = False
 
 
 class AdminClientCreateOut(BaseModel):
@@ -151,6 +154,7 @@ class AdminClientUpdateIn(BaseModel):
     autoLimitControlEnabled: Optional[bool] = None
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: Optional[bool] = None
+    uniqueProjectNamesEnabled: Optional[bool] = None
 
 
 class AdminClientUpdateOut(BaseModel):

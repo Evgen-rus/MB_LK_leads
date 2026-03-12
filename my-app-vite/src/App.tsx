@@ -87,6 +87,7 @@ function App() {
   const [clientName, setClientName] = useState<string | null>(null);
   const [projectsMutationLocked, setProjectsMutationLocked] = useState(false);
   const [projectsMutationLockReason, setProjectsMutationLockReason] = useState<string | null>(null);
+  const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(false);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -233,6 +234,7 @@ function App() {
       setClientName(null);
       setProjectsMutationLocked(false);
       setProjectsMutationLockReason(null);
+      setUniqueProjectNamesEnabled(false);
       return;
     }
     (async () => {
@@ -241,11 +243,13 @@ function App() {
         setClientName(me.name || me.login || null);
         setProjectsMutationLocked(Boolean(me.projectsMutationLocked));
         setProjectsMutationLockReason(me.projectsMutationLockReason || null);
+        setUniqueProjectNamesEnabled(Boolean(me.uniqueProjectNamesEnabled));
       } catch (e) {
         console.error(e);
         setClientName(null);
         setProjectsMutationLocked(false);
         setProjectsMutationLockReason(null);
+        setUniqueProjectNamesEnabled(false);
       }
     })();
   }, [authChecked, needLogin, isAdmin]);
@@ -374,6 +378,7 @@ function App() {
               }
               setClientName(null);
               setRows([]);
+              setUniqueProjectNamesEnabled(false);
               setNeedLogin(true);
               if (window.location.pathname !== '/login') {
                 window.history.replaceState(null, '', '/login');
@@ -515,6 +520,7 @@ function App() {
       </div>
       {isCreateOpen && (
         <CreateProjectModal
+          uniqueProjectNamesEnabled={uniqueProjectNamesEnabled}
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (items) => {
             try {

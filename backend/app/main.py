@@ -11,6 +11,7 @@ import os
 import json
 import tempfile
 import html
+import re
 from dotenv import load_dotenv
 import logging
 import secrets
@@ -108,6 +109,8 @@ def _ensure_user_projects_lock_columns() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_notifications_chat_id VARCHAR"))
         if "telegram_auto_pause_enabled" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_auto_pause_enabled BOOLEAN DEFAULT FALSE"))
+        if "unique_project_names_enabled" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN unique_project_names_enabled BOOLEAN DEFAULT FALSE"))
         if "telegram_balance_alert_level" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_balance_alert_level INTEGER"))
 
@@ -116,9 +119,26 @@ def _ensure_user_projects_lock_columns() -> None:
         conn.execute(text("UPDATE users SET projects_mutation_locked = FALSE WHERE projects_mutation_locked IS NULL"))
         conn.execute(text("UPDATE users SET auto_limit_control_enabled = FALSE WHERE auto_limit_control_enabled IS NULL"))
         conn.execute(text("UPDATE users SET telegram_auto_pause_enabled = FALSE WHERE telegram_auto_pause_enabled IS NULL"))
+        conn.execute(text("UPDATE users SET unique_project_names_enabled = FALSE WHERE unique_project_names_enabled IS NULL"))
 
 
 _ensure_user_projects_lock_columns()
+
+
+def _ensure_project_unique_name_columns() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "projects" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("projects")}
+    with engine.begin() as conn:
+        if "unique_name_applied" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN unique_name_applied BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("UPDATE projects SET unique_name_applied = FALSE WHERE unique_name_applied IS NULL"))
+
+
+_ensure_project_unique_name_columns()
 
 
 def get_db():
@@ -215,6 +235,152 @@ def _extract_phones(raw: object) -> tuple[Optional[str], Optional[List[str]]]:
     if not cleaned:
         return None, None
     return ", ".join(cleaned), cleaned
+
+
+_MB_MARKER_RE = re.compile(r"^\[MB\d+\]\s*")
+
+
+def _provider_prefix_for_code(data_source_code: str) -> str:
+    return f"{str(data_source_code or '').strip()}_"
+
+
+def _strip_provider_prefix_from_name(name: Optional[str]) -> str:
+    raw = str(name or "").strip()
+    for code in ("B1", "B2", "B3", "B4"):
+        prefix = f"{code}_"
+        if raw.startswith(prefix):
+            return raw[len(prefix):].strip()
+    return raw
+
+
+def _strip_mb_marker(value: Optional[str]) -> str:
+    raw = str(value or "").strip()
+    return _MB_MARKER_RE.sub("", raw, count=1).strip()
+
+
+def _extract_project_display_name(name: Optional[str]) -> str:
+    return _strip_mb_marker(_strip_provider_prefix_from_name(name))
+
+
+def _required_project_name_prefix(project: models.Project) -> str:
+    prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
+    if bool(getattr(project, "unique_name_applied", False)):
+        return f"{prefix}[MB{int(project.id)}] "
+    return prefix
+
+
+def _validate_create_project_item_name(item: schemas.CreateProjectItem) -> None:
+    expected_prefix = _provider_prefix_for_code(item.dataSourceCode)
+    raw_name = str(item.name or "").strip()
+    if not raw_name.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=422,
+            detail={"message": f'Название проекта должно начинаться с префикса "{expected_prefix}"'},
+        )
+    if not _extract_project_display_name(raw_name):
+        raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+
+
+def _validate_project_name_update(project: models.Project, proposed_name: str) -> str:
+    raw_name = str(proposed_name or "").strip()
+    required_prefix = _required_project_name_prefix(project)
+    if not raw_name.startswith(required_prefix):
+        if bool(getattr(project, "unique_name_applied", False)):
+            raise HTTPException(
+                status_code=422,
+                detail={"message": f'Нельзя удалять технический префикс "{required_prefix}" из названия проекта.'},
+            )
+        raise HTTPException(
+            status_code=422,
+            detail={"message": f'Название проекта должно начинаться с префикса "{required_prefix}"'},
+        )
+    if not raw_name[len(required_prefix):].strip():
+        raise HTTPException(status_code=422, detail={"message": "Название проекта после префикса не может быть пустым."})
+    return raw_name
+
+
+def _build_unique_project_name(data_source_code: str, project_id: int, raw_name: str) -> str:
+    base_name = _extract_project_display_name(raw_name)
+    if not base_name:
+        raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+    return f'{_provider_prefix_for_code(data_source_code)}[MB{int(project_id)}] {base_name}'
+
+
+def _build_project_update_from_create_item(item: schemas.CreateProjectItem, *, name: str, tag: Optional[str] = None) -> schemas.ProjectUpdate:
+    return schemas.ProjectUpdate(
+        name=name,
+        tag=tag or name,
+        status=item.status,
+        dataLimit=item.dataLimit,
+        regionMode=item.regionMode,
+        regions=item.regions or [],
+        sites=item.sites,
+        phones=item.phones,
+        smsSenderName=item.smsSenderName,
+        days=item.days,
+    )
+
+
+def _should_retry_prostats_error(exc: prostats.ProstatsError) -> bool:
+    try:
+        if int(getattr(exc, "status_code", 0) or 0) >= 500:
+            return True
+    except Exception:
+        pass
+    message = str(getattr(exc, "message", "") or "").lower()
+    retry_markers = (
+        "timeout",
+        "timed out",
+        "tempor",
+        "temporary",
+        "temporarily",
+        "connection",
+        "connect",
+        "reset",
+        "gateway",
+        "bad gateway",
+        "service unavailable",
+        "too many requests",
+        "временно",
+        "таймаут",
+        "соедин",
+        "шлюз",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def _rename_project_in_prostats_with_retries(
+    provider_project_id: str,
+    project_row: models.Project,
+    payload: schemas.ProjectUpdate,
+    *,
+    attempts: int = 3,
+) -> dict:
+    logger = logging.getLogger("app")
+    delay_seconds = 1.0
+    last_exc: Optional[prostats.ProstatsError] = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            return prostats.update_project(str(provider_project_id), project_row, payload)
+        except prostats.ProstatsError as exc:
+            last_exc = exc
+            retryable = _should_retry_prostats_error(exc)
+            logger.warning(
+                "Unique-name rename failed in Prostats: project_id=%s provider_project_id=%s attempt=%s/%s retryable=%s message=%s",
+                getattr(project_row, "id", None),
+                provider_project_id,
+                attempt,
+                attempts,
+                retryable,
+                exc.message,
+            )
+            if attempt >= attempts or not retryable:
+                raise
+            time.sleep(delay_seconds)
+            delay_seconds *= 2
+    if last_exc:
+        raise last_exc
+    raise prostats.ProstatsError("Не удалось обновить имя проекта в Prostats", status_code=500)
 
 
 @app.post("/client-errors")
@@ -594,6 +760,32 @@ def _notify_provider_lead_project_ambiguity(
         )
 
 
+def _notify_unique_project_name_failure(
+    *,
+    client_id: int,
+    project_name: str,
+    provider_project_id: Optional[str],
+    message: str,
+) -> None:
+    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not bot_token or not chat_id:
+        return
+    text = (
+        "<b>[ЛК | Ошибка финализации уникального имени проекта]</b>\n"
+        f"client_id: <code>{html.escape(str(client_id))}</code>\n"
+        f"project_name: <code>{html.escape(project_name)}</code>\n"
+        f"provider_project_id: <code>{html.escape(str(provider_project_id or ''))}</code>\n"
+        f"details: {html.escape(message)}"
+    )
+    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
+        logging.getLogger("app").warning(
+            "Failed to send Telegram notification about unique project rename failure: client_id=%s provider_project_id=%s",
+            client_id,
+            provider_project_id,
+        )
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
@@ -753,6 +945,7 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         autoLimitControlEnabled=bool(getattr(current_user, "auto_limit_control_enabled", False)),
         telegramNotificationsChatId=(getattr(current_user, "telegram_notifications_chat_id", None) or None),
         telegramAutoPauseEnabled=bool(getattr(current_user, "telegram_auto_pause_enabled", False)),
+        uniqueProjectNamesEnabled=bool(getattr(current_user, "unique_project_names_enabled", False)),
     )
 
 
@@ -804,10 +997,164 @@ def list_projects(
     )
 
 
+def _create_projects_with_unique_names(
+    *,
+    db_sess: Session,
+    items: List[schemas.CreateProjectItem],
+    current_user: models.User,
+    actor_user_id: int,
+    via_impersonation: bool,
+) -> tuple[List[schemas.ProjectOut], Optional[str]]:
+    notices: List[str] = []
+    created: List[schemas.ProjectOut] = []
+    batch_id = secrets.token_hex(8)
+    logger = logging.getLogger("app")
+
+    for item in items:
+        provider_id_value: Optional[str] = None
+        success_notice: Optional[str] = None
+        try:
+            result = prostats.create_project(item)
+            provider_id_value = str(result.get("provider_id") or "").strip() or None
+
+            missing_items = result.get("missing_items") or []
+            target_type = result.get("target_type")
+            if missing_items and target_type in ("hosts", "calls"):
+                duplicates = crud.find_duplicates_in_projects(
+                    db_sess,
+                    missing_items,
+                    target_type,
+                    user_id=current_user.id,
+                    provider_project_id=provider_id_value,
+                )
+                success_notice = prostats._build_partial_warning(
+                    item.name,
+                    target_type,
+                    missing_items,
+                    duplicates,
+                    action="создан",
+                )
+                if target_type == "hosts":
+                    item.sites = [s for s in (item.sites or []) if s not in missing_items]
+                else:
+                    item.phones = [p for p in (item.phones or []) if p not in missing_items]
+            else:
+                success_notice = f'Проект "{item.name}" создан.'
+        except prostats.ProstatsError as exc:
+            target_type = prostats._type_from_collection(item.collectionSource)
+            message = exc.message
+            if prostats._should_check_duplicates(exc.message, target_type):
+                message = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+            notices.append(f'Проект "{item.name}" не создан: {message}')
+            continue
+
+        project_row = crud.build_project_model_from_create_item(
+            item,
+            user_id=current_user.id,
+            provider_id=provider_id_value,
+            unique_name_applied=False,
+        )
+        db_sess.add(project_row)
+        db_sess.flush()
+
+        final_name = _build_unique_project_name(item.dataSourceCode, int(project_row.id), item.name)
+        rename_payload = _build_project_update_from_create_item(item, name=final_name, tag=final_name)
+
+        try:
+            _rename_project_in_prostats_with_retries(
+                str(provider_id_value or ""),
+                project_row,
+                rename_payload,
+            )
+        except prostats.ProstatsError as exc:
+            db_sess.rollback()
+            cleanup_ok = False
+            cleanup_error = ""
+            retryable_failure = _should_retry_prostats_error(exc)
+            if provider_id_value and not retryable_failure:
+                try:
+                    prostats.delete_project(str(provider_id_value), project_row)
+                    cleanup_ok = True
+                except prostats.ProstatsError as cleanup_exc:
+                    cleanup_error = cleanup_exc.message
+            logger.error(
+                "Failed to finalize unique project name: user_id=%s provider_project_id=%s original_name=%s cleanup_ok=%s cleanup_error=%s",
+                current_user.id,
+                provider_id_value,
+                item.name,
+                cleanup_ok,
+                cleanup_error,
+                exc_info=True,
+            )
+            _notify_unique_project_name_failure(
+                client_id=current_user.id,
+                project_name=item.name,
+                provider_project_id=provider_id_value,
+                message=(
+                    f"{exc.message}; retryable={retryable_failure}; cleanup_ok={cleanup_ok}; cleanup_error={cleanup_error}"
+                ),
+            )
+            if retryable_failure:
+                notices.append(
+                    f'Проект "{item.name}" не создан: провайдер долго подтверждает уникальное имя. Подождите и проверьте результат позже.'
+                )
+            elif cleanup_ok:
+                notices.append(
+                    f'Проект "{item.name}" не создан: не удалось применить уникальное имя у поставщика. Попробуйте ещё раз позже.'
+                )
+            else:
+                notices.append(
+                    f'Проект "{item.name}" не создан: ошибка применения уникального имени у поставщика. Нужна ручная проверка администратора.'
+                )
+            continue
+
+        project_row.name = final_name
+        project_row.tag = final_name
+        project_row.unique_name_applied = True
+        project_row.updated_at = now_msk()
+        after = crud._project_to_out(project_row).dict()
+        db_sess.add(models.AuditEvent(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id or current_user.id,
+            project_id=project_row.id,
+            batch_id=batch_id,
+            action='create',
+            before=None,
+            after=after,
+            changed_fields=list(after.keys()),
+            via_impersonation=via_impersonation,
+        ))
+        db_sess.commit()
+        db_sess.refresh(project_row)
+        created.append(crud._project_to_out(project_row))
+        if success_notice:
+            notices.append(success_notice)
+
+    warning_text = "\n\n".join(notices) if notices else None
+    return created, warning_text
+
+
 @app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    for item in payload.items:
+        _validate_create_project_item_name(item)
+
+    if bool(getattr(current_user, "unique_project_names_enabled", False)):
+        created, warning_text = _create_projects_with_unique_names(
+            db_sess=db_sess,
+            items=payload.items,
+            current_user=current_user,
+            actor_user_id=actor_user_id,
+            via_impersonation=via_impersonation,
+        )
+        if not created:
+            raise HTTPException(status_code=422, detail={"message": warning_text or "Не удалось создать проекты."})
+        _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="projects_create")
+        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        return schemas.CreateProjectsOut(items=created, warning=warning_text)
+
     # 1) Создаём проекты у поставщика (частичный успех допустим)
     notices: List[str] = []
     adjusted_items: List[schemas.CreateProjectItem] = []
@@ -889,6 +1236,9 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    payload.name = _validate_project_name_update(project_row, payload.name)
+    if bool(getattr(project_row, "unique_name_applied", False)):
+        payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
         can_activate, reason = crud.can_activate_project_under_limit_control(
             db_sess,
@@ -1651,6 +2001,7 @@ def admin_create_client(
             auto_limit_control_enabled=bool(payload.autoLimitControlEnabled or False),
             telegram_notifications_chat_id=payload.telegramNotificationsChatId,
             telegram_auto_pause_enabled=bool(payload.telegramAutoPauseEnabled or False),
+            unique_project_names_enabled=bool(payload.uniqueProjectNamesEnabled or False),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1717,6 +2068,7 @@ def admin_update_client(
             auto_limit_control_enabled=payload.autoLimitControlEnabled,
             telegram_notifications_chat_id=payload.telegramNotificationsChatId,
             telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
+            unique_project_names_enabled=payload.uniqueProjectNamesEnabled,
             commit=False,
         )
 
@@ -1878,6 +2230,9 @@ def admin_update_project(
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    payload.name = _validate_project_name_update(project_row, payload.name)
+    if bool(getattr(project_row, "unique_name_applied", False)):
+        payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
         can_activate, reason = crud.can_activate_project_under_limit_control(
             db_sess,

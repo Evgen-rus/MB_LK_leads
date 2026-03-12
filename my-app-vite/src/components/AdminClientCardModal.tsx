@@ -9,6 +9,7 @@ type AdminClientCardModalProps = {
   initialContact?: string;
   initialTelegramNotificationsChatId?: string;
   initialTelegramAutoPauseEnabled?: boolean;
+  initialUniqueProjectNamesEnabled?: boolean;
   initialLogin: string;
   onClose: () => void;
   onUpdated?: (resp: AdminClientUpdateResp) => void;
@@ -32,6 +33,7 @@ function AdminClientCardModal({
   initialContact,
   initialTelegramNotificationsChatId,
   initialTelegramAutoPauseEnabled,
+  initialUniqueProjectNamesEnabled,
   initialLogin,
   onClose,
   onUpdated,
@@ -42,6 +44,7 @@ function AdminClientCardModal({
   const [contact, setContact] = useState(initialContact || '');
   const [telegramNotificationsChatId, setTelegramNotificationsChatId] = useState(initialTelegramNotificationsChatId || '');
   const [telegramAutoPauseEnabled, setTelegramAutoPauseEnabled] = useState(Boolean(initialTelegramAutoPauseEnabled));
+  const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(Boolean(initialUniqueProjectNamesEnabled));
   const [login, setLogin] = useState(initialLogin);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -100,6 +103,7 @@ function AdminClientCardModal({
         contact: contact.trim(),
         telegramNotificationsChatId: telegramNotificationsChatId.trim(),
         telegramAutoPauseEnabled,
+        uniqueProjectNamesEnabled,
         login: login.trim(),
         password: password.trim() || undefined,
       });
@@ -218,6 +222,30 @@ function AdminClientCardModal({
               />
               <span>Использовать этот чат для уведомлений</span>
             </label>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gap: 10,
+              padding: 12,
+              border: '1px solid #eee',
+              borderRadius: 8,
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>Имена новых проектов</div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={uniqueProjectNamesEnabled}
+                onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
+              />
+              <span>Добавлять уникальный маркер `[MBid]`</span>
+            </label>
+            <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
+              Если включено, новые проекты будут называться, например: `B1_[MB54] Магнум`.
+              Маркер нужен для однозначной привязки идентификаций и не удаляется при редактировании.
+            </span>
           </div>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
             <label style={{ display: 'grid', gap: 6 }}>

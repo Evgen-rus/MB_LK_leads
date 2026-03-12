@@ -33,6 +33,8 @@ class User(Base):
     # Если True, автопауза по лимитам старается уйти в клиентский чат.
     # Если chat id не задан, используем глобальный TELEGRAM_CHAT_ID как fallback.
     telegram_auto_pause_enabled = Column(Boolean, nullable=False, default=False)
+    # Если True, новым проектам клиента присваивается уникальное имя с маркером [MB{id}].
+    unique_project_names_enabled = Column(Boolean, nullable=False, default=False)
     # Последний отправленный порог уведомления по остатку: 3 / 2 / 1 / 0.
     # Нужен, чтобы не слать одно и то же сообщение повторно на каждом пересчёте.
     telegram_balance_alert_level = Column(Integer, nullable=True)
@@ -64,6 +66,8 @@ class Project(Base):
     provider_project_id = Column(String, nullable=True, index=True)  # id проекта у поставщика
     name = Column(String, nullable=False)
     tag = Column(String, nullable=False)
+    # True, если проект был создан по схеме с неизменяемым маркером [MB{id}] в имени.
+    unique_name_applied = Column(Boolean, nullable=False, default=False)
     collection_source = Column(String, nullable=False)  # 'Сайты' | 'Звонки' | ...
     data_source_code = Column(String, nullable=False)  # 'B1' | 'B2' | 'B3' | 'B4'
     region_mode = Column(String, nullable=True)  # 'include' | 'exclude'

@@ -352,6 +352,7 @@ export type MeResponse = {
   autoLimitControlEnabled: boolean;
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled: boolean;
+  uniqueProjectNamesEnabled: boolean;
 };
 
 export async function fetchMe(): Promise<MeResponse> {
@@ -580,6 +581,7 @@ export type UserInfo = {
   autoLimitControlEnabled?: boolean | null;
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled?: boolean | null;
+  uniqueProjectNamesEnabled?: boolean | null;
 };
 
 export type ClientProfile = {
@@ -900,6 +902,7 @@ export type AdminClientCreatePayload = {
   autoLimitControlEnabled?: boolean;
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
+  uniqueProjectNamesEnabled?: boolean;
 };
 
 export type AdminClientCreateResp = {
@@ -919,6 +922,7 @@ export type AdminClientUpdatePayload = {
   autoLimitControlEnabled?: boolean;
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
+  uniqueProjectNamesEnabled?: boolean;
 };
 
 export type AdminClientUpdateResp = {

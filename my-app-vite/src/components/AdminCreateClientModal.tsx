@@ -62,6 +62,7 @@ function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalPr
   const [contact, setContact] = useState('');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState(() => generatePassword());
+  const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(false);
   const [loginEdited, setLoginEdited] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +104,7 @@ function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalPr
         contact: contact.trim() || undefined,
         login: login.trim(),
         password: password.trim(),
+        uniqueProjectNamesEnabled,
       });
       setCreated(resp);
       onCreated?.(resp);
@@ -220,6 +222,28 @@ function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalPr
                 Запишите пароль: после создания клиента его можно будет только изменить.
               </span>
             </label>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gap: 8,
+              padding: 12,
+              border: '1px solid #eee',
+              borderRadius: 8,
+              background: '#fafbff',
+            }}
+          >
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={uniqueProjectNamesEnabled}
+                onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
+              />
+              <span>Уникальные имена новых проектов</span>
+            </label>
+            <span className="sub" style={{ color: '#666' }}>
+              Если включено, новые проекты клиента будут создаваться с маркером вида `B1_[MB54] Магнум`.
+            </span>
           </div>
 
           {error && (
