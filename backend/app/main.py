@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import inspect, select, text
 from starlette.background import BackgroundTask
+from starlette.requests import ClientDisconnect
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
 from .time_utils import now_msk
@@ -796,7 +797,17 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     if secret != WEBHOOK_SECRET:
         raise HTTPException(status_code=404, detail="Not found")
 
-    payload, fmt = await _read_webhook_body(request)
+    try:
+        payload, fmt = await _read_webhook_body(request)
+    except ClientDisconnect:
+        # Клиент оборвал соединение до того, как тело webhook было дочитано.
+        # Логируем это как сетевой сбой без большого traceback.
+        logging.getLogger("app.webhook").warning(
+            "Client disconnected while sending webhook body: path=%s",
+            request.url.path,
+        )
+        return Response(status_code=499)
+
     provider_webhook_logger.info(
         json.dumps(
             {
