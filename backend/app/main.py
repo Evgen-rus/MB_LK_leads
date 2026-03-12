@@ -549,6 +549,51 @@ def _build_auto_pause_test_message(user: models.User) -> str:
     )
 
 
+def _notify_provider_lead_project_ambiguity(
+    *,
+    vid: str,
+    project_name: str,
+    candidates: List[models.Project],
+    prov_chanel: Optional[str],
+    prov_source: Optional[str],
+    subdomain: Optional[str],
+) -> None:
+    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not bot_token or not chat_id:
+        return
+
+    candidate_lines = [
+        (
+            f'- id={int(project.id)}, client_id={project.user_id or "-"}, '
+            f'status={html.escape(str(project.status or ""))}, '
+            f'provider_project_id={html.escape(str(project.provider_project_id or ""))}'
+        )
+        for project in candidates[:10]
+    ]
+    if len(candidates) > 10:
+        candidate_lines.append(f"... и еще {len(candidates) - 10} проект(ов)")
+
+    text = (
+        "<b>[ЛК | Неоднозначная привязка идентификации]</b>\n"
+        "Лид сохранен без привязки к проекту, потому что найдено несколько неудаленных проектов с одинаковым именем.\n\n"
+        f"vid: <code>{html.escape(vid)}</code>\n"
+        f"page/project_name: <code>{html.escape(project_name)}</code>\n"
+        f"channel: <code>{html.escape(str(prov_chanel or ''))}</code>\n"
+        f"source: <code>{html.escape(str(prov_source or ''))}</code>\n"
+        f"subdomain: <code>{html.escape(str(subdomain or ''))}</code>\n\n"
+        "Кандидаты:\n"
+        + "\n".join(candidate_lines)
+    )
+
+    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
+        logging.getLogger("app").warning(
+            "Failed to send Telegram notification about ambiguous provider lead: vid=%s page=%s",
+            vid,
+            project_name,
+        )
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
@@ -586,7 +631,34 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     phone, phones_raw = _extract_phones(payload.get("phones"))
     subdomain = str(payload.get("subdomain")).strip() if payload.get("subdomain") else None
     prov_created_at = _parse_provider_time(payload.get("time"))
-    project_id = crud.get_project_id_by_name(db_sess, page) if page else None
+    project_id: Optional[int] = None
+    project_match_status = "not_found"
+    matched_projects: List[models.Project] = []
+    if page:
+        project_id, project_match_status, matched_projects = crud.resolve_project_by_name_for_provider_lead(
+            db_sess,
+            page,
+        )
+        if project_match_status == "ambiguous":
+            provider_webhook_logger.warning(
+                json.dumps(
+                    {
+                        "event": "ambiguous_project_match",
+                        "vid": vid,
+                        "project_name": page,
+                        "project_ids": [int(project.id) for project in matched_projects],
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            _notify_provider_lead_project_ambiguity(
+                vid=vid,
+                project_name=page,
+                candidates=matched_projects,
+                prov_chanel=prov_chanel,
+                prov_source=prov_source,
+                subdomain=subdomain,
+            )
 
     try:
         row = crud.create_provider_lead(

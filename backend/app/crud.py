@@ -947,12 +947,30 @@ def get_provider_lead_by_vid(db: Session, vid: str) -> Optional[models.ProviderL
     ).scalar_one_or_none()
 
 
-def get_project_id_by_name(db: Session, project_name: str) -> Optional[int]:
+def resolve_project_by_name_for_provider_lead(
+    db: Session,
+    project_name: str,
+) -> Tuple[Optional[int], Literal["not_found", "matched", "ambiguous"], List[models.Project]]:
     if not project_name:
-        return None
-    return db.execute(
-        select(models.Project.id).where(models.Project.name == project_name)
-    ).scalar_one_or_none()
+        return None, "not_found", []
+    rows = db.execute(
+        select(models.Project)
+        .where(
+            models.Project.name == project_name,
+            models.Project.status != "Удалён",
+        )
+        .order_by(models.Project.id.asc())
+    ).scalars().all()
+    if not rows:
+        return None, "not_found", []
+    if len(rows) == 1:
+        return int(rows[0].id), "matched", rows
+    return None, "ambiguous", rows
+
+
+def get_project_id_by_name(db: Session, project_name: str) -> Optional[int]:
+    project_id, _status, _rows = resolve_project_by_name_for_provider_lead(db, project_name)
+    return project_id
 
 
 def create_provider_lead(
