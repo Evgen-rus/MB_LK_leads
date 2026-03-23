@@ -19,6 +19,7 @@ import uuid
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -43,6 +44,10 @@ def get_settings():
         "DATABASE_URL": os.getenv("DATABASE_URL", "sqlite:///./app.db"),
         "DEBOUNCE_WINDOW_MINUTES": int(os.getenv("DEBOUNCE_WINDOW_MINUTES", "30")),
         "AUTO_LIMIT_CHECK_SECONDS": int(os.getenv("AUTO_LIMIT_CHECK_SECONDS", "300")),
+        "DB_POOL_SIZE": int(os.getenv("DB_POOL_SIZE", "10")),
+        "DB_MAX_OVERFLOW": int(os.getenv("DB_MAX_OVERFLOW", "20")),
+        "DB_POOL_TIMEOUT": int(os.getenv("DB_POOL_TIMEOUT", "30")),
+        "DB_POOL_RECYCLE": int(os.getenv("DB_POOL_RECYCLE", "1800")),
         "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
         "SHEETS_TZ": os.getenv("SHEETS_TZ", "Europe/Moscow"),
@@ -59,8 +64,17 @@ if not WEBHOOK_SECRET:
 
 provider_webhook_logger = logging_setup.setup_provider_webhook_logger()
 
-engine, SessionLocal = db.init_engine_and_session(settings["DATABASE_URL"]) 
+engine, SessionLocal = db.init_engine_and_session(
+    settings["DATABASE_URL"],
+    pool_size=settings["DB_POOL_SIZE"],
+    max_overflow=settings["DB_MAX_OVERFLOW"],
+    pool_timeout=settings["DB_POOL_TIMEOUT"],
+    pool_recycle=settings["DB_POOL_RECYCLE"],
+)
 models.Base.metadata.create_all(bind=engine)
+
+_limit_control_in_progress_lock = threading.Lock()
+_limit_control_in_progress_clients: set[int] = set()
 
 
 def _ensure_audit_event_columns() -> None:
@@ -451,10 +465,63 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
             with SessionLocal() as s:  # type: Session
                 client_ids = crud.list_clients_with_auto_limit_control(s)
                 for client_id in client_ids:
-                    _run_limit_control_for_client(s, client_id=client_id, trigger="schedule")
+                    _run_limit_control_for_client_guarded(s, client_id=client_id, trigger="schedule")
         except Exception:
             logging.getLogger("app").warning("limit-control loop failed", exc_info=True)
         time.sleep(max(30, int(sleep_seconds)))
+
+
+def _run_limit_control_for_client_guarded(
+    db_sess: Session,
+    client_id: int,
+    trigger: str,
+) -> Optional[dict]:
+    client_id = int(client_id)
+    with _limit_control_in_progress_lock:
+        if client_id in _limit_control_in_progress_clients:
+            logging.getLogger("app").info(
+                "limit-control skipped because already running: client_id=%s trigger=%s",
+                client_id,
+                trigger,
+            )
+            return None
+        _limit_control_in_progress_clients.add(client_id)
+
+    try:
+        return _run_limit_control_for_client(db_sess, client_id=client_id, trigger=trigger)
+    finally:
+        with _limit_control_in_progress_lock:
+            _limit_control_in_progress_clients.discard(client_id)
+
+
+def _run_limit_control_for_client_in_background(client_id: int, trigger: str) -> None:
+    worker = threading.Thread(
+        target=_limit_control_background_task,
+        kwargs={
+            "client_id": int(client_id),
+            "trigger": trigger,
+        },
+        daemon=True,
+        name=f"limit-control-client-{int(client_id)}",
+    )
+    worker.start()
+
+
+def _limit_control_background_task(client_id: int, trigger: str) -> None:
+    try:
+        with SessionLocal() as s:  # type: Session
+            _run_limit_control_for_client_guarded(
+                s,
+                client_id=int(client_id),
+                trigger=trigger,
+            )
+    except Exception:
+        logging.getLogger("app").warning(
+            "async limit-control failed for client_id=%s trigger=%s",
+            client_id,
+            trigger,
+            exc_info=True,
+        )
 
 
 def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
@@ -462,6 +529,7 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
     if not user:
         return {"paused": 0, "errors": [], "skipped": 0}
 
+    user_snapshot = _snapshot_limit_control_user(user)
     remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
     active_projects = db_sess.execute(
         select(models.Project).where(
@@ -470,59 +538,66 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
             models.Project.provider_project_id.is_not(None),
         )
     ).scalars().all()
+    active_project_snapshots = [_snapshot_limit_control_project(project) for project in active_projects]
     active_sum = sum(int(p.data_limit or 0) for p in active_projects)
 
+    # Закрываем текущую транзакцию перед сетевыми вызовами, чтобы не держать
+    # соединение из пула БД во время ожидания Telegram/Prostats.
+    db_sess.rollback()
+
     _sync_client_balance_alert(
-        db_sess,
-        user=user,
+        user_snapshot=user_snapshot,
         remaining=remaining,
         active_limit_sum=active_sum,
     )
 
-    if not bool(getattr(user, "auto_limit_control_enabled", False)):
+    if not bool(user_snapshot["auto_limit_control_enabled"]):
         return {"paused": 0, "errors": [], "skipped": 0}
     if active_sum <= remaining:
         return {"paused": 0, "errors": [], "skipped": 0}
 
     pause_candidates = sorted(
-        active_projects,
-        key=lambda p: (int(p.data_limit or 0), int(p.id or 0)),
+        active_project_snapshots,
+        key=lambda p: (int(p["data_limit"] or 0), int(p["id"] or 0)),
         reverse=True,
     )
-    paused_projects: List[models.Project] = []
+    paused_projects: List[dict] = []
     skipped = 0
     errors: List[str] = []
 
     for project in pause_candidates:
         if active_sum <= remaining:
             break
-        if not project.provider_project_id:
+        if not project["provider_project_id"]:
             skipped += 1
             continue
         try:
-            prostats.update_project_status(str(project.provider_project_id), project, "На паузе")
-            ok = crud.update_project_status_with_audit(
-                db_sess,
-                project_id=int(project.id),
-                status="На паузе",
-                event_user_id=int(client_id),
-                actor_user_id=None,
-                audit_reason=(
-                    f"Автопауза по лимитам ({trigger}): сумма активных лимитов была {active_sum}, остаток {remaining}."
-                ),
-            )
+            project_obj = SimpleNamespace(**project)
+            prostats.update_project_status(str(project["provider_project_id"]), project_obj, "На паузе")
+            with SessionLocal() as update_sess:  # type: Session
+                ok = crud.update_project_status_with_audit(
+                    update_sess,
+                    project_id=int(project["id"]),
+                    status="На паузе",
+                    event_user_id=int(client_id),
+                    actor_user_id=None,
+                    audit_reason=(
+                        f"Автопауза по лимитам ({trigger}): сумма активных лимитов была {active_sum}, остаток {remaining}."
+                    ),
+                )
             if ok:
                 paused_projects.append(project)
-                active_sum -= int(project.data_limit or 0)
+                active_sum -= int(project["data_limit"] or 0)
         except prostats.ProstatsError as exc:
-            errors.append(f'Проект {project.id} "{project.name}": {exc.message}')
+            errors.append(f'Проект {project["id"]} "{project["name"]}": {exc.message}')
 
     if paused_projects:
-        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        with SessionLocal() as finalize_sess:  # type: Session
+            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
         _notify_auto_limit_pause(
-            user=user,
+            user_snapshot=user_snapshot,
             remaining=remaining,
-            sum_before=sum(int(p.data_limit or 0) for p in active_projects),
+            sum_before=sum(int(p["data_limit"] or 0) for p in active_project_snapshots),
             paused_projects=paused_projects,
             trigger=trigger,
             errors=errors,
@@ -530,23 +605,53 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
     return {"paused": len(paused_projects), "errors": errors, "skipped": skipped}
 
 
+def _snapshot_limit_control_user(user: models.User) -> dict:
+    return {
+        "id": int(getattr(user, "id", 0) or 0),
+        "login": str(getattr(user, "login", "") or ""),
+        "auto_limit_control_enabled": bool(getattr(user, "auto_limit_control_enabled", False)),
+        "telegram_notifications_chat_id": str(getattr(user, "telegram_notifications_chat_id", "") or "").strip(),
+        "telegram_auto_pause_enabled": bool(getattr(user, "telegram_auto_pause_enabled", False)),
+        "telegram_balance_alert_level": getattr(user, "telegram_balance_alert_level", None),
+    }
+
+
+def _snapshot_limit_control_project(project: models.Project) -> dict:
+    return {
+        "id": int(getattr(project, "id", 0) or 0),
+        "name": str(getattr(project, "name", "") or ""),
+        "tag": str(getattr(project, "tag", "") or ""),
+        "provider_project_id": str(getattr(project, "provider_project_id", "") or "").strip() or None,
+        "data_limit": int(getattr(project, "data_limit", 0) or 0),
+        "region_mode": getattr(project, "region_mode", None) or "include",
+        "regions": list(getattr(project, "regions", None) or []),
+        "sites": list(getattr(project, "sites", None) or []),
+        "phones": list(getattr(project, "phones", None) or []),
+        "sms_sender_name": getattr(project, "sms_sender_name", None),
+        "days_received": getattr(project, "days_received", None),
+    }
+
+
 def _notify_auto_limit_pause(
-    user: models.User,
+    user_snapshot: dict,
     remaining: int,
     sum_before: int,
-    paused_projects: List[models.Project],
+    paused_projects: List[dict],
     trigger: str,
     errors: List[str],
 ) -> None:
     bot_token = settings.get("TELEGRAM_BOT_TOKEN") or ""
-    chat_id = _get_client_telegram_chat_id_for_notifications(user)
+    chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
     if not bot_token or not chat_id:
         return
-    paused_lines = [f'- {p.name} (id: {p.id}, лимит: {int(p.data_limit or 0)})' for p in paused_projects]
+    paused_lines = [
+        f'- {p["name"]} (id: {p["id"]}, лимит: {int(p["data_limit"] or 0)})'
+        for p in paused_projects
+    ]
     details = "\n".join(paused_lines)
     text = (
         "<b>[ЛК | Автопауза по лимитам]</b>\n"
-        f"Клиент: <code>{user.login}</code> (id={user.id})\n"
+        f'Клиент: <code>{html.escape(str(user_snapshot["login"]))}</code> (id={user_snapshot["id"]})\n'
         f"Триггер: <code>{trigger}</code>\n"
         f"Сумма активных лимитов: <b>{sum_before}</b>\n"
         f"Остаток клиента: <b>{remaining}</b>\n\n"
@@ -571,6 +676,10 @@ def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
     """
     use_client_route = bool(getattr(user, "telegram_auto_pause_enabled", False))
     client_chat_id = str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
+    return _resolve_notification_chat_id(use_client_route, client_chat_id)
+
+
+def _resolve_notification_chat_id(use_client_route: bool, client_chat_id: str) -> str:
     if use_client_route and client_chat_id:
         return client_chat_id
     return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
@@ -633,12 +742,11 @@ def _build_client_balance_alert_message(
 
 
 def _sync_client_balance_alert(
-    db_sess: Session,
-    user: models.User,
+    user_snapshot: dict,
     remaining: int,
     active_limit_sum: int,
 ) -> Optional[int]:
-    saved_level_raw = getattr(user, "telegram_balance_alert_level", None)
+    saved_level_raw = user_snapshot.get("telegram_balance_alert_level")
     try:
         saved_level = int(saved_level_raw) if saved_level_raw is not None else None
     except (TypeError, ValueError):
@@ -647,24 +755,22 @@ def _sync_client_balance_alert(
     next_level = _resolve_client_balance_alert_level(remaining, active_limit_sum)
     if next_level is None:
         if saved_level is not None:
-            user.telegram_balance_alert_level = None
-            db_sess.add(user)
-            # В большинстве потоков выше уже был отдельный commit бизнес-операции
-            # (новый лид, баланс, изменение проекта). Здесь нужно закрепить только
-            # состояние антидублей, иначе следующий запрос снова увидит старый уровень.
-            db_sess.commit()
+            _set_client_balance_alert_level(int(user_snapshot["id"]), None)
         return None
 
     if saved_level == next_level:
         return next_level
 
     bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = _get_client_telegram_chat_id_for_notifications(user)
+    chat_id = _resolve_notification_chat_id(
+        bool(user_snapshot.get("telegram_auto_pause_enabled", False)),
+        str(user_snapshot.get("telegram_notifications_chat_id", "") or "").strip(),
+    )
     if not bot_token or not chat_id:
         return None
 
     text = _build_client_balance_alert_message(
-        user=user,
+        user=SimpleNamespace(**user_snapshot),
         remaining=remaining,
         active_limit_sum=active_limit_sum,
         alert_level=next_level,
@@ -672,17 +778,25 @@ def _sync_client_balance_alert(
     if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
         logging.getLogger("app").warning(
             "Failed to send balance alert to Telegram for client_id=%s level=%s",
-            getattr(user, "id", None),
+            user_snapshot.get("id"),
             next_level,
         )
         return None
 
-    user.telegram_balance_alert_level = next_level
-    db_sess.add(user)
     # Сохраняем отправленный порог сразу, чтобы следующий webhook/пересчёт
     # не отправил то же самое уведомление повторно.
-    db_sess.commit()
+    _set_client_balance_alert_level(int(user_snapshot["id"]), next_level)
     return next_level
+
+
+def _set_client_balance_alert_level(client_id: int, level: Optional[int]) -> None:
+    with SessionLocal() as s:  # type: Session
+        user = s.get(models.User, int(client_id))
+        if not user:
+            return
+        user.telegram_balance_alert_level = level
+        s.add(user)
+        s.commit()
 
 
 def _should_send_auto_pause_test_message(
@@ -883,7 +997,10 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     if project_id:
         proj = db_sess.get(models.Project, int(project_id))
         if proj and proj.user_id:
-            _run_limit_control_for_client(db_sess, client_id=int(proj.user_id), trigger="provider_lead")
+            _run_limit_control_for_client_in_background(
+                client_id=int(proj.user_id),
+                trigger="provider_lead",
+            )
 
     return {"ok": True, "stored": True, "id": row.id}
 
