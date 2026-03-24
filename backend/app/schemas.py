@@ -3,7 +3,7 @@
 Назначение: Pydantic-схемы ввода/вывода для API.
 """
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -241,6 +241,43 @@ class AdminLeadOut(BaseModel):
 class AdminLeadsListOut(BaseModel):
     items: List[AdminLeadOut]
     total: int
+
+
+class AdminProviderLeadsImportPreviewSampleOut(BaseModel):
+    xlsxRowNumber: Optional[int] = None
+    vid: Optional[str] = None
+    projectName: Optional[str] = None
+    phone: Optional[str] = None
+    subdomain: Optional[str] = None
+    note: str
+
+
+class AdminProviderLeadsImportPreviewOut(BaseModel):
+    previewId: str
+    fileName: str
+    totalRows: int
+    validRows: int
+    rowsWithErrors: int
+    duplicatesInFile: int
+    duplicatesInDb: int
+    newRows: int
+    readyToImport: int
+    matchedProjects: int
+    notFoundProjects: int
+    ambiguousProjects: int
+    errorsBreakdown: Dict[str, int]
+    samples: Dict[str, List[AdminProviderLeadsImportPreviewSampleOut]]
+
+
+class AdminProviderLeadsImportCommitIn(BaseModel):
+    previewId: str
+
+
+class AdminProviderLeadsImportCommitOut(BaseModel):
+    previewId: str
+    fileName: str
+    insertedRows: int
+    skippedDuplicatesInDb: int
 
 
 # -------- Черный список --------

@@ -251,6 +251,65 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function httpForm<T>(path: string, formData: FormData, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    const headers: Record<string, string> = {};
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    res = await fetch(`${API_BASE}${path}`, {
+      method: init?.method || 'POST',
+      headers,
+      body: formData,
+      ...init,
+    });
+  } catch {
+    const err: HttpError = Object.assign(
+      new Error('Нет соединения с сервером. Проверьте подключение к интернету.'),
+      { status: 0, isNetworkError: true },
+    );
+    throw err;
+  }
+
+  if (!res.ok) {
+    let errorDetail: string | null = null;
+    try {
+      const text = await res.text();
+      if (text) {
+        try {
+          const json = JSON.parse(text) as { detail?: unknown; message?: unknown };
+          if (typeof json.detail === 'string') errorDetail = json.detail;
+          else if (typeof json.message === 'string') errorDetail = json.message;
+          else errorDetail = text;
+        } catch {
+          errorDetail = text;
+        }
+      }
+    } catch {
+      errorDetail = null;
+    }
+
+    if (res.status === 401) {
+      try {
+        localStorage.removeItem('access_token');
+        clearAccessTokenCookie();
+      } catch (err) {
+        console.warn('Не удалось очистить токен', err);
+      }
+    }
+
+    const err: HttpError = Object.assign(new Error(errorDetail || res.statusText), {
+      status: res.status,
+      errorDetail,
+    });
+    throw err;
+  }
+
+  return res.json();
+}
+
 export type ProjectListResp = { items: Project[]; total: number };
 export type CreateProjectsResp = { items: Project[]; warning?: string | null };
 export type UpdateProjectResp = { project: Project; warning?: string | null };
@@ -741,6 +800,52 @@ export async function fetchAdminLeads(params: {
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
   return http<AdminLeadsListResp>(`/admin/leads?${q.toString()}`);
+}
+
+export type AdminProviderLeadsImportPreviewSample = {
+  xlsxRowNumber?: number | null;
+  vid?: string | null;
+  projectName?: string | null;
+  phone?: string | null;
+  subdomain?: string | null;
+  note: string;
+};
+
+export type AdminProviderLeadsImportPreviewResp = {
+  previewId: string;
+  fileName: string;
+  totalRows: number;
+  validRows: number;
+  rowsWithErrors: number;
+  duplicatesInFile: number;
+  duplicatesInDb: number;
+  newRows: number;
+  readyToImport: number;
+  matchedProjects: number;
+  notFoundProjects: number;
+  ambiguousProjects: number;
+  errorsBreakdown: Record<string, number>;
+  samples: Record<string, AdminProviderLeadsImportPreviewSample[]>;
+};
+
+export type AdminProviderLeadsImportCommitResp = {
+  previewId: string;
+  fileName: string;
+  insertedRows: number;
+  skippedDuplicatesInDb: number;
+};
+
+export async function previewAdminProviderLeadsImport(file: File): Promise<AdminProviderLeadsImportPreviewResp> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return httpForm<AdminProviderLeadsImportPreviewResp>('/admin/provider-leads-import/preview', formData);
+}
+
+export async function commitAdminProviderLeadsImport(previewId: string): Promise<AdminProviderLeadsImportCommitResp> {
+  return http<AdminProviderLeadsImportCommitResp>('/admin/provider-leads-import/commit', {
+    method: 'POST',
+    body: JSON.stringify({ previewId }),
+  });
 }
 
 // -------- Админский черный список --------

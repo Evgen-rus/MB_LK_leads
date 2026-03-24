@@ -11,6 +11,7 @@ import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
 import AdminReports from './components/AdminReports';
 import AdminClientsScreen from './components/AdminClientsScreen';
+import AdminProviderLeadsImport from './components/AdminProviderLeadsImport';
 import AdminProjectsScreen, {
   type AdminProjectsFocus,
 } from './components/AdminProjectsScreen';
@@ -57,6 +58,7 @@ function App() {
         saved === 'support' ||
         saved === 'blacklist' ||
         saved === 'admin-clients' ||
+        saved === 'admin-provider-import' ||
         saved === 'balance' ||
         saved === 'education' ||
         saved === 'onboarding'
@@ -148,7 +150,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && view === 'admin-clients') {
+    if (!isAdmin && (view === 'admin-clients' || view === 'admin-provider-import')) {
       setView('projects');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
@@ -176,6 +178,7 @@ function App() {
       view !== 'support' &&
       view !== 'blacklist' &&
       view !== 'admin-clients' &&
+      view !== 'admin-provider-import' &&
       view !== 'balance' &&
       view !== 'education' &&
       view !== 'onboarding'
@@ -311,6 +314,8 @@ function App() {
               <span className="page-title__title">
                 {view === 'admin-clients'
                   ? 'Клиенты'
+                  : view === 'admin-provider-import'
+                  ? 'Импорт лидов'
                   : view === 'projects'
                   ? 'Проекты'
                   : view === 'leads'
@@ -415,6 +420,8 @@ function App() {
                 setView('balance');
               }}
             />
+          ) : view === 'admin-provider-import' && isAdmin ? (
+            <AdminProviderLeadsImport />
           ) : view === 'projects' ? (
             isAdmin ? (
               <AdminProjectsScreen

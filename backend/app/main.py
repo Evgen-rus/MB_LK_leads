@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response, FileResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -35,6 +35,7 @@ from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
 from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
+from . import provider_leads_xlsx_import as provider_leads_import
 from .time_utils import now_msk
 from .providers import prostats
 
@@ -2033,6 +2034,45 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return user
+
+
+@app.post("/admin/provider-leads-import/preview", response_model=schemas.AdminProviderLeadsImportPreviewOut)
+async def admin_preview_provider_leads_import(
+    file: UploadFile = File(...),
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Файл не выбран")
+
+    try:
+        file_bytes = await file.read()
+        result = provider_leads_import.create_preview(
+            db_sess,
+            admin_user_id=int(current_admin.id),
+            file_name=filename,
+            file_bytes=file_bytes,
+        )
+        return result
+    except provider_leads_import.ProviderLeadsImportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.post("/admin/provider-leads-import/commit", response_model=schemas.AdminProviderLeadsImportCommitOut)
+def admin_commit_provider_leads_import(
+    payload: schemas.AdminProviderLeadsImportCommitIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        return provider_leads_import.commit_preview(
+            db_sess,
+            preview_id=payload.previewId,
+            admin_user_id=int(current_admin.id),
+        )
+    except provider_leads_import.ProviderLeadsImportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 def create_impersonation_token(client_user_id: int, admin_user_id: int, ttl_minutes: int = 1440) -> str:
