@@ -1386,8 +1386,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         if not updated:
             raise HTTPException(status_code=404, detail="Project not found")
         _sync_client_balance_alert(
-            db_sess,
-            user=current_user,
+            user_snapshot=_snapshot_limit_control_user(current_user),
             remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
             active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
         )
@@ -1451,8 +1450,7 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
     if not ok:
         raise HTTPException(status_code=404, detail="Project not found")
     _sync_client_balance_alert(
-        db_sess,
-        user=current_user,
+        user_snapshot=_snapshot_limit_control_user(current_user),
         remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
         active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
     )
@@ -2416,8 +2414,7 @@ def admin_update_project(
             user = db_sess.get(models.User, int(project_row.user_id))
             if user:
                 _sync_client_balance_alert(
-                    db_sess,
-                    user=user,
+                    user_snapshot=_snapshot_limit_control_user(user),
                     remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
                     active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
                 )
@@ -2456,8 +2453,7 @@ def admin_delete_project(
         user = db_sess.get(models.User, int(project_row.user_id))
         if user:
             _sync_client_balance_alert(
-                db_sess,
-                user=user,
+                user_snapshot=_snapshot_limit_control_user(user),
                 remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
                 active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
             )
@@ -2841,8 +2837,7 @@ def admin_pause_client_projects(
     user = db_sess.get(models.User, client_id)
     if user:
         _sync_client_balance_alert(
-            db_sess,
-            user=user,
+            user_snapshot=_snapshot_limit_control_user(user),
             remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
             active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
         )
@@ -2986,8 +2981,7 @@ def admin_resume_client_projects(
     user = db_sess.get(models.User, client_id)
     if user:
         _sync_client_balance_alert(
-            db_sess,
-            user=user,
+            user_snapshot=_snapshot_limit_control_user(user),
             remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
             active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
         )
