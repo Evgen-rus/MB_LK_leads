@@ -1,4 +1,4 @@
-# Release Notes — 23.03.2026
+# Release Notes — 24.03.2026
 
 ## Кратко
 

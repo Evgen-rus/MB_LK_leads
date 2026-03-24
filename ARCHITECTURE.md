@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-03-23
+Last updated: 2026-03-24
 
 ## 1) System At A Glance
 
@@ -13,12 +13,14 @@ Last updated: 2026-03-23
 - Frontend: React + Vite (`my-app-vite/src`)
 - БД: PostgreSQL (основной контур), SQLite (fallback локально)
 - Интеграции: Prostats, Telegram, Google Sheets
+- **Импорт лидов провайдера из XLSX:** админский UI (двухшаговый preview → commit) и служебный CLI; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
 
 ## 2) Source Of Truth
 
 Если есть конфликт между документами и кодом, доверять коду:
 
 - API endpoints: `backend/app/main.py`
+- Импорт лидов из XLSX (preview/commit, парсинг, валидация): `backend/app/provider_leads_xlsx_import.py`
 - Бизнес-логика: `backend/app/crud.py`
 - Модели БД: `backend/app/models.py`
 - Схемы API: `backend/app/schemas.py`
@@ -36,6 +38,7 @@ Last updated: 2026-03-23
 7. Технический префикс источника `B1_` / `B2_` / `B3_` / `B4_` обязателен в названии проекта.
 8. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`).
 9. Вебхук провайдера не запускает автоконтроль лимитов по событию: лимит-контроль работает только периодическим фоновым циклом.
+10. **Админский импорт лидов из XLSX:** запись в БД только через **commit** по существующему `previewId`; сессия preview привязана к **тому же** админу, что и commit; при строках без однозначного проекта или с **неоднозначным** матчингом проекта commit **запрещён**; при записи учитываются дубли по **`vid`** (как у вебхука). Парсинг `prov_chanel` / `prov_source` и привязка к проекту согласованы с вебхук-потоком.
 
 ## 4) Key Domain Objects
 
@@ -81,7 +84,14 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 ### E) Admin Operations
 `/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/аудит) -> при необходимости синхронизация статусов с Prostats.
 
-### F) Project Create With Unique Name
+### F) Admin Provider Leads XLSX (preview / commit)
+Админский UI отправляет файл (**multipart** / `FormData`) -> `POST /admin/provider-leads-import/preview` -> `require_admin` -> `provider_leads_xlsx_import.create_preview`: проверка `.xlsx` и лимита размера -> на диск (временный каталог под `previewId`, TTL) кладётся копия файла и метаданные сессии -> в ответе **summary без записи** в `provider_leads` (валидность строк, дубли по `vid` в БД, проблемы привязки к проектам).
+
+`POST /admin/provider-leads-import/commit` с тем же `previewId` -> снова `require_admin` и проверка, что preview создал **этот** админ -> повторный разбор и валидация на сервере -> запись лидов -> удаление артефактов preview; просроченные каталоги периодически чистятся.
+
+Та же бизнес-логика строк вызывается из **CLI**: `tool_import_provider_leads_from_xlsx.py` (обход UI, для служебных сценариев).
+
+### G) Project Create With Unique Name
 Для клиентов с `unique_project_names_enabled=true` создание проекта двухшаговое:
 UI отправляет обычное имя вида `B1_Магнум` -> backend создаёт проект у Prostats -> создаёт локальный `Project` и получает `project.id` -> backend делает rename у Prostats в формат `B1_[MB54] Магнум` -> сохраняет финальное имя у нас.
 
@@ -98,6 +108,7 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
 - Telegram-отправка: `backend/app/telegram.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
+- Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
 - Экспорт provider leads: `tool_export_provider_leads.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
 
@@ -127,6 +138,10 @@ Google Sheets export:
 - `GOOGLE_SHEET_NAME`
 - `LEADS_EXPORT_LOOKBACK_DAYS`
 
+Импорт лидов провайдера из XLSX (админ / общий модуль):
+- `PROVIDER_LEADS_IMPORT_PREVIEW_TTL_SECONDS` (TTL временных preview на диске)
+- `PROVIDER_LEADS_IMPORT_MAX_FILE_BYTES` (макс. размер upload)
+
 Дополнительно:
 - `AUTO_LIMIT_CHECK_SECONDS`
 - `SHEETS_TZ`
@@ -142,3 +157,5 @@ Google Sheets export:
 5. Не убирать server-side защиту технических префиксов имени проекта: `B1_...B4_` и `[MB{id}]` для `unique_name_applied`.
 6. Для клиентов с уникальными именами создание проекта не атомарно в одном внешнем вызове: после create нужен rename в Prostats с retry-логикой.
 7. Учитывать, что часть логики сосредоточена в `main.py` и `crud.py`.
+8. **XLSX preview/commit:** не ослаблять серверные проверки (тот же админ, валидный `previewId`, запрет commit при проблемной привязке к проектам) — UI только подсказывает.
+9. Артефакты preview лежат в **локальном** каталоге на машине процесса backend; при нескольких инстансах без sticky session цепочка preview на одном узле и commit на другом **не сработает** — это ограничение текущей реализации.
