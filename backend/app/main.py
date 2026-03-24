@@ -73,9 +73,6 @@ engine, SessionLocal = db.init_engine_and_session(
 )
 models.Base.metadata.create_all(bind=engine)
 
-_limit_control_in_progress_lock = threading.Lock()
-_limit_control_in_progress_clients: set[int] = set()
-
 
 def _ensure_audit_event_columns() -> None:
     """
@@ -465,63 +462,10 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
             with SessionLocal() as s:  # type: Session
                 client_ids = crud.list_clients_with_auto_limit_control(s)
                 for client_id in client_ids:
-                    _run_limit_control_for_client_guarded(s, client_id=client_id, trigger="schedule")
+                    _run_limit_control_for_client(s, client_id=int(client_id), trigger="schedule")
         except Exception:
             logging.getLogger("app").warning("limit-control loop failed", exc_info=True)
         time.sleep(max(30, int(sleep_seconds)))
-
-
-def _run_limit_control_for_client_guarded(
-    db_sess: Session,
-    client_id: int,
-    trigger: str,
-) -> Optional[dict]:
-    client_id = int(client_id)
-    with _limit_control_in_progress_lock:
-        if client_id in _limit_control_in_progress_clients:
-            logging.getLogger("app").info(
-                "limit-control skipped because already running: client_id=%s trigger=%s",
-                client_id,
-                trigger,
-            )
-            return None
-        _limit_control_in_progress_clients.add(client_id)
-
-    try:
-        return _run_limit_control_for_client(db_sess, client_id=client_id, trigger=trigger)
-    finally:
-        with _limit_control_in_progress_lock:
-            _limit_control_in_progress_clients.discard(client_id)
-
-
-def _run_limit_control_for_client_in_background(client_id: int, trigger: str) -> None:
-    worker = threading.Thread(
-        target=_limit_control_background_task,
-        kwargs={
-            "client_id": int(client_id),
-            "trigger": trigger,
-        },
-        daemon=True,
-        name=f"limit-control-client-{int(client_id)}",
-    )
-    worker.start()
-
-
-def _limit_control_background_task(client_id: int, trigger: str) -> None:
-    try:
-        with SessionLocal() as s:  # type: Session
-            _run_limit_control_for_client_guarded(
-                s,
-                client_id=int(client_id),
-                trigger=trigger,
-            )
-    except Exception:
-        logging.getLogger("app").warning(
-            "async limit-control failed for client_id=%s trigger=%s",
-            client_id,
-            trigger,
-            exc_info=True,
-        )
 
 
 def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
@@ -993,14 +937,6 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     except IntegrityError:
         db_sess.rollback()
         return {"ok": True, "stored": False, "reason": "duplicate"}
-
-    if project_id:
-        proj = db_sess.get(models.Project, int(project_id))
-        if proj and proj.user_id:
-            _run_limit_control_for_client_in_background(
-                client_id=int(proj.user_id),
-                trigger="provider_lead",
-            )
 
     return {"ok": True, "stored": True, "id": row.id}
 
