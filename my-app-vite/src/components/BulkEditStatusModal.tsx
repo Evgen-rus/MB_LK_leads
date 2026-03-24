@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ProjectStatus } from '../types/project';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type AllowedStatus = Exclude<ProjectStatus, 'Удалён'>;
@@ -7,11 +8,18 @@ type AllowedStatus = Exclude<ProjectStatus, 'Удалён'>;
 type BulkEditStatusModalProps = {
   selectedCount: number;
   submitting?: boolean;
+  progress?: BulkProgress | null;
   onClose: () => void;
   onSubmit: (status: AllowedStatus) => void;
 };
 
-function BulkEditStatusModal({ selectedCount, submitting = false, onClose, onSubmit }: BulkEditStatusModalProps) {
+function BulkEditStatusModal({
+  selectedCount,
+  submitting = false,
+  progress = null,
+  onClose,
+  onSubmit,
+}: BulkEditStatusModalProps) {
   const [status, setStatus] = useState<AllowedStatus>('Активен');
 
   return (
@@ -20,6 +28,7 @@ function BulkEditStatusModal({ selectedCount, submitting = false, onClose, onSub
       onClose={onClose}
       onSubmit={() => onSubmit(status)}
       submitting={submitting}
+      progress={progress}
     >
       <label style={{ display: 'grid', gap: 6 }}>
         <span className="section-title">Статус проекта</span>

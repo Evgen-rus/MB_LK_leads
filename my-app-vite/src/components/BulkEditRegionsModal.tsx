@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues } from '../data/regions';
 import type { Project } from '../types/project';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type RegionMode = 'include' | 'exclude';
@@ -8,6 +9,7 @@ type RegionMode = 'include' | 'exclude';
 type BulkEditRegionsModalProps = {
   selectedProjects: Project[];
   submitting?: boolean;
+  progress?: BulkProgress | null;
   onClose: () => void;
   onSubmit: (payload: { regions: string[]; regionMode: RegionMode }) => void;
 };
@@ -15,6 +17,7 @@ type BulkEditRegionsModalProps = {
 function BulkEditRegionsModal({
   selectedProjects,
   submitting = false,
+  progress = null,
   onClose,
   onSubmit,
 }: BulkEditRegionsModalProps) {
@@ -50,6 +53,7 @@ function BulkEditRegionsModal({
       onClose={onClose}
       onSubmit={() => onSubmit({ regions: normalizeRegionValues(selectedRegions), regionMode: targetMode })}
       submitting={submitting}
+      progress={progress}
     >
       <div className="section-title">Регионы</div>
       <div className="hint">

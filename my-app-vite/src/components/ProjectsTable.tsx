@@ -785,6 +785,7 @@ function ProjectsTable({
         <BulkEditDaysModal
           selectedCount={selectedRows.length}
           submitting={bulkSaving}
+          progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkDaysSubmit}
         />
@@ -793,6 +794,7 @@ function ProjectsTable({
         <BulkEditLimitModal
           selectedCount={selectedRows.length}
           submitting={bulkSaving}
+          progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkLimitSubmit}
         />
@@ -801,6 +803,7 @@ function ProjectsTable({
         <BulkEditContactsModal
           selectedProjects={selectedRows}
           submitting={bulkSaving}
+          progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkContactsSubmit}
         />
@@ -809,6 +812,7 @@ function ProjectsTable({
         <BulkEditRegionsModal
           selectedProjects={selectedRows}
           submitting={bulkSaving}
+          progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkRegionsSubmit}
         />
@@ -817,6 +821,7 @@ function ProjectsTable({
         <BulkEditStatusModal
           selectedCount={selectedRows.length}
           submitting={bulkSaving}
+          progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkStatusSubmit}
         />

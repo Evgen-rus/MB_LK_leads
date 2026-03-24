@@ -1,17 +1,25 @@
 import { useState } from 'react';
 import type { Day } from '../api';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type BulkEditDaysModalProps = {
   selectedCount: number;
   submitting?: boolean;
+  progress?: BulkProgress | null;
   onClose: () => void;
   onSubmit: (days: Day[]) => void;
 };
 
 const WEEK_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-function BulkEditDaysModal({ selectedCount, submitting = false, onClose, onSubmit }: BulkEditDaysModalProps) {
+function BulkEditDaysModal({
+  selectedCount,
+  submitting = false,
+  progress = null,
+  onClose,
+  onSubmit,
+}: BulkEditDaysModalProps) {
   const [days, setDays] = useState<Day[]>(['Пн', 'Вт', 'Ср', 'Чт', 'Пт']);
 
   function toggleDay(day: Day) {
@@ -25,6 +33,7 @@ function BulkEditDaysModal({ selectedCount, submitting = false, onClose, onSubmi
       onSubmit={() => onSubmit(days)}
       submitDisabled={days.length === 0}
       submitting={submitting}
+      progress={progress}
     >
       <div className="section-title">Дни получения данных</div>
       <div className="hint">

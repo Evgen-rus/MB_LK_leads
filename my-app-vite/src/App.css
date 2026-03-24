@@ -347,6 +347,96 @@
 .modal-card .section-title { font-weight: 600; font-size: 1rem; margin: 12px 0 4px; }
 .modal-card .hint { font-size: 0.75rem; color: #8b8b98; }
 .modal-card .radio-row { display: flex; align-items: center; gap: 16px; }
+.bulk-progress-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #e7ddff;
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(106, 92, 255, 0.12), rgba(106, 92, 255, 0.03)),
+    #fbfaff;
+  display: grid;
+  gap: 10px;
+}
+.bulk-progress-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bulk-progress-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #3f2eb8;
+}
+.bulk-progress-card__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #6a5cff;
+  box-shadow: 0 0 0 0 rgba(106, 92, 255, 0.32);
+  animation: bulkProgressPulse 1.6s ease-in-out infinite;
+}
+.bulk-progress-card__counter {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #2f2a4a;
+  font-variant-numeric: tabular-nums;
+}
+.bulk-progress-card__bar {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(106, 92, 255, 0.12);
+}
+.bulk-progress-card__bar-fill {
+  position: relative;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6a5cff 0%, #8a7cff 100%);
+  transition: width 0.28s ease;
+}
+.bulk-progress-card__bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.45) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: bulkProgressShimmer 1.4s linear infinite;
+}
+.bulk-progress-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: #6d6690;
+}
+@keyframes bulkProgressPulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(106, 92, 255, 0.28);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 8px rgba(106, 92, 255, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(106, 92, 255, 0);
+  }
+}
+@keyframes bulkProgressShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
 /* Селекты в модалках — своя стрелка и фокус */
 .modal-card select { appearance: none; background: #f5f5f7; padding-right: 36px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b8b98' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 16px; transition: box-shadow .2s, border-color .2s; }
 .modal-card select:focus, .modal-card input[type="text"]:focus, .modal-card input[type="number"]:focus, .modal-card input[type="search"]:focus, .modal-card input[type="tel"]:focus, .modal-card textarea:focus { outline: none; border-color: #6a5cff; box-shadow: 0 4px 14px rgba(0,0,0,0.08), 0 0 0 3px rgba(106,92,255,0.15); }

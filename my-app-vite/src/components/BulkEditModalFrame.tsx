@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 
 type BulkEditModalFrameProps = {
   selectedCount: number;
@@ -9,6 +10,7 @@ type BulkEditModalFrameProps = {
   submitLabel?: string;
   submitDisabled?: boolean;
   submitting?: boolean;
+  progress?: BulkProgress | null;
 };
 
 function BulkEditModalFrame({
@@ -20,7 +22,11 @@ function BulkEditModalFrame({
   submitLabel = 'Применить',
   submitDisabled = false,
   submitting = false,
+  progress = null,
 }: BulkEditModalFrameProps) {
+  const progressPercent =
+    progress && progress.total > 0 ? Math.max(0, Math.min(100, Math.round((progress.done / progress.total) * 100))) : 0;
+
   return (
     <div
       style={{
@@ -53,6 +59,38 @@ function BulkEditModalFrame({
           <div className="sub" style={{ marginTop: 4, color: '#666' }}>
             Проектов выбрано: {selectedCount}
           </div>
+          {submitting && progress && (
+            <div className="bulk-progress-card">
+              <div className="bulk-progress-card__head">
+                <div className="bulk-progress-card__status">
+                  <span className="bulk-progress-card__dot" />
+                  <span>Идёт обработка проектов</span>
+                </div>
+                <div className="bulk-progress-card__counter">
+                  {progress.done}/{progress.total}
+                </div>
+              </div>
+              <div
+                className="bulk-progress-card__bar"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={progress.total}
+                aria-valuenow={progress.done}
+                aria-valuetext={`${progress.done} из ${progress.total}`}
+              >
+                <div
+                  className="bulk-progress-card__bar-fill"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <div className="bulk-progress-card__meta">
+                <span>{progressPercent}% выполнено</span>
+                <span>Обновлено: {progress.updated}</span>
+                <span>Пропущено: {progress.skipped}</span>
+                <span>Ошибок: {progress.failed}</span>
+              </div>
+            </div>
+          )}
         </div>
         <div style={{ padding: 20, display: 'grid', gap: 12 }}>{children}</div>
         <div

@@ -1,14 +1,22 @@
 import { useState } from 'react';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type BulkEditLimitModalProps = {
   selectedCount: number;
   submitting?: boolean;
+  progress?: BulkProgress | null;
   onClose: () => void;
   onSubmit: (limit: number) => void;
 };
 
-function BulkEditLimitModal({ selectedCount, submitting = false, onClose, onSubmit }: BulkEditLimitModalProps) {
+function BulkEditLimitModal({
+  selectedCount,
+  submitting = false,
+  progress = null,
+  onClose,
+  onSubmit,
+}: BulkEditLimitModalProps) {
   const [limitValue, setLimitValue] = useState<string>('50');
 
   const parsed = Number(limitValue);
@@ -21,6 +29,7 @@ function BulkEditLimitModal({ selectedCount, submitting = false, onClose, onSubm
       onSubmit={() => onSubmit(Math.trunc(parsed))}
       submitDisabled={!isValid}
       submitting={submitting}
+      progress={progress}
     >
       <label style={{ display: 'grid', gap: 6 }}>
         <span className="section-title">Лимит</span>

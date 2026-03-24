@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Project } from '../types/project';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
 import { normalizePhonesMultiline } from '../utils/phones';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
@@ -13,6 +14,7 @@ type BulkEditContactsModalSubmit = {
 type BulkEditContactsModalProps = {
   selectedProjects: Project[];
   submitting?: boolean;
+  progress?: BulkProgress | null;
   onClose: () => void;
   onSubmit: (payload: BulkEditContactsModalSubmit) => void;
 };
@@ -31,6 +33,7 @@ function parseSites(text: string): string[] {
 function BulkEditContactsModal({
   selectedProjects,
   submitting = false,
+  progress = null,
   onClose,
   onSubmit,
 }: BulkEditContactsModalProps) {
@@ -88,6 +91,7 @@ function BulkEditContactsModal({
       onClose={onClose}
       onSubmit={handleSubmit}
       submitting={submitting}
+      progress={progress}
     >
       <div className="section-title">Телефоны/сайты конкурентов</div>
 
