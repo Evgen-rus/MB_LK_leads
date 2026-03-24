@@ -25,7 +25,6 @@ import argparse
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from dotenv import load_dotenv
@@ -311,17 +310,6 @@ def analyze_rows(db_sess, normalized_rows: List[Dict[str, Any]]) -> Tuple[Dict[s
     return report, rows_to_import
 
 
-def build_report_path(source_file: str, mode_name: str) -> str:
-    source_path = Path(source_file)
-    ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    return str(source_path.with_name(f"{source_path.stem}_{mode_name}_{ts}.json"))
-
-
-def save_report(path: str, payload: Dict[str, Any]) -> None:
-    with open(path, "w", encoding="utf-8") as file_obj:
-        json.dump(payload, file_obj, ensure_ascii=False, indent=2, default=str)
-
-
 def print_report(report: Dict[str, Any], *, verbose: bool = False) -> None:
     print("")
     print("[SUMMARY]")
@@ -394,7 +382,7 @@ def main() -> None:
         raise SystemExit(f"File not found: {file_path}")
 
     preview_mode = not args.do_import or args.preview
-    headers, raw_rows = load_xlsx_rows(file_path, limit=max(0, int(args.limit or 0)))
+    _, raw_rows = load_xlsx_rows(file_path, limit=max(0, int(args.limit or 0)))
     normalized_rows = [normalize_xlsx_row(row) for row in raw_rows]
 
     _, session_local = db_mod.init_engine_and_session(args.db_url)
@@ -402,20 +390,8 @@ def main() -> None:
 
     try:
         report, rows_to_import = analyze_rows(db_sess, normalized_rows)
-        report_payload: Dict[str, Any] = {
-            "file": os.path.abspath(file_path),
-            "db_url": args.db_url,
-            "headers": headers,
-            "mode": "preview" if preview_mode and not args.do_import else "import",
-            "limit": max(0, int(args.limit or 0)),
-            "summary": report,
-            "generated_at": datetime.now().isoformat(),
-        }
 
         if preview_mode and not args.do_import:
-            report_path = build_report_path(file_path, "preview_report")
-            save_report(report_path, report_payload)
-            print(f"Preview report saved to: {report_path}")
             print_report(report, verbose=args.verbose)
             return
 
@@ -424,11 +400,7 @@ def main() -> None:
         print("")
         print("[INFO] Starting import...")
         inserted = insert_provider_leads(db_sess, rows_to_import)
-        report_payload["inserted_rows"] = inserted
-        report_path = build_report_path(file_path, "import_report")
-        save_report(report_path, report_payload)
         print(f"[OK] Imported rows: {inserted}")
-        print(f"Import report saved to: {report_path}")
 
     except SQLAlchemyError as exc:
         db_sess.rollback()
