@@ -498,8 +498,8 @@ class ClientBalanceSummaryOut(BaseModel):
     usedPeriod: int
     remaining: int
     debt: bool
-    periodFrom: str
-    periodTo: str
+    periodFrom: Optional[str] = None
+    periodTo: Optional[str] = None
 
 
 class ClientBalanceOpsListOut(BaseModel):

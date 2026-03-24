@@ -2642,13 +2642,7 @@ def admin_changes_summary(
     return schemas.AdminClientChangesSummaryListOut(items=items)
 
 
-@app.get("/balance", response_model=schemas.ClientBalanceSummaryOut)
-def client_balance_summary(
-    fromDate: Optional[str] = None,
-    toDate: Optional[str] = None,
-    current_user: models.User = Depends(require_auth),
-    db_sess: Session = Depends(get_db),
-):
+def _parse_balance_date_range(from_date: Optional[str], to_date: Optional[str]) -> tuple[Optional[datetime], Optional[datetime]]:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
     try:
@@ -2656,16 +2650,27 @@ def client_balance_summary(
     except ZoneInfoNotFoundError:
         tz = timezone(timedelta(hours=3))
 
-    today_msk = datetime.now(tz).date()
-    if not fromDate:
-        fromDate = today_msk.isoformat()
-    if not toDate:
-        toDate = today_msk.isoformat()
+    start_local: Optional[datetime] = None
+    end_local: Optional[datetime] = None
 
-    y, m, d = [int(x) for x in fromDate.split("-")]
-    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
-    y2, m2, d2 = [int(x) for x in toDate.split("-")]
-    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+    if from_date:
+        y, m, d = [int(x) for x in from_date.split("-")]
+        start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    if to_date:
+        y, m, d = [int(x) for x in to_date.split("-")]
+        end_local = datetime(y, m, d, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+
+    return start_local, end_local
+
+
+@app.get("/balance", response_model=schemas.ClientBalanceSummaryOut)
+def client_balance_summary(
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     return crud.get_client_balance_summary(
         db_sess,
@@ -2684,23 +2689,7 @@ def client_balance_ops(
     current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-    try:
-        tz = ZoneInfo(settings["SHEETS_TZ"])
-    except ZoneInfoNotFoundError:
-        tz = timezone(timedelta(hours=3))
-
-    today_msk = datetime.now(tz).date()
-    if not fromDate:
-        fromDate = today_msk.isoformat()
-    if not toDate:
-        toDate = today_msk.isoformat()
-
-    y, m, d = [int(x) for x in fromDate.split("-")]
-    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
-    y2, m2, d2 = [int(x) for x in toDate.split("-")]
-    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     limit = max(1, min(500, limit))
     offset = max(0, offset)
@@ -3017,23 +3006,7 @@ def admin_client_balance_summary(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-    try:
-        tz = ZoneInfo(settings["SHEETS_TZ"])
-    except ZoneInfoNotFoundError:
-        tz = timezone(timedelta(hours=3))
-
-    today_msk = datetime.now(tz).date()
-    if not fromDate:
-        fromDate = today_msk.isoformat()
-    if not toDate:
-        toDate = today_msk.isoformat()
-
-    y, m, d = [int(x) for x in fromDate.split("-")]
-    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
-    y2, m2, d2 = [int(x) for x in toDate.split("-")]
-    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     return crud.get_client_balance_summary(db_sess, client_id=client_id, start_local=start_local, end_local=end_local)
 
@@ -3048,23 +3021,7 @@ def admin_client_balance_ops(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-    try:
-        tz = ZoneInfo(settings["SHEETS_TZ"])
-    except ZoneInfoNotFoundError:
-        tz = timezone(timedelta(hours=3))
-
-    today_msk = datetime.now(tz).date()
-    if not fromDate:
-        fromDate = today_msk.isoformat()
-    if not toDate:
-        toDate = today_msk.isoformat()
-
-    y, m, d = [int(x) for x in fromDate.split("-")]
-    start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
-    y2, m2, d2 = [int(x) for x in toDate.split("-")]
-    end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     limit = max(1, min(500, limit))
     offset = max(0, offset)

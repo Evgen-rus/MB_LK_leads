@@ -1056,18 +1056,26 @@ export async function updateAdminClient(clientId: number, payload: AdminClientUp
   });
 }
 
-export async function fetchClientBalanceSummary(params: { fromDate: string; toDate: string }): Promise<ClientBalanceSummary> {
-  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
-  return http<ClientBalanceSummary>(`/balance?${q.toString()}`);
+export async function fetchClientBalanceSummary(
+  params?: { fromDate?: string; toDate?: string },
+): Promise<ClientBalanceSummary> {
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  const suffix = q.toString();
+  return http<ClientBalanceSummary>(suffix ? `/balance?${suffix}` : '/balance');
 }
 
 export async function fetchClientBalanceOps(
-  params: { fromDate: string; toDate: string; offset?: number; limit?: number },
+  params?: { fromDate?: string; toDate?: string; offset?: number; limit?: number },
 ): Promise<ClientBalanceOpsList> {
-  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
-  if (params.offset != null) q.set('offset', String(params.offset));
-  if (params.limit != null) q.set('limit', String(params.limit));
-  return http<ClientBalanceOpsList>(`/balance/ops?${q.toString()}`);
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientBalanceOpsList>(suffix ? `/balance/ops?${suffix}` : '/balance/ops');
 }
 
 // -------- Баланс по номерам --------
@@ -1092,8 +1100,8 @@ export type ClientBalanceSummary = {
   usedPeriod: number;
   remaining: number;
   debt: boolean;
-  periodFrom: string;
-  periodTo: string;
+  periodFrom?: string | null;
+  periodTo?: string | null;
 };
 
 export type ClientBalanceOpsList = {
@@ -1101,19 +1109,28 @@ export type ClientBalanceOpsList = {
   total: number;
 };
 
-export async function fetchAdminClientBalanceSummary(clientId: number, params: { fromDate: string; toDate: string }): Promise<ClientBalanceSummary> {
-  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
-  return http<ClientBalanceSummary>(`/admin/clients/${clientId}/balance?${q.toString()}`);
+export async function fetchAdminClientBalanceSummary(
+  clientId: number,
+  params?: { fromDate?: string; toDate?: string },
+): Promise<ClientBalanceSummary> {
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  const suffix = q.toString();
+  return http<ClientBalanceSummary>(suffix ? `/admin/clients/${clientId}/balance?${suffix}` : `/admin/clients/${clientId}/balance`);
 }
 
 export async function fetchAdminClientBalanceOps(
   clientId: number,
-  params: { fromDate: string; toDate: string; offset?: number; limit?: number },
+  params?: { fromDate?: string; toDate?: string; offset?: number; limit?: number },
 ): Promise<ClientBalanceOpsList> {
-  const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate });
-  if (params.offset != null) q.set('offset', String(params.offset));
-  if (params.limit != null) q.set('limit', String(params.limit));
-  return http<ClientBalanceOpsList>(`/admin/clients/${clientId}/balance/ops?${q.toString()}`);
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientBalanceOpsList>(suffix ? `/admin/clients/${clientId}/balance/ops?${suffix}` : `/admin/clients/${clientId}/balance/ops`);
 }
 
 export async function createAdminClientBalanceOp(

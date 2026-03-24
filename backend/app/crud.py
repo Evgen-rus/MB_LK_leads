@@ -2239,8 +2239,8 @@ def list_clients_with_auto_limit_control(db: Session) -> List[int]:
 def get_client_balance_summary(
     db: Session,
     client_id: int,
-    start_local: datetime,
-    end_local: datetime,
+    start_local: Optional[datetime],
+    end_local: Optional[datetime],
 ) -> schemas.ClientBalanceSummaryOut:
     credits = db.execute(
         select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
@@ -2267,8 +2267,8 @@ def get_client_balance_summary(
         usedPeriod=used_period,
         remaining=remaining,
         debt=remaining < 0,
-        periodFrom=start_local.strftime("%Y-%m-%d"),
-        periodTo=end_local.strftime("%Y-%m-%d"),
+        periodFrom=start_local.strftime("%Y-%m-%d") if start_local else None,
+        periodTo=end_local.strftime("%Y-%m-%d") if end_local else None,
     )
 
 

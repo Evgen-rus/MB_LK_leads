@@ -53,7 +53,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
   const [b1, setB1] = useState(true);
   const [b2, setB2] = useState(true);
   const [b3, setB3] = useState(true);
-  const [b4, setB4] = useState(false);
+  const [b4, setB4] = useState(true);
 
   const [regionMode, setRegionMode] = useState<'include'|'exclude'>('include');
   const [regionQuery, setRegionQuery] = useState('');
@@ -117,7 +117,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       setB1(true);
       setB2(true);
       setB3(true);
-      setB4(false);
+      setB4(true);
     } else if (collectionSource === 'СМС') {
       setB1(false);
       setB2(true);

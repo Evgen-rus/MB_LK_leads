@@ -222,8 +222,7 @@ function App() {
     if (!authChecked || needLogin || isAdmin) return;
     (async () => {
       try {
-        const today = new Date().toISOString().slice(0, 10);
-        const data = await fetchClientBalanceSummary({ fromDate: today, toDate: today });
+        const data = await fetchClientBalanceSummary();
         setClientBalance({ remaining: data.remaining, debt: data.debt });
       } catch (e) {
         console.error(e);

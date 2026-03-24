@@ -1,21 +1,12 @@
 // Раздел «Баланс» для клиента: только просмотр сводки и истории операций по своему аккаунту
 import { useEffect, useState, useCallback } from 'react';
-import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
-import DateRangeCompact from './DateRangeCompact';
 import {
   fetchClientBalanceSummary,
   fetchClientBalanceOps,
   type BalanceOperation,
   type ClientBalanceSummary,
 } from '../api';
-
-type DateRange = { from: string; to: string };
-
-function getTodayRange(): DateRange {
-  const today = new Date().toISOString().slice(0, 10);
-  return { from: today, to: today };
-}
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -26,7 +17,6 @@ function getErrorMessage(err: unknown, fallback: string): string {
 }
 
 function ClientBalance() {
-  const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
   const [ops, setOps] = useState<BalanceOperation[]>([]);
   const [totalOps, setTotalOps] = useState(0);
@@ -36,26 +26,26 @@ function ClientBalance() {
   const [loadingOps, setLoadingOps] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSummary = useCallback(async (r: DateRange = range) => {
+  const loadSummary = useCallback(async () => {
     try {
       setLoadingSummary(true);
       setError(null);
-      const data = await fetchClientBalanceSummary({ fromDate: r.from, toDate: r.to });
+      const data = await fetchClientBalanceSummary();
       setSummary(data);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось загрузить баланс'));
     } finally {
       setLoadingSummary(false);
     }
-  }, [range]);
+  }, []);
 
   // Не привязываем к state page/pageSize, чтобы пагинация не сбрасывала загрузку на первую
-  const loadOps = useCallback(async (p: number, s = pageSize, r: DateRange = range) => {
+  const loadOps = useCallback(async (p: number, s = pageSize) => {
     try {
       setLoadingOps(true);
       setError(null);
       const offset = (p - 1) * s;
-      const resp = await fetchClientBalanceOps({ fromDate: r.from, toDate: r.to, offset, limit: s });
+      const resp = await fetchClientBalanceOps({ offset, limit: s });
       setOps(resp.items);
       setTotalOps(resp.total);
     } catch (err: unknown) {
@@ -63,29 +53,20 @@ function ClientBalance() {
     } finally {
       setLoadingOps(false);
     }
-  }, [pageSize, range]);
+  }, [pageSize]);
 
   useEffect(() => {
-    loadSummary(range);
-    loadOps(1, pageSize, range);
+    loadSummary();
+    loadOps(1, pageSize);
     setPage(1);
-  }, [range, loadSummary, loadOps, pageSize]);
+  }, [loadSummary, loadOps, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(totalOps / pageSize));
 
   return (
     <div className="table-card" style={{ display: 'grid', gap: 16 }}>
       <div className="table-toolbar" style={{ gap: 12 }}>
-        <div className="filters" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <DateRangeFilter
-            from={range.from}
-            to={range.to}
-            onChange={(r) => {
-              setRange(r);
-              setPage(1);
-            }}
-          />
-        </div>
+        <div className="filters" />
         <div className="actions">
           {loadingSummary && <span className="sub">Загрузка…</span>}
         </div>
@@ -106,9 +87,6 @@ function ClientBalance() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontWeight: 600 }}>Сводка по вашему аккаунту</div>
-                <div className="sub">
-                  Период: <DateRangeCompact from={summary.periodFrom} to={summary.periodTo} />
-                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -135,10 +113,6 @@ function ClientBalance() {
               <div>
                 <div className="sub">Выдано номеров (всего)</div>
                 <div>{summary.usedTotal}</div>
-              </div>
-              <div>
-                <div className="sub">Выдано за период</div>
-                <div>{summary.usedPeriod}</div>
               </div>
             </div>
           </div>

@@ -1,8 +1,6 @@
 // Раздел «Баланс» для админа: операции по номерам (идентификациям) на уровне клиента
 import { useEffect, useState, useCallback } from 'react';
-import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
-import DateRangeCompact from './DateRangeCompact';
 import {
   fetchAdminUsers,
   fetchAdminClientBalanceSummary,
@@ -17,13 +15,6 @@ type AdminBalanceProps = {
   initialClientId?: number | null;
   initialModalType?: 'credit' | 'debit' | null;
 };
-
-type DateRange = { from: string; to: string };
-
-function getTodayRange(): DateRange {
-  const today = new Date().toISOString().slice(0, 10);
-  return { from: today, to: today };
-}
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -131,7 +122,6 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
 function AdminBalance({ initialClientId = null, initialModalType = null }: AdminBalanceProps) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(initialClientId ?? null);
-  const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
   const [ops, setOps] = useState<BalanceOperation[]>([]);
   const [totalOps, setTotalOps] = useState(0);
@@ -165,24 +155,24 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
 
   const hasClient = selectedClientId != null;
 
-  const loadSummary = useCallback(async (clientId: number, r: DateRange = range) => {
+  const loadSummary = useCallback(async (clientId: number) => {
     try {
       setLoadingSummary(true);
-      const data = await fetchAdminClientBalanceSummary(clientId, { fromDate: r.from, toDate: r.to });
+      const data = await fetchAdminClientBalanceSummary(clientId);
       setSummary(data);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось загрузить баланс'));
     } finally {
       setLoadingSummary(false);
     }
-  }, [range]);
+  }, []);
 
   // Отвязываем от state page/pageSize, чтобы смена страницы не сбрасывала данные на первую
-  const loadOps = useCallback(async (clientId: number, p: number, s = pageSize, r: DateRange = range) => {
+  const loadOps = useCallback(async (clientId: number, p: number, s = pageSize) => {
     try {
       setLoadingOps(true);
       const offset = (p - 1) * s;
-      const resp = await fetchAdminClientBalanceOps(clientId, { fromDate: r.from, toDate: r.to, offset, limit: s });
+      const resp = await fetchAdminClientBalanceOps(clientId, { offset, limit: s });
       setOps(resp.items);
       setTotalOps(resp.total);
     } catch (err: unknown) {
@@ -190,14 +180,14 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
     } finally {
       setLoadingOps(false);
     }
-  }, [pageSize, range]);
+  }, [pageSize]);
 
   useEffect(() => {
     if (!hasClient || selectedClientId == null) return;
     loadSummary(selectedClientId);
     loadOps(selectedClientId, 1, pageSize);
     setPage(1);
-  }, [selectedClientId, range, loadSummary, loadOps, pageSize, hasClient]);
+  }, [selectedClientId, loadSummary, loadOps, pageSize, hasClient]);
 
   const totalPages = Math.max(1, Math.ceil(totalOps / pageSize));
 
@@ -219,14 +209,6 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                 </option>
               ))}
           </select>
-          <DateRangeFilter
-            from={range.from}
-            to={range.to}
-            onChange={(r) => {
-              setRange(r);
-              setPage(1);
-            }}
-          />
         </div>
         <div className="actions">
           {!hasClient && <span className="sub">Выберите клиента, чтобы увидеть баланс</span>}
@@ -249,9 +231,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
-              <div className="sub">
-                Клиент id: {summary.clientId}. Период: <DateRangeCompact from={summary.periodFrom} to={summary.periodTo} />
-              </div>
+              <div className="sub">Клиент id: {summary.clientId}</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="btn btn--primary" type="button" onClick={() => setModal({ type: 'credit' })}>
@@ -281,10 +261,6 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
             <div>
               <div className="sub">Выдано номеров (всего)</div>
               <div>{summary.usedTotal}</div>
-            </div>
-            <div>
-              <div className="sub">Выдано за период</div>
-              <div>{summary.usedPeriod}</div>
             </div>
           </div>
           </div>
