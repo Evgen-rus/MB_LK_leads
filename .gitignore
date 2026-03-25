@@ -97,3 +97,4 @@ gckAPI_project_create_update/
 gck_*.json
 gck_*.txt
 project_*.json
+gck_phones_dump*/
