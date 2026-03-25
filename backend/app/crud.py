@@ -19,6 +19,7 @@ from . import models, schemas, auth
 
 
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
+POSTGRES_INT_MAX = 2_147_483_647
 
 
 def _join_days(days: Iterable[str]) -> str:
@@ -240,12 +241,12 @@ def list_projects_paginated(
                 models.Project.name.ilike(f"%{q}%"),
                 models.Project.tag.ilike(f"%{q}%"),
             )
-            # если q число — искать и по id
-            try:
+            # Длинные числовые строки могут быть телефонами в имени проекта.
+            # По id ищем только если значение безопасно для PostgreSQL INTEGER.
+            if q.isdigit():
                 qid = int(q)
-                cond = or_(cond, models.Project.id == qid)
-            except Exception:
-                pass
+                if 0 < qid <= POSTGRES_INT_MAX:
+                    cond = or_(cond, models.Project.id == qid)
             stmt = stmt.where(cond)
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
@@ -2499,18 +2500,13 @@ def admin_list_all_projects(
                 models.Project.name.ilike(f"%{q}%"),
                 models.Project.tag.ilike(f"%{q}%"),
             )
-            # Поиск по id проекта
-            try:
+            # Длинные числовые строки могут быть телефонами в имени проекта.
+            # По id и user_id ищем только если значение безопасно для PostgreSQL INTEGER.
+            if q.isdigit():
                 qid = int(q)
-                cond = or_(cond, models.Project.id == qid)
-            except Exception:
-                pass
-            # Поиск по user_id
-            try:
-                uid = int(q)
-                cond = or_(cond, models.Project.user_id == uid)
-            except Exception:
-                pass
+                if 0 < qid <= POSTGRES_INT_MAX:
+                    cond = or_(cond, models.Project.id == qid)
+                    cond = or_(cond, models.Project.user_id == qid)
             stmt = stmt.where(cond)
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
@@ -2793,12 +2789,12 @@ def admin_list_all_blacklist(
     if q:
         q = q.strip()
         cond = models.BlacklistPhone.phone.contains(q)
-        # Поиск по user_id
-        try:
+        # Длинные числовые строки здесь обычно являются телефоном.
+        # По user_id ищем только безопасные значения для PostgreSQL INTEGER.
+        if q.isdigit():
             uid = int(q)
-            cond = or_(cond, models.BlacklistPhone.user_id == uid)
-        except Exception:
-            pass
+            if 0 < uid <= POSTGRES_INT_MAX:
+                cond = or_(cond, models.BlacklistPhone.user_id == uid)
         stmt = stmt.where(cond)
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
