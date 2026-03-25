@@ -459,25 +459,6 @@ def print_run_header(projects: List[models.Project], date_str: str, provider_pro
         print(f"provider_project_id={provider_project_id}")
 
 
-def print_project_progress(index: int, total: int, project: models.Project) -> None:
-    provider_project_id = str(project.provider_project_id or "").strip()
-    print("")
-    print("[PROJECT_PROGRESS]")
-    print(
-        json.dumps(
-            {
-                "current": index,
-                "total": total,
-                "project_id": int(project.id),
-                "provider_project_id": provider_project_id,
-                "name": project.name,
-                "status": project.status,
-            },
-            ensure_ascii=False,
-        )
-    )
-
-
 def print_project_result(result: ProjectCheckResult) -> None:
     print("")
     print("[PROJECT_RESULT]")
@@ -623,9 +604,7 @@ def main() -> None:
         results: List[ProjectCheckResult] = []
         errors: List[ProjectCheckError] = []
 
-        total_projects = len(projects)
-        for index, project in enumerate(projects, start=1):
-            print_project_progress(index, total_projects, project)
+        for project in projects:
             try:
                 result = compare_project(
                     project=project,
