@@ -459,6 +459,25 @@ def print_run_header(projects: List[models.Project], date_str: str, provider_pro
         print(f"provider_project_id={provider_project_id}")
 
 
+def print_project_progress(index: int, total: int, project: models.Project) -> None:
+    provider_project_id = str(project.provider_project_id or "").strip()
+    print("")
+    print("[PROJECT_PROGRESS]")
+    print(
+        json.dumps(
+            {
+                "current": index,
+                "total": total,
+                "project_id": int(project.id),
+                "provider_project_id": provider_project_id,
+                "name": project.name,
+                "status": project.status,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def print_project_result(result: ProjectCheckResult) -> None:
     print("")
     print("[PROJECT_RESULT]")
@@ -553,6 +572,7 @@ def print_overall_summary(
     print(f"projects_selected={projects_selected}")
     print(f"projects_checked={len(results)}")
     print(f"projects_failed={len(errors)}")
+    print(f"projects_with_api_data={sum(1 for item in results if item.api_stats['raw_items'] > 0)}")
     print(f"projects_with_missing={sum(1 for item in results if item.missing_keys)}")
     print(f"total_missing_in_db={sum(len(item.missing_keys) for item in results)}")
     print(f"total_api_raw_items={sum(item.api_stats['raw_items'] for item in results)}")
@@ -603,7 +623,9 @@ def main() -> None:
         results: List[ProjectCheckResult] = []
         errors: List[ProjectCheckError] = []
 
-        for project in projects:
+        total_projects = len(projects)
+        for index, project in enumerate(projects, start=1):
+            print_project_progress(index, total_projects, project)
             try:
                 result = compare_project(
                     project=project,
