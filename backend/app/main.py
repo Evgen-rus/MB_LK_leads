@@ -154,6 +154,23 @@ def _ensure_project_unique_name_columns() -> None:
 _ensure_project_unique_name_columns()
 
 
+def _ensure_project_provider_leads_grace_columns() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "projects" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("projects")}
+    with engine.begin() as conn:
+        if "deleted_at" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN deleted_at TIMESTAMP"))
+        if "provider_leads_grace_until" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN provider_leads_grace_until TIMESTAMP"))
+
+
+_ensure_project_provider_leads_grace_columns()
+
+
 def get_db():
     db_sess = SessionLocal()
     try:

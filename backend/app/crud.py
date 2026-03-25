@@ -18,6 +18,9 @@ from sqlalchemy.orm import Session
 from . import models, schemas, auth
 
 
+PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
+
+
 def _join_days(days: Iterable[str]) -> str:
     return " ".join([f"{d}." for d in days])
 
@@ -834,7 +837,29 @@ def create_projects(
 
 
 def _snapshot_project(p: models.Project) -> dict:
-    return _project_to_out(p).dict()
+    snapshot = _project_to_out(p).dict()
+    deleted_at = getattr(p, "deleted_at", None)
+    grace_until = getattr(p, "provider_leads_grace_until", None)
+    snapshot["deletedAt"] = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if deleted_at else None
+    snapshot["providerLeadsGraceUntil"] = grace_until.strftime("%Y-%m-%d %H:%M:%S") if grace_until else None
+    return snapshot
+
+
+def _apply_project_deleted_state(
+    p: models.Project,
+    *,
+    deleted: bool,
+    now: Optional[datetime] = None,
+) -> None:
+    ts = now or now_msk()
+    if deleted:
+        if getattr(p, "deleted_at", None) is None:
+            p.deleted_at = ts
+        if getattr(p, "provider_leads_grace_until", None) is None or p.provider_leads_grace_until < ts:
+            p.provider_leads_grace_until = ts + timedelta(hours=PROJECT_PROVIDER_LEADS_GRACE_HOURS)
+        return
+    p.deleted_at = None
+    p.provider_leads_grace_until = None
 
 
 def _keep_first_item(value: Any) -> Optional[List[Any]]:
@@ -867,6 +892,7 @@ def update_project(
     p.name = update.name
     p.tag = update.tag or update.name
     p.status = update.status
+    _apply_project_deleted_state(p, deleted=(update.status == "Удалён"))
     p.data_limit = update.dataLimit
     p.region_mode = update.regionMode
     p.regions = update.regions or None
@@ -907,8 +933,10 @@ def delete_project(
     if p.user_id != user_id:
         return False
     before = _snapshot_project(p)
+    deleted_now = now_msk()
     p.status = 'Удалён'  # мягкое удаление: только статус
-    p.updated_at = now_msk()
+    _apply_project_deleted_state(p, deleted=True, now=deleted_now)
+    p.updated_at = deleted_now
     db.flush()
     after = _snapshot_project(p)
     db.add(models.AuditEvent(
@@ -918,7 +946,7 @@ def delete_project(
         action='delete',
         before=before,
         after=after,
-        changed_fields=['status'],
+        changed_fields=['status', 'deletedAt', 'providerLeadsGraceUntil'],
         via_impersonation=via_impersonation,
     ))
     db.commit()
@@ -969,7 +997,7 @@ def resolve_project_by_name_for_provider_lead(
 ) -> Tuple[Optional[int], Literal["not_found", "matched", "ambiguous"], List[models.Project]]:
     if not project_name:
         return None, "not_found", []
-    rows = db.execute(
+    active_rows = db.execute(
         select(models.Project)
         .where(
             models.Project.name == project_name,
@@ -977,11 +1005,27 @@ def resolve_project_by_name_for_provider_lead(
         )
         .order_by(models.Project.id.asc())
     ).scalars().all()
-    if not rows:
-        return None, "not_found", []
-    if len(rows) == 1:
-        return int(rows[0].id), "matched", rows
-    return None, "ambiguous", rows
+    if len(active_rows) == 1:
+        return int(active_rows[0].id), "matched", active_rows
+    if len(active_rows) > 1:
+        return None, "ambiguous", active_rows
+
+    now = now_msk()
+    deleted_rows = db.execute(
+        select(models.Project)
+        .where(
+            models.Project.name == project_name,
+            models.Project.status == "Удалён",
+            models.Project.provider_leads_grace_until.is_not(None),
+            models.Project.provider_leads_grace_until >= now,
+        )
+        .order_by(models.Project.id.asc())
+    ).scalars().all()
+    if len(deleted_rows) == 1:
+        return int(deleted_rows[0].id), "matched", deleted_rows
+    if len(deleted_rows) > 1:
+        return None, "ambiguous", deleted_rows
+    return None, "not_found", []
 
 
 def get_project_id_by_name(db: Session, project_name: str) -> Optional[int]:
@@ -2552,6 +2596,7 @@ def admin_update_project(
     p.name = update.name
     p.tag = update.tag or update.name
     p.status = update.status
+    _apply_project_deleted_state(p, deleted=(update.status == "Удалён"))
     p.delivery_status = update.deliveryStatus  # Админ может менять!
     p.data_limit = update.dataLimit
     p.region_mode = update.regionMode
@@ -2598,7 +2643,9 @@ def update_project_status_with_audit(
 
     before = _snapshot_project(p)
     p.status = status
-    p.updated_at = now_msk()
+    status_changed_at = now_msk()
+    _apply_project_deleted_state(p, deleted=(status == "Удалён"), now=status_changed_at)
+    p.updated_at = status_changed_at
     after = _snapshot_project(p)
     if audit_reason:
         after["limitControlReason"] = audit_reason
@@ -2639,8 +2686,10 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
     if not p:
         return False
     before = _snapshot_project(p)
+    deleted_now = now_msk()
     p.status = 'Удалён'
-    p.updated_at = now_msk()
+    _apply_project_deleted_state(p, deleted=True, now=deleted_now)
+    p.updated_at = deleted_now
     db.flush()
     after = _snapshot_project(p)
     db.add(models.AuditEvent(
@@ -2650,7 +2699,7 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
         action='delete',
         before=before,
         after=after,
-        changed_fields=['status'],
+        changed_fields=['status', 'deletedAt', 'providerLeadsGraceUntil'],
         via_impersonation=False,
     ))
     db.commit()

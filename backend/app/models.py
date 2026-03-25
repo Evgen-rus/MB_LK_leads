@@ -68,6 +68,11 @@ class Project(Base):
     tag = Column(String, nullable=False)
     # True, если проект был создан по схеме с неизменяемым маркером [MB{id}] в имени.
     unique_name_applied = Column(Boolean, nullable=False, default=False)
+    # Момент мягкого удаления проекта у нас.
+    deleted_at = Column(DateTime, nullable=True, index=True)
+    # До этого момента webhook ещё может привязывать хвостовые provider leads
+    # к удалённому проекту, если среди неудалённых совпадений уже нет.
+    provider_leads_grace_until = Column(DateTime, nullable=True, index=True)
     collection_source = Column(String, nullable=False)  # 'Сайты' | 'Звонки' | ...
     data_source_code = Column(String, nullable=False)  # 'B1' | 'B2' | 'B3' | 'B4'
     region_mode = Column(String, nullable=True)  # 'include' | 'exclude'
