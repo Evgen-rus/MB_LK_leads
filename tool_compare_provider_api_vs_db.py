@@ -41,6 +41,7 @@ DEFAULT_DB_URL = "sqlite:///./app.db"
 REQUEST_TIMEOUT_SEC = 60
 PAGE_SIZE_HINT = 1000
 REQUEST_DELAY_SEC = 0.3
+DB_PROJECTS_CHUNK_SIZE = 500
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,12 @@ class ProjectCheckError:
     grace_until: Optional[str] = None
 
 
+@dataclass
+class PreloadedDbProjectData:
+    rows_by_project_id: Dict[int, List[DbLeadRow]]
+    null_counts_by_project_id: Dict[int, int]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Сверить лиды из API провайдера с provider_leads по проектам и дню"
@@ -110,6 +117,11 @@ def parse_args() -> argparse.Namespace:
         "--db-url",
         default=os.getenv("DATABASE_URL", DEFAULT_DB_URL),
         help="DATABASE_URL для подключения (по умолчанию из env или sqlite:///./app.db)",
+    )
+    parser.add_argument(
+        "--show-empty",
+        action="store_true",
+        help="Печатать также проекты без лидов и без расхождений",
     )
     return parser.parse_args()
 
@@ -162,6 +174,11 @@ def format_dt(value: Optional[datetime]) -> Optional[str]:
     if value is None:
         return None
     return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def chunked_ints(values: List[int], size: int = DB_PROJECTS_CHUNK_SIZE) -> Iterable[List[int]]:
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
 
 
 def fetch_gck_phones_page(
@@ -319,39 +336,68 @@ def get_projects_for_comparison(db_sess, provider_project_id: Optional[str]) -> 
     return list(db_sess.execute(stmt).scalars())
 
 
-def fetch_db_rows_for_day(db_sess, project_id: int, target_day: date) -> Tuple[List[DbLeadRow], int]:
-    null_count_stmt = select(func.count(models.ProviderLead.id)).where(
-        models.ProviderLead.project_id == project_id,
-        models.ProviderLead.prov_created_at.is_(None),
-    )
-    null_count = int(db_sess.execute(null_count_stmt).scalar_one() or 0)
+def preload_db_project_data_for_day(
+    db_sess,
+    project_ids: List[int],
+    target_day: date,
+) -> PreloadedDbProjectData:
+    rows_by_project_id: Dict[int, List[DbLeadRow]] = {int(project_id): [] for project_id in project_ids}
+    null_counts_by_project_id: Dict[int, int] = {int(project_id): 0 for project_id in project_ids}
 
-    rows_stmt: Select[tuple[models.ProviderLead]] = (
-        select(models.ProviderLead)
-        .where(
-            models.ProviderLead.project_id == project_id,
-            models.ProviderLead.prov_created_at.is_not(None),
-            func.date(models.ProviderLead.prov_created_at) == target_day,
+    if not project_ids:
+        return PreloadedDbProjectData(
+            rows_by_project_id=rows_by_project_id,
+            null_counts_by_project_id=null_counts_by_project_id,
         )
-        .order_by(models.ProviderLead.prov_created_at.asc(), models.ProviderLead.id.asc())
-    )
-    db_rows = list(db_sess.execute(rows_stmt).scalars())
 
-    normalized_rows: List[DbLeadRow] = []
-    for row in db_rows:
-        phone = normalize_phone(row.phone)
-        if not phone:
-            continue
-        normalized_rows.append(
-            DbLeadRow(
-                id=int(row.id),
-                vid=str(row.vid),
-                phone=phone,
-                prov_created_at=row.prov_created_at,
-                day=row.prov_created_at.date().isoformat(),
+    for chunk in chunked_ints(project_ids):
+        null_count_stmt = (
+            select(models.ProviderLead.project_id, func.count(models.ProviderLead.id))
+            .where(
+                models.ProviderLead.project_id.in_(chunk),
+                models.ProviderLead.prov_created_at.is_(None),
+            )
+            .group_by(models.ProviderLead.project_id)
+        )
+        for project_id, count_value in db_sess.execute(null_count_stmt).all():
+            if project_id is None:
+                continue
+            null_counts_by_project_id[int(project_id)] = int(count_value or 0)
+
+        rows_stmt: Select[tuple[models.ProviderLead]] = (
+            select(models.ProviderLead)
+            .where(
+                models.ProviderLead.project_id.in_(chunk),
+                models.ProviderLead.prov_created_at.is_not(None),
+                func.date(models.ProviderLead.prov_created_at) == target_day,
+            )
+            .order_by(
+                models.ProviderLead.project_id.asc(),
+                models.ProviderLead.prov_created_at.asc(),
+                models.ProviderLead.id.asc(),
             )
         )
-    return normalized_rows, null_count
+        for row in db_sess.execute(rows_stmt).scalars():
+            if row.project_id is None:
+                continue
+            phone = normalize_phone(row.phone)
+            if not phone:
+                continue
+            project_id = int(row.project_id)
+            rows_by_project_id.setdefault(project_id, []).append(
+                DbLeadRow(
+                    id=int(row.id),
+                    vid=str(row.vid),
+                    phone=phone,
+                    prov_created_at=row.prov_created_at,
+                    day=row.prov_created_at.date().isoformat(),
+                )
+            )
+
+    return PreloadedDbProjectData(
+        rows_by_project_id=rows_by_project_id,
+        null_counts_by_project_id=null_counts_by_project_id,
+    )
 
 
 def group_api_rows(rows: Iterable[ApiLeadRow]) -> DefaultDict[LeadKey, List[ApiLeadRow]]:
@@ -369,17 +415,16 @@ def group_db_rows(rows: Iterable[DbLeadRow]) -> DefaultDict[LeadKey, List[DbLead
 
 
 def compare_project(
-    db_sess,
     *,
     project: models.Project,
     api_url: str,
     token: str,
     date_str: str,
-    target_day: date,
+    db_rows: List[DbLeadRow],
+    db_rows_without_prov_created_at: int,
 ) -> ProjectCheckResult:
     provider_project_id = str(project.provider_project_id or "").strip()
     api_rows, api_stats = fetch_api_rows(api_url, token, provider_project_id, date_str)
-    db_rows, db_rows_without_prov_created_at = fetch_db_rows_for_day(db_sess, int(project.id), target_day)
 
     api_grouped = group_api_rows(row for row in api_rows if row.day == date_str)
     db_grouped = group_db_rows(row for row in db_rows if row.day == date_str)
@@ -483,6 +528,18 @@ def print_project_error(error: ProjectCheckError) -> None:
     )
 
 
+def should_print_project_result(result: ProjectCheckResult, *, show_empty: bool) -> bool:
+    if show_empty:
+        return True
+    if result.missing_keys:
+        return True
+    if result.api_stats["raw_items"] > 0:
+        return True
+    if result.db_unique_keys > 0:
+        return True
+    return False
+
+
 def print_overall_summary(
     *,
     date_str: str,
@@ -537,6 +594,11 @@ def main() -> None:
             return
 
         print_run_header(projects, date_str, args.provider_project_id)
+        db_data = preload_db_project_data_for_day(
+            db_sess,
+            project_ids=[int(project.id) for project in projects],
+            target_day=target_day,
+        )
 
         results: List[ProjectCheckResult] = []
         errors: List[ProjectCheckError] = []
@@ -544,12 +606,12 @@ def main() -> None:
         for project in projects:
             try:
                 result = compare_project(
-                    db_sess,
                     project=project,
                     api_url=api_url,
                     token=token,
                     date_str=date_str,
-                    target_day=target_day,
+                    db_rows=db_data.rows_by_project_id.get(int(project.id), []),
+                    db_rows_without_prov_created_at=db_data.null_counts_by_project_id.get(int(project.id), 0),
                 )
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else "unknown"
@@ -590,9 +652,10 @@ def main() -> None:
                 continue
 
             results.append(result)
-            print_project_result(result)
-            if result.missing_keys:
-                print_missing_rows(result)
+            if should_print_project_result(result, show_empty=bool(args.show_empty)):
+                print_project_result(result)
+                if result.missing_keys:
+                    print_missing_rows(result)
 
         print_overall_summary(
             date_str=date_str,
