@@ -88,6 +88,7 @@ class ProjectRecoveryResult:
     name: str
     status: str
     api_stats: Dict[str, int]
+    api_time_ms: int
     api_unique_keys: int
     db_unique_keys: int
     missing_keys: List[LeadKey]
@@ -269,6 +270,7 @@ def assign_recovery_vids(candidates: List[RecoveryCandidate], *, next_seq: int) 
 
 
 def fetch_gck_phones_page(
+    session: requests.Session,
     api_url: str,
     token: str,
     provider_project_id: str,
@@ -282,7 +284,7 @@ def fetch_gck_phones_page(
         "date": date_str,
         "page": page,
     }
-    response = requests.post(api_url, json=payload, timeout=REQUEST_TIMEOUT_SEC)
+    response = session.post(api_url, json=payload, timeout=REQUEST_TIMEOUT_SEC)
     response.raise_for_status()
     return response
 
@@ -306,6 +308,7 @@ def extract_page_items(data: Any) -> Tuple[List[Any], str]:
 
 
 def fetch_api_rows(
+    session: requests.Session,
     api_url: str,
     token: str,
     provider_project_id: str,
@@ -321,7 +324,7 @@ def fetch_api_rows(
 
     page = 1
     while True:
-        response = fetch_gck_phones_page(api_url, token, provider_project_id, date_str, page)
+        response = fetch_gck_phones_page(session, api_url, token, provider_project_id, date_str, page)
         try:
             data = response.json()
         except Exception as exc:
@@ -545,6 +548,7 @@ def build_recovery_candidates(
 
 def compare_project_for_recovery(
     *,
+    session: requests.Session,
     project: models.Project,
     api_url: str,
     token: str,
@@ -552,7 +556,9 @@ def compare_project_for_recovery(
     db_rows: List[DbLeadRow],
 ) -> ProjectRecoveryResult:
     provider_project_id = str(project.provider_project_id or "").strip()
-    api_rows, api_stats = fetch_api_rows(api_url, token, provider_project_id, date_str)
+    api_started_at = time.perf_counter()
+    api_rows, api_stats = fetch_api_rows(session, api_url, token, provider_project_id, date_str)
+    api_time_ms = int((time.perf_counter() - api_started_at) * 1000)
 
     api_grouped = group_api_rows(row for row in api_rows if row.day == date_str)
     db_grouped = group_db_rows(row for row in db_rows if row.day == date_str)
@@ -572,6 +578,7 @@ def compare_project_for_recovery(
         name=str(project.name or ""),
         status=str(project.status or ""),
         api_stats=api_stats,
+        api_time_ms=api_time_ms,
         api_unique_keys=len(api_grouped),
         db_unique_keys=len(db_grouped),
         missing_keys=missing_keys,
@@ -663,6 +670,7 @@ def print_project_result(result: ProjectRecoveryResult) -> None:
                 "name": result.name,
                 "status": result.status,
                 "provider_leads_grace_until": result.grace_until,
+                "api_time_ms": result.api_time_ms,
                 "api_pages_fetched": result.api_stats["pages_fetched"],
                 "api_raw_items": result.api_stats["raw_items"],
                 "api_invalid_phone": result.api_stats["invalid_phone"],
@@ -754,6 +762,7 @@ def print_overall_summary(
     print(f"total_skipped_after_recheck={sum(item.skipped_after_recheck for item in results)}")
     print(f"total_api_raw_items={sum(item.api_stats['raw_items'] for item in results)}")
     print(f"total_api_unique_keys={sum(item.api_unique_keys for item in results)}")
+    print(f"api_total_ms={sum(item.api_time_ms for item in results)}")
     print(f"total_db_unique_keys={sum(item.db_unique_keys for item in results)}")
     print(f"dry_run={dry_run}")
     print(f"elapsed_ms={elapsed_ms}")
@@ -803,104 +812,106 @@ def main() -> None:
     results: List[ProjectRecoveryResult] = []
     errors: List[ProjectRecoveryError] = []
 
-    for project in projects:
-        try:
-            result = compare_project_for_recovery(
-                project=project,
-                api_url=api_url,
-                token=token,
-                date_str=date_str,
-                db_rows=db_data.rows_by_project_id.get(int(project.id), []),
-            )
-            if result.recovery_candidates:
-                current_recovery_seq = assign_recovery_vids(
-                    result.recovery_candidates,
-                    next_seq=current_recovery_seq,
+    with requests.Session() as http_session:
+        for project in projects:
+            try:
+                result = compare_project_for_recovery(
+                    session=http_session,
+                    project=project,
+                    api_url=api_url,
+                    token=token,
+                    date_str=date_str,
+                    db_rows=db_data.rows_by_project_id.get(int(project.id), []),
                 )
-
-            if result.recovery_candidates and not args.dry_run:
-                with session_local() as write_sess:
-                    try:
-                        fresh_db_rows = load_db_project_rows_for_day(
-                            write_sess,
-                            project_id=int(project.id),
-                            target_day=target_day,
-                        )
-                        fresh_candidates, skipped_after_recheck = filter_candidates_after_recheck(
-                            candidates=result.recovery_candidates,
-                            db_rows=fresh_db_rows,
-                            date_str=date_str,
-                        )
-                        result.skipped_after_recheck = skipped_after_recheck
-                        result.recovery_candidates = fresh_candidates
-                        if result.recovery_candidates:
-                            result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
-                    except Exception:
-                        write_sess.rollback()
-                        raise
-
-            results.append(result)
-            if should_print_project_result(result, show_empty=bool(args.show_empty)):
-                print_project_result(result)
                 if result.recovery_candidates:
-                    print_recovery_rows(result)
+                    current_recovery_seq = assign_recovery_vids(
+                        result.recovery_candidates,
+                        next_seq=current_recovery_seq,
+                    )
 
-        except requests.HTTPError as exc:
-            status_code = exc.response.status_code if exc.response is not None else "unknown"
-            error = ProjectRecoveryError(
-                project_id=int(project.id),
-                provider_project_id=str(project.provider_project_id or "").strip(),
-                name=str(project.name or ""),
-                status=str(project.status or ""),
-                grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
-                error=f"Provider API HTTP error: status={status_code}",
-            )
-            errors.append(error)
-            print_project_error(error)
-        except requests.RequestException as exc:
-            error = ProjectRecoveryError(
-                project_id=int(project.id),
-                provider_project_id=str(project.provider_project_id or "").strip(),
-                name=str(project.name or ""),
-                status=str(project.status or ""),
-                grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
-                error=f"Provider API request failed: {exc}",
-            )
-            errors.append(error)
-            print_project_error(error)
-        except IntegrityError as exc:
-            error = ProjectRecoveryError(
-                project_id=int(project.id),
-                provider_project_id=str(project.provider_project_id or "").strip(),
-                name=str(project.name or ""),
-                status=str(project.status or ""),
-                grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
-                error=f"DB integrity error: {exc}",
-            )
-            errors.append(error)
-            print_project_error(error)
-        except RuntimeError as exc:
-            error = ProjectRecoveryError(
-                project_id=int(project.id),
-                provider_project_id=str(project.provider_project_id or "").strip(),
-                name=str(project.name or ""),
-                status=str(project.status or ""),
-                grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
-                error=str(exc),
-            )
-            errors.append(error)
-            print_project_error(error)
-        except SQLAlchemyError as exc:
-            error = ProjectRecoveryError(
-                project_id=int(project.id),
-                provider_project_id=str(project.provider_project_id or "").strip(),
-                name=str(project.name or ""),
-                status=str(project.status or ""),
-                grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
-                error=f"Database error: {exc}",
-            )
-            errors.append(error)
-            print_project_error(error)
+                if result.recovery_candidates and not args.dry_run:
+                    with session_local() as write_sess:
+                        try:
+                            fresh_db_rows = load_db_project_rows_for_day(
+                                write_sess,
+                                project_id=int(project.id),
+                                target_day=target_day,
+                            )
+                            fresh_candidates, skipped_after_recheck = filter_candidates_after_recheck(
+                                candidates=result.recovery_candidates,
+                                db_rows=fresh_db_rows,
+                                date_str=date_str,
+                            )
+                            result.skipped_after_recheck = skipped_after_recheck
+                            result.recovery_candidates = fresh_candidates
+                            if result.recovery_candidates:
+                                result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
+                        except Exception:
+                            write_sess.rollback()
+                            raise
+
+                results.append(result)
+                if should_print_project_result(result, show_empty=bool(args.show_empty)):
+                    print_project_result(result)
+                    if result.recovery_candidates:
+                        print_recovery_rows(result)
+
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else "unknown"
+                error = ProjectRecoveryError(
+                    project_id=int(project.id),
+                    provider_project_id=str(project.provider_project_id or "").strip(),
+                    name=str(project.name or ""),
+                    status=str(project.status or ""),
+                    grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
+                    error=f"Provider API HTTP error: status={status_code}",
+                )
+                errors.append(error)
+                print_project_error(error)
+            except requests.RequestException as exc:
+                error = ProjectRecoveryError(
+                    project_id=int(project.id),
+                    provider_project_id=str(project.provider_project_id or "").strip(),
+                    name=str(project.name or ""),
+                    status=str(project.status or ""),
+                    grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
+                    error=f"Provider API request failed: {exc}",
+                )
+                errors.append(error)
+                print_project_error(error)
+            except IntegrityError as exc:
+                error = ProjectRecoveryError(
+                    project_id=int(project.id),
+                    provider_project_id=str(project.provider_project_id or "").strip(),
+                    name=str(project.name or ""),
+                    status=str(project.status or ""),
+                    grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
+                    error=f"DB integrity error: {exc}",
+                )
+                errors.append(error)
+                print_project_error(error)
+            except RuntimeError as exc:
+                error = ProjectRecoveryError(
+                    project_id=int(project.id),
+                    provider_project_id=str(project.provider_project_id or "").strip(),
+                    name=str(project.name or ""),
+                    status=str(project.status or ""),
+                    grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
+                    error=str(exc),
+                )
+                errors.append(error)
+                print_project_error(error)
+            except SQLAlchemyError as exc:
+                error = ProjectRecoveryError(
+                    project_id=int(project.id),
+                    provider_project_id=str(project.provider_project_id or "").strip(),
+                    name=str(project.name or ""),
+                    status=str(project.status or ""),
+                    grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
+                    error=f"Database error: {exc}",
+                )
+                errors.append(error)
+                print_project_error(error)
 
     print_overall_summary(
         date_str=date_str,
