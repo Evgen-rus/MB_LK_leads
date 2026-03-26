@@ -2226,8 +2226,7 @@ def admin_update_client(
             next_chat_id=next_chat_id,
         )
 
-        result = crud.admin_update_client(
-            db_sess,
+        update_kwargs = dict(
             client_id=client_id,
             name=payload.name,
             inn=payload.inn,
@@ -2239,16 +2238,23 @@ def admin_update_client(
             telegram_notifications_chat_id=payload.telegramNotificationsChatId,
             telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
             unique_project_names_enabled=payload.uniqueProjectNamesEnabled,
-            commit=False,
         )
+        test_message = _build_auto_pause_test_message(existing_user)
+        db_sess.rollback()
 
         if should_send_test:
+            with SessionLocal() as validate_sess:  # type: Session
+                crud.admin_update_client(
+                    validate_sess,
+                    **update_kwargs,
+                    commit=False,
+                )
+                validate_sess.rollback()
             bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
-            db_sess.rollback()
             test_ok = telegram.send_text(
                 bot_token,
                 next_chat_id,
-                _build_auto_pause_test_message(existing_user),
+                test_message,
                 parse_mode="HTML",
             )
             if not test_ok:
@@ -2260,24 +2266,12 @@ def admin_update_client(
                     ),
                 )
 
-        if should_send_test:
+        with SessionLocal() as write_sess:  # type: Session
             result = crud.admin_update_client(
-                db_sess,
-                client_id=client_id,
-                name=payload.name,
-                inn=payload.inn,
-                phone=payload.phone,
-                contact=payload.contact,
-                login=payload.login,
-                password=payload.password,
-                auto_limit_control_enabled=payload.autoLimitControlEnabled,
-                telegram_notifications_chat_id=payload.telegramNotificationsChatId,
-                telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
-                unique_project_names_enabled=payload.uniqueProjectNamesEnabled,
+                write_sess,
+                **update_kwargs,
                 commit=True,
             )
-        else:
-            db_sess.commit()
         if payload.autoLimitControlEnabled is True:
             _run_limit_control_for_client_in_new_session(client_id=client_id, trigger="admin_toggle_on")
         return result
