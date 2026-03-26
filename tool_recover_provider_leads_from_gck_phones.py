@@ -93,6 +93,7 @@ class ProjectRecoveryResult:
     missing_keys: List[LeadKey]
     recovery_candidates: List[RecoveryCandidate]
     inserted_rows: int
+    skipped_after_recheck: int
     grace_until: Optional[str] = None
 
 
@@ -466,6 +467,43 @@ def preload_db_project_data_for_day(
     return PreloadedDbProjectData(rows_by_project_id=rows_by_project_id)
 
 
+def load_db_project_rows_for_day(
+    db_sess,
+    *,
+    project_id: int,
+    target_day: date,
+) -> List[DbLeadRow]:
+    rows: List[DbLeadRow] = []
+    rows_stmt: Select[tuple[models.ProviderLead]] = (
+        select(models.ProviderLead)
+        .where(
+            models.ProviderLead.project_id == project_id,
+            models.ProviderLead.prov_created_at.is_not(None),
+            func.date(models.ProviderLead.prov_created_at) == target_day,
+        )
+        .order_by(
+            models.ProviderLead.prov_created_at.asc(),
+            models.ProviderLead.id.asc(),
+        )
+    )
+    for row in db_sess.execute(rows_stmt).scalars():
+        if row.project_id is None or row.prov_created_at is None:
+            continue
+        phone = normalize_phone(row.phone)
+        if not phone:
+            continue
+        rows.append(
+            DbLeadRow(
+                id=int(row.id),
+                vid=str(row.vid),
+                phone=phone,
+                prov_created_at=row.prov_created_at,
+                day=row.prov_created_at.date().isoformat(),
+            )
+        )
+    return rows
+
+
 def group_api_rows(rows: Iterable[ApiLeadRow]) -> DefaultDict[LeadKey, List[ApiLeadRow]]:
     grouped: DefaultDict[LeadKey, List[ApiLeadRow]] = defaultdict(list)
     for row in rows:
@@ -539,8 +577,32 @@ def compare_project_for_recovery(
         missing_keys=missing_keys,
         recovery_candidates=recovery_candidates,
         inserted_rows=0,
+        skipped_after_recheck=0,
         grace_until=format_dt(getattr(project, "provider_leads_grace_until", None)),
     )
+
+
+def filter_candidates_after_recheck(
+    *,
+    candidates: List[RecoveryCandidate],
+    db_rows: List[DbLeadRow],
+    date_str: str,
+) -> Tuple[List[RecoveryCandidate], int]:
+    if not candidates:
+        return [], 0
+
+    db_grouped = group_db_rows(row for row in db_rows if row.day == date_str)
+    still_missing: List[RecoveryCandidate] = []
+    skipped = 0
+
+    for candidate in candidates:
+        key = LeadKey(phone=candidate.phone, day=candidate.day)
+        if key in db_grouped:
+            skipped += 1
+            continue
+        still_missing.append(candidate)
+
+    return still_missing, skipped
 
 
 def insert_recovery_candidates(db_sess, candidates: List[RecoveryCandidate]) -> int:
@@ -609,6 +671,7 @@ def print_project_result(result: ProjectRecoveryResult) -> None:
                 "db_unique_keys": result.db_unique_keys,
                 "missing_in_db": len(result.missing_keys),
                 "inserted_rows": result.inserted_rows,
+                "skipped_after_recheck": result.skipped_after_recheck,
             },
             ensure_ascii=False,
         )
@@ -688,6 +751,7 @@ def print_overall_summary(
     print(f"projects_with_missing={sum(1 for item in results if item.missing_keys)}")
     print(f"total_missing_in_db={sum(len(item.missing_keys) for item in results)}")
     print(f"total_inserted_rows={sum(item.inserted_rows for item in results)}")
+    print(f"total_skipped_after_recheck={sum(item.skipped_after_recheck for item in results)}")
     print(f"total_api_raw_items={sum(item.api_stats['raw_items'] for item in results)}")
     print(f"total_api_unique_keys={sum(item.api_unique_keys for item in results)}")
     print(f"total_db_unique_keys={sum(item.db_unique_keys for item in results)}")
@@ -757,7 +821,20 @@ def main() -> None:
             if result.recovery_candidates and not args.dry_run:
                 with session_local() as write_sess:
                     try:
-                        result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
+                        fresh_db_rows = load_db_project_rows_for_day(
+                            write_sess,
+                            project_id=int(project.id),
+                            target_day=target_day,
+                        )
+                        fresh_candidates, skipped_after_recheck = filter_candidates_after_recheck(
+                            candidates=result.recovery_candidates,
+                            db_rows=fresh_db_rows,
+                            date_str=date_str,
+                        )
+                        result.skipped_after_recheck = skipped_after_recheck
+                        result.recovery_candidates = fresh_candidates
+                        if result.recovery_candidates:
+                            result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
                     except Exception:
                         write_sess.rollback()
                         raise
