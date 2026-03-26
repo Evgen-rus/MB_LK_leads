@@ -581,9 +581,13 @@ def _snapshot_limit_control_user(user: models.User) -> dict:
 def _snapshot_limit_control_project(project: models.Project) -> dict:
     return {
         "id": int(getattr(project, "id", 0) or 0),
+        "user_id": int(getattr(project, "user_id", 0) or 0) or None,
         "name": str(getattr(project, "name", "") or ""),
         "tag": str(getattr(project, "tag", "") or ""),
+        "status": str(getattr(project, "status", "") or ""),
         "provider_project_id": str(getattr(project, "provider_project_id", "") or "").strip() or None,
+        "collection_source": str(getattr(project, "collection_source", "") or ""),
+        "data_source_code": str(getattr(project, "data_source_code", "") or ""),
         "data_limit": int(getattr(project, "data_limit", 0) or 0),
         "region_mode": getattr(project, "region_mode", None) or "include",
         "regions": list(getattr(project, "regions", None) or []),
@@ -591,7 +595,53 @@ def _snapshot_limit_control_project(project: models.Project) -> dict:
         "phones": list(getattr(project, "phones", None) or []),
         "sms_sender_name": getattr(project, "sms_sender_name", None),
         "days_received": getattr(project, "days_received", None),
+        "unique_name_applied": bool(getattr(project, "unique_name_applied", False)),
     }
+
+
+def _project_snapshot_for_prostats(project: models.Project) -> SimpleNamespace:
+    return SimpleNamespace(**_snapshot_limit_control_project(project))
+
+
+def _find_duplicates_with_new_session(
+    items: List[str],
+    target_type: str,
+    *,
+    user_id: int,
+    provider_project_id: Optional[str],
+    exclude_project_id: Optional[int] = None,
+) -> dict[str, List[str]]:
+    with SessionLocal() as s:  # type: Session
+        return crud.find_duplicates_in_projects(
+            s,
+            items,
+            target_type,
+            user_id=user_id,
+            provider_project_id=provider_project_id,
+            exclude_project_id=exclude_project_id,
+        )
+
+
+def _run_limit_control_for_client_in_new_session(client_id: int, trigger: str) -> dict:
+    with SessionLocal() as s:  # type: Session
+        return _run_limit_control_for_client(s, client_id=client_id, trigger=trigger)
+
+
+def _schedule_debounce_in_new_session(minutes: int) -> None:
+    with SessionLocal() as s:  # type: Session
+        crud.schedule_debounce(s, minutes=minutes)
+
+
+def _sync_client_balance_alert_for_client(client_id: int) -> None:
+    with SessionLocal() as s:  # type: Session
+        user = s.get(models.User, int(client_id))
+        if not user:
+            return
+        _sync_client_balance_alert(
+            user_snapshot=_snapshot_limit_control_user(user),
+            remaining=crud.get_client_remaining_numbers(s, client_id=int(client_id)),
+            active_limit_sum=crud.get_client_active_projects_limit_sum(s, client_id=int(client_id)),
+        )
 
 
 def _notify_auto_limit_pause(
@@ -930,6 +980,7 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
                     ensure_ascii=False,
                 ),
             )
+            db_sess.rollback()
             _notify_provider_lead_project_ambiguity(
                 vid=vid,
                 project_name=page,
@@ -1091,6 +1142,7 @@ def _create_projects_with_unique_names(
     created: List[schemas.ProjectOut] = []
     batch_id = secrets.token_hex(8)
     logger = logging.getLogger("app")
+    db_sess.rollback()
 
     for item in items:
         provider_id_value: Optional[str] = None
@@ -1102,8 +1154,7 @@ def _create_projects_with_unique_names(
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     missing_items,
                     target_type,
                     user_id=current_user.id,
@@ -1241,6 +1292,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     notices: List[str] = []
     adjusted_items: List[schemas.CreateProjectItem] = []
     provider_ids: List[Optional[str]] = []
+    db_sess.rollback()
     for item in payload.items:
         try:
             result = prostats.create_project(item)
@@ -1251,8 +1303,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     missing_items,
                     target_type,
                     user_id=current_user.id,
@@ -1285,16 +1336,17 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         warning_text = "\n\n".join(notices) if notices else "Не удалось создать проекты."
         raise HTTPException(status_code=422, detail={"message": warning_text})
 
-    created = crud.create_projects(
-        db_sess,
-        adjusted_items,
-        user_id=current_user.id,
-        provider_ids=provider_ids,
-        actor_user_id=actor_user_id,
-        via_impersonation=via_impersonation,
-    )
-    _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="projects_create")
-    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    with SessionLocal() as write_sess:  # type: Session
+        created = crud.create_projects(
+            write_sess,
+            adjusted_items,
+            user_id=current_user.id,
+            provider_ids=provider_ids,
+            actor_user_id=actor_user_id,
+            via_impersonation=via_impersonation,
+        )
+    _run_limit_control_for_client_in_new_session(current_user.id, trigger="projects_create")
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     warning_text = "\n\n".join(notices) if notices else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)
 
@@ -1336,21 +1388,22 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 },
             )
     warning_text = None
+    project_snapshot = _project_snapshot_for_prostats(project_row)
+    db_sess.rollback()
     try:
         if payload.status == "Удалён":
-            prostats.delete_project(str(project_row.provider_project_id), project_row)
+            prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
         else:
-            result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     missing_items,
                     target_type,
                     user_id=current_user.id,
-                    provider_project_id=project_row.provider_project_id,
-                    exclude_project_id=project_row.id,
+                    provider_project_id=project_snapshot.provider_project_id,
+                    exclude_project_id=project_snapshot.id,
                 )
                 warning_text = prostats._build_partial_warning(
                     payload.name,
@@ -1366,16 +1419,15 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         if payload.status != "Удалён":
-            target_type = prostats._type_from_collection(project_row.collection_source)
+            target_type = prostats._type_from_collection(project_snapshot.collection_source)
             if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
                 items = payload.sites if target_type == "hosts" else payload.phones
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     items or [],
                     target_type,
                     user_id=current_user.id,
-                    provider_project_id=project_row.provider_project_id,
-                    exclude_project_id=project_row.id,
+                    provider_project_id=project_snapshot.provider_project_id,
+                    exclude_project_id=project_snapshot.id,
                 )
                 if duplicates:
                     detail["duplicates"] = duplicates
@@ -1390,36 +1442,34 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
-        ok = crud.delete_project(
-            db_sess,
-            project_id,
-            user_id=current_user.id,
-            actor_user_id=actor_user_id,
-            via_impersonation=via_impersonation,
-        )
-        if not ok:
-            raise HTTPException(status_code=404, detail="Project not found")
-        updated = crud.get_project(db_sess, project_id, user_id=current_user.id)
-        if not updated:
-            raise HTTPException(status_code=404, detail="Project not found")
-        _sync_client_balance_alert(
-            user_snapshot=_snapshot_limit_control_user(current_user),
-            remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
-            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
-        )
+        with SessionLocal() as write_sess:  # type: Session
+            ok = crud.delete_project(
+                write_sess,
+                project_id,
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                via_impersonation=via_impersonation,
+            )
+            if not ok:
+                raise HTTPException(status_code=404, detail="Project not found")
+            updated = crud.get_project(write_sess, project_id, user_id=current_user.id)
+            if not updated:
+                raise HTTPException(status_code=404, detail="Project not found")
+        _sync_client_balance_alert_for_client(current_user.id)
     else:
-        updated = crud.update_project(
-            db_sess,
-            project_id,
-            payload,
-            user_id=current_user.id,
-            actor_user_id=actor_user_id,
-            via_impersonation=via_impersonation,
-        )
-        if not updated:
-            raise HTTPException(status_code=404, detail="Project not found")
-        _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="project_update")
-    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        with SessionLocal() as write_sess:  # type: Session
+            updated = crud.update_project(
+                write_sess,
+                project_id,
+                payload,
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                via_impersonation=via_impersonation,
+            )
+            if not updated:
+                raise HTTPException(status_code=404, detail="Project not found")
+        _run_limit_control_for_client_in_new_session(current_user.id, trigger="project_update")
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     return schemas.UpdateProjectOut(project=updated, warning=warning_text)
 
 
@@ -1452,26 +1502,25 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     try:
-        prostats.delete_project(str(project_row.provider_project_id), project_row)
+        project_snapshot = _project_snapshot_for_prostats(project_row)
+        db_sess.rollback()
+        prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
-    ok = crud.delete_project(
-        db_sess,
-        project_id,
-        user_id=current_user.id,
-        actor_user_id=actor_user_id,
-        via_impersonation=via_impersonation,
-    )
-    if not ok:
-        raise HTTPException(status_code=404, detail="Project not found")
-    _sync_client_balance_alert(
-        user_snapshot=_snapshot_limit_control_user(current_user),
-        remaining=crud.get_client_remaining_numbers(db_sess, client_id=current_user.id),
-        active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=current_user.id),
-    )
-    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    with SessionLocal() as write_sess:  # type: Session
+        ok = crud.delete_project(
+            write_sess,
+            project_id,
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            via_impersonation=via_impersonation,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+    _sync_client_balance_alert_for_client(current_user.id)
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
 
 
@@ -1501,6 +1550,7 @@ def logout():
 def support_message(
     payload: schemas.SupportMessageIn,
     current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
 ):
     """
     Сообщение в поддержку из ЛК. Сейчас просто пересылаем текст в тот же Telegram-чат,
@@ -1517,6 +1567,7 @@ def support_message(
         f"{payload.text}"
     )
 
+    db_sess.rollback()
     ok = telegram.send_text(bot_token, chat_id, text)
     if not ok:
         raise HTTPException(status_code=500, detail="Не удалось отправить сообщение в Telegram")
@@ -2193,6 +2244,7 @@ def admin_update_client(
 
         if should_send_test:
             bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+            db_sess.rollback()
             test_ok = telegram.send_text(
                 bot_token,
                 next_chat_id,
@@ -2200,7 +2252,6 @@ def admin_update_client(
                 parse_mode="HTML",
             )
             if not test_ok:
-                db_sess.rollback()
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -2209,9 +2260,26 @@ def admin_update_client(
                     ),
                 )
 
-        db_sess.commit()
+        if should_send_test:
+            result = crud.admin_update_client(
+                db_sess,
+                client_id=client_id,
+                name=payload.name,
+                inn=payload.inn,
+                phone=payload.phone,
+                contact=payload.contact,
+                login=payload.login,
+                password=payload.password,
+                auto_limit_control_enabled=payload.autoLimitControlEnabled,
+                telegram_notifications_chat_id=payload.telegramNotificationsChatId,
+                telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
+                unique_project_names_enabled=payload.uniqueProjectNamesEnabled,
+                commit=True,
+            )
+        else:
+            db_sess.commit()
         if payload.autoLimitControlEnabled is True:
-            _run_limit_control_for_client(db_sess, client_id=client_id, trigger="admin_toggle_on")
+            _run_limit_control_for_client_in_new_session(client_id=client_id, trigger="admin_toggle_on")
         return result
     except HTTPException:
         raise
@@ -2367,21 +2435,23 @@ def admin_update_project(
                 },
             )
     warning_text = None
+    project_snapshot = _project_snapshot_for_prostats(project_row)
+    owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    db_sess.rollback()
     try:
         if payload.status == "Удалён":
-            prostats.delete_project(str(project_row.provider_project_id), project_row)
+            prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
         else:
-            result = prostats.update_project(str(project_row.provider_project_id), project_row, payload)
+            result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     missing_items,
                     target_type,
-                    user_id=project_row.user_id,
-                    provider_project_id=project_row.provider_project_id,
-                    exclude_project_id=project_row.id,
+                    user_id=owner_user_id or 0,
+                    provider_project_id=project_snapshot.provider_project_id,
+                    exclude_project_id=project_snapshot.id,
                 )
                 warning_text = prostats._build_partial_warning(
                     payload.name,
@@ -2397,16 +2467,15 @@ def admin_update_project(
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         if payload.status != "Удалён":
-            target_type = prostats._type_from_collection(project_row.collection_source)
+            target_type = prostats._type_from_collection(project_snapshot.collection_source)
             if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
                 items = payload.sites if target_type == "hosts" else payload.phones
-                duplicates = crud.find_duplicates_in_projects(
-                    db_sess,
+                duplicates = _find_duplicates_with_new_session(
                     items or [],
                     target_type,
-                    user_id=project_row.user_id,
-                    provider_project_id=project_row.provider_project_id,
-                    exclude_project_id=project_row.id,
+                    user_id=owner_user_id or 0,
+                    provider_project_id=project_snapshot.provider_project_id,
+                    exclude_project_id=project_snapshot.id,
                 )
                 if duplicates:
                     detail["duplicates"] = duplicates
@@ -2421,27 +2490,23 @@ def admin_update_project(
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
-        ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
-        if not ok:
-            raise HTTPException(status_code=404, detail="Project not found")
-        updated = crud.admin_get_project(db_sess, project_id)
-        if not updated:
-            raise HTTPException(status_code=404, detail="Project not found")
-        if project_row.user_id:
-            user = db_sess.get(models.User, int(project_row.user_id))
-            if user:
-                _sync_client_balance_alert(
-                    user_snapshot=_snapshot_limit_control_user(user),
-                    remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
-                    active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
-                )
+        with SessionLocal() as write_sess:  # type: Session
+            ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
+            if not ok:
+                raise HTTPException(status_code=404, detail="Project not found")
+            updated = crud.admin_get_project(write_sess, project_id)
+            if not updated:
+                raise HTTPException(status_code=404, detail="Project not found")
+        if owner_user_id:
+            _sync_client_balance_alert_for_client(owner_user_id)
     else:
-        updated = crud.admin_update_project(db_sess, project_id, payload, admin_user_id=current_admin.id)
-        if not updated:
-            raise HTTPException(status_code=404, detail="Project not found")
-        if project_row.user_id:
-            _run_limit_control_for_client(db_sess, client_id=int(project_row.user_id), trigger="admin_project_update")
-    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        with SessionLocal() as write_sess:  # type: Session
+            updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_admin.id)
+            if not updated:
+                raise HTTPException(status_code=404, detail="Project not found")
+        if owner_user_id:
+            _run_limit_control_for_client_in_new_session(client_id=owner_user_id, trigger="admin_project_update")
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     return schemas.AdminUpdateProjectOut(project=updated, warning=warning_text)
 
 
@@ -2457,24 +2522,22 @@ def admin_delete_project(
         raise HTTPException(status_code=404, detail="Project not found")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
+    project_snapshot = _project_snapshot_for_prostats(project_row)
+    owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    db_sess.rollback()
     try:
-        prostats.delete_project(str(project_row.provider_project_id), project_row)
+        prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
-    ok = crud.admin_delete_project(db_sess, project_id, admin_user_id=current_admin.id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if project_row.user_id:
-        user = db_sess.get(models.User, int(project_row.user_id))
-        if user:
-            _sync_client_balance_alert(
-                user_snapshot=_snapshot_limit_control_user(user),
-                remaining=crud.get_client_remaining_numbers(db_sess, client_id=int(project_row.user_id)),
-                active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=int(project_row.user_id)),
-            )
-    crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    with SessionLocal() as write_sess:  # type: Session
+        ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+    if owner_user_id:
+        _sync_client_balance_alert_for_client(owner_user_id)
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     return {"deleted": True}
 
 
@@ -2661,7 +2724,6 @@ def admin_changes_summary(
 
 def _parse_balance_date_range(from_date: Optional[str], to_date: Optional[str]) -> tuple[Optional[datetime], Optional[datetime]]:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
     try:
         tz = ZoneInfo(settings["SHEETS_TZ"])
     except ZoneInfoNotFoundError:
@@ -2796,13 +2858,14 @@ def admin_pause_client_projects(
             models.Project.status == "Активен",
         ).order_by(models.Project.id.asc())
     ).scalars().all()
+    active_project_snapshots = [_project_snapshot_for_prostats(project) for project in active_projects]
 
     paused_ids: List[int] = []
     skipped_count = 0
     failed_count = 0
     errors: List[str] = []
 
-    for p in active_projects:
+    for p in active_project_snapshots:
         if p.status == "Удалён":
             skipped_count += 1
             continue
@@ -2811,44 +2874,39 @@ def admin_pause_client_projects(
             errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
             continue
         try:
+            db_sess.rollback()
             prostats.update_project_status(str(p.provider_project_id), p, "На паузе")
-            ok = crud.admin_update_project_status_only(
-                db_sess,
-                project_id=int(p.id),
-                status="На паузе",
-                admin_user_id=current_admin.id,
-            )
+            with SessionLocal() as write_sess:  # type: Session
+                ok = crud.admin_update_project_status_only(
+                    write_sess,
+                    project_id=int(p.id),
+                    status="На паузе",
+                    admin_user_id=current_admin.id,
+                )
             if ok:
                 paused_ids.append(int(p.id))
         except prostats.ProstatsError as exc:
             failed_count += 1
             errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
 
-    crud.admin_replace_pause_snapshot(
-        db_sess,
-        client_id=client_id,
-        project_ids=paused_ids,
-        admin_user_id=current_admin.id,
-    )
-    crud.admin_set_client_projects_mutation_lock(
-        db_sess,
-        client_id=client_id,
-        locked=True,
-        admin_user_id=current_admin.id,
-        reason="Проекты во временной блокировке",
-    )
-
-    if paused_ids:
-        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    user = db_sess.get(models.User, client_id)
-    if user:
-        _sync_client_balance_alert(
-            user_snapshot=_snapshot_limit_control_user(user),
-            remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
-            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
+    with SessionLocal() as finalize_sess:  # type: Session
+        crud.admin_replace_pause_snapshot(
+            finalize_sess,
+            client_id=client_id,
+            project_ids=paused_ids,
+            admin_user_id=current_admin.id,
         )
-
-    state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+        crud.admin_set_client_projects_mutation_lock(
+            finalize_sess,
+            client_id=client_id,
+            locked=True,
+            admin_user_id=current_admin.id,
+            reason="Проекты во временной блокировке",
+        )
+        if paused_ids:
+            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        state = crud.admin_get_collection_state(finalize_sess, client_id=client_id)
+    _sync_client_balance_alert_for_client(client_id)
 
     if paused_ids and failed_count == 0 and skipped_count == 0:
         message = "Все активные проекты поставлены на паузу."
@@ -2909,6 +2967,7 @@ def admin_resume_client_projects(
         )
     ).scalars().all()
     by_id = {int(p.id): p for p in proj_rows}
+    project_snapshots = {int(p.id): _project_snapshot_for_prostats(p) for p in proj_rows}
 
     resumed_ids: List[int] = []
     skipped_count = 0
@@ -2942,57 +3001,61 @@ def admin_resume_client_projects(
             errors.append(f'Проект {p.id} "{p.name}": {reason or "ограничение по лимитам клиента"}.')
             continue
         try:
-            prostats.update_project_status(str(p.provider_project_id), p, "Активен")
-            ok = crud.admin_update_project_status_only(
-                db_sess,
-                project_id=int(p.id),
-                status="Активен",
-                admin_user_id=current_admin.id,
-            )
+            project_snapshot = project_snapshots[int(p.id)]
+            db_sess.rollback()
+            prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "Активен")
+            with SessionLocal() as write_sess:  # type: Session
+                ok = crud.admin_update_project_status_only(
+                    write_sess,
+                    project_id=int(p.id),
+                    status="Активен",
+                    admin_user_id=current_admin.id,
+                )
             if ok:
                 resumed_ids.append(int(p.id))
         except prostats.ProstatsError as exc:
             failed_count += 1
             errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
 
-    # Оставляем в снимке только те проекты, которые всё ещё на паузе и могут быть восстановлены позже.
-    next_snapshot_ids: List[int] = []
-    for pid in snapshot_ids:
-        p = by_id.get(pid)
-        if not p:
-            continue
-        if p.status == "Удалён":
-            continue
-        if not p.provider_project_id:
-            continue
-        if p.status != "Активен":
-            next_snapshot_ids.append(int(pid))
+    with SessionLocal() as finalize_sess:  # type: Session
+        fresh_rows = finalize_sess.execute(
+            select(models.Project).where(
+                models.Project.user_id == client_id,
+                models.Project.id.in_(snapshot_ids),
+            )
+        ).scalars().all()
+        fresh_by_id = {int(project.id): project for project in fresh_rows}
 
-    crud.admin_replace_pause_snapshot(
-        db_sess,
-        client_id=client_id,
-        project_ids=next_snapshot_ids,
-        admin_user_id=current_admin.id,
-    )
-    crud.admin_set_client_projects_mutation_lock(
-        db_sess,
-        client_id=client_id,
-        locked=False,
-        admin_user_id=current_admin.id,
-        reason=None,
-    )
+        # Оставляем в снимке только те проекты, которые всё ещё на паузе и могут быть восстановлены позже.
+        next_snapshot_ids: List[int] = []
+        for pid in snapshot_ids:
+            p = fresh_by_id.get(pid)
+            if not p:
+                continue
+            if p.status == "Удалён":
+                continue
+            if not p.provider_project_id:
+                continue
+            if p.status != "Активен":
+                next_snapshot_ids.append(int(pid))
 
-    if resumed_ids:
-        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-    user = db_sess.get(models.User, client_id)
-    if user:
-        _sync_client_balance_alert(
-            user_snapshot=_snapshot_limit_control_user(user),
-            remaining=crud.get_client_remaining_numbers(db_sess, client_id=client_id),
-            active_limit_sum=crud.get_client_active_projects_limit_sum(db_sess, client_id=client_id),
+        crud.admin_replace_pause_snapshot(
+            finalize_sess,
+            client_id=client_id,
+            project_ids=next_snapshot_ids,
+            admin_user_id=current_admin.id,
         )
-
-    state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+        crud.admin_set_client_projects_mutation_lock(
+            finalize_sess,
+            client_id=client_id,
+            locked=False,
+            admin_user_id=current_admin.id,
+            reason=None,
+        )
+        if resumed_ids:
+            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+        state = crud.admin_get_collection_state(finalize_sess, client_id=client_id)
+    _sync_client_balance_alert_for_client(client_id)
 
     if resumed_ids and failed_count == 0 and skipped_count == 0 and not next_snapshot_ids:
         message = "Проекты восстановлены."
