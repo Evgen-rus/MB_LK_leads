@@ -42,6 +42,7 @@ REQUEST_TIMEOUT_SEC = 60
 PAGE_SIZE_HINT = 1000
 REQUEST_DELAY_SEC = 0.3
 DB_PROJECTS_CHUNK_SIZE = 500
+SETTLE_SECONDS = 15
 RECOVERY_VID_TOTAL_LEN = 10
 RECOVERY_VID_SEQ_LEN = 5
 
@@ -811,6 +812,7 @@ def main() -> None:
 
     results: List[ProjectRecoveryResult] = []
     errors: List[ProjectRecoveryError] = []
+    needs_settle_pause = False
 
     with requests.Session() as http_session:
         for project in projects:
@@ -828,33 +830,10 @@ def main() -> None:
                         result.recovery_candidates,
                         next_seq=current_recovery_seq,
                     )
-
-                if result.recovery_candidates and not args.dry_run:
-                    with session_local() as write_sess:
-                        try:
-                            fresh_db_rows = load_db_project_rows_for_day(
-                                write_sess,
-                                project_id=int(project.id),
-                                target_day=target_day,
-                            )
-                            fresh_candidates, skipped_after_recheck = filter_candidates_after_recheck(
-                                candidates=result.recovery_candidates,
-                                db_rows=fresh_db_rows,
-                                date_str=date_str,
-                            )
-                            result.skipped_after_recheck = skipped_after_recheck
-                            result.recovery_candidates = fresh_candidates
-                            if result.recovery_candidates:
-                                result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
-                        except Exception:
-                            write_sess.rollback()
-                            raise
+                    if not args.dry_run:
+                        needs_settle_pause = True
 
                 results.append(result)
-                if should_print_project_result(result, show_empty=bool(args.show_empty)):
-                    print_project_result(result)
-                    if result.recovery_candidates:
-                        print_recovery_rows(result)
 
             except requests.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else "unknown"
@@ -912,6 +891,42 @@ def main() -> None:
                 )
                 errors.append(error)
                 print_project_error(error)
+
+    if needs_settle_pause and SETTLE_SECONDS > 0:
+        print("")
+        print("[SETTLE]")
+        print(f"sleep_seconds={SETTLE_SECONDS}")
+        time.sleep(SETTLE_SECONDS)
+
+    if not args.dry_run:
+        for result in results:
+            if not result.recovery_candidates:
+                continue
+            with session_local() as write_sess:
+                try:
+                    fresh_db_rows = load_db_project_rows_for_day(
+                        write_sess,
+                        project_id=result.project_id,
+                        target_day=target_day,
+                    )
+                    fresh_candidates, skipped_after_recheck = filter_candidates_after_recheck(
+                        candidates=result.recovery_candidates,
+                        db_rows=fresh_db_rows,
+                        date_str=date_str,
+                    )
+                    result.skipped_after_recheck = skipped_after_recheck
+                    result.recovery_candidates = fresh_candidates
+                    if result.recovery_candidates:
+                        result.inserted_rows = insert_recovery_candidates(write_sess, result.recovery_candidates)
+                except Exception:
+                    write_sess.rollback()
+                    raise
+
+    for result in results:
+        if should_print_project_result(result, show_empty=bool(args.show_empty)):
+            print_project_result(result)
+            if result.recovery_candidates:
+                print_recovery_rows(result)
 
     print_overall_summary(
         date_str=date_str,
