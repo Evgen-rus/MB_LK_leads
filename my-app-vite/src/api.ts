@@ -1,6 +1,6 @@
 // Файл: src/api.ts
 // Назначение: HTTP-клиент фронтенда для работы с бэкендом (projects, client-errors).
-import type { Project } from './types/project';
+import type { Project, ProjectStatus } from './types/project';
 
 // Базовый URL для API:
 // - в проде берётся из Vite-переменной окружения VITE_API_BASE (например, "/api")
@@ -321,6 +321,7 @@ export async function fetchProjects(params?: {
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
+  projectStatus?: ProjectStatus;
 }): Promise<ProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -329,6 +330,7 @@ export async function fetchProjects(params?: {
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   if (params?.includeDeleted) q.set('includeDeleted', 'true');
+  if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   const qs = q.toString();
   return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }
@@ -717,6 +719,7 @@ export async function fetchAdminProjects(params?: {
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
+  projectStatus?: ProjectStatus;
 }): Promise<AdminProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -726,6 +729,7 @@ export async function fetchAdminProjects(params?: {
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
+  if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   const qs = q.toString();
   return http<AdminProjectListResp>(`/admin/projects${qs ? `?${qs}` : ''}`);
 }

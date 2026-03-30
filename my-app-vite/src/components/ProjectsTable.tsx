@@ -84,7 +84,15 @@ function ProjectsTable({
 
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
   const load = useCallback(
-    async (p: number, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) => {
+    async (
+      p: number,
+      s = pageSize,
+      q = search,
+      from = fromDate,
+      to = toDate,
+      withDeleted = includeDeleted,
+      projectStatus = statusFilter,
+    ) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
         offset,
@@ -93,20 +101,21 @@ function ProjectsTable({
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
+        projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
       });
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, search, fromDate, toDate, includeDeleted],
+    [pageSize, search, fromDate, toDate, includeDeleted, statusFilter],
   );
 
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted);
+    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted]);
+  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -122,24 +131,13 @@ function ProjectsTable({
     };
   }, [openProjectMenuId]);
 
-  const filteredRows = useMemo<Project[]>(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((row) => {
-      const nameHit = row.name.toLowerCase().includes(q);
-      const idHit = String(row.id).includes(q);
-      const matchesQuery = q === '' ? true : (nameHit || idHit);
-      const matchesStatus = statusFilter === 'Все' ? true : row.status === statusFilter;
-      return matchesQuery && matchesStatus;
-    });
-  }, [rows, search, statusFilter]);
-
   const selectableRows = useMemo(
-    () => filteredRows.filter((row) => row.status !== 'Удалён'),
-    [filteredRows],
+    () => rows.filter((row) => row.status !== 'Удалён'),
+    [rows],
   );
   const selectedRows = useMemo(
-    () => filteredRows.filter((row) => selectedIds.includes(row.id)),
-    [filteredRows, selectedIds],
+    () => rows.filter((row) => selectedIds.includes(row.id)),
+    [rows, selectedIds],
   );
   const allSelectableOnPageSelected =
     selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
@@ -406,7 +404,7 @@ function ProjectsTable({
               setFromDate(from);
               setToDate(to);
               setPage(1);
-              load(1, pageSize, search, from, to, includeDeleted);
+              load(1, pageSize, search, from, to, includeDeleted, statusFilter);
             }}
           />
 
@@ -415,11 +413,16 @@ function ProjectsTable({
             placeholder="Поиск по названию/ID"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted); }}}
+            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted, statusFilter); }}}
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён')}
+            onChange={(e) => {
+              const nextStatus = e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён';
+              setStatusFilter(nextStatus);
+              setPage(1);
+              load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
+            }}
           >
             <option value="Все">Все статусы проекта</option>
             <option value="Активен">Активен</option>
@@ -434,7 +437,7 @@ function ProjectsTable({
                 const val = e.target.checked;
                 setIncludeDeleted(val);
                 setPage(1);
-                load(1, pageSize, search, fromDate, toDate, val);
+                load(1, pageSize, search, fromDate, toDate, val, statusFilter);
               }}
             />
             Показывать удалённые
@@ -552,7 +555,7 @@ function ProjectsTable({
           </tr>
         </thead>
         <tbody>
-          {filteredRows.map((row) => (
+          {rows.map((row) => (
             <tr key={row.id}>
               <td>
                 <input

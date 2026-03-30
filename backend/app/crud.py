@@ -36,6 +36,21 @@ def _normalize_project_status(value: Any) -> schemas.ProjectStatus:
     return "Удалён"
 
 
+def _apply_project_status_filter(stmt, *, project_status: Optional[schemas.ProjectStatus], include_deleted: bool):
+    """
+    Применяет единое правило фильтрации статуса для списков проектов.
+
+    Если статус задан явно, он имеет приоритет над include_deleted.
+    Это позволяет корректно получать выборку "только удалённые" даже при
+    стандартном include_deleted=False.
+    """
+    if project_status is not None:
+        return stmt.where(models.Project.status == project_status)
+    if not include_deleted:
+        return stmt.where(models.Project.status != 'Удалён')
+    return stmt
+
+
 def find_duplicates_in_projects(
     db: Session,
     items: List[str],
@@ -229,10 +244,14 @@ def list_projects_paginated(
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
+    project_status: Optional[schemas.ProjectStatus] = None,
 ) -> schemas.ProjectListOut:
     stmt = select(models.Project).where(models.Project.user_id == user_id)
-    if not include_deleted:
-        stmt = stmt.where(models.Project.status != 'Удалён')
+    stmt = _apply_project_status_filter(
+        stmt,
+        project_status=project_status,
+        include_deleted=include_deleted,
+    )
     if q:
         q = q.strip()
         if q:
@@ -2477,6 +2496,7 @@ def admin_list_all_projects(
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = True,
+    project_status: Optional[schemas.ProjectStatus] = None,
 ) -> schemas.AdminProjectListOut:
     """
     Список всех проектов всех пользователей (для админа).
@@ -2489,8 +2509,11 @@ def admin_list_all_projects(
         stmt = stmt.where(models.Project.user_id == user_id_filter)
 
     # По умолчанию админ видит всё, но можно скрыть удалённые
-    if not include_deleted:
-        stmt = stmt.where(models.Project.status != 'Удалён')
+    stmt = _apply_project_status_filter(
+        stmt,
+        project_status=project_status,
+        include_deleted=include_deleted,
+    )
 
     # Текстовый поиск
     if q:

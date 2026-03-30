@@ -60,7 +60,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
 
-  async function load(p = page, s = pageSize, q = search, from = fromDate, to = toDate, withDeleted = includeDeleted) {
+  async function load(
+    p = page,
+    s = pageSize,
+    q = search,
+    from = fromDate,
+    to = toDate,
+    withDeleted = includeDeleted,
+    projectStatus = statusFilter,
+  ) {
     try {
       setLoading(true);
       setError(null);
@@ -73,6 +81,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
+        projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
       });
       setRows(resp.items);
       setTotal(resp.total);
@@ -85,20 +94,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
   }
 
   useEffect(() => {
-    load(1, pageSize, search, fromDate, toDate, includeDeleted);
+    load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, fromDate, toDate, includeDeleted]);
-
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const byStatus = rows.filter((row) => (statusFilter === 'Все' ? true : row.status === statusFilter));
-    if (!q) return byStatus;
-    return byStatus.filter((row) => {
-      const nameHit = row.name.toLowerCase().includes(q);
-      const idHit = String(row.id).includes(q);
-      return nameHit || idHit;
-    });
-  }, [rows, search, statusFilter]);
+  }, [clientId, fromDate, toDate, includeDeleted, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -186,13 +184,18 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 setPage(1);
-                load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted);
+                load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted, statusFilter);
               }
             }}
           />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён')}
+            onChange={(e) => {
+              const nextStatus = e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён';
+              setStatusFilter(nextStatus);
+              setPage(1);
+              load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
+            }}
           >
             <option value="Все">Все статусы проекта</option>
             <option value="Активен">Активен</option>
@@ -207,7 +210,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                 const val = e.target.checked;
                 setIncludeDeleted(val);
                 setPage(1);
-                load(1, pageSize, search, fromDate, toDate, val);
+                load(1, pageSize, search, fromDate, toDate, val, statusFilter);
               }}
             />
             Показывать удалённые
@@ -220,7 +223,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
         </div>
       </div>
       <div className="table-footer table-footer--top">
-        Показано {filteredRows.length} из {total}
+        Показано {rows.length} из {total}
         <div className="spacer" />
         <div className="pager">
           <button
@@ -298,7 +301,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                 </td>
               </tr>
             )}
-            {!error && !loading && filteredRows.length === 0 && (
+            {!error && !loading && rows.length === 0 && (
               <tr>
                 <td colSpan={11} className="muted" style={{ padding: 16 }}>
                   Проекты клиента не найдены.
@@ -307,7 +310,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
             )}
             {!error &&
               !loading &&
-              filteredRows.map((row) => (
+              rows.map((row) => (
                 <tr key={row.id}>
                   <td
                     style={{ cursor: 'pointer', position: 'relative' }}
@@ -507,7 +510,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
       </div>
 
       <div className="table-footer">
-        Показано {filteredRows.length} из {total}
+        Показано {rows.length} из {total}
         <div className="spacer" />
         <div className="pager">
           <button
