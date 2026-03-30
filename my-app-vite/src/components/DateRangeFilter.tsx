@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { DayPicker, type DateRange as DayPickerRange } from 'react-day-picker';
 import { ru } from 'react-day-picker/locale';
 import 'react-day-picker/dist/style.css';
@@ -80,6 +81,7 @@ function DateRangeFilter({ from, to, onChange }: Props) {
   const [activePreset, setActivePreset] = useState<PresetKey>(() => detectPreset(from, to));
   const [draftFrom, setDraftFrom] = useState(from);
   const [draftTo, setDraftTo] = useState(to);
+  const [isMobile, setIsMobile] = useState(false);
 
   const displayRange =
     from === to ? formatDisplayDate(from) : `${formatDisplayDate(from)} — ${formatDisplayDate(to)}`;
@@ -90,6 +92,24 @@ function DateRangeFilter({ from, to, onChange }: Props) {
     setDraftTo(to);
     setActivePreset(detectPreset(from, to));
   }, [from, to, isOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const media = window.matchMedia('(max-width: 767px)');
+    const applyMatch = () => setIsMobile(media.matches);
+    applyMatch();
+    media.addEventListener('change', applyMatch);
+    return () => media.removeEventListener('change', applyMatch);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || !isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile, isOpen]);
 
   const selectedRange = useMemo<DayPickerRange | undefined>(() => {
     const parsedFrom = parseDateInput(draftFrom);
@@ -110,6 +130,9 @@ function DateRangeFilter({ from, to, onChange }: Props) {
     setDraftFrom(range.from);
     setDraftTo(range.to);
     onChange(range);
+    if (isMobile) {
+      setIsOpen(false);
+    }
   };
 
   const handleCustomClick = () => {
@@ -151,87 +174,88 @@ function DateRangeFilter({ from, to, onChange }: Props) {
     setIsOpen((prev) => !prev);
   };
 
-  return (
-    <div className="date-filter">
-      <button
-        type="button"
-        className="date-filter__toggle"
-        onClick={handleToggle}
-      >
-        <span>{displayRange}</span>
-        <span className="date-filter__icon">📅</span>
-      </button>
-      {isOpen && (
-        <div className="date-filter__popover">
-          <div className="date-filter__presets">
-            <button
-              type="button"
-              className={`date-filter__preset${
-                activePreset === 'today' ? ' date-filter__preset--active' : ''
-              }`}
-              onClick={() => handlePresetClick('today')}
-            >
-              Сегодня
-            </button>
-            <button
-              type="button"
-              className={`date-filter__preset${
-                activePreset === 'yesterday' ? ' date-filter__preset--active' : ''
-              }`}
-              onClick={() => handlePresetClick('yesterday')}
-            >
-              Вчера
-            </button>
-            <button
-              type="button"
-              className={`date-filter__preset${
-                activePreset === 'week' ? ' date-filter__preset--active' : ''
-              }`}
-              onClick={() => handlePresetClick('week')}
-            >
-              Неделя
-            </button>
-            <button
-              type="button"
-              className={`date-filter__preset${
-                activePreset === 'month' ? ' date-filter__preset--active' : ''
-              }`}
-              onClick={() => handlePresetClick('month')}
-            >
-              Месяц
-            </button>
-            <button
-              type="button"
-              className={`date-filter__preset${
-                activePreset === 'custom' ? ' date-filter__preset--active' : ''
-              }`}
-              onClick={handleCustomClick}
-            >
-              За период
-            </button>
-          </div>
-          {activePreset === 'custom' && (
-            <div className="date-filter__custom">
-              <div className="date-filter__summary">
-                {formatRangeSummary(draftFrom, draftTo)}
-              </div>
-              <div className="date-filter__hint">
-                Выберите дату начала, затем дату окончания периода.
-              </div>
-              <div className="date-filter__calendar">
-                <DayPicker
-                  locale={ru}
-                  mode="range"
-                  selected={selectedRange}
-                  onSelect={handleCalendarSelect}
-                  defaultMonth={defaultMonth}
-                  numberOfMonths={2}
-                  pagedNavigation
-                  showOutsideDays
-                />
-              </div>
+  const handleClose = () => {
+    setDraftFrom(from);
+    setDraftTo(to);
+    setActivePreset(detectPreset(from, to));
+    setIsOpen(false);
+  };
+
+  const popoverContent = (
+    <>
+      {isMobile && <button type="button" className="date-filter__backdrop" aria-label="Закрыть выбор дат" onClick={handleClose} />}
+      <div className={`date-filter__popover${isMobile ? ' date-filter__popover--sheet' : ''}`}>
+        {isMobile && <div className="date-filter__sheet-handle" aria-hidden="true" />}
+        <div className="date-filter__presets">
+          <button
+            type="button"
+            className={`date-filter__preset${
+              activePreset === 'today' ? ' date-filter__preset--active' : ''
+            }`}
+            onClick={() => handlePresetClick('today')}
+          >
+            Сегодня
+          </button>
+          <button
+            type="button"
+            className={`date-filter__preset${
+              activePreset === 'yesterday' ? ' date-filter__preset--active' : ''
+            }`}
+            onClick={() => handlePresetClick('yesterday')}
+          >
+            Вчера
+          </button>
+          <button
+            type="button"
+            className={`date-filter__preset${
+              activePreset === 'week' ? ' date-filter__preset--active' : ''
+            }`}
+            onClick={() => handlePresetClick('week')}
+          >
+            Неделя
+          </button>
+          <button
+            type="button"
+            className={`date-filter__preset${
+              activePreset === 'month' ? ' date-filter__preset--active' : ''
+            }`}
+            onClick={() => handlePresetClick('month')}
+          >
+            Месяц
+          </button>
+          <button
+            type="button"
+            className={`date-filter__preset${
+              activePreset === 'custom' ? ' date-filter__preset--active' : ''
+            }`}
+            onClick={handleCustomClick}
+          >
+            За период
+          </button>
+        </div>
+        {activePreset === 'custom' && (
+          <div className="date-filter__custom">
+            <div className="date-filter__summary">
+              {formatRangeSummary(draftFrom, draftTo)}
             </div>
-          )}
+            <div className="date-filter__hint">
+              Выберите дату начала, затем дату окончания периода.
+            </div>
+            <div className="date-filter__calendar">
+              <DayPicker
+                locale={ru}
+                mode="range"
+                selected={selectedRange}
+                onSelect={handleCalendarSelect}
+                defaultMonth={defaultMonth}
+                numberOfMonths={isMobile ? 1 : 2}
+                pagedNavigation
+                showOutsideDays
+              />
+            </div>
+          </div>
+        )}
+        {(!isMobile || activePreset === 'custom') && (
           <div className="date-filter__footer">
             <button type="button" className="btn" onClick={handleReset}>
               Сбросить
@@ -245,8 +269,22 @@ function DateRangeFilter({ from, to, onChange }: Props) {
               Применить
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="date-filter">
+      <button
+        type="button"
+        className="date-filter__toggle"
+        onClick={handleToggle}
+      >
+        <span>{displayRange}</span>
+        <span className="date-filter__icon">📅</span>
+      </button>
+      {isOpen && (isMobile ? createPortal(popoverContent, document.body) : popoverContent)}
     </div>
   );
 }

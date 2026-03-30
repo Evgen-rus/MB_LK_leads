@@ -81,6 +81,16 @@
 .date-range { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
 .date-range input[type="date"] { padding: 8px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
 .date-filter { position: relative; }
+.date-filter__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1190;
+  border: none;
+  background: rgba(27, 20, 69, 0.18);
+  padding: 0;
+  margin: 0;
+  cursor: default;
+}
 .date-filter__toggle {
   border: 1px solid #dcdce6;
   background: #fff;
@@ -114,6 +124,19 @@
   min-width: 320px;
   width: max-content;
   max-width: min(720px, calc(100vw - 32px));
+  max-height: min(85vh, 760px);
+  overflow-y: auto;
+}
+.date-filter__popover--sheet {
+  z-index: 1200;
+}
+.date-filter__sheet-handle {
+  display: none;
+  width: 40px;
+  height: 4px;
+  margin: 2px auto 4px;
+  border-radius: 999px;
+  background: #d7d4e8;
 }
 .date-filter__presets {
   display: flex;
@@ -196,6 +219,11 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 6px;
+  position: sticky;
+  bottom: -12px;
+  padding-top: 10px;
+  padding-bottom: 4px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, #ffffff 18px);
 }
 @media (max-width: 860px) {
   .date-filter__popover {
@@ -203,6 +231,54 @@
   }
   .date-filter__calendar .rdp-months {
     flex-direction: column;
+  }
+}
+@media (max-width: 767px) {
+  .date-filter__popover--sheet {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 12px;
+    width: auto;
+    max-width: none;
+    max-height: 85vh;
+    padding: 12px;
+    border-radius: 16px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
+  }
+  .date-filter__sheet-handle {
+    display: block;
+  }
+  .date-filter__calendar {
+    padding: 8px;
+  }
+  .date-filter__calendar .rdp-root {
+    --rdp-day-width: 40px;
+    --rdp-day-height: 40px;
+    --rdp-day_button-width: 38px;
+    --rdp-day_button-height: 38px;
+    --rdp-months-gap: 0;
+    width: 100%;
+  }
+  .date-filter__calendar .rdp-months {
+    flex-direction: column;
+  }
+  .date-filter__calendar .rdp-month {
+    width: 100%;
+  }
+  .date-filter__calendar .rdp-table {
+    width: 100%;
+    max-width: 100%;
+  }
+  .date-filter__calendar .rdp-day,
+  .date-filter__calendar .rdp-weekday {
+    width: calc(100% / 7);
+  }
+  .date-filter__footer {
+    bottom: -8px;
+    margin-top: 2px;
+    padding-bottom: 2px;
   }
 }
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
