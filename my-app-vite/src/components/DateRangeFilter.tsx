@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DayPicker, type DateRange as DayPickerRange } from 'react-day-picker';
 import { ru } from 'react-day-picker/locale';
@@ -79,6 +79,7 @@ function detectPreset(from: string, to: string): PresetKey {
 }
 
 function DateRangeFilter({ from, to, onChange }: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [openMode, setOpenMode] = useState<OpenMode>('closed');
   const [activePreset, setActivePreset] = useState<PresetKey>(() => detectPreset(from, to));
   const [draftFrom, setDraftFrom] = useState(from);
@@ -113,6 +114,26 @@ function DateRangeFilter({ from, to, onChange }: Props) {
       document.body.style.overflow = previousOverflow;
     };
   }, [isMobile, openMode]);
+
+  const handleClose = useCallback(() => {
+    setDraftFrom(from);
+    setDraftTo(to);
+    setActivePreset(detectPreset(from, to));
+    setOpenMode('closed');
+  }, [from, to]);
+
+  useEffect(() => {
+    if (!isMobile || openMode !== 'menu') return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      const target = event.target;
+      if (!root || !(target instanceof Node)) return;
+      if (root.contains(target)) return;
+      handleClose();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [handleClose, isMobile, openMode]);
 
   const selectedRange = useMemo<DayPickerRange | undefined>(() => {
     const parsedFrom = parseDateInput(draftFrom);
@@ -179,13 +200,6 @@ function DateRangeFilter({ from, to, onChange }: Props) {
       setOpenMode('menu');
       return;
     }
-    setOpenMode('closed');
-  };
-
-  const handleClose = () => {
-    setDraftFrom(from);
-    setDraftTo(to);
-    setActivePreset(detectPreset(from, to));
     setOpenMode('closed');
   };
 
@@ -329,7 +343,7 @@ function DateRangeFilter({ from, to, onChange }: Props) {
   );
 
   return (
-    <div className="date-filter">
+    <div className="date-filter" ref={rootRef}>
       <button
         type="button"
         className="date-filter__toggle"

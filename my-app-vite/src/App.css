@@ -80,7 +80,7 @@
 .actions .btn { padding: 6px 10px; }
 .date-range { display: inline-flex; align-items: center; gap: 8px; margin-right: 8px; }
 .date-range input[type="date"] { padding: 8px 10px; border: 1px solid #dcdce6; border-radius: 10px; background: #fff; }
-.date-filter { position: relative; }
+.date-filter { position: relative; display: inline-block; }
 .date-filter__backdrop {
   position: fixed;
   inset: 0;
@@ -97,6 +97,7 @@
   border-radius: 10px;
   padding: 8px 12px;
   min-width: 150px;
+  width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -243,8 +244,9 @@
     left: 0;
     right: auto;
     bottom: auto;
-    width: min(320px, calc(100vw - 48px));
-    max-width: calc(100vw - 48px);
+    width: 100%;
+    min-width: 0;
+    max-width: none;
     max-height: none;
     padding: 10px 12px;
     border-radius: 14px;
