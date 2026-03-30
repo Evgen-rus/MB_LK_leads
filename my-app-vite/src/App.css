@@ -130,6 +130,9 @@
 .date-filter__popover--sheet {
   z-index: 1200;
 }
+.date-filter__popover--mobile-menu {
+  min-width: 0;
+}
 .date-filter__sheet-handle {
   display: none;
   width: 40px;
@@ -234,6 +237,21 @@
   }
 }
 @media (max-width: 767px) {
+  .date-filter__popover--mobile-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: auto;
+    bottom: auto;
+    width: min(320px, calc(100vw - 48px));
+    max-width: calc(100vw - 48px);
+    max-height: none;
+    padding: 10px 12px;
+    border-radius: 14px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+    overflow: visible;
+    z-index: 1100;
+  }
   .date-filter__popover--sheet {
     position: fixed;
     left: 12px;
@@ -249,6 +267,12 @@
   }
   .date-filter__sheet-handle {
     display: block;
+  }
+  .date-filter__popover--mobile-menu .date-filter__presets {
+    gap: 6px;
+  }
+  .date-filter__popover--mobile-menu .date-filter__preset {
+    padding: 8px 6px;
   }
   .date-filter__calendar {
     padding: 8px;
