@@ -309,12 +309,13 @@
 }
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
 .project-filter-panel select { min-width: 240px; }
-.table { width: 100%; border-collapse: separate; border-spacing: 0 5px; min-width: 1100px; }
-.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 10px 12px; background: #f7f5ff; border-bottom: none; white-space: normal; }
-.table tbody tr { background: #ffffff; border: 1px solid #e6e6f2; border-radius: 12px; box-shadow: 0 0 0 1px #e3e4f0, 0 8px 20px rgba(108,93,255,0.06); transition: background-color 0.15s ease, box-shadow 0.2s ease, transform 0.1s ease; }
-.table tbody tr:hover { background: #f4f3ff; box-shadow: 0 0 0 1px #d8d9ea, 0 10px 24px rgba(108,93,255,0.08); transform: translateY(-1px); }
-.table tbody tr.row--debt { border-left: 3px solid #ff5a5a; }
-.table tbody td { padding: 7px 12px; border-bottom: none; line-height: 1.25; }
+.table { width: 100%; border-collapse: collapse; border-spacing: 0; min-width: 1100px; }
+.table thead th { text-align: left; font-size: 0.75rem; font-weight: 600; color: #6b6b76; padding: 10px 12px; background: #f7f5ff; border-bottom: 1px solid #e6e6f2; white-space: normal; }
+.table tbody tr { background: #ffffff; transition: background-color 0.15s ease; }
+.table tbody tr:hover { background: #f4f3ff; }
+.table tbody tr.row--debt td:first-child { border-left: 3px solid #ff5a5a; }
+.table tbody td { padding: 7px 12px; border-bottom: 1px solid #e6e6f2; line-height: 1.25; }
+.table tbody tr:last-child td { border-bottom: none; }
 .datetime-compact {
   display: inline-flex;
   flex-direction: column;
@@ -799,7 +800,7 @@
   .notif__footer .btn {
     width: 100%;
   }
-  .table { font-size: 0.8rem; border-spacing: 0 4px; }
+  .table { font-size: 0.8rem; }
   .table thead th { font-size: 0.6rem; padding: 8px 10px; }
   .table tbody td { font-size: 0.74rem; padding: 6px 10px; line-height: 1.2; }
   .name { font-size: 0.86rem; line-height: 1.15; }
