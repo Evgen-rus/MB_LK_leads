@@ -111,7 +111,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-width: 260px;
+  min-width: 320px;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 32px));
 }
 .date-filter__presets {
   display: flex;
@@ -134,27 +136,74 @@
   background: #f1f1f7;
   font-weight: 600;
 }
-.date-filter__inputs {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-.date-filter__inputs label {
+.date-filter__custom {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.75rem;
+  gap: 8px;
 }
-.date-filter__inputs input[type="date"] {
-  padding: 6px 8px;
+.date-filter__summary {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #2f2a4a;
+}
+.date-filter__hint {
+  font-size: 0.75rem;
+  color: #8b8b98;
+}
+.date-filter__calendar {
+  padding: 10px;
+  border: 1px solid #ececf2;
+  border-radius: 12px;
+  background: #fbfbff;
+}
+.date-filter__calendar .rdp-root {
+  --rdp-accent-color: #6a5cff;
+  --rdp-accent-background-color: rgba(106, 92, 255, 0.14);
+  --rdp-day-width: 38px;
+  --rdp-day-height: 38px;
+  --rdp-day_button-width: 36px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-border-radius: 10px;
+  --rdp-day_button-border: 1px solid transparent;
+  --rdp-selected-border: 1px solid #6a5cff;
+  --rdp-months-gap: 16px;
+  --rdp-nav_button-width: 32px;
+  --rdp-nav_button-height: 32px;
+  --rdp-nav-height: 32px;
+  --rdp-animation_duration: 0s;
+  font-size: 0.875rem;
+}
+.date-filter__calendar .rdp-month_caption {
+  font-size: 0.95rem;
+}
+.date-filter__calendar .rdp-weekday {
+  font-size: 0.75rem;
+  color: #8b8b98;
+}
+.date-filter__calendar .rdp-day_button:hover:not([disabled]):not(.rdp-selected) {
+  background: #f1efff;
+}
+.date-filter__calendar .rdp-button_previous,
+.date-filter__calendar .rdp-button_next {
   border-radius: 8px;
-  border: 1px solid #dcdce6;
+}
+.date-filter__calendar .rdp-button_previous:hover:not([disabled]),
+.date-filter__calendar .rdp-button_next:hover:not([disabled]) {
+  background: #f1efff;
 }
 .date-filter__footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 6px;
+}
+@media (max-width: 860px) {
+  .date-filter__popover {
+    width: min(100vw - 32px, 420px);
+  }
+  .date-filter__calendar .rdp-months {
+    flex-direction: column;
+  }
 }
 .project-filter-panel { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid #ececf2; border-radius:8px; background:#fff; }
 .project-filter-panel select { min-width: 240px; }
