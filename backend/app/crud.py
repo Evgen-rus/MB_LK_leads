@@ -1903,6 +1903,34 @@ def admin_clients_summary(
         balance_map.setdefault(cid, {"credit": 0, "debit": 0})
         balance_map[cid][str(op_type)] = int(total_amt or 0)
 
+    last_tariff_rows = db.execute(
+        select(models.ClientTariff)
+        .order_by(models.ClientTariff.client_id.asc(), models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+    ).scalars().all()
+    last_tariff_by_client: Dict[int, models.ClientTariff] = {}
+    for tariff in last_tariff_rows:
+        client_id = int(tariff.client_id)
+        if client_id not in last_tariff_by_client:
+            last_tariff_by_client[client_id] = tariff
+
+    last_tariff_ids = [int(tariff.id) for tariff in last_tariff_by_client.values()]
+    tariff_ops_rows = []
+    if last_tariff_ids:
+        tariff_ops_rows = db.execute(
+            select(
+                models.ClientTariffOperation.tariff_id,
+                models.ClientTariffOperation.op_type,
+                func.coalesce(func.sum(models.ClientTariffOperation.amount), 0),
+            )
+            .where(models.ClientTariffOperation.tariff_id.in_(last_tariff_ids))
+            .group_by(models.ClientTariffOperation.tariff_id, models.ClientTariffOperation.op_type)
+        ).all()
+    tariff_ops_map: Dict[int, Dict[str, int]] = {}
+    for tariff_id, op_type, total_amt in tariff_ops_rows:
+        tid = int(tariff_id)
+        tariff_ops_map.setdefault(tid, {"credit": 0, "debit": 0})
+        tariff_ops_map[tid][str(op_type)] = int(total_amt or 0)
+
     items: List[schemas.AdminClientSummaryItem] = []
     totals_projects = 0
     totals_limit = 0
@@ -1919,6 +1947,12 @@ def admin_clients_summary(
         credit = balance_map.get(uid, {}).get("credit", 0)
         debit = balance_map.get(uid, {}).get("debit", 0)
         manual_balance = credit - debit
+        tariff_amount: Optional[int] = None
+        last_tariff = last_tariff_by_client.get(uid)
+        if last_tariff is not None:
+            tariff_credit = tariff_ops_map.get(int(last_tariff.id), {}).get("credit", 0)
+            tariff_debit = tariff_ops_map.get(int(last_tariff.id), {}).get("debit", 0)
+            tariff_amount = int(last_tariff.base_amount or 0) + tariff_credit - tariff_debit
         used_total = int(stats["used_total"])
         used_period = int(stats["used_period"])
         remaining = manual_balance - used_total
@@ -1937,6 +1971,7 @@ def admin_clients_summary(
             numbersBalance=manual_balance,
             numbersUsed=used_total,
             numbersUsedPeriod=used_period,
+            tariffAmount=tariff_amount,
             autoLimitControlEnabled=bool(getattr(info, "autoLimitControlEnabled", False)),
         )
         totals_projects += item.projectCount
@@ -2414,6 +2449,190 @@ def list_client_balance_operations(
         )
 
     return schemas.ClientBalanceOpsListOut(items=items, total=total)
+
+
+def _load_user_infos(db: Session, user_ids: List[int]) -> Dict[int, schemas.UserInfo]:
+    unique_ids = sorted({int(user_id) for user_id in user_ids if user_id})
+    if not unique_ids:
+        return {}
+    users = db.execute(select(models.User).where(models.User.id.in_(unique_ids))).scalars().all()
+    return {
+        int(user.id): schemas.UserInfo(
+            id=int(user.id),
+            login=user.login,
+            name=getattr(user, "name", None),
+        )
+        for user in users
+    }
+
+
+def _get_tariff_adjustment_map(db: Session, tariff_ids: List[int]) -> Dict[int, Dict[str, int]]:
+    if not tariff_ids:
+        return {}
+    rows = db.execute(
+        select(
+            models.ClientTariffOperation.tariff_id,
+            models.ClientTariffOperation.op_type,
+            func.coalesce(func.sum(models.ClientTariffOperation.amount), 0),
+        )
+        .where(models.ClientTariffOperation.tariff_id.in_(tariff_ids))
+        .group_by(models.ClientTariffOperation.tariff_id, models.ClientTariffOperation.op_type)
+    ).all()
+    result: Dict[int, Dict[str, int]] = {}
+    for tariff_id, op_type, total_amt in rows:
+        tid = int(tariff_id)
+        result.setdefault(tid, {"credit": 0, "debit": 0})
+        result[tid][str(op_type)] = int(total_amt or 0)
+    return result
+
+
+def _tariff_to_out(
+    tariff: models.ClientTariff,
+    creator: schemas.UserInfo,
+    adjustments: Optional[Dict[str, int]] = None,
+) -> schemas.ClientTariffOut:
+    adj = adjustments or {"credit": 0, "debit": 0}
+    current_amount = int(tariff.base_amount or 0) + int(adj.get("credit", 0)) - int(adj.get("debit", 0))
+    return schemas.ClientTariffOut(
+        id=int(tariff.id),
+        clientId=int(tariff.client_id),
+        baseAmount=int(tariff.base_amount or 0),
+        currentAmount=current_amount,
+        comment=tariff.comment,
+        createdAt=tariff.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        updatedAt=tariff.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        createdBy=creator,
+    )
+
+
+def list_client_tariffs(
+    db: Session,
+    client_id: int,
+    offset: int,
+    limit: int,
+) -> schemas.ClientTariffListOut:
+    base = select(models.ClientTariff).where(models.ClientTariff.client_id == client_id)
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).scalars().all()
+    )
+    tariff_ids = [int(row.id) for row in rows]
+    adjustments_map = _get_tariff_adjustment_map(db, tariff_ids)
+    creators_map = _load_user_infos(db, [int(row.created_by) for row in rows if row.created_by])
+    items = [
+        _tariff_to_out(
+            tariff=row,
+            creator=creators_map.get(int(row.created_by)) or schemas.UserInfo(id=int(row.created_by), login="unknown"),
+            adjustments=adjustments_map.get(int(row.id)),
+        )
+        for row in rows
+    ]
+    return schemas.ClientTariffListOut(items=items, total=int(total or 0))
+
+
+def create_client_tariff(
+    db: Session,
+    client_id: int,
+    admin_id: int,
+    amount: int,
+    comment: Optional[str],
+) -> schemas.ClientTariffOut:
+    tariff = models.ClientTariff(
+        client_id=client_id,
+        base_amount=amount,
+        comment=(comment or "").strip() or None,
+        created_by=admin_id,
+        created_at=now_msk(),
+        updated_at=now_msk(),
+    )
+    db.add(tariff)
+    db.commit()
+    db.refresh(tariff)
+    creator = _load_user_infos(db, [admin_id]).get(admin_id) or schemas.UserInfo(id=admin_id, login="unknown")
+    return _tariff_to_out(tariff=tariff, creator=creator)
+
+
+def get_client_tariff(db: Session, tariff_id: int) -> Optional[schemas.ClientTariffOut]:
+    tariff = db.get(models.ClientTariff, tariff_id)
+    if not tariff:
+        return None
+    adjustments_map = _get_tariff_adjustment_map(db, [int(tariff.id)])
+    creator = _load_user_infos(db, [int(tariff.created_by)]).get(int(tariff.created_by)) or schemas.UserInfo(
+        id=int(tariff.created_by),
+        login="unknown",
+    )
+    return _tariff_to_out(tariff=tariff, creator=creator, adjustments=adjustments_map.get(int(tariff.id)))
+
+
+def create_client_tariff_operation(
+    db: Session,
+    tariff_id: int,
+    admin_id: int,
+    amount: int,
+    op_type: str,
+    comment: str,
+) -> schemas.ClientTariffOperationOut:
+    tariff = db.get(models.ClientTariff, tariff_id)
+    if not tariff:
+        raise ValueError("Tariff not found")
+    op = models.ClientTariffOperation(
+        tariff_id=tariff_id,
+        amount=amount,
+        op_type=op_type,
+        comment=comment.strip(),
+        created_by=admin_id,
+        created_at=now_msk(),
+    )
+    db.add(op)
+    tariff.updated_at = now_msk()
+    db.add(tariff)
+    db.commit()
+    db.refresh(op)
+    creator = _load_user_infos(db, [admin_id]).get(admin_id) or schemas.UserInfo(id=admin_id, login="unknown")
+    return schemas.ClientTariffOperationOut(
+        id=int(op.id),
+        tariffId=int(op.tariff_id),
+        amount=int(op.amount),
+        type=op.op_type,  # type: ignore[arg-type]
+        comment=op.comment,
+        createdAt=op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        createdBy=creator,
+    )
+
+
+def list_client_tariff_operations(
+    db: Session,
+    tariff_id: int,
+    offset: int,
+    limit: int,
+) -> schemas.ClientTariffOperationsListOut:
+    base = select(models.ClientTariffOperation).where(models.ClientTariffOperation.tariff_id == tariff_id)
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.ClientTariffOperation.created_at.desc(), models.ClientTariffOperation.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).scalars().all()
+    )
+    creators_map = _load_user_infos(db, [int(row.created_by) for row in rows if row.created_by])
+    items = [
+        schemas.ClientTariffOperationOut(
+            id=int(row.id),
+            tariffId=int(row.tariff_id),
+            amount=int(row.amount),
+            type=row.op_type,  # type: ignore[arg-type]
+            comment=row.comment,
+            createdAt=row.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            createdBy=creators_map.get(int(row.created_by)) or schemas.UserInfo(id=int(row.created_by), login="unknown"),
+        )
+        for row in rows
+    ]
+    return schemas.ClientTariffOperationsListOut(items=items, total=int(total or 0))
 
 
 def admin_mark_change_processed(db: Session, event_id: int, admin_user_id: int) -> bool:

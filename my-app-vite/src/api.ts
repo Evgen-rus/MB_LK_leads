@@ -986,6 +986,7 @@ export type AdminClientSummaryItem = {
   numbersBalance?: number | null;
   numbersUsed?: number | null;
   numbersUsedPeriod?: number | null;
+  tariffAmount?: number | null;
   autoLimitControlEnabled: boolean;
 };
 
@@ -1142,6 +1143,86 @@ export async function createAdminClientBalanceOp(
   payload: { amount: number; type: BalanceOpType; comment?: string },
 ): Promise<BalanceOperation> {
   return http<BalanceOperation>(`/admin/clients/${clientId}/balance/ops`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// -------- Тарифы клиента --------
+export type ClientTariff = {
+  id: number;
+  clientId: number;
+  baseAmount: number;
+  currentAmount: number;
+  comment?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: UserInfo;
+};
+
+export type ClientTariffList = {
+  items: ClientTariff[];
+  total: number;
+};
+
+export type ClientTariffOperation = {
+  id: number;
+  tariffId: number;
+  amount: number;
+  type: BalanceOpType;
+  comment: string;
+  createdAt: string;
+  createdBy: UserInfo;
+};
+
+export type ClientTariffOperationList = {
+  items: ClientTariffOperation[];
+  total: number;
+};
+
+export async function fetchAdminClientTariffs(
+  clientId: number,
+  params?: { offset?: number; limit?: number },
+): Promise<ClientTariffList> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientTariffList>(suffix ? `/admin/clients/${clientId}/tariffs?${suffix}` : `/admin/clients/${clientId}/tariffs`);
+}
+
+export async function createAdminClientTariff(
+  clientId: number,
+  payload: { amount: number; comment?: string },
+): Promise<ClientTariff> {
+  return http<ClientTariff>(`/admin/clients/${clientId}/tariffs`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminTariff(
+  tariffId: number,
+): Promise<ClientTariff> {
+  return http<ClientTariff>(`/admin/tariffs/${tariffId}`);
+}
+
+export async function fetchAdminTariffOps(
+  tariffId: number,
+  params?: { offset?: number; limit?: number },
+): Promise<ClientTariffOperationList> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientTariffOperationList>(suffix ? `/admin/tariffs/${tariffId}/ops?${suffix}` : `/admin/tariffs/${tariffId}/ops`);
+}
+
+export async function createAdminTariffOp(
+  tariffId: number,
+  payload: { amount: number; type: BalanceOpType; comment: string },
+): Promise<ClientTariffOperation> {
+  return http<ClientTariffOperation>(`/admin/tariffs/${tariffId}/ops`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

@@ -3113,6 +3113,104 @@ def admin_client_balance_ops(
     )
 
 
+@app.get("/admin/clients/{client_id}/tariffs", response_model=schemas.ClientTariffListOut)
+def admin_client_tariffs(
+    client_id: int,
+    offset: int = 0,
+    limit: int = 50,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_admin_client_exists(db_sess, client_id)
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_client_tariffs(
+        db_sess,
+        client_id=client_id,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@app.post("/admin/clients/{client_id}/tariffs", response_model=schemas.ClientTariffOut)
+def admin_create_client_tariff(
+    client_id: int,
+    payload: schemas.ClientTariffCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_admin_client_exists(db_sess, client_id)
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    return crud.create_client_tariff(
+        db_sess,
+        client_id=client_id,
+        admin_id=current_admin.id,
+        amount=payload.amount,
+        comment=payload.comment,
+    )
+
+
+@app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
+def admin_get_client_tariff(
+    tariff_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    return tariff
+
+
+@app.get("/admin/tariffs/{tariff_id}/ops", response_model=schemas.ClientTariffOperationsListOut)
+def admin_list_client_tariff_operations(
+    tariff_id: int,
+    offset: int = 0,
+    limit: int = 50,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_client_tariff_operations(
+        db_sess,
+        tariff_id=tariff_id,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@app.post("/admin/tariffs/{tariff_id}/ops", response_model=schemas.ClientTariffOperationOut)
+def admin_create_client_tariff_operation(
+    tariff_id: int,
+    payload: schemas.ClientTariffOperationCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    if payload.type not in ("credit", "debit"):
+        raise HTTPException(status_code=400, detail="type must be credit or debit")
+    comment = (payload.comment or "").strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="comment is required")
+    try:
+        return crud.create_client_tariff_operation(
+            db_sess,
+            tariff_id=tariff_id,
+            admin_id=current_admin.id,
+            amount=payload.amount,
+            op_type=payload.type,
+            comment=comment,
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+
+
 @app.post("/admin/clients/{client_id}/balance/ops", response_model=schemas.BalanceOperationOut)
 def admin_create_balance_op(
     client_id: int,

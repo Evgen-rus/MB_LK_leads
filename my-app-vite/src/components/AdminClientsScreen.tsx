@@ -46,6 +46,7 @@ type ClientRow = {
   login: string;
   projectCount: number;
   status: ClientStatus;
+  tariffAmount?: number | null;
   remaining: number;      // Остаток по лимиту
   totalVolume: number;    // Использовано за период
   totalLimit: number;
@@ -159,6 +160,7 @@ function AdminClientsScreen({
             name: displayName,
             login: it.user.login,
             projectCount: it.projectCount,
+            tariffAmount: it.tariffAmount ?? null,
             remaining: it.remaining,
             totalVolume: it.usedPeriod,
             totalLimit: it.totalLimit,
@@ -478,6 +480,7 @@ function AdminClientsScreen({
                 <th>Название клиента</th>
                 <th>Кол-во проектов</th>
                 <th>Статус клиента</th>
+                <th>Тариф</th>
                 <th>Остаток</th>
                 <th>Общий объём данных за период</th>
                 <th>Действия</th>
@@ -486,21 +489,21 @@ function AdminClientsScreen({
             <tbody>
               {error && (
                 <tr>
-                  <td colSpan={7} style={{ color: '#d00', padding: 16 }}>
+                  <td colSpan={8} style={{ color: '#d00', padding: 16 }}>
                     {error}
                   </td>
                 </tr>
               )}
               {!error && loading && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
                     Загрузка списка клиентов…
                   </td>
                 </tr>
               )}
               {!error && !loading && pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
                     Клиенты не найдены.
                   </td>
                 </tr>
@@ -563,6 +566,7 @@ function AdminClientsScreen({
                         </span>
                       )}
                     </td>
+                    <td>{row.tariffAmount == null ? '-' : row.tariffAmount}</td>
                     <td>
                       <div className={isDebt ? 'remaining-negative' : undefined}>{row.remaining}</div>
                       {isDebt && (
@@ -861,6 +865,10 @@ function AdminClientsScreen({
             <div className="summary-card">
               <div className="sub">Объём за период</div>
               <div className="value">{selectedClient.totalVolume}</div>
+            </div>
+            <div className="summary-card">
+              <div className="sub">Тариф</div>
+              <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
             </div>
             <div className="summary-card">
               <div className="sub">Баланс</div>

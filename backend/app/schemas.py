@@ -417,6 +417,7 @@ class AdminClientSummaryItem(BaseModel):
     numbersBalance: int | None = None
     numbersUsed: int | None = None
     numbersUsedPeriod: int | None = None
+    tariffAmount: int | None = None
     autoLimitControlEnabled: bool = False
 
 
@@ -504,6 +505,52 @@ class ClientBalanceSummaryOut(BaseModel):
 
 class ClientBalanceOpsListOut(BaseModel):
     items: List[BalanceOperationOut]
+    total: int
+
+
+# -------- Тарифы клиента --------
+TariffOpType = Literal['credit', 'debit']
+
+
+class ClientTariffOut(BaseModel):
+    id: int
+    clientId: int
+    baseAmount: int
+    currentAmount: int
+    comment: Optional[str] = None
+    createdAt: str
+    updatedAt: str
+    createdBy: UserInfo
+
+
+class ClientTariffCreateIn(BaseModel):
+    amount: int
+    comment: Optional[str] = None
+
+
+class ClientTariffListOut(BaseModel):
+    items: List[ClientTariffOut]
+    total: int
+
+
+class ClientTariffOperationOut(BaseModel):
+    id: int
+    tariffId: int
+    amount: int
+    type: TariffOpType
+    comment: str
+    createdAt: str
+    createdBy: UserInfo
+
+
+class ClientTariffOperationCreateIn(BaseModel):
+    amount: int
+    type: TariffOpType
+    comment: str
+
+
+class ClientTariffOperationsListOut(BaseModel):
+    items: List[ClientTariffOperationOut]
     total: int
 
 

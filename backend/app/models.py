@@ -217,3 +217,34 @@ class ClientBalanceOperation(Base):
     comment = Column(String, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=now_msk)
+
+
+class ClientTariff(Base):
+    """
+    Отдельный тариф клиента.
+    Пока это независимый от старого баланса учетный слой.
+    """
+    __tablename__ = "client_tariffs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    base_amount = Column(Integer, nullable=False)
+    comment = Column(String, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=now_msk)
+    updated_at = Column(DateTime, nullable=False, default=now_msk)
+
+
+class ClientTariffOperation(Base):
+    """
+    Корректировка конкретного тарифа: доначисление или списание.
+    """
+    __tablename__ = "client_tariff_operations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tariff_id = Column(Integer, ForeignKey("client_tariffs.id"), nullable=False, index=True)
+    amount = Column(Integer, nullable=False)
+    op_type = Column(String, nullable=False)  # 'credit' | 'debit'
+    comment = Column(String, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=now_msk)
