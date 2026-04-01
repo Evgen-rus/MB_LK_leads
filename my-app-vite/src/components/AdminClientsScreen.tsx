@@ -90,8 +90,11 @@ function getErrorMessage(err: unknown, fallback: string): string {
 function deriveStatus(row: ClientRow): ClientStatus {
   if (row.projectCount === 0) return 'Нет проектов';
   if (row.remaining <= 0) return 'Долг';
-  const limit = row.totalLimit || 0;
-  if (limit > 0 && row.remaining / limit < 0.15) return 'Дожим';
+  const statusBase =
+    typeof row.tariffAmount === 'number' && row.tariffAmount > 0
+      ? row.tariffAmount
+      : row.totalLimit || 0;
+  if (statusBase > 0 && row.remaining <= statusBase * 0.3) return 'Дожим';
   return 'Активен';
 }
 
