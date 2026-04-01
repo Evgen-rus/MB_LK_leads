@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchAdminProjectHistory, type AdminProjectHistoryItem } from '../api';
+import { preventNumberInputWheel } from '../utils/numberInput';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
 
@@ -121,6 +122,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
             placeholder="ID пользователя"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
+            onWheel={preventNumberInputWheel}
             style={{ width: 140 }}
           />
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { CollectionSource, ProjectStatus } from '../types/project';
+import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
 
 type SubmitItem = {
@@ -384,6 +385,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
                     min={0}
                     value={dataLimit}
                     onChange={(e) => setDataLimit(Number(e.target.value))}
+                    onWheel={preventNumberInputWheel}
                   />
                 </label>
               </div>

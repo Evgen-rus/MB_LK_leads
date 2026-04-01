@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { ProjectStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
+import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
@@ -323,7 +324,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
 
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Лимит</span>
-                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} disabled={readOnly} />
+                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} onWheel={preventNumberInputWheel} disabled={readOnly} />
               </label>
             </div>
 

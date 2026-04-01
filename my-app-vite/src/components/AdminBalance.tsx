@@ -16,6 +16,7 @@ import {
   type ClientTariff,
   type ClientTariffOperation,
 } from '../api';
+import { preventNumberInputWheel } from '../utils/numberInput';
 
 type AdminBalanceProps = {
   initialClientId?: number | null;
@@ -81,6 +82,7 @@ function OperationModal({ clientId, type, onClose, onDone }: OperationModalProps
               min={1}
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
+              onWheel={preventNumberInputWheel}
               required
               style={{ border: '1px solid #dfe3eb', borderRadius: 8, padding: '10px 12px', width: '100%', outline: 'none' }}
             />
@@ -181,6 +183,7 @@ function TariffModal({ clientId, state, onClose, onDone }: TariffModalProps) {
               min={1}
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
+              onWheel={preventNumberInputWheel}
               required
               style={{ border: '1px solid #dfe3eb', borderRadius: 8, padding: '10px 12px', width: '100%', outline: 'none' }}
             />

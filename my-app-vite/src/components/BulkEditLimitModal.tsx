@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
+import { preventNumberInputWheel } from '../utils/numberInput';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type BulkEditLimitModalProps = {
@@ -38,6 +39,7 @@ function BulkEditLimitModal({
           min={0}
           value={limitValue}
           onChange={(e) => setLimitValue(e.target.value)}
+          onWheel={preventNumberInputWheel}
           disabled={submitting}
         />
       </label>
