@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-03-26
+Last updated: 2026-04-01
 
 ## 1) System At A Glance
 
@@ -47,11 +47,15 @@ Last updated: 2026-03-26
 - `ProviderLead`
 - `AuditEvent`
 - `ClientBalanceOperation`
+- `ClientTariff`
+- `ClientTariffOperation`
 - `ClientProjectPauseSnapshot`
 
 Важно:
 - `User` содержит пер-клиентные флаги, в т.ч. `auto_limit_control_enabled`, Telegram-настройки и `unique_project_names_enabled`.
 - `Project` содержит `provider_project_id`, флаг `unique_name_applied`, а также поля мягкого удаления `deleted_at` и `provider_leads_grace_until` для grace-привязки хвостовых webhook-лидов после удаления проекта.
+- `ClientBalanceOperation` остаётся старым контуром баланса клиента: он участвует в расчёте `remaining`, лимит-контроле и автопаузе проектов.
+- `ClientTariff` и `ClientTariffOperation` — новый отдельный админский контур тарифов. Он пока не влияет на `remaining`, лимит-контроль и автопаузу; используется для отдельного учёта тарифов и их внутренних корректировок.
 
 Смотри `backend/app/models.py`.
 
@@ -87,16 +91,30 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 - фактический период цикла = полный проход по клиентам + `sleep(interval)`.
 
 ### E) Admin Operations
-`/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/аудит) -> при необходимости синхронизация статусов с Prostats.
+`/admin/*` -> проверка админ-доступа -> `crud.py` (клиенты/проекты/баланс/тарифы/аудит) -> при необходимости синхронизация статусов с Prostats.
 
-### F) Admin Provider Leads XLSX (preview / commit)
+### F) Admin Tariffs
+Админский экран `Баланс` теперь содержит два независимых блока:
+
+- старый баланс клиента (`ClientBalanceOperation`) с кнопками `Начислить номера` / `Списать номера`;
+- новый тарифный контур (`ClientTariff`, `ClientTariffOperation`) с созданием тарифа и корректировками внутри конкретного тарифа.
+
+Текущая модель тарифов:
+
+- каждый новый тариф создаётся как отдельная запись;
+- внутри конкретного тарифа можно делать `credit` / `debit` корректировки с комментарием;
+- в админской таблице `Клиенты` и в сводке клиента `Текущий тариф` показывается не сумма всех тарифов, а **последний созданный тариф** с учётом его внутренних корректировок;
+- если тарифов у клиента нет, в UI показывается прочерк `-`;
+- тарифы пока не участвуют в расчёте общего остатка клиента.
+
+### G) Admin Provider Leads XLSX (preview / commit)
 Админский UI отправляет файл (**multipart** / `FormData`) -> `POST /admin/provider-leads-import/preview` -> `require_admin` -> `provider_leads_xlsx_import.create_preview`: проверка `.xlsx` и лимита размера -> на диск (временный каталог под `previewId`, TTL) кладётся копия файла и метаданные сессии -> в ответе **summary без записи** в `provider_leads` (валидность строк, дубли по `vid` в БД, проблемы привязки к проектам).
 
 `POST /admin/provider-leads-import/commit` с тем же `previewId` -> снова `require_admin` и проверка, что preview создал **этот** админ -> повторный разбор и валидация на сервере -> запись лидов -> удаление артефактов preview; просроченные каталоги периодически чистятся.
 
 Та же бизнес-логика строк вызывается из **CLI**: `tool_import_provider_leads_from_xlsx.py` (обход UI, для служебных сценариев).
 
-### G) Project Create With Unique Name
+### H) Project Create With Unique Name
 Для клиентов с `unique_project_names_enabled=true` создание проекта двухшаговое:
 UI отправляет обычное имя вида `B1_Магнум` -> backend создаёт проект у Prostats -> создаёт локальный `Project` и получает `project.id` -> backend делает rename у Prostats в формат `B1_[MB54] Магнум` -> сохраняет финальное имя у нас.
 
@@ -113,6 +131,7 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
 - Telegram-отправка: `backend/app/telegram.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
+- Тарифы клиента (новый отдельный контур): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
 - Экспорт provider leads: `tool_export_provider_leads.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
@@ -166,3 +185,5 @@ Google Sheets export:
 9. Артефакты preview лежат в **локальном** каталоге на машине процесса backend; при нескольких инстансах без sticky session цепочка preview на одном узле и commit на другом **не сработает** — это ограничение текущей реализации.
 10. При изменении логики удаления проектов учитывать двухэтапный матчинг webhook-лидов: активный проект по имени всегда приоритетнее удалённого в grace-окне; старые лиды могут ещё `48h` получать `project_id` удалённого проекта.
 11. Для sync SQLAlchemy pool не держать request-scoped DB-сессию во время внешних вызовов `Prostats`/`Telegram`: рабочий шаблон — сначала read/snapshot и завершение транзакции, потом внешний вызов, потом короткая новая DB-сессия для локальной записи результата.
+12. Не путать два разных контура: старый баланс клиента (`ClientBalanceOperation`) и новый тарифный учёт (`ClientTariff`, `ClientTariffOperation`). Сейчас тарифы не влияют на `remaining`.
+13. В админской таблице `Клиенты` и в сводке клиента `Текущий тариф` показывается последний созданный тариф, а не сумма всех тарифов клиента.
