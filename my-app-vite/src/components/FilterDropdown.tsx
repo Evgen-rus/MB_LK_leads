@@ -124,8 +124,28 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
       ? `${label}: все`
       : `${label}: ${selected.length}`;
 
+  const mobileTitle =
+    label === 'Проекты'
+      ? 'Выбор проектов'
+      : label === 'Каналы'
+        ? 'Выбор каналов'
+        : label;
+
   const dropdownContent = (
     <div className={`export-dropdown__menu filter-dropdown__menu${isMobile ? ' filter-dropdown__menu--mobile' : ''}`} style={{ minWidth: 240 }}>
+      {isMobile && (
+        <div className="filter-dropdown__header">
+          <div className="filter-dropdown__title">{mobileTitle}</div>
+          <button
+            type="button"
+            className="filter-dropdown__close"
+            aria-label={`Закрыть фильтр ${label}`}
+            onClick={() => setIsOpen(false)}
+          >
+            <span>×</span>
+          </button>
+        </div>
+      )}
       <div className="filter-dropdown__search" style={{ padding: '8px 8px 4px' }}>
         <input
           ref={searchInputRef}
@@ -163,19 +183,21 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
           </div>
         )}
       </div>
-      <div className="filter-dropdown__footer" style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
-        <button className="btn" onClick={handleClearAll} type="button">
-          Очистить выбор
-        </button>
-        <button className="btn" onClick={handleSelectAll} type="button">
-          {allLabel}
-        </button>
-        <button className="btn" onClick={handleApply} type="button">
-          Сохранить
-        </button>
-      </div>
-      <div className="sub filter-dropdown__hint" style={{ padding: '0 8px 8px' }}>
-        Подсказка: Пустой выбор = все значения.
+      <div className="filter-dropdown__actions-panel">
+        <div className="sub filter-dropdown__hint" style={{ padding: '0 8px 8px' }}>
+          Подсказка: Пустой выбор = все значения.
+        </div>
+        <div className="filter-dropdown__footer" style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
+          <button className="btn" onClick={handleClearAll} type="button">
+            Очистить выбор
+          </button>
+          <button className="btn" onClick={handleSelectAll} type="button">
+            {allLabel}
+          </button>
+          <button className="btn" onClick={handleApply} type="button">
+            Сохранить
+          </button>
+        </div>
       </div>
     </div>
   );

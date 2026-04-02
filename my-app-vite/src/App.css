@@ -656,6 +656,52 @@
 .filter-dropdown__menu {
   max-width: min(420px, calc(100vw - 24px));
 }
+.filter-dropdown__header {
+  display: none;
+}
+.filter-dropdown__list {
+  overflow-x: hidden;
+}
+.filter-dropdown__list .export-dropdown__item span {
+  overflow-wrap: anywhere;
+}
+.filter-dropdown__actions-panel {
+  display: grid;
+  gap: 0;
+}
+.filter-dropdown__hint {
+  color: #6f7484;
+}
+.filter-dropdown__close {
+  border: 1px solid #e2e5f0;
+  background: transparent;
+  color: #43485c;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 0.9;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  padding: 0;
+}
+.filter-dropdown__close > span {
+  display: block;
+  transform: translate(0, -1px);
+}
+.filter-dropdown__close:hover,
+.filter-dropdown__close:active {
+  background: #f5f6fb;
+  border-color: #d3d8ea;
+}
+.filter-dropdown__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(106, 92, 255, 0.14);
+}
 .filter-dropdown__backdrop {
   display: none;
 }
@@ -920,6 +966,33 @@
     border-radius: 16px;
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
   }
+  .filter-dropdown__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px 4px;
+  }
+  .filter-dropdown__title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #2f2a4a;
+  }
+  .filter-dropdown__search {
+    padding-top: 4px !important;
+  }
+  .filter-dropdown__list {
+    max-height: min(34vh, 220px) !important;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .filter-dropdown__actions-panel {
+    position: sticky;
+    bottom: 0;
+    padding-top: 8px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, #ffffff 18px);
+  }
   .filter-dropdown__footer {
     flex-wrap: wrap;
     justify-content: stretch !important;
@@ -929,6 +1002,9 @@
   }
   .filter-dropdown__hint {
     text-align: center;
+    padding-bottom: 4px !important;
+    font-size: 0.75rem;
+    color: #5f6478;
   }
   .main { padding: 12px; }
   .page-title--main { gap: 8px; }
