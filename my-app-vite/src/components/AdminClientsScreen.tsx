@@ -697,7 +697,7 @@ function AdminClientsScreen({
       {selectedClient ? (
         <div className="table-card client-summary-card">
           <div className="client-summary__header">
-            <div>
+            <div className="client-summary__info">
               <div className="client-summary__title">{selectedClient.name}</div>
               <div className="client-summary__meta">
                 <span className="sub">ID: {selectedClient.id}</span>
@@ -715,144 +715,183 @@ function AdminClientsScreen({
                   {selectedClient.status}
                 </span>
               </div>
-            </div>
-            <div className="client-summary__actions">
-              <div className="client-summary__quick-actions">
-                {onOpenClientChanges && (
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}
-                  >
-                    Изменения клиента
-                    {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
-                      <span className="btn__meta">
-                        {selectedClient.pendingChanges > 0 && (
-                          <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
-                        )}
-                        {selectedClient.pendingCreates > 0 && (
-                          <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
-                        )}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {onOpenClientBlacklistChanges && (
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
-                  >
-                    События ЧС
-                    {selectedBlacklistTotal > 0 && (
-                      <span className="btn__meta">
-                        <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
-                      </span>
-                    )}
-                  </button>
-                )}
-                {onOpenClientProjects && (
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}
-                  >
-                    Перейти к проектам
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
-                >
-                  Добавить тариф
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
-                >
-                  Начислить номера
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
-                >
-                  Списать номера
-                </button>
+              <div className="client-summary__status-list">
+                <div className="client-summary__status-item">
+                  <span className="sub">Авто-контроль</span>
+                  <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
+                    {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
+                  </span>
+                </div>
+                <div className="client-summary__status-item">
+                  <span className="sub">Сбор данных</span>
+                  {collectionLoading ? (
+                    <span className="badge badge--gray">Загрузка…</span>
+                  ) : (
+                    <span
+                      className={
+                        collectionState?.dataCollectionStatus === 'На паузе'
+                          ? 'badge badge--orange'
+                          : 'badge badge--green'
+                      }
+                    >
+                      {collectionState?.dataCollectionStatus ?? '—'}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="client-summary__control-actions">
-                <button
-                  type="button"
-                  className="btn btn--secondary client-summary__button--stacked"
-                  onClick={() => {
-                    void handleToggleAutoLimitControl();
-                  }}
-                >
-                  <span>
-                    {selectedClient.autoLimitControlEnabled
-                      ? 'Выключить авто-контроль лимитов'
-                      : 'Включить авто-контроль лимитов'}
-                  </span>
-                  <span className="sub" style={{ opacity: 0.9 }}>
-                    Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary client-summary__button--stacked"
-                  disabled={
-                    collectionLoading
-                    || collectionActionLoading
-                    || !collectionState
-                    || !collectionState.actionEnabled
-                  }
-                  onClick={() => {
-                    void handleToggleCollection();
-                  }}
-                  title={collectionState?.actionDisabledReason || undefined}
-                >
-                  <span>
-                    {collectionActionLoading
-                      ? 'Выполняем…'
-                      : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
-                  </span>
-                  <span className="sub client-summary__button-details">
-                    <span className="client-summary__button-detail-row">
-                      <span>Сбор данных:</span>
-                      {collectionLoading ? (
-                        <span className="badge badge--gray">Загрузка…</span>
-                      ) : (
-                        <span
-                          className={
-                            collectionState?.dataCollectionStatus === 'На паузе'
-                              ? 'badge badge--orange'
-                              : 'badge badge--green'
-                          }
-                        >
-                          {collectionState?.dataCollectionStatus ?? '—'}
-                        </span>
-                      )}
+            </div>
+            <div className="client-summary__actions-panel">
+              <div className="client-summary__panel-grid">
+                <section className="client-summary__section">
+                  <div className="client-summary__section-title">Навигация</div>
+                  <div className="client-summary__section-actions">
+                    {onOpenClientChanges && (
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}
+                      >
+                        Изменения клиента
+                        {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+                          <span className="btn__meta">
+                            {selectedClient.pendingChanges > 0 && (
+                              <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
+                            )}
+                            {selectedClient.pendingCreates > 0 && (
+                              <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                    {onOpenClientBlacklistChanges && (
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
+                      >
+                        События ЧС
+                        {selectedBlacklistTotal > 0 && (
+                          <span className="btn__meta">
+                            <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
+                          </span>
+                        )}
+                      </button>
+                    )}
+                    {onOpenClientProjects && (
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}
+                      >
+                        Перейти к проектам
+                      </button>
+                    )}
+                  </div>
+                </section>
+
+                <section className="client-summary__section">
+                  <div className="client-summary__section-title">Финансы</div>
+                  <div className="client-summary__section-actions">
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
+                    >
+                      Начислить номера
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
+                    >
+                      Списать номера
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                    >
+                      Добавить тариф
+                    </button>
+                  </div>
+                </section>
+              </div>
+
+              <section className="client-summary__section client-summary__section--control">
+                <div className="client-summary__section-title">Управление</div>
+                <div className="client-summary__control-actions">
+                  <button
+                    type="button"
+                    className="btn btn--secondary client-summary__button--stacked"
+                    onClick={() => {
+                      void handleToggleAutoLimitControl();
+                    }}
+                  >
+                    <span>
+                      {selectedClient.autoLimitControlEnabled
+                        ? 'Выключить авто-контроль лимитов'
+                        : 'Включить авто-контроль лимитов'}
                     </span>
-                    <span className="client-summary__button-detail-row">
-                      <span>Изменения проектов:</span>
-                      {collectionLoading ? (
-                        <span className="badge badge--gray">Загрузка…</span>
-                      ) : (
-                        <span
-                          className={
-                            collectionState?.projectsMutationLocked
-                              ? 'badge badge--orange'
-                              : 'badge badge--green'
-                          }
-                        >
-                          {collectionState?.projectsMutationLocked ? 'Заблокированы' : 'Разрешены'}
-                        </span>
-                      )}
+                    <span className="sub" style={{ opacity: 0.9 }}>
+                      Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
                     </span>
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--secondary client-summary__button--stacked"
+                    disabled={
+                      collectionLoading
+                      || collectionActionLoading
+                      || !collectionState
+                      || !collectionState.actionEnabled
+                    }
+                    onClick={() => {
+                      void handleToggleCollection();
+                    }}
+                    title={collectionState?.actionDisabledReason || undefined}
+                  >
+                    <span>
+                      {collectionActionLoading
+                        ? 'Выполняем…'
+                        : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                    </span>
+                    <span className="sub client-summary__button-details">
+                      <span className="client-summary__button-detail-row">
+                        <span>Сбор данных:</span>
+                        {collectionLoading ? (
+                          <span className="badge badge--gray">Загрузка…</span>
+                        ) : (
+                          <span
+                            className={
+                              collectionState?.dataCollectionStatus === 'На паузе'
+                                ? 'badge badge--orange'
+                                : 'badge badge--green'
+                            }
+                          >
+                            {collectionState?.dataCollectionStatus ?? '—'}
+                          </span>
+                        )}
+                      </span>
+                      <span className="client-summary__button-detail-row">
+                        <span>Изменения проектов:</span>
+                        {collectionLoading ? (
+                          <span className="badge badge--gray">Загрузка…</span>
+                        ) : (
+                          <span
+                            className={
+                              collectionState?.projectsMutationLocked
+                                ? 'badge badge--orange'
+                                : 'badge badge--green'
+                            }
+                          >
+                            {collectionState?.projectsMutationLocked ? 'Заблокированы' : 'Разрешены'}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                </div>
                 <div className="client-summary__control-notes">
                   {!!collectionState?.actionDisabledReason && (
                     <span className="sub" style={{ color: '#a55' }}>
@@ -869,7 +908,7 @@ function AdminClientsScreen({
                     <span className="sub">{collectionLastInfo}</span>
                   )}
                 </div>
-              </div>
+              </section>
             </div>
           </div>
           <div className="summary-grid">
