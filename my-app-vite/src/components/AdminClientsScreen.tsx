@@ -703,19 +703,18 @@ function AdminClientsScreen({
                 <span className="sub">ID: {selectedClient.id}</span>
                 {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
                 <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
-                <span className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: STATUS_COLORS[selectedClient.status],
-                    }}
-                  />
-                  {selectedClient.status}
-                </span>
               </div>
               <div className="client-summary__status-list">
+                <div className="client-summary__status-item">
+                  <span className="sub">Статус клиента</span>
+                  <span className="client-summary__status-value">
+                    <span
+                      className="client-summary__status-dot"
+                      style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
+                    />
+                    <span>{selectedClient.status}</span>
+                  </span>
+                </div>
                 <div className="client-summary__status-item">
                   <span className="sub">Авто-контроль</span>
                   <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
