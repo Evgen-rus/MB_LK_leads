@@ -79,7 +79,7 @@ function App() {
   const [adminBlacklistClientId, setAdminBlacklistClientId] = useState<number | null>(null);
   // Состояние для баланса: выбранный клиент и какая модалка открыть
   const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
-  const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | null>(null);
+  const [adminBalanceModalType, setAdminBalanceModalType] = useState<'credit' | 'debit' | 'tariff' | null>(null);
   // Предзаполнение фильтров идентификаций при переходе из «Проектов»
   const [leadsPrefill, setLeadsPrefill] = useState<{ projectId?: number; from?: string; to?: string } | null>(null);
   // Предзаполнение идентификаций для админа (клиент + проект)

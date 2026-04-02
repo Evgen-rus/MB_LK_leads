@@ -20,7 +20,7 @@ import { preventNumberInputWheel } from '../utils/numberInput';
 
 type AdminBalanceProps = {
   initialClientId?: number | null;
-  initialModalType?: 'credit' | 'debit' | null;
+  initialModalType?: 'credit' | 'debit' | 'tariff' | null;
 };
 
 type BalanceModalState = { type: 'credit' | 'debit' } | null;
@@ -230,7 +230,11 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingOps, setLoadingOps] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<BalanceModalState>(initialModalType ? { type: initialModalType } : null);
+  const [modal, setModal] = useState<BalanceModalState>(
+    initialModalType === 'credit' || initialModalType === 'debit'
+      ? { type: initialModalType }
+      : null,
+  );
 
   const [tariffs, setTariffs] = useState<ClientTariff[]>([]);
   const [totalTariffs, setTotalTariffs] = useState(0);
@@ -258,7 +262,13 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
     if (initialClientId != null) {
       setSelectedClientId(initialClientId);
     }
+    if (initialModalType === 'tariff') {
+      setModal(null);
+      setTariffModal({ mode: 'create' });
+      return;
+    }
     if (initialModalType) {
+      setTariffModal(null);
       setModal({ type: initialModalType });
     }
   }, [initialClientId, initialModalType]);

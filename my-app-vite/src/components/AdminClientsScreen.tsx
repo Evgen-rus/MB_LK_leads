@@ -35,7 +35,7 @@ export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
   onOpenClientBlacklistChanges?: (clientId: number, clientName: string) => void;
-  onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit') => void;
+  onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit' | 'tariff') => void;
 };
 
 type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
@@ -717,49 +717,51 @@ function AdminClientsScreen({
               </div>
             </div>
             <div className="client-summary__actions">
-              {onOpenClientChanges && (
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}
-                >
-                  Изменения клиента
-                  {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
-                    <span className="btn__meta">
-                      {selectedClient.pendingChanges > 0 && (
-                        <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
-                      )}
-                      {selectedClient.pendingCreates > 0 && (
-                        <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
-                      )}
-                    </span>
-                  )}
-                </button>
-              )}
-              {onOpenClientBlacklistChanges && (
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
-                >
-                  События ЧС
-                  {selectedBlacklistTotal > 0 && (
-                    <span className="btn__meta">
-                      <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
-                    </span>
-                  )}
-                </button>
-              )}
-              {onOpenClientProjects && (
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}
-                >
-                  Перейти к проектам
-                </button>
-              )}
-              <div className="client-summary__stacked-controls">
+              <div className="client-summary__action-group">
+                {onOpenClientChanges && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}
+                  >
+                    Изменения клиента
+                    {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+                      <span className="btn__meta">
+                        {selectedClient.pendingChanges > 0 && (
+                          <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
+                        )}
+                        {selectedClient.pendingCreates > 0 && (
+                          <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                )}
+                {onOpenClientBlacklistChanges && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}
+                  >
+                    События ЧС
+                    {selectedBlacklistTotal > 0 && (
+                      <span className="btn__meta">
+                        <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
+                      </span>
+                    )}
+                  </button>
+                )}
+                {onOpenClientProjects && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}
+                  >
+                    Перейти к проектам
+                  </button>
+                )}
+              </div>
+              <div className="client-summary__action-group client-summary__stacked-controls">
                 <button
                   type="button"
                   className="btn btn--secondary client-summary__button--stacked"
@@ -845,20 +847,29 @@ function AdminClientsScreen({
                   <span className="sub">{collectionLastInfo}</span>
                 )}
               </div>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
-              >
-                Начислить номера
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
-              >
-                Списать номера
-              </button>
+              <div className="client-summary__action-group client-summary__action-group--finance">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
+                >
+                  Начислить номера
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
+                >
+                  Списать номера
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                >
+                  Добавить тариф
+                </button>
+              </div>
             </div>
           </div>
           <div className="summary-grid">
