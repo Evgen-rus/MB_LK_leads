@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type Option = { value: string; label: string };
 
@@ -16,8 +17,18 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
   const [localSelected, setLocalSelected] = useState<string[]>(selected);
   const [emptyMeansAllInUi, setEmptyMeansAllInUi] = useState(false);
   const [query, setQuery] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const media = window.matchMedia('(max-width: 767px)');
+    const applyMatch = () => setIsMobile(media.matches);
+    applyMatch();
+    media.addEventListener('change', applyMatch);
+    return () => media.removeEventListener('change', applyMatch);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +48,16 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isMobile || !isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile, isOpen]);
+
+  useEffect(() => {
+    if (isMobile) return undefined;
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
@@ -45,7 +66,7 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isMobile]);
 
   const toggleValue = (val: string) => {
     setLocalSelected((prev) => {
@@ -103,6 +124,77 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
       ? `${label}: все`
       : `${label}: ${selected.length}`;
 
+  const dropdownContent = (
+    <div className={`export-dropdown__menu filter-dropdown__menu${isMobile ? ' filter-dropdown__menu--mobile' : ''}`} style={{ minWidth: 240 }}>
+      <div className="filter-dropdown__search" style={{ padding: '8px 8px 4px' }}>
+        <input
+          ref={searchInputRef}
+          type="search"
+          value={query}
+          placeholder="Поиск по названию"
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ width: '100%' }}
+        />
+      </div>
+      <div className="filter-dropdown__list" style={{ maxHeight: 200, overflowY: 'auto', padding: '4px 0' }}>
+        {filteredOptions.map((opt) => (
+          <label
+            key={opt.value}
+            className="export-dropdown__item"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+          >
+            <input
+              type="checkbox"
+              checked={localSelectedForUi.includes(opt.value)}
+              onChange={() => toggleValue(opt.value)}
+              style={{ cursor: 'pointer' }}
+            />
+            <span>{opt.label}</span>
+          </label>
+        ))}
+        {options.length === 0 && (
+          <div className="export-dropdown__item" style={{ cursor: 'default', color: '#777' }}>
+            Нет данных
+          </div>
+        )}
+        {options.length > 0 && filteredOptions.length === 0 && (
+          <div className="export-dropdown__item" style={{ cursor: 'default', color: '#777' }}>
+            По запросу ничего не найдено
+          </div>
+        )}
+      </div>
+      <div className="filter-dropdown__footer" style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
+        <button className="btn" onClick={handleClearAll} type="button">
+          Очистить выбор
+        </button>
+        <button className="btn" onClick={handleSelectAll} type="button">
+          {allLabel}
+        </button>
+        <button className="btn" onClick={handleApply} type="button">
+          Сохранить
+        </button>
+      </div>
+      <div className="sub filter-dropdown__hint" style={{ padding: '0 8px 8px' }}>
+        Подсказка: Пустой выбор = все значения.
+      </div>
+    </div>
+  );
+
+  const mobileDropdown = isMobile && isOpen
+    ? createPortal(
+        <>
+          <button
+            type="button"
+            className="filter-dropdown__backdrop"
+            aria-label={`Закрыть фильтр ${label}`}
+            onClick={() => setIsOpen(false)}
+          />
+          {dropdownContent}
+        </>,
+        document.body,
+      )
+    : null;
+
   return (
     <div className="export-dropdown" ref={dropdownRef} style={{ opacity: disabled ? 0.6 : 1 }}>
       <button
@@ -113,61 +205,8 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
         {summary}
         <span className={`export-dropdown__arrow ${isOpen ? 'open' : ''}`}>▼</span>
       </button>
-      {isOpen && (
-        <div className="export-dropdown__menu" style={{ minWidth: 240 }}>
-          <div style={{ padding: '8px 8px 4px' }}>
-            <input
-              ref={searchInputRef}
-              type="search"
-              value={query}
-              placeholder="Поиск по названию"
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ width: '100%' }}
-            />
-          </div>
-          <div style={{ maxHeight: 200, overflowY: 'auto', padding: '4px 0' }}>
-            {filteredOptions.map((opt) => (
-              <label
-                key={opt.value}
-                className="export-dropdown__item"
-                style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={localSelectedForUi.includes(opt.value)}
-                  onChange={() => toggleValue(opt.value)}
-                  style={{ cursor: 'pointer' }}
-                />
-                <span>{opt.label}</span>
-              </label>
-            ))}
-            {options.length === 0 && (
-              <div className="export-dropdown__item" style={{ cursor: 'default', color: '#777' }}>
-                Нет данных
-              </div>
-            )}
-            {options.length > 0 && filteredOptions.length === 0 && (
-              <div className="export-dropdown__item" style={{ cursor: 'default', color: '#777' }}>
-                По запросу ничего не найдено
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8, padding: '8px', justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={handleClearAll} type="button">
-              Очистить выбор
-            </button>
-            <button className="btn" onClick={handleSelectAll} type="button">
-              {allLabel}
-            </button>
-            <button className="btn" onClick={handleApply} type="button">
-              Сохранить
-            </button>
-          </div>
-          <div className="sub" style={{ padding: '0 8px 8px' }}>
-            Подсказка: Пустой выбор = все значения.
-          </div>
-        </div>
-      )}
+      {!isMobile && isOpen && dropdownContent}
+      {mobileDropdown}
     </div>
   );
 }
