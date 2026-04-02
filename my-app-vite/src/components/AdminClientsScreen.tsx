@@ -759,11 +759,10 @@ function AdminClientsScreen({
                   Перейти к проектам
                 </button>
               )}
-              <div style={{ display: 'grid', gap: 4, minWidth: 320 }}>
+              <div className="client-summary__stacked-controls">
                 <button
                   type="button"
-                  className="btn btn--secondary"
-                  style={{ display: 'grid', gap: 4, justifyItems: 'center', textAlign: 'center', lineHeight: 1.2 }}
+                  className="btn btn--secondary client-summary__button--stacked"
                   onClick={() => {
                     void handleToggleAutoLimitControl();
                   }}
@@ -779,8 +778,7 @@ function AdminClientsScreen({
                 </button>
                 <button
                   type="button"
-                  className="btn btn--secondary"
-                  style={{ display: 'grid', gap: 4, justifyItems: 'center', textAlign: 'center', lineHeight: 1.2 }}
+                  className="btn btn--secondary client-summary__button--stacked"
                   disabled={
                     collectionLoading
                     || collectionActionLoading
@@ -797,8 +795,8 @@ function AdminClientsScreen({
                       ? 'Выполняем…'
                       : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
                   </span>
-                  <span className="sub" style={{ display: 'grid', gap: 4, justifyItems: 'center', opacity: 0.9 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className="sub client-summary__button-details">
+                    <span className="client-summary__button-detail-row">
                       <span>Сбор данных:</span>
                       {collectionLoading ? (
                         <span className="badge badge--gray">Загрузка…</span>
@@ -814,7 +812,7 @@ function AdminClientsScreen({
                         </span>
                       )}
                     </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span className="client-summary__button-detail-row">
                       <span>Изменения проектов:</span>
                       {collectionLoading ? (
                         <span className="badge badge--gray">Загрузка…</span>
