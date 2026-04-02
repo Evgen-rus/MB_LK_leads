@@ -44,7 +44,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectChanges, projectCreates, onOpenLeads }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
@@ -378,26 +378,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, projectCh
                         },
                       ]}
                     />
-                  )}
-                  {(projectChanges?.[row.id] || projectCreates?.[row.id]) && (
-                    <div className="sub" style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {!!projectChanges?.[row.id] && projectChanges[row.id]! > 0 && (
-                        <span
-                          className="badge badge--orange"
-                          style={{ fontWeight: 500 }}
-                        >
-                          Изменения: {projectChanges[row.id]}
-                        </span>
-                      )}
-                      {!!projectCreates?.[row.id] && projectCreates[row.id]! > 0 && (
-                        <span
-                          className="badge badge--gray"
-                          style={{ fontWeight: 500 }}
-                        >
-                          Создания: {projectCreates[row.id]}
-                        </span>
-                      )}
-                    </div>
                   )}
                   </td>
                   <td>{row.dataSourceCode}</td>
