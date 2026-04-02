@@ -161,6 +161,7 @@ function AdminProviderLeadsImport() {
 
       <div style={{ padding: 16, display: 'grid', gap: 16 }}>
         <div
+          className="provider-import-card"
           style={{
             border: '1px solid #ececf2',
             borderRadius: 12,
@@ -170,8 +171,9 @@ function AdminProviderLeadsImport() {
             gap: 12,
           }}
         >
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="provider-import-controls">
             <input
+              className="provider-import-file-input"
               type="file"
               accept=".xlsx"
               onChange={(e) => {
@@ -184,7 +186,7 @@ function AdminProviderLeadsImport() {
             />
             <button
               type="button"
-              className="btn btn--primary"
+              className="btn btn--primary provider-import-action"
               disabled={!file || loadingPreview}
               onClick={() => {
                 void handlePreview();
@@ -194,7 +196,7 @@ function AdminProviderLeadsImport() {
             </button>
             <button
               type="button"
-              className="btn btn--secondary"
+              className="btn btn--secondary provider-import-action"
               disabled={!canImport || loadingImport}
               onClick={() => {
                 void handleImport();
