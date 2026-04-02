@@ -717,7 +717,7 @@ function AdminClientsScreen({
               </div>
             </div>
             <div className="client-summary__actions">
-              <div className="client-summary__action-group">
+              <div className="client-summary__quick-actions">
                 {onOpenClientChanges && (
                   <button
                     type="button"
@@ -760,8 +760,29 @@ function AdminClientsScreen({
                     Перейти к проектам
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                >
+                  Добавить тариф
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
+                >
+                  Начислить номера
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
+                >
+                  Списать номера
+                </button>
               </div>
-              <div className="client-summary__action-group client-summary__stacked-controls">
+              <div className="client-summary__control-actions">
                 <button
                   type="button"
                   className="btn btn--secondary client-summary__button--stacked"
@@ -832,43 +853,22 @@ function AdminClientsScreen({
                     </span>
                   </span>
                 </button>
-                {!!collectionState?.actionDisabledReason && (
-                  <span className="sub" style={{ color: '#a55' }}>
-                    {collectionState.actionDisabledReason}
-                  </span>
-                )}
-                {collectionActionLoading && collectionRunInfo && (
-                  <span className="sub">
-                    {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
-                    {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
-                  </span>
-                )}
-                {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
-                  <span className="sub">{collectionLastInfo}</span>
-                )}
-              </div>
-              <div className="client-summary__action-group client-summary__action-group--finance">
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
-                >
-                  Начислить номера
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
-                >
-                  Списать номера
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
-                >
-                  Добавить тариф
-                </button>
+                <div className="client-summary__control-notes">
+                  {!!collectionState?.actionDisabledReason && (
+                    <span className="sub" style={{ color: '#a55' }}>
+                      {collectionState.actionDisabledReason}
+                    </span>
+                  )}
+                  {collectionActionLoading && collectionRunInfo && (
+                    <span className="sub">
+                      {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
+                      {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
+                    </span>
+                  )}
+                  {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
+                    <span className="sub">{collectionLastInfo}</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

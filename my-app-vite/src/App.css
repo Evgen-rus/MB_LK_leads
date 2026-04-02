@@ -732,25 +732,23 @@
 .client-row .remaining-negative { color: #d83a3a; font-weight: 700; }
 
 .client-summary-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-.client-summary__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.client-summary__header {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(520px, 780px);
+  align-items: start;
+  gap: 16px;
+}
 .client-summary__title { font-size: 1.1rem; font-weight: 700; margin: 0; }
 .client-summary__meta { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
-.client-summary__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: stretch; }
-.client-summary__actions > * { min-width: 0; max-width: 100%; }
-.client-summary__action-group {
-  flex: 1 1 220px;
-  min-width: 0;
-  max-width: 100%;
+.client-summary__actions {
   display: grid;
-  gap: 8px;
-  align-content: start;
+  gap: 12px;
+  min-width: 0;
 }
-.client-summary__action-group--finance {
-  flex-basis: 240px;
-}
+.client-summary__actions > * { min-width: 0; max-width: 100%; }
 .client-summary__actions .btn {
-  flex: 1 1 160px;
-  min-width: 160px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   padding: 6px 10px;
   font-size: 0.85rem;
@@ -761,7 +759,20 @@
 }
 .client-summary__actions .btn .badge { height: 20px; padding: 0 8px; font-size: 0.7rem; }
 .client-summary__actions .btn__meta { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 8px; align-items: center; justify-content: center; }
-.client-summary__stacked-controls {
+.client-summary__quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.client-summary__control-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+.client-summary__control-notes {
+  grid-column: 1 / -1;
+  display: grid;
   gap: 4px;
 }
 .client-summary__button--stacked {
@@ -786,14 +797,17 @@
   text-align: center;
 }
 
-@media (max-width: 900px) {
-  .client-summary__action-group { flex-basis: calc(50% - 8px); }
-  .client-summary__actions .btn { flex: 1 1 calc(50% - 8px); min-width: 0; }
+@media (max-width: 1100px) {
+  .client-summary__header {
+    grid-template-columns: 1fr;
+  }
 }
 
-@media (max-width: 560px) {
-  .client-summary__action-group { flex-basis: 100%; }
-  .client-summary__actions .btn { flex: 1 1 100%; }
+@media (max-width: 640px) {
+  .client-summary__quick-actions,
+  .client-summary__control-actions {
+    grid-template-columns: 1fr;
+  }
   .client-summary__actions .btn__meta { margin-left: 0; }
 }
 
