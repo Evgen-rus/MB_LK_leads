@@ -763,17 +763,20 @@ function AdminClientsScreen({
                 <button
                   type="button"
                   className="btn btn--secondary"
+                  style={{ display: 'grid', gap: 4, justifyItems: 'center', textAlign: 'center', lineHeight: 1.2 }}
                   onClick={() => {
                     void handleToggleAutoLimitControl();
                   }}
                 >
-                  {selectedClient.autoLimitControlEnabled
-                    ? 'Выключить авто-контроль лимитов'
-                    : 'Включить авто-контроль лимитов'}
+                  <span>
+                    {selectedClient.autoLimitControlEnabled
+                      ? 'Выключить авто-контроль лимитов'
+                      : 'Включить авто-контроль лимитов'}
+                  </span>
+                  <span className="sub" style={{ opacity: 0.9 }}>
+                    Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                  </span>
                 </button>
-                <span className="sub">
-                  Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
-                </span>
                 <button
                   type="button"
                   className="btn btn--secondary"
