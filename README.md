@@ -5,6 +5,11 @@
 - frontend на React + Vite (`my-app-vite`)
 - интеграции: Prostats, Telegram, Google Sheets
 
+В продукте сейчас три роли:
+- `client` — обычный клиентский ЛК
+- `agent` — manager-уровень только для своих клиентов
+- `admin` — полный доступ ко всем клиентам и агентам
+
 ## Быстрые ссылки
 
 - Архитектура: `ARCHITECTURE.md`
@@ -156,12 +161,23 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 - `GET /balance`
 - `GET /balance/ops`
 
-### Админские
+### Manager / Admin (`/admin/*`)
+
+Часть `/admin/*` теперь доступна не только админу, но и агенту как manager-уровню.  
+Агент работает только в рамках своих клиентов.  
+Отдельные эндпоинты управления агентами и имперсонация клиента остаются только для админа.
 
 - `POST /admin/clients`
 - `POST /admin/clients/{client_id}/impersonate`
 - `PATCH /admin/clients/{client_id}`
+- `POST /admin/clients/{client_id}/owner`
 - `GET /admin/users`
+- `GET /admin/agents`
+- `POST /admin/agents`
+- `PATCH /admin/agents/{agent_id}`
+- `GET /admin/agents/{agent_id}/balance`
+- `GET /admin/agents/{agent_id}/balance/ops`
+- `POST /admin/agents/{agent_id}/balance/ops`
 - `GET /admin/projects`
 - `GET /admin/projects/{project_id}`
 - `GET /admin/projects/{project_id}/history`
@@ -181,6 +197,17 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 - `GET /admin/clients/{client_id}/balance`
 - `GET /admin/clients/{client_id}/balance/ops`
 - `POST /admin/clients/{client_id}/balance/ops`
+- `GET /admin/clients/{client_id}/tariffs`
+- `POST /admin/clients/{client_id}/tariffs`
+- `GET /admin/tariffs/{tariff_id}/ops`
+- `POST /admin/tariffs/{tariff_id}/ops`
+
+Ключевые ограничения manager-уровня:
+- агент видит и редактирует только своих клиентов;
+- агент может только начислять старый баланс своим клиентам;
+- агент не может списывать старый баланс своим клиентам;
+- агент может управлять тарифами только своих клиентов;
+- админ не может пополнять старый баланс клиента, закреплённого за агентом.
 
 ## Особенности работы с проектами
 
@@ -196,6 +223,21 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 - Технические префиксы имени проекта нельзя удалять при редактировании:
   - всегда обязателен `B1_` / `B2_` / `B3_` / `B4_`;
   - если проект создан по схеме с уникальным именем, обязателен и маркер `[MB{id}]`.
+
+## Агентский уровень
+
+- Клиент может быть либо прямым клиентом админа, либо клиентом конкретного агента.
+- При переводе клиента агенту его текущий старый остаток становится долгом агента.
+- Агент может уходить в минус.
+- Минус агента блокирует только новые начисления его клиентам, но не ставит проекты на паузу автоматически.
+- При отключении агента:
+  - агент не может войти;
+  - проекты его клиентов ставятся на паузу;
+  - клиентам агента блокируется редактирование проектов.
+- При повторном включении агента:
+  - вход снова работает;
+  - блокировка редактирования проектов у его клиентов снимается;
+  - сами проекты автоматически не переводятся в `Активен`.
 
 ## Вебхук провайдера и экспорт в Google Sheets
 
@@ -278,6 +320,7 @@ MB_LK_leads/
 ## Примечания
 
 - Админ определяется как пользователь с `id=1` (логика в `backend/app/main.py`).
+- Для роли `agent` доступ ограничивается server-side, а не только UI.
 - Таблицы создаются автоматически через `models.Base.metadata.create_all(...)` при старте.
 - `TELEGRAM_CHAT_ID` используется не только для обычных уведомлений, но и для технических alert-ов:
   - неоднозначная привязка лида к проекту по имени;
