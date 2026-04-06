@@ -3,6 +3,7 @@ import { updateAdminClient, impersonateClient, type AdminClientUpdateResp } from
 
 type AdminClientCardModalProps = {
   clientId: number;
+  managerRole?: 'admin' | 'agent';
   initialName: string;
   initialInn?: string;
   initialPhone?: string;
@@ -27,6 +28,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 function AdminClientCardModal({
   clientId,
+  managerRole = 'admin',
   initialName,
   initialInn,
   initialPhone,
@@ -38,6 +40,7 @@ function AdminClientCardModal({
   onClose,
   onUpdated,
 }: AdminClientCardModalProps) {
+  const isAgentManager = managerRole === 'agent';
   const [name, setName] = useState(initialName);
   const [inn, setInn] = useState(initialInn || '');
   const [phone, setPhone] = useState(initialPhone || '');
@@ -186,67 +189,71 @@ function AdminClientCardModal({
               onChange={(e) => setPhone(e.target.value)}
             />
           </label>
-          <div
-            style={{
-              display: 'grid',
-              gap: 10,
-              padding: 12,
-              border: '1px solid #eee',
-              borderRadius: 8,
-              background: '#fafbff',
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>Telegram для уведомлений</div>
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title">Telegram chat ID</span>
-              <input
-                type="text"
-                placeholder="-1001234567890"
-                value={telegramNotificationsChatId}
-                onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
-              />
-              <span className="hint">
-                Для персональных уведомлений создайте Telegram-группу клиента, добавьте в неё бота
-                {" "}
-                <code>@MB_Info_LK_Bot</code> и укажите chat ID группы.
-              </span>
+          {!isAgentManager && (
+            <div
+              style={{
+                display: 'grid',
+                gap: 10,
+                padding: 12,
+                border: '1px solid #eee',
+                borderRadius: 8,
+                background: '#fafbff',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>Telegram для уведомлений</div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Telegram chat ID</span>
+                <input
+                  type="text"
+                  placeholder="-1001234567890"
+                  value={telegramNotificationsChatId}
+                  onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
+                />
+                <span className="hint">
+                  Для персональных уведомлений создайте Telegram-группу клиента, добавьте в неё бота
+                  {' '}
+                  <code>@MB_Info_LK_Bot</code> и укажите chat ID группы.
+                </span>
+                <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
+                  Если chat ID не задан или маршрут выключен, уведомления будут уходить в общий чат.
+                </span>
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={telegramAutoPauseEnabled}
+                  onChange={(e) => setTelegramAutoPauseEnabled(e.target.checked)}
+                />
+                <span>Использовать этот чат для уведомлений</span>
+              </label>
+            </div>
+          )}
+          {!isAgentManager && (
+            <div
+              style={{
+                display: 'grid',
+                gap: 10,
+                padding: 12,
+                border: '1px solid #eee',
+                borderRadius: 8,
+                background: '#fafbff',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>Имена новых проектов</div>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={uniqueProjectNamesEnabled}
+                  onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
+                />
+                <span>Добавлять уникальный маркер `[MBid]`</span>
+              </label>
               <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
-                Если chat ID не задан или маршрут выключен, уведомления будут уходить в общий чат.
+                Если включено, новые проекты будут называться, например: `B1_[MB54] Магнум`.
+                Маркер нужен для однозначной привязки идентификаций и не удаляется при редактировании.
               </span>
-            </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={telegramAutoPauseEnabled}
-                onChange={(e) => setTelegramAutoPauseEnabled(e.target.checked)}
-              />
-              <span>Использовать этот чат для уведомлений</span>
-            </label>
-          </div>
-          <div
-            style={{
-              display: 'grid',
-              gap: 10,
-              padding: 12,
-              border: '1px solid #eee',
-              borderRadius: 8,
-              background: '#fafbff',
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>Имена новых проектов</div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={uniqueProjectNamesEnabled}
-                onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
-              />
-              <span>Добавлять уникальный маркер `[MBid]`</span>
-            </label>
-            <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
-              Если включено, новые проекты будут называться, например: `B1_[MB54] Магнум`.
-              Маркер нужен для однозначной привязки идентификаций и не удаляется при редактировании.
-            </span>
-          </div>
+            </div>
+          )}
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Логин</span>
@@ -291,14 +298,18 @@ function AdminClientCardModal({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={handleOpenClientCabinet}
-              disabled={loading || !clientId}
-            >
-              Перейти в ЛК
-            </button>
+            {!isAgentManager ? (
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={handleOpenClientCabinet}
+                disabled={loading || !clientId}
+              >
+                Перейти в ЛК
+              </button>
+            ) : (
+              <span />
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" className="btn" onClick={onClose}>Отмена</button>
               <button type="submit" className="btn btn--primary" disabled={loading}>

@@ -5,6 +5,7 @@ export type JwtPayload = {
   exp?: number; // seconds since epoch
   user_id?: number;
   is_admin?: boolean;
+  role?: 'admin' | 'client' | 'agent';
   [key: string]: unknown;
 };
 
@@ -47,6 +48,20 @@ export function isAdminFromToken(token: string | null): boolean {
   if (!token) return false;
   const payload = decodeJwtPayload(token);
   return payload?.is_admin === true;
+}
+
+export function getRoleFromToken(token: string | null): 'admin' | 'client' | 'agent' | null {
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  if (payload?.is_admin === true) return 'admin';
+  if (payload?.role === 'admin' || payload?.role === 'client' || payload?.role === 'agent') {
+    return payload.role;
+  }
+  return null;
+}
+
+export function isAgentFromToken(token: string | null): boolean {
+  return getRoleFromToken(token) === 'agent';
 }
 
 export function getUserIdFromToken(token: string | null): number | null {

@@ -20,6 +20,14 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     login = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
+    display_name = Column(String, nullable=True)
+    # Роль пользователя: admin | client | agent.
+    # Инвариант проекта сохраняется: админ определяется как user.id == 1.
+    role = Column(String, nullable=False, default="client", index=True)
+    # Для клиентов: какой агент владеет клиентом. NULL = прямой клиент админа.
+    owner_agent_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    # Используем для отключения агента; для остальных ролей обычно False.
+    is_disabled = Column(Boolean, nullable=False, default=False)
     # Админская блокировка изменений проектов в клиентском кабинете.
     projects_mutation_locked = Column(Boolean, nullable=False, default=False)
     projects_mutation_locked_at = Column(DateTime, nullable=True)

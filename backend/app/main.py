@@ -108,6 +108,14 @@ def _ensure_user_projects_lock_columns() -> None:
 
     columns = {col.get("name") for col in inspector.get_columns("users")}
     with engine.begin() as conn:
+        if "display_name" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR"))
+        if "role" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'client'"))
+        if "owner_agent_id" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN owner_agent_id INTEGER"))
+        if "is_disabled" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_disabled BOOLEAN DEFAULT FALSE"))
         if "projects_mutation_locked" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN projects_mutation_locked BOOLEAN DEFAULT FALSE"))
         if "projects_mutation_locked_at" not in columns:
@@ -129,7 +137,10 @@ def _ensure_user_projects_lock_columns() -> None:
 
     # На старых БД гарантируем не-null значение для bool-флагов.
     with engine.begin() as conn:
+        conn.execute(text("UPDATE users SET role = 'admin' WHERE id = 1 AND (role IS NULL OR role = '')"))
+        conn.execute(text("UPDATE users SET role = 'client' WHERE id != 1 AND (role IS NULL OR role = '')"))
         conn.execute(text("UPDATE users SET projects_mutation_locked = FALSE WHERE projects_mutation_locked IS NULL"))
+        conn.execute(text("UPDATE users SET is_disabled = FALSE WHERE is_disabled IS NULL"))
         conn.execute(text("UPDATE users SET auto_limit_control_enabled = FALSE WHERE auto_limit_control_enabled IS NULL"))
         conn.execute(text("UPDATE users SET telegram_auto_pause_enabled = FALSE WHERE telegram_auto_pause_enabled IS NULL"))
         conn.execute(text("UPDATE users SET unique_project_names_enabled = FALSE WHERE unique_project_names_enabled IS NULL"))
@@ -1035,6 +1046,8 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
     user = db_sess.get(models.User, int(user_id))
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    if crud.is_agent_user(user) and crud.user_is_disabled(user):
+        raise HTTPException(status_code=403, detail="Агент отключён.")
     impersonator_raw = payload.get("impersonator_user_id")
     impersonator_id: Optional[int] = None
     try:
@@ -1050,6 +1063,39 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
         setattr(user, "_actor_user_id", user.id)
         setattr(user, "_via_impersonation", False)
     return user
+
+
+def require_manager(current_user: models.User = Depends(require_auth)):
+    if not (crud.is_admin_user(current_user) or crud.is_agent_user(current_user)):
+        raise HTTPException(status_code=403, detail="Manager access required")
+    return current_user
+
+
+def _ensure_manager_client_access(db_sess: Session, manager_user: models.User, client_id: int) -> models.User:
+    client = db_sess.get(models.User, int(client_id))
+    if not client or not crud.is_client_user(client):
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not crud.manager_can_access_client(db_sess, manager_user, int(client_id)):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому клиенту")
+    return client
+
+
+def _ensure_manager_project_access(db_sess: Session, manager_user: models.User, project_id: int) -> models.Project:
+    project = db_sess.get(models.Project, int(project_id))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not crud.manager_can_access_project(db_sess, manager_user, int(project_id)):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
+    return project
+
+
+def _ensure_manager_tariff_access(db_sess: Session, manager_user: models.User, tariff_id: int) -> schemas.ClientTariffOut:
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    if not crud.manager_can_access_tariff(db_sess, manager_user, int(tariff_id)):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому тарифу")
+    return tariff
 
 
 def _audit_actor_context(current_user: models.User) -> tuple[int, bool]:
@@ -1070,7 +1116,10 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
     return schemas.SelfProfileOut(
         id=current_user.id,
         login=current_user.login,
-        name=profile.name if profile else None,
+        name=(profile.name if profile else (getattr(current_user, "display_name", None) or None)),
+        role=crud.get_user_role(current_user),  # type: ignore[arg-type]
+        ownerAgentId=(int(current_user.owner_agent_id) if getattr(current_user, "owner_agent_id", None) is not None else None),
+        isDisabled=bool(getattr(current_user, "is_disabled", False)),
         projectsMutationLocked=bool(getattr(current_user, "projects_mutation_locked", False)),
         projectsMutationLockedAt=current_user.projects_mutation_locked_at.isoformat() if getattr(current_user, "projects_mutation_locked_at", None) else None,
         projectsMutationLockedBy=(int(current_user.projects_mutation_locked_by) if getattr(current_user, "projects_mutation_locked_by", None) is not None else None),
@@ -1538,8 +1587,11 @@ def login(request: Request, payload: dict, db_sess: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Bad credentials")
     # Админом является пользователь с id=1
     is_admin = user.id == 1
-    token = auth.create_access_token(user.id, is_admin=is_admin)
-    return {"access_token": token, "is_admin": is_admin}
+    if crud.is_agent_user(user) and crud.user_is_disabled(user):
+        raise HTTPException(status_code=403, detail="Агент отключён.")
+    role = crud.get_user_role(user)
+    token = auth.create_access_token(user.id, is_admin=is_admin, role=role)
+    return {"access_token": token, "is_admin": is_admin, "role": role}
 
 
 @app.post("/auth/logout")
@@ -1674,6 +1726,8 @@ def export_leads(
     current_user = db_sess.get(models.User, int(user_id))
     if not current_user:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    if crud.is_agent_user(current_user) and crud.user_is_disabled(current_user):
+        raise HTTPException(status_code=403, detail="Агент отключён.")
 
     # Границы дат локальные (MSK)
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -1692,10 +1746,24 @@ def export_leads(
     end_local = datetime(y2, m2, d2, 23, 59, 59).replace(tzinfo=None)
 
     use_provider_leads = True
+    user_role = crud.get_user_role(current_user)
+    is_admin = crud.is_admin_user(current_user)
+    is_agent = crud.is_agent_user(current_user)
+
+    effective_client_id: Optional[int]
+    if is_admin:
+        effective_client_id = clientId
+    elif is_agent:
+        if clientId is None:
+            raise HTTPException(status_code=400, detail="clientId is required for agent export")
+        _ensure_manager_client_access(db_sess, current_user, clientId)
+        effective_client_id = clientId
+    else:
+        effective_client_id = current_user.id
 
     # Разрешённые проекты (для фильтрации provider_leads у клиентов/админа с clientId)
-    allowed_ids = set(crud.get_user_project_ids(db_sess, current_user.id))
-    if current_user.id != 1 and not allowed_ids:
+    allowed_ids = set(crud.get_user_project_ids(db_sess, effective_client_id or current_user.id))
+    if not is_admin and not allowed_ids:
         empty_headers = {"Content-Disposition": f'attachment; filename="leads_empty.{format or "csv"}"'}
         if (format or "csv").lower() == "xlsx":
             return Response(content=b"", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=empty_headers)
@@ -1715,7 +1783,7 @@ def export_leads(
 
     proj_ids: Optional[List[int]] = None
     provider_allowed_ids: Optional[set[int]] = None
-    if current_user.id != 1:
+    if not is_admin:
         provider_allowed_ids = allowed_ids
     elif clientId is not None and clientId != 1:
         provider_allowed_ids = set(crud.get_user_project_ids(db_sess, clientId))
@@ -1760,7 +1828,7 @@ def export_leads(
             crud.log_report_export(
                 db_sess,
                 user_id=current_user.id,
-                client_id=clientId if clientId is not None and current_user.id == 1 else current_user.id,
+                client_id=effective_client_id,
                 from_date=fromDate,
                 to_date=toDate,
                 project_ids=proj_ids,
@@ -1777,11 +1845,10 @@ def export_leads(
         logging.getLogger("app").warning("Invalid EXPORT_MAX_ROWS value, fallback to 15000")
         max_rows = 15000
     max_rows = max(1, max_rows)
-    user_info = crud._get_user_info(db_sess, clientId or current_user.id)
+    user_info = crud._get_user_info(db_sess, effective_client_id or current_user.id)
     export_started = time.perf_counter()
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
-    is_admin = current_user.id == 1
 
     def iter_export_rows():
         yield from crud.iter_provider_leads_for_export(
@@ -2150,6 +2217,7 @@ def create_impersonation_token(client_user_id: int, admin_user_id: int, ttl_minu
     return auth.create_access_token(
         user_id=client_user_id,
         is_admin=False,
+        role="client",
         expires_delta=timedelta(minutes=max(1, ttl_minutes)),
         extra_claims={"impersonator_user_id": int(admin_user_id)},
     )
@@ -2158,7 +2226,7 @@ def create_impersonation_token(client_user_id: int, admin_user_id: int, ttl_minu
 @app.post("/admin/clients", response_model=schemas.AdminClientCreateOut)
 def admin_create_client(
     payload: schemas.AdminClientCreateIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     try:
@@ -2170,10 +2238,11 @@ def admin_create_client(
             contact=payload.contact,
             login=payload.login,
             password=payload.password,
-            auto_limit_control_enabled=bool(payload.autoLimitControlEnabled or False),
-            telegram_notifications_chat_id=payload.telegramNotificationsChatId,
-            telegram_auto_pause_enabled=bool(payload.telegramAutoPauseEnabled or False),
-            unique_project_names_enabled=bool(payload.uniqueProjectNamesEnabled or False),
+            auto_limit_control_enabled=bool(payload.autoLimitControlEnabled or False) if crud.is_admin_user(current_manager) else False,
+            telegram_notifications_chat_id=(payload.telegramNotificationsChatId if crud.is_admin_user(current_manager) else None),
+            telegram_auto_pause_enabled=bool(payload.telegramAutoPauseEnabled or False) if crud.is_admin_user(current_manager) else False,
+            unique_project_names_enabled=bool(payload.uniqueProjectNamesEnabled or False) if crud.is_admin_user(current_manager) else False,
+            owner_agent_id=(payload.ownerAgentId if crud.is_admin_user(current_manager) else int(current_manager.id)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -2201,24 +2270,26 @@ def admin_impersonate_client(
 def admin_update_client(
     client_id: int,
     payload: schemas.AdminClientUpdateIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     try:
         existing_user = db_sess.get(models.User, client_id)
-        if not existing_user:
+        if not existing_user or not crud.is_client_user(existing_user):
             raise HTTPException(status_code=404, detail="Client not found")
+        if crud.is_agent_user(current_manager) and not crud.manager_can_access_client(db_sess, current_manager, client_id):
+            raise HTTPException(status_code=403, detail="Нет доступа к этому клиенту")
 
         prev_enabled = bool(getattr(existing_user, "telegram_auto_pause_enabled", False))
         prev_chat_id = str(getattr(existing_user, "telegram_notifications_chat_id", "") or "").strip()
         next_enabled = (
             bool(payload.telegramAutoPauseEnabled)
-            if payload.telegramAutoPauseEnabled is not None
+            if payload.telegramAutoPauseEnabled is not None and crud.is_admin_user(current_manager)
             else prev_enabled
         )
         next_chat_id = (
             str(payload.telegramNotificationsChatId or "").strip()
-            if payload.telegramNotificationsChatId is not None
+            if payload.telegramNotificationsChatId is not None and crud.is_admin_user(current_manager)
             else prev_chat_id
         )
         should_send_test = _should_send_auto_pause_test_message(
@@ -2236,15 +2307,16 @@ def admin_update_client(
             contact=payload.contact,
             login=payload.login,
             password=payload.password,
-            auto_limit_control_enabled=payload.autoLimitControlEnabled,
-            telegram_notifications_chat_id=payload.telegramNotificationsChatId,
-            telegram_auto_pause_enabled=payload.telegramAutoPauseEnabled,
-            unique_project_names_enabled=payload.uniqueProjectNamesEnabled,
+            auto_limit_control_enabled=(payload.autoLimitControlEnabled if crud.is_admin_user(current_manager) else None),
+            telegram_notifications_chat_id=(payload.telegramNotificationsChatId if crud.is_admin_user(current_manager) else None),
+            telegram_auto_pause_enabled=(payload.telegramAutoPauseEnabled if crud.is_admin_user(current_manager) else None),
+            unique_project_names_enabled=(payload.uniqueProjectNamesEnabled if crud.is_admin_user(current_manager) else None),
+            owner_agent_id=None,
         )
         test_message = _build_auto_pause_test_message(existing_user)
         db_sess.rollback()
 
-        if should_send_test:
+        if should_send_test and crud.is_admin_user(current_manager):
             with SessionLocal() as validate_sess:  # type: Session
                 crud.admin_update_client(
                     validate_sess,
@@ -2274,7 +2346,7 @@ def admin_update_client(
                 **update_kwargs,
                 commit=True,
             )
-        if payload.autoLimitControlEnabled is True:
+        if payload.autoLimitControlEnabled is True and crud.is_admin_user(current_manager):
             _run_limit_control_for_client_in_new_session(client_id=client_id, trigger="admin_toggle_on")
         return result
     except HTTPException:
@@ -2284,13 +2356,168 @@ def admin_update_client(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.get("/admin/users", response_model=List[schemas.UserInfo])
-def admin_list_users(
+@app.get("/admin/agents", response_model=schemas.AdminAgentsListOut)
+def admin_list_agents(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    """Список всех пользователей (для фильтра по клиенту)."""
-    return crud.get_all_users(db_sess)
+    return crud.list_agents_summary(db_sess)
+
+
+@app.post("/admin/agents", response_model=schemas.AdminAgentCreateOut)
+def admin_create_agent(
+    payload: schemas.AdminAgentCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        return crud.admin_create_agent(
+            db_sess,
+            name=payload.name,
+            login=payload.login,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/admin/agents/{agent_id}", response_model=schemas.AdminAgentUpdateOut)
+def admin_update_agent(
+    agent_id: int,
+    payload: schemas.AdminAgentUpdateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        existing_agent = db_sess.get(models.User, int(agent_id))
+        if not existing_agent or not crud.is_agent_user(existing_agent):
+            raise HTTPException(status_code=404, detail="Agent not found")
+        was_disabled = bool(getattr(existing_agent, "is_disabled", False))
+        result = crud.admin_update_agent(
+            db_sess,
+            agent_id=agent_id,
+            name=payload.name,
+            login=payload.login,
+            password=payload.password,
+            is_disabled=payload.isDisabled,
+        )
+        if payload.isDisabled is True and not was_disabled:
+            owned_client_ids = crud.get_accessible_client_ids_for_manager(db_sess, existing_agent)
+            for client_id in owned_client_ids:
+                _pause_and_lock_client_projects_by_admin(
+                    client_id=int(client_id),
+                    admin_user_id=int(current_admin.id),
+                    reason="Агент отключён администратором",
+                )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/admin/agents/{agent_id}/balance", response_model=schemas.ClientBalanceSummaryOut)
+def admin_agent_balance_summary(
+    agent_id: int,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    agent = db_sess.get(models.User, int(agent_id))
+    if not agent or not crud.is_agent_user(agent):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
+    return crud.get_client_balance_summary(db_sess, client_id=agent_id, start_local=start_local, end_local=end_local)
+
+
+@app.get("/admin/agents/{agent_id}/balance/ops", response_model=schemas.ClientBalanceOpsListOut)
+def admin_agent_balance_ops(
+    agent_id: int,
+    offset: int = 0,
+    limit: int = 50,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    agent = db_sess.get(models.User, int(agent_id))
+    if not agent or not crud.is_agent_user(agent):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    start_local, end_local = _parse_balance_date_range(fromDate, toDate)
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_client_balance_operations(
+        db_sess,
+        client_id=agent_id,
+        offset=offset,
+        limit=limit,
+        start_local=start_local,
+        end_local=end_local,
+    )
+
+
+@app.post("/admin/agents/{agent_id}/balance/ops", response_model=schemas.BalanceOperationOut)
+def admin_create_agent_balance_op(
+    agent_id: int,
+    payload: schemas.BalanceOperationCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    agent = db_sess.get(models.User, int(agent_id))
+    if not agent or not crud.is_agent_user(agent):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="amount must be positive")
+    if payload.type not in ("credit", "debit"):
+        raise HTTPException(status_code=400, detail="type must be credit or debit")
+    return crud.create_client_balance_operation(
+        db_sess,
+        client_id=agent_id,
+        admin_id=current_admin.id,
+        amount=payload.amount,
+        op_type=payload.type,
+        comment=payload.comment,
+    )
+
+
+@app.post("/admin/clients/{client_id}/owner", response_model=schemas.ClientOwnerTransferOut)
+def admin_transfer_client_owner(
+    client_id: int,
+    payload: schemas.ClientOwnerTransferIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    if payload.ownerType == "agent" and payload.agentId is None:
+        raise HTTPException(status_code=400, detail="agentId is required for agent owner")
+    try:
+        return crud.transfer_client_to_owner(
+            db_sess,
+            client_id=client_id,
+            owner_type=payload.ownerType,
+            agent_id=payload.agentId,
+            admin_user_id=int(current_admin.id),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/admin/users", response_model=List[schemas.UserInfo])
+def admin_list_users(
+    includeAgents: bool = False,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """Список доступных клиентов; для админа по флагу можно добавить агентов."""
+    users = crud.get_all_users(db_sess)
+    if crud.is_admin_user(current_manager):
+        allowed_roles = {"client"}
+        if includeAgents:
+            allowed_roles.add("agent")
+        return [user for user in users if (user.role or "client") in allowed_roles]
+    return [
+        user
+        for user in users
+        if (user.role or "client") == "client" and int(user.ownerAgentId or 0) == int(current_manager.id)
+    ]
 
 
 @app.get("/admin/projects", response_model=schemas.AdminProjectListOut)
@@ -2303,7 +2530,7 @@ def admin_list_projects(
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
     projectStatus: Optional[schemas.ProjectStatus] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех проектов всех клиентов с поддержкой периода для подсчёта лидов."""
@@ -2331,6 +2558,11 @@ def admin_list_projects(
     start_naive = start_local.replace(tzinfo=None)
     end_naive = end_local.replace(tzinfo=None)
 
+    if crud.is_agent_user(current_manager):
+        if userId is None:
+            return schemas.AdminProjectListOut(items=[], total=0)
+        _ensure_manager_client_access(db_sess, current_manager, userId)
+
     return crud.admin_list_all_projects(
         db_sess,
         offset=offset,
@@ -2347,10 +2579,11 @@ def admin_list_projects(
 @app.get("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)
 def admin_get_project(
     project_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Получить проект по id (для админа)."""
+    _ensure_manager_project_access(db_sess, current_manager, project_id)
     project = crud.admin_get_project(db_sess, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2365,9 +2598,10 @@ def admin_project_history(
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     status: Optional[str] = None,  # pending|done|all
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
+    _ensure_manager_project_access(db_sess, current_manager, project_id)
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     try:
         tz = ZoneInfo(settings["SHEETS_TZ"])
@@ -2389,7 +2623,7 @@ def admin_project_history(
     if status not in ("pending", "done", "all"):
         status = "all"
 
-    return crud.admin_list_project_history(
+    history = crud.admin_list_project_history(
         db_sess,
         project_id=project_id,
         limit=limit,
@@ -2398,23 +2632,27 @@ def admin_project_history(
         end_local=end_local,
         status=status if status != "all" else None,
     )
+    if crud.is_agent_user(current_manager):
+        history.items = [item for item in history.items if item.user is None or crud.manager_can_access_client(db_sess, current_manager, int(item.user.id))]
+        history.total = len(history.items)
+    return history
 
 
 @app.patch("/admin/projects/{project_id}", response_model=schemas.AdminUpdateProjectOut)
 def admin_update_project(
     project_id: int,
     payload: schemas.AdminProjectUpdate,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Обновить проект (включая delivery_status)."""
-    project_row = db_sess.get(models.Project, project_id)
-    if not project_row:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
     if project_row.status == "Удалён":
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
+    if crud.is_agent_user(current_manager):
+        payload.deliveryStatus = project_row.delivery_status  # type: ignore[assignment]
     payload.name = _validate_project_name_update(project_row, payload.name)
     if bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
@@ -2489,7 +2727,7 @@ def admin_update_project(
 
     if payload.status == "Удалён":
         with SessionLocal() as write_sess:  # type: Session
-            ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
+            ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_manager.id)
             if not ok:
                 raise HTTPException(status_code=404, detail="Project not found")
             updated = crud.admin_get_project(write_sess, project_id)
@@ -2499,7 +2737,7 @@ def admin_update_project(
             _sync_client_balance_alert_for_client(owner_user_id)
     else:
         with SessionLocal() as write_sess:  # type: Session
-            updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_admin.id)
+            updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_manager.id)
             if not updated:
                 raise HTTPException(status_code=404, detail="Project not found")
         if owner_user_id:
@@ -2511,13 +2749,11 @@ def admin_update_project(
 @app.delete("/admin/projects/{project_id}")
 def admin_delete_project(
     project_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Удалить проект (для админа)."""
-    project_row = db_sess.get(models.Project, project_id)
-    if not project_row:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
     if not project_row.provider_project_id:
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     project_snapshot = _project_snapshot_for_prostats(project_row)
@@ -2530,7 +2766,7 @@ def admin_delete_project(
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     with SessionLocal() as write_sess:  # type: Session
-        ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
+        ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_manager.id)
         if not ok:
             raise HTTPException(status_code=404, detail="Project not found")
     if owner_user_id:
@@ -2548,7 +2784,7 @@ def admin_list_leads(
     sources: Optional[str] = None,
     offset: int = 0,
     limit: int = 50,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех лидов (для админа)."""
@@ -2588,6 +2824,11 @@ def admin_list_leads(
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
 
+    if crud.is_agent_user(current_manager):
+        if userId is None:
+            return schemas.AdminLeadsListOut(items=[], total=0)
+        _ensure_manager_client_access(db_sess, current_manager, userId)
+
     if userId is not None:
         return crud.admin_list_provider_leads(
             db_sess,
@@ -2618,12 +2859,18 @@ def admin_list_blacklist(
     limit: int = 50,
     q: str | None = None,
     userId: int | None = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех записей черного списка (для админа)."""
     limit = max(1, min(500, limit))
     offset = max(0, offset)
+    if crud.is_agent_user(current_manager):
+        if userId is not None:
+            _ensure_manager_client_access(db_sess, current_manager, userId)
+            return crud.admin_list_all_blacklist(db_sess, offset=offset, limit=limit, q=q, user_id_filter=userId)
+        allowed_ids = crud.get_accessible_client_ids_for_manager(db_sess, current_manager)
+        return crud.admin_list_all_blacklist(db_sess, offset=offset, limit=limit, q=q, user_ids_filter=allowed_ids)
     return crud.admin_list_all_blacklist(db_sess, offset=offset, limit=limit, q=q, user_id_filter=userId)
 
 
@@ -2634,7 +2881,7 @@ def admin_list_reports(
     fromDate: Optional[str] = None,  # YYYY-MM-DD — фильтр по дате создания
     toDate: Optional[str] = None,    # YYYY-MM-DD — фильтр по дате создания
     clientId: Optional[int] = None,  # фильтр по целевому клиенту
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """Список всех отчётов (для админа)."""
@@ -2663,12 +2910,15 @@ def admin_list_reports(
     start_naive = start_local.replace(tzinfo=None)
     end_naive = end_local.replace(tzinfo=None)
 
+    if clientId is not None and crud.is_agent_user(current_manager):
+        _ensure_manager_client_access(db_sess, current_manager, clientId)
+
     # Показываем только отчёты, сформированные текущим админом
     return crud.admin_list_all_reports(
         db_sess,
         offset=offset,
         limit=limit,
-        user_id_filter=current_admin.id,
+        user_id_filter=current_manager.id,
         start_local=start_naive,
         end_local=end_naive,
         target_client_id=clientId,
@@ -2678,15 +2928,16 @@ def admin_list_reports(
 @app.post("/admin/reports", response_model=schemas.AdminReportOut)
 def admin_create_report(
     payload: schemas.AdminCreateReportIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     proj_ids = payload.projectIds or None
     client_id = payload.clientId
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     client_user = db_sess.get(models.User, client_id)
     row = crud.log_report_export(
         db_sess,
-        user_id=current_admin.id,
+        user_id=current_manager.id,
         client_id=client_id,
         from_date=payload.fromDate,
         to_date=payload.toDate,
@@ -2700,7 +2951,7 @@ def admin_create_report(
         toDate=row.to_date,
         projectIds=row.project_ids,
         format=row.format,
-        user=schemas.UserInfo(id=current_admin.id, login=current_admin.login),
+        user=schemas.UserInfo(id=current_manager.id, login=current_manager.login, role=crud.get_user_role(current_manager)),
         client=schemas.UserInfo(id=client_id, login=client_user.login if client_user else str(client_id)),
     )
 
@@ -2708,7 +2959,7 @@ def admin_create_report(
 @app.get("/admin/changes/summary", response_model=schemas.AdminClientChangesSummaryListOut)
 def admin_changes_summary(
     actions: Optional[str] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """
@@ -2717,6 +2968,9 @@ def admin_changes_summary(
     """
     actions_list = [a.strip() for a in (actions or "").split(",") if a.strip()] or None
     items = crud.admin_list_client_changes_summary(db_sess, actions=actions_list)
+    if crud.is_agent_user(current_manager):
+        allowed_ids = set(crud.get_accessible_client_ids_for_manager(db_sess, current_manager))
+        items = [item for item in items if int(item.user.id) in allowed_ids]
     return schemas.AdminClientChangesSummaryListOut(items=items)
 
 
@@ -2784,7 +3038,7 @@ def client_balance_ops(
 def admin_clients_summary(
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -2805,11 +3059,26 @@ def admin_clients_summary(
     y2, m2, d2 = [int(x) for x in toDate.split("-")]
     end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz).replace(tzinfo=None)
 
-    return crud.admin_clients_summary(
+    summary = crud.admin_clients_summary(
         db_sess,
         start_local=start_local,
         end_local=end_local,
     )
+    if crud.is_agent_user(current_manager):
+        allowed_ids = set(crud.get_accessible_client_ids_for_manager(db_sess, current_manager))
+        filtered_items = [item for item in summary.items if int(item.user.id) in allowed_ids]
+        summary.items = filtered_items
+        summary.totals = schemas.AdminClientSummaryTotals(
+            clients=len(filtered_items),
+            projects=sum(int(item.projectCount) for item in filtered_items),
+            totalLimit=sum(int(item.totalLimit) for item in filtered_items),
+            usedTotal=sum(int(item.usedTotal) for item in filtered_items),
+            usedPeriod=sum(int(item.usedPeriod) for item in filtered_items),
+            remaining=sum(int(item.remaining) for item in filtered_items),
+            pendingCreates=sum(int(item.pendingCreates) for item in filtered_items),
+            pendingChanges=sum(int(item.pendingChanges) for item in filtered_items),
+        )
+    return summary
 
 
 def _ensure_admin_client_exists(db_sess: Session, client_id: int) -> models.User:
@@ -2817,6 +3086,58 @@ def _ensure_admin_client_exists(db_sess: Session, client_id: int) -> models.User
     if not user:
         raise HTTPException(status_code=404, detail="Client not found")
     return user
+
+
+def _pause_and_lock_client_projects_by_admin(client_id: int, admin_user_id: int, reason: str) -> None:
+    with SessionLocal() as read_sess:  # type: Session
+        active_projects = read_sess.execute(
+            select(models.Project).where(
+                models.Project.user_id == client_id,
+                models.Project.status == "Активен",
+            ).order_by(models.Project.id.asc())
+        ).scalars().all()
+        active_project_snapshots = [_project_snapshot_for_prostats(project) for project in active_projects]
+
+    paused_ids: List[int] = []
+    for project_snapshot in active_project_snapshots:
+        if project_snapshot.status == "Удалён" or not project_snapshot.provider_project_id:
+            continue
+        try:
+            prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "На паузе")
+            with SessionLocal() as write_sess:  # type: Session
+                ok = crud.admin_update_project_status_only(
+                    write_sess,
+                    project_id=int(project_snapshot.id),
+                    status="На паузе",
+                    admin_user_id=admin_user_id,
+                )
+            if ok:
+                paused_ids.append(int(project_snapshot.id))
+        except prostats.ProstatsError:
+            logging.getLogger("app").warning(
+                "Failed to pause project during agent disable: client_id=%s project_id=%s",
+                client_id,
+                getattr(project_snapshot, "id", None),
+                exc_info=True,
+            )
+
+    with SessionLocal() as finalize_sess:  # type: Session
+        crud.admin_replace_pause_snapshot(
+            finalize_sess,
+            client_id=client_id,
+            project_ids=paused_ids,
+            admin_user_id=admin_user_id,
+        )
+        crud.admin_set_client_projects_mutation_lock(
+            finalize_sess,
+            client_id=client_id,
+            locked=True,
+            admin_user_id=admin_user_id,
+            reason=reason,
+        )
+        if paused_ids:
+            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+    _sync_client_balance_alert_for_client(client_id)
 
 
 def _assert_projects_mutation_allowed(current_user: models.User) -> None:
@@ -3081,9 +3402,10 @@ def admin_client_balance_summary(
     client_id: int,
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     return crud.get_client_balance_summary(db_sess, client_id=client_id, start_local=start_local, end_local=end_local)
@@ -3096,9 +3418,10 @@ def admin_client_balance_ops(
     limit: int = 50,
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     start_local, end_local = _parse_balance_date_range(fromDate, toDate)
 
     limit = max(1, min(500, limit))
@@ -3118,10 +3441,10 @@ def admin_client_tariffs(
     client_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_admin_client_exists(db_sess, client_id)
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariffs(
@@ -3136,16 +3459,16 @@ def admin_client_tariffs(
 def admin_create_client_tariff(
     client_id: int,
     payload: schemas.ClientTariffCreateIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_admin_client_exists(db_sess, client_id)
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     return crud.create_client_tariff(
         db_sess,
         client_id=client_id,
-        admin_id=current_admin.id,
+        admin_id=current_manager.id,
         amount=payload.amount,
         comment=payload.comment,
     )
@@ -3154,13 +3477,10 @@ def admin_create_client_tariff(
 @app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
 def admin_get_client_tariff(
     tariff_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Tariff not found")
-    return tariff
+    return _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
 
 
 @app.get("/admin/tariffs/{tariff_id}/ops", response_model=schemas.ClientTariffOperationsListOut)
@@ -3168,12 +3488,10 @@ def admin_list_client_tariff_operations(
     tariff_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Tariff not found")
+    _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariff_operations(
@@ -3188,9 +3506,10 @@ def admin_list_client_tariff_operations(
 def admin_create_client_tariff_operation(
     tariff_id: int,
     payload: schemas.ClientTariffOperationCreateIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
+    _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     if payload.type not in ("credit", "debit"):
@@ -3202,7 +3521,7 @@ def admin_create_client_tariff_operation(
         return crud.create_client_tariff_operation(
             db_sess,
             tariff_id=tariff_id,
-            admin_id=current_admin.id,
+            admin_id=current_manager.id,
             amount=payload.amount,
             op_type=payload.type,
             comment=comment,
@@ -3215,21 +3534,38 @@ def admin_create_client_tariff_operation(
 def admin_create_balance_op(
     client_id: int,
     payload: schemas.BalanceOperationCreateIn,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
+    client = _ensure_manager_client_access(db_sess, current_manager, client_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     if payload.type not in ("credit", "debit"):
         raise HTTPException(status_code=400, detail="type must be credit or debit")
-    op = crud.create_client_balance_operation(
-        db_sess,
-        client_id=client_id,
-        admin_id=current_admin.id,
-        amount=payload.amount,
-        op_type=payload.type,
-        comment=payload.comment,
-    )
+    if crud.is_agent_user(current_manager):
+        if payload.type != "credit":
+            raise HTTPException(status_code=403, detail="Агент может только начислять баланс своим клиентам")
+        try:
+            op = crud.create_agent_credit_to_client_operation(
+                db_sess,
+                agent_user_id=int(current_manager.id),
+                client_id=client_id,
+                amount=payload.amount,
+                comment=payload.comment,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    else:
+        if getattr(client, "owner_agent_id", None) is not None:
+            raise HTTPException(status_code=403, detail="Баланс клиента агента может пополнять только его агент")
+        op = crud.create_client_balance_operation(
+            db_sess,
+            client_id=client_id,
+            admin_id=current_manager.id,
+            amount=payload.amount,
+            op_type=payload.type,
+            comment=payload.comment,
+        )
     _run_limit_control_for_client(db_sess, client_id=client_id, trigger="balance_operation")
     return op
 
@@ -3238,13 +3574,14 @@ def admin_create_balance_op(
 def admin_client_changes(
     client_id: int,
     actions: Optional[str] = None,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """
     Подробный список необработанных изменений конкретного клиента.
     Дополнительно можно фильтровать по actions (create,update,delete).
     """
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     actions_list = [a.strip() for a in (actions or "").split(",") if a.strip()] or None
     return crud.admin_list_client_changes(db_sess, client_id=client_id, actions=actions_list)
 
@@ -3252,7 +3589,7 @@ def admin_client_changes(
 @app.post("/admin/changes/{event_id}/resolve")
 def admin_resolve_change(
     event_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """
@@ -3261,12 +3598,15 @@ def admin_resolve_change(
     ev = db_sess.get(models.AuditEvent, event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Change not found")
+    target_client_id = int(ev.user_id) if getattr(ev, "user_id", None) is not None else None
+    if target_client_id is not None and not crud.is_admin_user(current_manager):
+        _ensure_manager_client_access(db_sess, current_manager, target_client_id)
     if ev.batch_id:
-        count = crud.admin_mark_batch_processed(db_sess, batch_id=ev.batch_id, admin_user_id=current_admin.id)
+        count = crud.admin_mark_batch_processed(db_sess, batch_id=ev.batch_id, admin_user_id=current_manager.id)
         if count == 0:
             raise HTTPException(status_code=404, detail="Change not found")
         return {"ok": True, "processed": count, "batch": ev.batch_id}
-    ok = crud.admin_mark_change_processed(db_sess, event_id=event_id, admin_user_id=current_admin.id)
+    ok = crud.admin_mark_change_processed(db_sess, event_id=event_id, admin_user_id=current_manager.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Change not found")
     return {"ok": True, "processed": 1}

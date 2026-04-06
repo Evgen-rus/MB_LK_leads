@@ -20,6 +20,101 @@ from . import models, schemas, auth
 
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
 POSTGRES_INT_MAX = 2_147_483_647
+ROLE_ADMIN = "admin"
+ROLE_CLIENT = "client"
+ROLE_AGENT = "agent"
+
+
+def get_user_role(user: Optional[models.User]) -> str:
+    if not user:
+        return ROLE_CLIENT
+    if int(getattr(user, "id", 0) or 0) == 1:
+        return ROLE_ADMIN
+    role = str(getattr(user, "role", "") or ROLE_CLIENT).strip().lower()
+    if role in (ROLE_ADMIN, ROLE_CLIENT, ROLE_AGENT):
+        return role
+    return ROLE_CLIENT
+
+
+def is_admin_user(user: Optional[models.User]) -> bool:
+    return get_user_role(user) == ROLE_ADMIN
+
+
+def is_agent_user(user: Optional[models.User]) -> bool:
+    return get_user_role(user) == ROLE_AGENT
+
+
+def is_client_user(user: Optional[models.User]) -> bool:
+    return get_user_role(user) == ROLE_CLIENT
+
+
+def user_is_disabled(user: Optional[models.User]) -> bool:
+    return bool(getattr(user, "is_disabled", False)) if user else False
+
+
+def get_accessible_client_ids_for_manager(db: Session, manager_user: models.User) -> List[int]:
+    if is_admin_user(manager_user):
+        rows = db.execute(
+            select(models.User.id).where(models.User.id != 1, models.User.role == ROLE_CLIENT)
+        ).all()
+        return [int(row[0]) for row in rows]
+    if is_agent_user(manager_user):
+        rows = db.execute(
+            select(models.User.id).where(
+                models.User.role == ROLE_CLIENT,
+                models.User.owner_agent_id == int(manager_user.id),
+            )
+        ).all()
+        return [int(row[0]) for row in rows]
+    return []
+
+
+def manager_can_access_client(db: Session, manager_user: models.User, client_id: int) -> bool:
+    client = db.get(models.User, int(client_id))
+    if not client or not is_client_user(client):
+        return False
+    if is_admin_user(manager_user):
+        return True
+    if is_agent_user(manager_user):
+        return int(getattr(client, "owner_agent_id", 0) or 0) == int(manager_user.id)
+    return False
+
+
+def manager_can_access_project(db: Session, manager_user: models.User, project_id: int) -> bool:
+    project = db.get(models.Project, int(project_id))
+    if not project or project.user_id is None:
+        return False
+    return manager_can_access_client(db, manager_user, int(project.user_id))
+
+
+def manager_can_access_tariff(db: Session, manager_user: models.User, tariff_id: int) -> bool:
+    tariff = db.get(models.ClientTariff, int(tariff_id))
+    if not tariff:
+        return False
+    return manager_can_access_client(db, manager_user, int(tariff.client_id))
+
+
+def get_client_owner_type_and_id(client_user: models.User) -> tuple[str, Optional[int]]:
+    owner_agent_id = getattr(client_user, "owner_agent_id", None)
+    if owner_agent_id is None:
+        return "admin", None
+    return "agent", int(owner_agent_id)
+
+
+def get_user_manual_balance(db: Session, user_id: int) -> int:
+    credits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == int(user_id),
+            models.ClientBalanceOperation.op_type == "credit",
+        )
+    ).scalar_one()
+    debits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id == int(user_id),
+            models.ClientBalanceOperation.op_type == "debit",
+        )
+    ).scalar_one()
+    return int(credits or 0) - int(debits or 0)
 
 
 def _join_days(days: Iterable[str]) -> str:
@@ -1417,8 +1512,9 @@ def get_user_by_login(db: Session, login: str) -> Optional[models.User]:
     return db.execute(select(models.User).where(models.User.login == login)).scalar_one_or_none()
 
 
-def create_user(db: Session, login: str, password_plain: str) -> models.User:
-    user = models.User(login=login, password_hash=auth.hash_password(password_plain))
+def create_user(db: Session, login: str, password_plain: str, role: str = ROLE_CLIENT) -> models.User:
+    normalized_role = ROLE_ADMIN if login == "admin" else str(role or ROLE_CLIENT)
+    user = models.User(login=login, password_hash=auth.hash_password(password_plain), role=normalized_role)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -1469,6 +1565,17 @@ def _ensure_unique_login(db: Session, preferred: str) -> str:
     raise ValueError("Не удалось сгенерировать уникальный логин, попробуйте вручную.")
 
 
+def _ensure_agent_owner(db: Session, owner_agent_id: Optional[int]) -> Optional[models.User]:
+    if owner_agent_id is None:
+        return None
+    agent = db.get(models.User, int(owner_agent_id))
+    if not agent or not is_agent_user(agent):
+        raise ValueError("Агент не найден.")
+    if user_is_disabled(agent):
+        raise ValueError("Нельзя закрепить клиента за отключённым агентом.")
+    return agent
+
+
 def admin_create_client(
     db: Session,
     name: str,
@@ -1481,6 +1588,7 @@ def admin_create_client(
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: bool = False,
     unique_project_names_enabled: bool = False,
+    owner_agent_id: Optional[int] = None,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
     name_clean = (name or "").strip()
@@ -1509,9 +1617,13 @@ def admin_create_client(
 
     raw_password = password.strip() if password else _generate_password()
     telegram_chat_id = (telegram_notifications_chat_id or "").strip() or None
+    owner_agent = _ensure_agent_owner(db, owner_agent_id)
     user = models.User(
         login=final_login,
         password_hash=auth.hash_password(raw_password),
+        display_name=name_clean,
+        role=ROLE_CLIENT,
+        owner_agent_id=(int(owner_agent.id) if owner_agent is not None else None),
         auto_limit_control_enabled=bool(auto_limit_control_enabled),
         telegram_notifications_chat_id=telegram_chat_id,
         telegram_auto_pause_enabled=bool(telegram_auto_pause_enabled),
@@ -1536,14 +1648,7 @@ def admin_create_client(
     db.refresh(profile)
 
     return schemas.AdminClientCreateOut(
-        user=schemas.UserInfo(
-            id=user.id,
-            login=user.login,
-            autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
-            telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
-            telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
-            uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
-        ),
+        user=_user_info_from_user(user, name=name_clean),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=final_login,
         password=raw_password,
@@ -1563,11 +1668,14 @@ def admin_update_client(
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: Optional[bool] = None,
     unique_project_names_enabled: Optional[bool] = None,
+    owner_agent_id: Optional[int] = None,
     commit: bool = True,
 ) -> schemas.AdminClientUpdateOut:
     user = db.get(models.User, client_id)
     if not user:
         raise ValueError("Клиент не найден.")
+    if not is_client_user(user):
+        raise ValueError("Пользователь не является клиентом.")
 
     profile = db.execute(
         select(models.ClientProfile).where(models.ClientProfile.user_id == client_id)
@@ -1645,6 +1753,9 @@ def admin_update_client(
             profile.contact = (contact or "").strip() or None
         profile.updated_at = now
 
+    if name_clean is not None:
+        user.display_name = name_clean
+
     if commit:
         db.commit()
         db.refresh(user)
@@ -1656,18 +1767,129 @@ def admin_update_client(
         db.flush()
 
     return schemas.AdminClientUpdateOut(
-        user=schemas.UserInfo(
-            id=user.id,
-            login=user.login,
-            autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
-            telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
-            telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
-            uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
-        ),
+        user=_user_info_from_user(user, name=(profile.name if profile else None)),
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=user.login,
         password=raw_password,
     )
+
+
+def admin_create_agent(
+    db: Session,
+    name: str,
+    login: Optional[str],
+    password: Optional[str],
+) -> schemas.AdminAgentCreateOut:
+    now = now_msk()
+    name_clean = (name or "").strip()
+    if not name_clean:
+        raise ValueError("Имя агента не может быть пустым.")
+
+    preferred_login = (login or "").strip().lower() if login else _translit_login_base(name_clean)
+    final_login = _ensure_unique_login(db, preferred_login)
+    raw_password = password.strip() if password else _generate_password()
+
+    user = models.User(
+        login=final_login,
+        password_hash=auth.hash_password(raw_password),
+        display_name=name_clean,
+        role=ROLE_AGENT,
+        is_disabled=False,
+        created_at=now,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return schemas.AdminAgentCreateOut(
+        user=_user_info_from_user(user, name=name_clean),
+        login=final_login,
+        password=raw_password,
+    )
+
+
+def admin_update_agent(
+    db: Session,
+    agent_id: int,
+    name: Optional[str],
+    login: Optional[str],
+    password: Optional[str],
+    is_disabled: Optional[bool] = None,
+) -> schemas.AdminAgentUpdateOut:
+    user = db.get(models.User, int(agent_id))
+    if not user or not is_agent_user(user):
+        raise ValueError("Агент не найден.")
+
+    raw_password: Optional[str] = None
+    if name is not None:
+        name_clean = name.strip()
+        if not name_clean:
+            raise ValueError("Имя агента не может быть пустым.")
+        user.display_name = name_clean
+    if login is not None:
+        preferred_login = (login or "").strip().lower()
+        if preferred_login and preferred_login != user.login:
+            user.login = _ensure_unique_login(db, preferred_login)
+    if password:
+        raw_password = password.strip() if password else None
+        if raw_password:
+            user.password_hash = auth.hash_password(raw_password)
+    if is_disabled is not None:
+        user.is_disabled = bool(is_disabled)
+
+    db.commit()
+    db.refresh(user)
+    return schemas.AdminAgentUpdateOut(
+        user=_user_info_from_user(user),
+        login=user.login,
+        password=raw_password,
+    )
+
+
+def list_agents_summary(db: Session) -> schemas.AdminAgentsListOut:
+    agents = db.execute(
+        select(models.User).where(models.User.role == ROLE_AGENT).order_by(models.User.created_at.desc(), models.User.id.desc())
+    ).scalars().all()
+    agent_ids = [int(agent.id) for agent in agents]
+    client_count_map: Dict[int, int] = {}
+    if agent_ids:
+        rows = db.execute(
+            select(models.User.owner_agent_id, func.count(models.User.id))
+            .where(models.User.role == ROLE_CLIENT, models.User.owner_agent_id.in_(agent_ids))
+            .group_by(models.User.owner_agent_id)
+        ).all()
+        client_count_map = {int(owner_agent_id): int(total or 0) for owner_agent_id, total in rows if owner_agent_id is not None}
+
+    balance_rows = {}
+    if agent_ids:
+        rows = db.execute(
+            select(
+                models.ClientBalanceOperation.client_id,
+                models.ClientBalanceOperation.op_type,
+                func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0),
+            )
+            .where(models.ClientBalanceOperation.client_id.in_(agent_ids))
+            .group_by(models.ClientBalanceOperation.client_id, models.ClientBalanceOperation.op_type)
+        ).all()
+        for client_id, op_type, total_amt in rows:
+            aid = int(client_id)
+            balance_rows.setdefault(aid, {"credit": 0, "debit": 0})
+            balance_rows[aid][str(op_type)] = int(total_amt or 0)
+
+    items = []
+    for agent in agents:
+        credited = balance_rows.get(int(agent.id), {}).get("credit", 0)
+        debited = balance_rows.get(int(agent.id), {}).get("debit", 0)
+        items.append(
+            schemas.AdminAgentSummaryItem(
+                user=_user_info_from_user(agent),
+                clientCount=client_count_map.get(int(agent.id), 0),
+                credited=credited,
+                debited=debited,
+                balance=credited - debited,
+                createdAt=agent.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        )
+    return schemas.AdminAgentsListOut(items=items, total=len(items))
 
 
 def seed_users_from_env(db: Session) -> None:
@@ -1684,7 +1906,10 @@ def seed_users_from_env(db: Session) -> None:
             break
         exists = get_user_by_login(db, login)
         if not exists:
-            create_user(db, login, password)
+            create_user(db, login, password, role=ROLE_ADMIN if idx == 1 else ROLE_CLIENT)
+            created_any = True
+        elif idx == 1 and get_user_role(exists) != ROLE_ADMIN:
+            exists.role = ROLE_ADMIN
             created_any = True
         idx += 1
     if created_any:
@@ -1724,7 +1949,7 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
                 func.count(models.AuditEvent.id),
             )
             .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.id != 1)
+            .where(models.User.role == ROLE_CLIENT)
             .where(models.AuditEvent.action.in_([a for a in action_filter if a in ("update", "delete")]))
             .where(models.AuditEvent.admin_processed_at.is_(None))
             .group_by(models.User.id, models.User.login)
@@ -1740,7 +1965,7 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
                 func.count(models.AuditEvent.id),
             )
             .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.id != 1)
+            .where(models.User.role == ROLE_CLIENT)
             .where(models.AuditEvent.action == "create")
             .where(models.AuditEvent.admin_processed_at.is_(None))
             .group_by(models.User.id, models.User.login)
@@ -1755,7 +1980,7 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
                 func.count(models.AuditEvent.id),
             )
             .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.id != 1)
+            .where(models.User.role == ROLE_CLIENT)
             .where(models.AuditEvent.action == "blacklist_add")
             .where(models.AuditEvent.admin_processed_at.is_(None))
             .group_by(models.User.id, models.User.login)
@@ -1770,7 +1995,7 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
                 func.count(models.AuditEvent.id),
             )
             .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.id != 1)
+            .where(models.User.role == ROLE_CLIENT)
             .where(models.AuditEvent.action == "blacklist_delete")
             .where(models.AuditEvent.admin_processed_at.is_(None))
             .group_by(models.User.id, models.User.login)
@@ -1817,17 +2042,11 @@ def admin_clients_summary(
     """
     # Все пользователи-клиенты (исключаем админа id=1)
     users = db.execute(
-        select(models.User).where(models.User.id != 1)
+        select(models.User).where(models.User.role == ROLE_CLIENT)
     ).scalars().all()
+    user_row_map = {int(user.id): user for user in users}
     users_map: Dict[int, schemas.UserInfo] = {
-        u.id: schemas.UserInfo(
-            id=u.id,
-            login=u.login,
-            autoLimitControlEnabled=bool(getattr(u, "auto_limit_control_enabled", False)),
-            telegramNotificationsChatId=(getattr(u, "telegram_notifications_chat_id", None) or None),
-            telegramAutoPauseEnabled=bool(getattr(u, "telegram_auto_pause_enabled", False)),
-            uniqueProjectNamesEnabled=bool(getattr(u, "unique_project_names_enabled", False)),
-        )
+        u.id: _user_info_from_user(u)
         for u in users
     }
 
@@ -1840,6 +2059,14 @@ def admin_clients_summary(
         ).scalars().all()
         for p in profiles:
             profiles_map[p.user_id] = schemas.ClientProfileOut.from_orm(p)
+            if p.user_id in users_map:
+                users_map[p.user_id].name = p.name
+
+    owner_agent_ids = sorted({int(user.owner_agent_id) for user in users if getattr(user, "owner_agent_id", None) is not None})
+    owner_user_map: Dict[int, schemas.UserInfo] = {}
+    if owner_agent_ids:
+        owner_users = db.execute(select(models.User).where(models.User.id.in_(owner_agent_ids))).scalars().all()
+        owner_user_map = {int(owner_user.id): _user_info_from_user(owner_user) for owner_user in owner_users}
 
     # Статистика по проектам
     by_user: Dict[int, Dict[str, int]] = {uid: {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0} for uid in users_map.keys()}
@@ -1956,9 +2183,13 @@ def admin_clients_summary(
         used_total = int(stats["used_total"])
         used_period = int(stats["used_period"])
         remaining = manual_balance - used_total
+        user_row = user_row_map.get(int(uid))
+        client_owner_type, client_owner_agent_id = get_client_owner_type_and_id(user_row) if user_row else ("admin", None)
         item = schemas.AdminClientSummaryItem(
             user=info,
             profile=profiles_map.get(uid),
+            ownerType=client_owner_type,  # type: ignore[arg-type]
+            ownerUser=owner_user_map.get(int(client_owner_agent_id)) if client_owner_agent_id is not None else _get_user_info(db, 1),
             projectCount=int(stats["projects"]),
             totalLimit=int(stats["limit"]),
             usedTotal=used_total,
@@ -2328,7 +2559,7 @@ def can_activate_project_under_limit_control(
 def list_clients_with_auto_limit_control(db: Session) -> List[int]:
     rows = db.execute(
         select(models.User.id).where(
-            models.User.id != 1,
+            models.User.role == ROLE_CLIENT,
             models.User.auto_limit_control_enabled == True,  # noqa: E712
         )
     ).all()
@@ -2371,6 +2602,28 @@ def get_client_balance_summary(
     )
 
 
+def _add_balance_operation_row(
+    db: Session,
+    *,
+    user_id: int,
+    actor_user_id: int,
+    amount: int,
+    op_type: str,
+    comment: Optional[str],
+) -> models.ClientBalanceOperation:
+    row = models.ClientBalanceOperation(
+        client_id=int(user_id),
+        amount=int(amount),
+        op_type=str(op_type),
+        comment=comment,
+        created_by=int(actor_user_id),
+        created_at=now_msk(),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
 def create_client_balance_operation(
     db: Session,
     client_id: int,
@@ -2379,20 +2632,19 @@ def create_client_balance_operation(
     op_type: str,
     comment: Optional[str],
 ) -> schemas.BalanceOperationOut:
-    op = models.ClientBalanceOperation(
-        client_id=client_id,
+    op = _add_balance_operation_row(
+        db,
+        user_id=client_id,
+        actor_user_id=admin_id,
         amount=amount,
         op_type=op_type,
         comment=comment,
-        created_by=admin_id,
-        created_at=now_msk(),
     )
-    db.add(op)
     db.commit()
     db.refresh(op)
 
     creator = db.get(models.User, admin_id)
-    creator_info = schemas.UserInfo(id=creator.id, login=creator.login) if creator else schemas.UserInfo(id=admin_id, login="unknown")
+    creator_info = _user_info_from_user(creator) if creator else schemas.UserInfo(id=admin_id, login="unknown")
     return schemas.BalanceOperationOut(
         id=op.id,
         clientId=client_id,
@@ -2451,17 +2703,131 @@ def list_client_balance_operations(
     return schemas.ClientBalanceOpsListOut(items=items, total=total)
 
 
+def transfer_client_to_owner(
+    db: Session,
+    *,
+    client_id: int,
+    owner_type: str,
+    agent_id: Optional[int],
+    admin_user_id: int,
+) -> schemas.ClientOwnerTransferOut:
+    client = db.get(models.User, int(client_id))
+    if not client or not is_client_user(client):
+        raise ValueError("Клиент не найден.")
+
+    next_owner_type = "agent" if owner_type == "agent" else "admin"
+    next_agent = _ensure_agent_owner(db, int(agent_id) if next_owner_type == "agent" and agent_id is not None else None)
+    prev_owner_type, prev_agent_id = get_client_owner_type_and_id(client)
+    transferred_balance = int(get_client_remaining_numbers(db, int(client.id)))
+
+    if prev_owner_type == next_owner_type and int(prev_agent_id or 0) == int(getattr(next_agent, "id", 0) or 0):
+        owner_user = next_agent if next_agent is not None else db.get(models.User, 1)
+        return schemas.ClientOwnerTransferOut(
+            client=_get_user_info(db, int(client.id)) or schemas.UserInfo(id=int(client.id), login=client.login),
+            ownerType=next_owner_type,  # type: ignore[arg-type]
+            ownerUser=_user_info_from_user(owner_user) if owner_user else None,
+            transferredBalance=transferred_balance,
+        )
+
+    prev_agent = db.get(models.User, int(prev_agent_id)) if prev_agent_id is not None else None
+    if prev_agent is not None:
+        _add_balance_operation_row(
+            db,
+            user_id=int(prev_agent.id),
+            actor_user_id=int(admin_user_id),
+            amount=transferred_balance,
+            op_type="credit",
+            comment=f"Перенос клиента id={int(client.id)} от агента: возврат текущего остатка клиента",
+        )
+
+    if next_agent is not None:
+        _add_balance_operation_row(
+            db,
+            user_id=int(next_agent.id),
+            actor_user_id=int(admin_user_id),
+            amount=transferred_balance,
+            op_type="debit",
+            comment=f"Перенос клиента id={int(client.id)} агенту: принят текущий остаток клиента",
+        )
+
+    client.owner_agent_id = int(next_agent.id) if next_agent is not None else None
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+
+    owner_user = next_agent if next_agent is not None else db.get(models.User, 1)
+    return schemas.ClientOwnerTransferOut(
+        client=_get_user_info(db, int(client.id)) or schemas.UserInfo(id=int(client.id), login=client.login),
+        ownerType=next_owner_type,  # type: ignore[arg-type]
+        ownerUser=_user_info_from_user(owner_user) if owner_user else None,
+        transferredBalance=transferred_balance,
+    )
+
+
+def create_agent_credit_to_client_operation(
+    db: Session,
+    *,
+    agent_user_id: int,
+    client_id: int,
+    amount: int,
+    comment: Optional[str],
+) -> schemas.BalanceOperationOut:
+    agent = db.get(models.User, int(agent_user_id))
+    client = db.get(models.User, int(client_id))
+    if not agent or not is_agent_user(agent):
+        raise ValueError("Агент не найден.")
+    if user_is_disabled(agent):
+        raise ValueError("Агент отключён.")
+    if not client or not is_client_user(client):
+        raise ValueError("Клиент не найден.")
+    if int(getattr(client, "owner_agent_id", 0) or 0) != int(agent.id):
+        raise ValueError("Нет доступа к этому клиенту.")
+    available = get_user_manual_balance(db, int(agent.id))
+    if available < int(amount):
+        raise ValueError("Недостаточно доступного баланса агента для начисления.")
+
+    agent_comment = f"Начисление клиенту id={int(client.id)}"
+    if comment and comment.strip():
+        agent_comment += f": {comment.strip()}"
+    _add_balance_operation_row(
+        db,
+        user_id=int(agent.id),
+        actor_user_id=int(agent.id),
+        amount=int(amount),
+        op_type="debit",
+        comment=agent_comment,
+    )
+    client_op = _add_balance_operation_row(
+        db,
+        user_id=int(client.id),
+        actor_user_id=int(agent.id),
+        amount=int(amount),
+        op_type="credit",
+        comment=comment,
+    )
+    db.commit()
+    db.refresh(client_op)
+
+    return schemas.BalanceOperationOut(
+        id=int(client_op.id),
+        clientId=int(client.id),
+        amount=int(client_op.amount),
+        type=client_op.op_type,  # type: ignore[arg-type]
+        comment=client_op.comment,
+        createdAt=client_op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        createdBy=_user_info_from_user(agent),
+    )
+
+
 def _load_user_infos(db: Session, user_ids: List[int]) -> Dict[int, schemas.UserInfo]:
     unique_ids = sorted({int(user_id) for user_id in user_ids if user_id})
     if not unique_ids:
         return {}
     users = db.execute(select(models.User).where(models.User.id.in_(unique_ids))).scalars().all()
+    profiles = db.execute(select(models.ClientProfile).where(models.ClientProfile.user_id.in_(unique_ids))).scalars().all()
+    profile_name_map = {int(profile.user_id): profile.name for profile in profiles}
     return {
-        int(user.id): schemas.UserInfo(
-            id=int(user.id),
-            login=user.login,
-            name=getattr(user, "name", None),
-        )
+        int(user.id): _user_info_from_user(user, name=profile_name_map.get(int(user.id)))
         for user in users
     }
 
@@ -2677,19 +3043,29 @@ def admin_mark_batch_processed(db: Session, batch_id: str, admin_user_id: int) -
 # =================== ADMIN CRUD ======================
 # =====================================================
 
-def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
-    """Получить UserInfo по id."""
-    user = db.get(models.User, user_id)
-    if not user:
-        return None
+def _user_info_from_user(user: models.User, *, name: Optional[str] = None) -> schemas.UserInfo:
+    resolved_name = name if name is not None else (getattr(user, "display_name", None) or None)
     return schemas.UserInfo(
-        id=user.id,
+        id=int(user.id),
         login=user.login,
+        name=resolved_name,
+        role=get_user_role(user),  # type: ignore[arg-type]
+        ownerAgentId=(int(user.owner_agent_id) if getattr(user, "owner_agent_id", None) is not None else None),
+        isDisabled=bool(getattr(user, "is_disabled", False)),
         autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
         telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
         telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
         uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
     )
+
+
+def _get_user_info(db: Session, user_id: int) -> Optional[schemas.UserInfo]:
+    """Получить UserInfo по id."""
+    user = db.get(models.User, user_id)
+    if not user:
+        return None
+    profile = db.execute(select(models.ClientProfile).where(models.ClientProfile.user_id == int(user.id))).scalar_one_or_none()
+    return _user_info_from_user(user, name=(profile.name if profile else None))
 
 
 def _admin_project_to_out(
@@ -3019,6 +3395,7 @@ def admin_list_all_blacklist(
     limit: int,
     q: str | None = None,
     user_id_filter: int | None = None,
+    user_ids_filter: Optional[List[int]] = None,
 ) -> schemas.AdminBlacklistListOut:
     """
     Список всех записей черного списка (для админа).
@@ -3027,6 +3404,8 @@ def admin_list_all_blacklist(
 
     if user_id_filter is not None:
         stmt = stmt.where(models.BlacklistPhone.user_id == user_id_filter)
+    elif user_ids_filter:
+        stmt = stmt.where(models.BlacklistPhone.user_id.in_([int(user_id) for user_id in user_ids_filter]))
 
     if q:
         q = q.strip()
@@ -3127,15 +3506,5 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
     rows = db.execute(stmt).all()
     out: List[schemas.UserInfo] = []
     for user, name in rows:
-        out.append(
-            schemas.UserInfo(
-                id=user.id,
-                login=user.login,
-                name=name,
-                autoLimitControlEnabled=bool(getattr(user, "auto_limit_control_enabled", False)),
-                telegramNotificationsChatId=(getattr(user, "telegram_notifications_chat_id", None) or None),
-                telegramAutoPauseEnabled=bool(getattr(user, "telegram_auto_pause_enabled", False)),
-                uniqueProjectNamesEnabled=bool(getattr(user, "unique_project_names_enabled", False)),
-            )
-        )
+        out.append(_user_info_from_user(user, name=name))
     return out

@@ -13,6 +13,7 @@ ProjectStatus = Literal['Активен', 'На паузе', 'Удалён']
 DeliveryStatus = Literal['Активна', 'На модерации', 'Отключена']
 CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение']
 DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
+UserRole = Literal['admin', 'client', 'agent']
 
 
 class CreateProjectItem(BaseModel):
@@ -93,6 +94,9 @@ class UserInfo(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    role: Optional[UserRole] = None
+    ownerAgentId: Optional[int] = None
+    isDisabled: Optional[bool] = None
     autoLimitControlEnabled: Optional[bool] = None
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: Optional[bool] = None
@@ -104,6 +108,9 @@ class SelfProfileOut(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    role: UserRole = 'client'
+    ownerAgentId: Optional[int] = None
+    isDisabled: bool = False
     projectsMutationLocked: bool = False
     projectsMutationLockedAt: Optional[str] = None
     projectsMutationLockedBy: Optional[int] = None
@@ -135,6 +142,7 @@ class AdminClientCreateIn(BaseModel):
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: bool = False
     uniqueProjectNamesEnabled: bool = False
+    ownerAgentId: Optional[int] = None
 
 
 class AdminClientCreateOut(BaseModel):
@@ -155,6 +163,7 @@ class AdminClientUpdateIn(BaseModel):
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: Optional[bool] = None
     uniqueProjectNamesEnabled: Optional[bool] = None
+    ownerAgentId: Optional[int] = None
 
 
 class AdminClientUpdateOut(BaseModel):
@@ -404,6 +413,8 @@ class AdminClientChangesSummaryListOut(BaseModel):
 class AdminClientSummaryItem(BaseModel):
     user: UserInfo
     profile: Optional[ClientProfileOut] = None
+    ownerType: Literal['admin', 'agent'] = 'admin'
+    ownerUser: Optional[UserInfo] = None
     projectCount: int
     totalLimit: int
     usedTotal: int
@@ -435,6 +446,57 @@ class AdminClientSummaryTotals(BaseModel):
 class AdminClientsSummaryOut(BaseModel):
     items: List[AdminClientSummaryItem]
     totals: AdminClientSummaryTotals
+
+
+class AdminAgentCreateIn(BaseModel):
+    name: str
+    login: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AdminAgentUpdateIn(BaseModel):
+    name: Optional[str] = None
+    login: Optional[str] = None
+    password: Optional[str] = None
+    isDisabled: Optional[bool] = None
+
+
+class AdminAgentCreateOut(BaseModel):
+    user: UserInfo
+    login: str
+    password: str
+
+
+class AdminAgentUpdateOut(BaseModel):
+    user: UserInfo
+    login: str
+    password: Optional[str] = None
+
+
+class AdminAgentSummaryItem(BaseModel):
+    user: UserInfo
+    clientCount: int
+    credited: int
+    debited: int
+    balance: int
+    createdAt: str
+
+
+class AdminAgentsListOut(BaseModel):
+    items: List[AdminAgentSummaryItem]
+    total: int
+
+
+class ClientOwnerTransferIn(BaseModel):
+    ownerType: Literal['admin', 'agent']
+    agentId: Optional[int] = None
+
+
+class ClientOwnerTransferOut(BaseModel):
+    client: UserInfo
+    ownerType: Literal['admin', 'agent']
+    ownerUser: Optional[UserInfo] = None
+    transferredBalance: int
 
 
 # -------- Админ: сбор данных (пауза всех проектов клиента) --------

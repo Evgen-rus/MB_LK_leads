@@ -11,6 +11,7 @@ import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
 import AdminReports from './components/AdminReports';
 import AdminClientsScreen from './components/AdminClientsScreen';
+import AdminAgentsScreen from './components/AdminAgentsScreen';
 import AdminProviderLeadsImport from './components/AdminProviderLeadsImport';
 import AdminProjectsScreen, {
   type AdminProjectsFocus,
@@ -34,11 +35,12 @@ import {
   type ProjectUpdatePayload,
 } from './api';
 import Login from './components/Login';
-import { isJwtValid, isAdminFromToken } from './utils/jwt';
+import { getRoleFromToken, isJwtValid } from './utils/jwt';
 
 const STORAGE_VIEW_KEY = 'last_view';
 
 function App() {
+  type UserRole = 'admin' | 'agent' | 'client';
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [rows, setRows] = useState<Project[]>([]);
@@ -50,6 +52,7 @@ function App() {
     try {
       const saved = localStorage.getItem(STORAGE_VIEW_KEY);
       if (
+        saved === 'agents' ||
         saved === 'projects' ||
         saved === 'leads' ||
         saved === 'reports' ||
@@ -70,7 +73,10 @@ function App() {
     }
     return 'projects';
   });
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState<UserRole>('client');
+  const isAdmin = role === 'admin';
+  const isAgent = role === 'agent';
+  const isManager = isAdmin || isAgent;
   // Состояние только для админов: какой клиент выбран во вкладке «Проекты»
   const [adminProjectsClientId, setAdminProjectsClientId] = useState<number | null>(null);
   const [adminProjectsClientName, setAdminProjectsClientName] = useState<string | null>(null);
@@ -119,13 +125,14 @@ function App() {
             console.warn('Не удалось очистить токен', err);
           }
           setNeedLogin(true);
-          setIsAdmin(false);
+          setRole('client');
           if (window.location.pathname !== '/login') {
             window.history.replaceState(null, '', '/login');
           }
         } else {
+          const nextRole = getRoleFromToken(token) || 'client';
           setNeedLogin(false);
-          setIsAdmin(isAdminFromToken(token));
+          setRole(nextRole);
           if (window.location.pathname === '/login') {
             window.history.replaceState(null, '', '/');
           }
@@ -150,7 +157,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && (view === 'admin-clients' || view === 'admin-provider-import')) {
+    if (!isAdmin && view === 'agents') {
       setView('projects');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
@@ -159,7 +166,16 @@ function App() {
       }
       return;
     }
-    if (isAdmin && view === 'activity') {
+    if (!isManager && (view === 'admin-clients' || view === 'admin-provider-import')) {
+      setView('projects');
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (isManager && view === 'activity') {
       setView('admin-clients');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
@@ -170,6 +186,7 @@ function App() {
     }
     // если вдруг сохранённая вкладка невалидная, откатываем
     if (
+      view !== 'agents' &&
       view !== 'projects' &&
       view !== 'leads' &&
       view !== 'reports' &&
@@ -190,11 +207,12 @@ function App() {
         /* ignore */
       }
     }
-  }, [authChecked, needLogin, isAdmin, view]);
+  }, [authChecked, needLogin, isAdmin, isManager, view]);
 
   // Загрузка данных после подтверждённой авторизации
   useEffect(() => {
     if (!authChecked || needLogin) return;
+    if (isManager) return;
     (async () => {
       try {
         const data = await apiList({ limit: 10000 });
@@ -215,11 +233,11 @@ function App() {
         }
       }
     })();
-  }, [authChecked, needLogin]);
+  }, [authChecked, needLogin, isManager]);
 
   // Подтягиваем баланс клиента для шапки (только для клиентской роли)
   useEffect(() => {
-    if (!authChecked || needLogin || isAdmin) return;
+    if (!authChecked || needLogin || isManager) return;
     (async () => {
       try {
         const data = await fetchClientBalanceSummary();
@@ -228,11 +246,11 @@ function App() {
         console.error(e);
       }
     })();
-  }, [authChecked, needLogin, isAdmin]);
+  }, [authChecked, needLogin, isManager]);
 
   // Подтягиваем имя клиента для заголовка (только клиентская роль)
   useEffect(() => {
-    if (!authChecked || needLogin || isAdmin) {
+    if (!authChecked || needLogin || isManager) {
       setClientName(null);
       setProjectsMutationLocked(false);
       setProjectsMutationLockReason(null);
@@ -254,7 +272,7 @@ function App() {
         setUniqueProjectNamesEnabled(false);
       }
     })();
-  }, [authChecked, needLogin, isAdmin]);
+  }, [authChecked, needLogin, isManager]);
 
   // Пауза до завершения первичной проверки, чтобы избежать «мигания»
   if (!authChecked) {
@@ -266,12 +284,12 @@ function App() {
       // после успешного входа переключаем URL и загружаем данные
       window.history.replaceState(null, '', '/');
       const token = localStorage.getItem('access_token') || '';
-      const admin = isAdminFromToken(token);
-      setIsAdmin(admin);
+      const nextRole = getRoleFromToken(token) || 'client';
+      setRole(nextRole);
 
       // Требование: дефолтная вкладка выставляется ТОЛЬКО после ввода логина/пароля.
       // При обычном обновлении страницы остаёмся на last_view.
-      const nextView: ViewType = admin ? 'admin-clients' : 'leads';
+      const nextView: ViewType = nextRole === 'client' ? 'leads' : 'admin-clients';
       setView(nextView);
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, nextView);
@@ -305,13 +323,15 @@ function App() {
             // При переключении вкладок не трогаем выбранного клиента,
             // чтобы можно было вернуться обратно в «Проекты» с тем же контекстом.
           }}
-          isAdmin={isAdmin}
+          role={role}
         />
         <main className="main">
           <div className="page-title page-title--main">
             <div className="page-title__left">
               <span className="page-title__title">
-                {view === 'admin-clients'
+                {view === 'agents'
+                  ? 'Агенты'
+                  : view === 'admin-clients'
                   ? 'Клиенты'
                   : view === 'admin-provider-import'
                   ? 'Импорт лидов'
@@ -335,7 +355,7 @@ function App() {
                   ? 'Онбординг'
                   : 'Черный список'}
               </span>
-              {!isAdmin && clientName && (
+              {!isManager && clientName && (
                 <span
                   className="sub"
                   style={{
@@ -352,7 +372,7 @@ function App() {
               )}
             </div>
           <div className="page-title__right">
-            {!isAdmin && clientBalance && (
+            {!isManager && clientBalance && (
               <div className="page-title__balance" style={{ color: clientBalance.debt ? '#d23' : '#111' }}>
                 <div className="page-title__balance-value">
                   <span className="page-title__balance-label-full">Текущий остаток:</span>
@@ -362,7 +382,7 @@ function App() {
                 {clientBalance.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
               </div>
             )}
-            {!isAdmin && (
+            {!isManager && (
               <NotificationBell
                 onOpenFullHistory={() => {
                   setView('activity');
@@ -383,6 +403,7 @@ function App() {
               setClientName(null);
               setRows([]);
               setUniqueProjectNamesEnabled(false);
+              setRole('client');
               setNeedLogin(true);
               if (window.location.pathname !== '/login') {
                 window.history.replaceState(null, '', '/login');
@@ -390,8 +411,11 @@ function App() {
             }}>Выйти</button>
           </div>
           </div>
-          {view === 'admin-clients' && isAdmin ? (
+          {view === 'agents' && isAdmin ? (
+            <AdminAgentsScreen />
+          ) : view === 'admin-clients' && isManager ? (
             <AdminClientsScreen
+              managerRole={role}
               // Переход к проектам клиента из вкладки «Клиенты»
               onOpenClientProjects={(clientId, clientName) => {
                 setAdminProjectsClientId(clientId);
@@ -422,7 +446,7 @@ function App() {
           ) : view === 'admin-provider-import' && isAdmin ? (
             <AdminProviderLeadsImport />
           ) : view === 'projects' ? (
-            isAdmin ? (
+            isManager ? (
               <AdminProjectsScreen
                 initialClientId={adminProjectsClientId ?? undefined}
                 initialClientName={adminProjectsClientName ?? undefined}
@@ -487,11 +511,11 @@ function App() {
               />
             )
           ) : view === 'leads' ? (
-            isAdmin ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
+            isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
           ) : view === 'reports' ? (
-            isAdmin ? <AdminReports /> : <Reports />
+            isManager ? <AdminReports /> : <Reports />
         ) : view === 'activity' ? (
-          isAdmin ? (
+          isManager ? (
             <div className="table-card" style={{ padding: 16 }}>
               Раздел истории изменений доступен только в клиентском ЛК.
             </div>
@@ -499,8 +523,9 @@ function App() {
             <ClientActivityHistory />
           )
         ) : view === 'balance' ? (
-          isAdmin ? (
+          isManager ? (
             <AdminBalance
+              managerRole={role}
               initialClientId={adminBalanceClientId ?? undefined}
               initialModalType={adminBalanceModalType ?? undefined}
             />
@@ -520,7 +545,7 @@ function App() {
           ) : view === 'support' ? (
             <Support />
           ) : (
-            isAdmin ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
+            isManager ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
           )}
         </main>
       </div>

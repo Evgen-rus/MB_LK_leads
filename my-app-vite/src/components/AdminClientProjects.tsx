@@ -1,10 +1,9 @@
 // Экран «Проекты клиента» для админа.
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchAdminProjects, updateAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
-import { getValidTokenFromStorage, getUserIdFromToken } from '../utils/jwt';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
 
@@ -100,13 +99,10 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // id текущего админа из токена; нужен, чтобы разрешить редактирование только своих проектов
-  const adminUserId = useMemo(() => {
-    const token = getValidTokenFromStorage();
-    return getUserIdFromToken(token);
-  }, []);
-
-  const canEditProject = (project: AdminProject) => adminUserId != null && project.user?.id === adminUserId;
+  const canEditProject = (project: AdminProject) => {
+    void project;
+    return true;
+  };
 
   useEffect(() => {
     setOpenProjectMenuId(null);

@@ -19,6 +19,7 @@ import {
 import { preventNumberInputWheel } from '../utils/numberInput';
 
 type AdminBalanceProps = {
+  managerRole?: 'admin' | 'agent';
   initialClientId?: number | null;
   initialModalType?: 'credit' | 'debit' | 'tariff' | null;
 };
@@ -219,7 +220,8 @@ function TariffModal({ clientId, state, onClose, onDone }: TariffModalProps) {
   );
 }
 
-function AdminBalance({ initialClientId = null, initialModalType = null }: AdminBalanceProps) {
+function AdminBalance({ managerRole = 'admin', initialClientId = null, initialModalType = null }: AdminBalanceProps) {
+  const isAgentManager = managerRole === 'agent';
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(initialClientId ?? null);
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
@@ -267,11 +269,15 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
       setTariffModal({ mode: 'create' });
       return;
     }
+    if (initialModalType === 'debit' && isAgentManager) {
+      setModal(null);
+      return;
+    }
     if (initialModalType) {
       setTariffModal(null);
       setModal({ type: initialModalType });
     }
-  }, [initialClientId, initialModalType]);
+  }, [initialClientId, initialModalType, isAgentManager]);
 
   const hasClient = selectedClientId != null;
   const selectedTariff = useMemo(
@@ -416,9 +422,11 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                 <button className="btn btn--primary" type="button" onClick={() => setModal({ type: 'credit' })}>
                   Начислить номера
                 </button>
-                <button className="btn btn--secondary" type="button" onClick={() => setModal({ type: 'debit' })}>
-                  Списать номера
-                </button>
+                {!isAgentManager && (
+                  <button className="btn btn--secondary" type="button" onClick={() => setModal({ type: 'debit' })}>
+                    Списать номера
+                  </button>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>

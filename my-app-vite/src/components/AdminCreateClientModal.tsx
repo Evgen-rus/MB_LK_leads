@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createAdminClient, type AdminClientCreateResp } from '../api';
 
 type AdminCreateClientModalProps = {
+  managerRole?: 'admin' | 'agent';
   onClose: () => void;
   onCreated?: (resp: AdminClientCreateResp) => void;
 };
@@ -55,7 +56,8 @@ function copyToClipboard(text: string) {
   }
 }
 
-function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalProps) {
+function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: AdminCreateClientModalProps) {
+  const isAgentManager = managerRole === 'agent';
   const [name, setName] = useState('');
   const [inn, setInn] = useState('');
   const [phone, setPhone] = useState('');
@@ -223,28 +225,30 @@ function AdminCreateClientModal({ onClose, onCreated }: AdminCreateClientModalPr
               </span>
             </label>
           </div>
-          <div
-            style={{
-              display: 'grid',
-              gap: 8,
-              padding: 12,
-              border: '1px solid #eee',
-              borderRadius: 8,
-              background: '#fafbff',
-            }}
-          >
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={uniqueProjectNamesEnabled}
-                onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
-              />
-              <span>Уникальные имена новых проектов</span>
-            </label>
-            <span className="sub" style={{ color: '#666' }}>
-              Если включено, новые проекты клиента будут создаваться с маркером вида `B1_[MB54] Магнум`.
-            </span>
-          </div>
+          {!isAgentManager && (
+            <div
+              style={{
+                display: 'grid',
+                gap: 8,
+                padding: 12,
+                border: '1px solid #eee',
+                borderRadius: 8,
+                background: '#fafbff',
+              }}
+            >
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={uniqueProjectNamesEnabled}
+                  onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
+                />
+                <span>Уникальные имена новых проектов</span>
+              </label>
+              <span className="sub" style={{ color: '#666' }}>
+                Если включено, новые проекты клиента будут создаваться с маркером вида `B1_[MB54] Магнум`.
+              </span>
+            </div>
+          )}
 
           {error && (
             <div className="sub" style={{ color: '#d00' }}>

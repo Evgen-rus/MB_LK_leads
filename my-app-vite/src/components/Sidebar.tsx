@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 
 export type ViewType =
+  | 'agents'
   | 'projects'
   | 'leads'
   | 'reports'
@@ -18,11 +19,13 @@ export type ViewType =
 type SidebarProps = {
   active: ViewType;
   onNavigate: (v: ViewType) => void;
-  isAdmin?: boolean;
+  role?: 'admin' | 'agent' | 'client';
 };
 
-function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
+function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const isAdmin = role === 'admin';
+  const isAgent = role === 'agent';
 
   // Автоколлапс на узких экранах
   useEffect(() => {
@@ -66,6 +69,17 @@ function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
                 </span>
                 <span className="nav-label">Клиенты</span>
               </li>
+              <li className={active === 'agents' ? 'active' : ''} onClick={() => onNavigate('agents')}>
+                <span className="nav-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Z" />
+                    <path d="M4 21a8 8 0 0 1 16 0" />
+                    <path d="M19 8h4" />
+                    <path d="M21 6v4" />
+                  </svg>
+                </span>
+                <span className="nav-label">Агенты</span>
+              </li>
               <li className={active === 'admin-provider-import' ? 'active' : ''} onClick={() => onNavigate('admin-provider-import')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -75,6 +89,24 @@ function Sidebar({ active, onNavigate, isAdmin = false }: SidebarProps) {
                   </svg>
                 </span>
                 <span className="nav-label">Импорт лидов</span>
+              </li>
+            </ul>
+          </>
+        )}
+        {isAgent && (
+          <>
+            <div className="nav-section">Управление</div>
+            <ul>
+              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => onNavigate('admin-clients')}>
+                <span className="nav-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </span>
+                <span className="nav-label">Клиенты</span>
               </li>
             </ul>
           </>

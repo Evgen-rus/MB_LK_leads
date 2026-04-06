@@ -406,6 +406,9 @@ export type MeResponse = {
   id: number;
   login: string;
   name?: string | null;
+  role: 'admin' | 'client' | 'agent';
+  ownerAgentId?: number | null;
+  isDisabled: boolean;
   projectsMutationLocked: boolean;
   projectsMutationLockedAt?: string | null;
   projectsMutationLockedBy?: number | null;
@@ -639,6 +642,9 @@ export type UserInfo = {
   id: number;
   login: string;
   name?: string | null;
+  role?: 'admin' | 'client' | 'agent' | null;
+  ownerAgentId?: number | null;
+  isDisabled?: boolean | null;
   autoLimitControlEnabled?: boolean | null;
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled?: boolean | null;
@@ -707,8 +713,11 @@ export type AdminClientCollectionActionResp = {
   errors: string[];
 };
 
-export async function fetchAdminUsers(): Promise<UserInfo[]> {
-  return http<UserInfo[]>('/admin/users');
+export async function fetchAdminUsers(params?: { includeAgents?: boolean }): Promise<UserInfo[]> {
+  const q = new URLSearchParams();
+  if (params?.includeAgents) q.set('includeAgents', 'true');
+  const qs = q.toString();
+  return http<UserInfo[]>(qs ? `/admin/users?${qs}` : '/admin/users');
 }
 
 export async function fetchAdminProjects(params?: {
@@ -974,6 +983,8 @@ export async function fetchAdminClientChangesSummary(): Promise<AdminClientChang
 export type AdminClientSummaryItem = {
   user: UserInfo;
   profile?: ClientProfile | null;
+  ownerType: 'admin' | 'agent';
+  ownerUser?: UserInfo | null;
   projectCount: number;
   totalLimit: number;
   usedTotal: number;
@@ -1013,6 +1024,7 @@ export type AdminClientCreatePayload = {
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
   uniqueProjectNamesEnabled?: boolean;
+  ownerAgentId?: number | null;
 };
 
 export type AdminClientCreateResp = {
@@ -1033,6 +1045,7 @@ export type AdminClientUpdatePayload = {
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
   uniqueProjectNamesEnabled?: boolean;
+  ownerAgentId?: number | null;
 };
 
 export type AdminClientUpdateResp = {
@@ -1056,6 +1069,80 @@ export async function createAdminClient(payload: AdminClientCreatePayload): Prom
 
 export async function updateAdminClient(clientId: number, payload: AdminClientUpdatePayload): Promise<AdminClientUpdateResp> {
   return http<AdminClientUpdateResp>(`/admin/clients/${clientId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export type ClientOwnerTransferResp = {
+  client: UserInfo;
+  ownerType: 'admin' | 'agent';
+  ownerUser?: UserInfo | null;
+  transferredBalance: number;
+};
+
+export async function transferAdminClientOwner(
+  clientId: number,
+  payload: { ownerType: 'admin' | 'agent'; agentId?: number | null },
+): Promise<ClientOwnerTransferResp> {
+  return http<ClientOwnerTransferResp>(`/admin/clients/${clientId}/owner`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export type AdminAgentSummaryItem = {
+  user: UserInfo;
+  clientCount: number;
+  credited: number;
+  debited: number;
+  balance: number;
+  createdAt: string;
+};
+
+export type AdminAgentsListResp = {
+  items: AdminAgentSummaryItem[];
+  total: number;
+};
+
+export type AdminAgentCreatePayload = {
+  name: string;
+  login?: string;
+  password?: string;
+};
+
+export type AdminAgentCreateResp = {
+  user: UserInfo;
+  login: string;
+  password: string;
+};
+
+export type AdminAgentUpdatePayload = {
+  name?: string;
+  login?: string;
+  password?: string;
+  isDisabled?: boolean;
+};
+
+export type AdminAgentUpdateResp = {
+  user: UserInfo;
+  login: string;
+  password?: string | null;
+};
+
+export async function fetchAdminAgents(): Promise<AdminAgentsListResp> {
+  return http<AdminAgentsListResp>('/admin/agents');
+}
+
+export async function createAdminAgent(payload: AdminAgentCreatePayload): Promise<AdminAgentCreateResp> {
+  return http<AdminAgentCreateResp>('/admin/agents', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminAgent(agentId: number, payload: AdminAgentUpdatePayload): Promise<AdminAgentUpdateResp> {
+  return http<AdminAgentUpdateResp>(`/admin/agents/${agentId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
@@ -1143,6 +1230,40 @@ export async function createAdminClientBalanceOp(
   payload: { amount: number; type: BalanceOpType; comment?: string },
 ): Promise<BalanceOperation> {
   return http<BalanceOperation>(`/admin/clients/${clientId}/balance/ops`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminAgentBalanceSummary(
+  agentId: number,
+  params?: { fromDate?: string; toDate?: string },
+): Promise<ClientBalanceSummary> {
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  const suffix = q.toString();
+  return http<ClientBalanceSummary>(suffix ? `/admin/agents/${agentId}/balance?${suffix}` : `/admin/agents/${agentId}/balance`);
+}
+
+export async function fetchAdminAgentBalanceOps(
+  agentId: number,
+  params?: { fromDate?: string; toDate?: string; offset?: number; limit?: number },
+): Promise<ClientBalanceOpsList> {
+  const q = new URLSearchParams();
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientBalanceOpsList>(suffix ? `/admin/agents/${agentId}/balance/ops?${suffix}` : `/admin/agents/${agentId}/balance/ops`);
+}
+
+export async function createAdminAgentBalanceOp(
+  agentId: number,
+  payload: { amount: number; type: BalanceOpType; comment?: string },
+): Promise<BalanceOperation> {
+  return http<BalanceOperation>(`/admin/agents/${agentId}/balance/ops`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
