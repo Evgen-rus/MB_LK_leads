@@ -2393,6 +2393,8 @@ def admin_update_agent(
         if not existing_agent or not crud.is_agent_user(existing_agent):
             raise HTTPException(status_code=404, detail="Agent not found")
         was_disabled = bool(getattr(existing_agent, "is_disabled", False))
+        agent_disable_lock_reason = "Агент отключён администратором"
+        owned_client_ids = crud.get_accessible_client_ids_for_manager(db_sess, existing_agent)
         result = crud.admin_update_agent(
             db_sess,
             agent_id=agent_id,
@@ -2402,12 +2404,27 @@ def admin_update_agent(
             is_disabled=payload.isDisabled,
         )
         if payload.isDisabled is True and not was_disabled:
-            owned_client_ids = crud.get_accessible_client_ids_for_manager(db_sess, existing_agent)
             for client_id in owned_client_ids:
                 _pause_and_lock_client_projects_by_admin(
                     client_id=int(client_id),
                     admin_user_id=int(current_admin.id),
-                    reason="Агент отключён администратором",
+                    reason=agent_disable_lock_reason,
+                )
+        if payload.isDisabled is False and was_disabled:
+            for client_id in owned_client_ids:
+                client_user = db_sess.get(models.User, int(client_id))
+                if not client_user:
+                    continue
+                if not bool(getattr(client_user, "projects_mutation_locked", False)):
+                    continue
+                if (getattr(client_user, "projects_mutation_lock_reason", None) or None) != agent_disable_lock_reason:
+                    continue
+                crud.admin_set_client_projects_mutation_lock(
+                    db_sess,
+                    client_id=int(client_id),
+                    locked=False,
+                    admin_user_id=int(current_admin.id),
+                    reason=None,
                 )
         return result
     except ValueError as exc:
