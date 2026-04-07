@@ -921,6 +921,70 @@
 .summary-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; padding: 12px; min-height: 72px; display: flex; flex-direction: column; justify-content: space-between; }
 .summary-card .value { font-size: 1.2rem; font-weight: 700; }
 .summary-card .value--negative { color: #d83a3a; }
+.agent-row__actions,
+.agent-accordion__actions,
+.agent-client-row__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.agent-accordion__cell {
+  padding: 0;
+}
+.agent-accordion__body {
+  padding: 16px;
+  background: #fbfcff;
+  border-top: 1px solid #edf0f7;
+}
+.agent-accordion__content {
+  display: grid;
+  gap: 16px;
+}
+.agent-accordion__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.agent-accordion__identity {
+  min-width: 0;
+}
+.agent-accordion__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.agent-accordion__panel {
+  padding: 12px;
+}
+.agent-client-row__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-accordion__client-summary {
+  display: grid;
+  gap: 16px;
+}
+.agent-accordion__owner-actions {
+  align-items: stretch;
+}
+.agent-accordion__owner-select {
+  min-width: 240px;
+}
+.agent-accordion__placeholder {
+  padding: 20px;
+}
+.agent-accordion__placeholder > :first-child {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.agent-accordion__placeholder-text {
+  margin-top: 8px;
+}
+.agent-accordion__ops-card {
+  min-width: 0;
+  padding: 0 8px 8px;
+}
 .btn__meta { display: inline-flex; gap: 6px; margin-left: 8px; align-items: center; }
 .provider-import-controls {
   display: flex;
@@ -1066,6 +1130,50 @@
   .filters select { flex: 1 1 calc(50% - 4px); margin-right: 0; }
   .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   .date-range { width: 100%; justify-content: space-between; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .agents-table {
+    min-width: 760px;
+  }
+  .agents-table th:nth-child(3),
+  .agents-table td:nth-child(3),
+  .agents-table th:nth-child(5),
+  .agents-table td:nth-child(5) {
+    display: none;
+  }
+  .agent-row__actions,
+  .agent-accordion__actions,
+  .agent-client-row__actions {
+    width: 100%;
+  }
+  .agent-row__actions .btn,
+  .agent-accordion__actions .btn,
+  .agent-client-row__actions .btn {
+    flex: 1 1 100%;
+  }
+  .agent-accordion__body {
+    padding: 12px;
+  }
+  .agent-accordion__content {
+    gap: 12px;
+  }
+  .agent-accordion__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .agent-accordion__title {
+    font-size: 1rem;
+  }
+  .agent-accordion__panel {
+    padding: 8px;
+    min-width: 0;
+  }
+  .agent-accordion__owner-select {
+    min-width: 0;
+    width: 100%;
+  }
+  .agent-accordion__ops-card {
+    padding: 0;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 420px) {

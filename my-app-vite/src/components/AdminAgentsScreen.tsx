@@ -399,7 +399,7 @@ function AdminAgentsScreen({
         </div>
         {error && <div className="sub" style={{ color: '#d00', padding: '0 16px 12px' }}>{error}</div>}
         <div className="table-scroll">
-          <table className="table">
+          <table className="table agents-table">
             <thead>
               <tr>
                 <th>Агент</th>
@@ -438,7 +438,7 @@ function AdminAgentsScreen({
                       <td>{agent.clientCount}</td>
                       <td className="muted"><DateTimeCompact value={agent.createdAt} /></td>
                       <td>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div className="agent-row__actions">
                           <button
                             type="button"
                             className="btn btn--secondary"
@@ -464,15 +464,15 @@ function AdminAgentsScreen({
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={6} style={{ padding: 0 }}>
-                          <div style={{ padding: 16, background: '#fbfcff', borderTop: '1px solid #edf0f7' }}>
-                            <div style={{ display: 'grid', gap: 16 }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                                <div>
-                                  <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{agent.user.name || agent.user.login}</div>
+                        <td colSpan={6} className="agent-accordion__cell">
+                          <div className="agent-accordion__body">
+                            <div className="agent-accordion__content">
+                              <div className="agent-accordion__header">
+                                <div className="agent-accordion__identity">
+                                  <div className="agent-accordion__title">{agent.user.name || agent.user.login}</div>
                                   <div className="sub">{agent.user.login} (id: {agent.user.id})</div>
                                 </div>
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <div className="agent-accordion__actions">
                                   <button
                                     type="button"
                                     className="btn btn--primary"
@@ -483,7 +483,7 @@ function AdminAgentsScreen({
                                 </div>
                               </div>
 
-                              <div className="table-card" style={{ padding: 12 }}>
+                              <div className="table-card agent-accordion__panel">
                                 <div className="table-toolbar toolbar-split">
                                   <div className="filters toolbar-left">
                                     <DateRangeFilter
@@ -557,7 +557,7 @@ function AdminAgentsScreen({
                                               {client.projectCount === 0 ? (
                                                 <span className="badge badge--info">Нет проектов</span>
                                               ) : (
-                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                <span className="agent-client-row__status">
                                                   <span
                                                     style={{
                                                       width: 10,
@@ -577,7 +577,7 @@ function AdminAgentsScreen({
                                             </td>
                                             <td>{client.totalVolume}</td>
                                             <td>
-                                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                              <div className="agent-client-row__actions">
                                                 <button
                                                   className="btn btn--secondary"
                                                   type="button"
@@ -630,7 +630,7 @@ function AdminAgentsScreen({
                               </div>
 
                               {selectedClient ? (
-                                <div className="table-card" style={{ display: 'grid', gap: 16 }}>
+                                <div className="table-card client-summary-card agent-accordion__client-summary">
                                   <div className="client-summary">
                                     <div className="client-summary__header">
                                       <div>
@@ -696,11 +696,11 @@ function AdminAgentsScreen({
 
                                         <section className="client-summary__section">
                                           <div className="client-summary__section-title">Владелец</div>
-                                          <div className="client-summary__section-actions" style={{ alignItems: 'stretch' }}>
+                                          <div className="client-summary__section-actions agent-accordion__owner-actions">
                                             <div className="sub">
                                               Текущий владелец: <b>{formatOwnerLabel(selectedClient)}</b>
                                             </div>
-                                            <select value={ownerTarget} onChange={(e) => setOwnerTarget(e.target.value)} style={{ minWidth: 240 }}>
+                                            <select className="agent-accordion__owner-select" value={ownerTarget} onChange={(e) => setOwnerTarget(e.target.value)}>
                                               <option value="admin">Админ</option>
                                               {agents
                                                 .filter((item) => !item.user.isDisabled || ownerTarget === `agent:${item.user.id}`)
@@ -750,15 +750,15 @@ function AdminAgentsScreen({
                                   </div>
                                 </div>
                               ) : (
-                                <div className="table-card" style={{ padding: 20 }}>
+                                <div className="table-card agent-accordion__placeholder">
                                   <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>Клиент не выбран</div>
-                                  <div className="sub" style={{ marginTop: 8 }}>
+                                  <div className="sub agent-accordion__placeholder-text">
                                     Выберите клиента в таблице выше, чтобы открыть detail-режим.
                                   </div>
                                 </div>
                               )}
 
-                              <div className="table-card" style={{ minWidth: 760, padding: '0 8px 8px' }}>
+                              <div className="table-card agent-accordion__ops-card">
                                 <div className="table-toolbar">
                                   <div className="filters">
                                     <span className="sub">История операций по балансу агента</span>
