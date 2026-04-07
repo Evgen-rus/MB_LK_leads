@@ -107,7 +107,7 @@ function ClientBalance() {
                 <div>{summary.credited}</div>
               </div>
               <div>
-                <div className="sub">Списано вручную</div>
+                <div className="sub">Списано всего</div>
                 <div>{summary.debited}</div>
               </div>
               <div>

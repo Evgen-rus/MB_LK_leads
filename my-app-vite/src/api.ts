@@ -1097,6 +1097,7 @@ export type AdminAgentSummaryItem = {
   credited: number;
   debited: number;
   balance: number;
+  tariffAmount?: number | null;
   createdAt: string;
 };
 
@@ -1264,6 +1265,27 @@ export async function createAdminAgentBalanceOp(
   payload: { amount: number; type: BalanceOpType; comment?: string },
 ): Promise<BalanceOperation> {
   return http<BalanceOperation>(`/admin/agents/${agentId}/balance/ops`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminAgentTariffs(
+  agentId: number,
+  params?: { offset?: number; limit?: number },
+): Promise<ClientTariffList> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const suffix = q.toString();
+  return http<ClientTariffList>(suffix ? `/admin/agents/${agentId}/tariffs?${suffix}` : `/admin/agents/${agentId}/tariffs`);
+}
+
+export async function createAdminAgentTariff(
+  agentId: number,
+  payload: { amount: number; comment?: string },
+): Promise<ClientTariff> {
+  return http<ClientTariff>(`/admin/agents/${agentId}/tariffs`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

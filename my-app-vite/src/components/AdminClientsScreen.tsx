@@ -38,7 +38,7 @@ export type AdminClientsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
   onOpenClientChanges?: (clientId: number, clientName: string) => void;
   onOpenClientBlacklistChanges?: (clientId: number, clientName: string) => void;
-  onOpenClientBalance?: (clientId: number, clientName: string, action: 'credit' | 'debit' | 'tariff') => void;
+  onOpenClientBalance?: (clientId: number, clientName: string, action: 'tariff') => void;
 };
 
 type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
@@ -875,25 +875,9 @@ function AdminClientsScreen({
                     <button
                       type="button"
                       className="btn btn--primary"
-                      onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'credit')}
-                    >
-                      Начислить номера
-                    </button>
-                    {!isAgentManager && (
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'debit')}
-                      >
-                        Списать номера
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn--secondary"
                       onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
                     >
-                      Добавить тариф
+                      Управление тарифами
                     </button>
                   </div>
                 </section>

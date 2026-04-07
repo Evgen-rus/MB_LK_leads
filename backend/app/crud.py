@@ -91,7 +91,14 @@ def manager_can_access_tariff(db: Session, manager_user: models.User, tariff_id:
     tariff = db.get(models.ClientTariff, int(tariff_id))
     if not tariff:
         return False
-    return manager_can_access_client(db, manager_user, int(tariff.client_id))
+    owner = db.get(models.User, int(tariff.client_id))
+    if not owner:
+        return False
+    if is_admin_user(manager_user):
+        return is_client_user(owner) or is_agent_user(owner)
+    if is_agent_user(manager_user):
+        return is_client_user(owner) and int(getattr(owner, "owner_agent_id", 0) or 0) == int(manager_user.id)
+    return False
 
 
 def get_client_owner_type_and_id(client_user: models.User) -> tuple[str, Optional[int]]:
@@ -115,6 +122,97 @@ def get_user_manual_balance(db: Session, user_id: int) -> int:
         )
     ).scalar_one()
     return int(credits or 0) - int(debits or 0)
+
+
+def _ensure_tariff_target_user(db: Session, user_id: int) -> models.User:
+    user = db.get(models.User, int(user_id))
+    if not user or not (is_client_user(user) or is_agent_user(user)):
+        raise ValueError("Тариф можно назначать только клиенту или агенту.")
+    return user
+
+
+def _append_balance_comment(base: str, comment: Optional[str]) -> str:
+    extra = (comment or "").strip()
+    if not extra:
+        return base
+    return f"{base}: {extra}"
+
+
+def _build_target_tariff_balance_comment(target_user: models.User, action: str, tariff_id: int, comment: Optional[str]) -> str:
+    subject = "Тариф агента" if is_agent_user(target_user) else "Тариф клиента"
+    action_map = {
+        "create": "Создание тарифа",
+        "credit": "Добавление к тарифу",
+        "debit": "Списание из тарифа",
+    }
+    base = f"{subject} #{int(tariff_id)}: {action_map.get(action, 'Изменение тарифа')}"
+    return _append_balance_comment(base, comment)
+
+
+def _build_owner_tariff_balance_comment(client_id: int, action: str, tariff_id: int, comment: Optional[str]) -> str:
+    base = (
+        f"Тариф клиента id={int(client_id)} #{int(tariff_id)}: начисление клиенту"
+        if action in ("create", "credit")
+        else f"Тариф клиента id={int(client_id)} #{int(tariff_id)}: возврат из тарифа клиента"
+    )
+    return _append_balance_comment(base, comment)
+
+
+def _get_tariff_current_amount(db: Session, tariff: models.ClientTariff) -> int:
+    adjustment = _get_tariff_adjustment_map(db, [int(tariff.id)]).get(int(tariff.id), {"credit": 0, "debit": 0})
+    return int(tariff.base_amount or 0) + int(adjustment.get("credit", 0)) - int(adjustment.get("debit", 0))
+
+
+def _apply_tariff_balance_effect(
+    db: Session,
+    *,
+    target_user: models.User,
+    actor_user_id: int,
+    amount: int,
+    op_type: str,
+    tariff_id: int,
+    action: str,
+    comment: Optional[str],
+) -> None:
+    normalized_amount = int(amount or 0)
+    if normalized_amount <= 0:
+        raise ValueError("Сумма тарифа должна быть положительной.")
+
+    if is_client_user(target_user):
+        owner_agent_id = int(getattr(target_user, "owner_agent_id", 0) or 0)
+        if owner_agent_id and op_type == "credit":
+            available = get_user_manual_balance(db, owner_agent_id)
+            if available < normalized_amount:
+                raise ValueError("Недостаточно доступного баланса агента для начисления по тарифу.")
+        if owner_agent_id:
+            owner_op_type = "debit" if op_type == "credit" else "credit"
+            _add_balance_operation_row(
+                db,
+                user_id=owner_agent_id,
+                actor_user_id=int(actor_user_id),
+                amount=normalized_amount,
+                op_type=owner_op_type,
+                comment=_build_owner_tariff_balance_comment(
+                    client_id=int(target_user.id),
+                    action=action,
+                    tariff_id=int(tariff_id),
+                    comment=comment,
+                ),
+            )
+
+    _add_balance_operation_row(
+        db,
+        user_id=int(target_user.id),
+        actor_user_id=int(actor_user_id),
+        amount=normalized_amount,
+        op_type=op_type,
+        comment=_build_target_tariff_balance_comment(
+            target_user=target_user,
+            action=action,
+            tariff_id=int(tariff_id),
+            comment=comment,
+        ),
+    )
 
 
 def _join_days(days: Iterable[str]) -> str:
@@ -1875,10 +1973,44 @@ def list_agents_summary(db: Session) -> schemas.AdminAgentsListOut:
             balance_rows.setdefault(aid, {"credit": 0, "debit": 0})
             balance_rows[aid][str(op_type)] = int(total_amt or 0)
 
+    last_tariff_by_agent: Dict[int, models.ClientTariff] = {}
+    tariff_ops_map: Dict[int, Dict[str, int]] = {}
+    if agent_ids:
+        last_tariff_rows = db.execute(
+            select(models.ClientTariff)
+            .where(models.ClientTariff.client_id.in_(agent_ids))
+            .order_by(models.ClientTariff.client_id.asc(), models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+        ).scalars().all()
+        for tariff in last_tariff_rows:
+            agent_id = int(tariff.client_id)
+            if agent_id not in last_tariff_by_agent:
+                last_tariff_by_agent[agent_id] = tariff
+        last_tariff_ids = [int(tariff.id) for tariff in last_tariff_by_agent.values()]
+        if last_tariff_ids:
+            tariff_rows = db.execute(
+                select(
+                    models.ClientTariffOperation.tariff_id,
+                    models.ClientTariffOperation.op_type,
+                    func.coalesce(func.sum(models.ClientTariffOperation.amount), 0),
+                )
+                .where(models.ClientTariffOperation.tariff_id.in_(last_tariff_ids))
+                .group_by(models.ClientTariffOperation.tariff_id, models.ClientTariffOperation.op_type)
+            ).all()
+            for tariff_id, op_type, total_amt in tariff_rows:
+                tid = int(tariff_id)
+                tariff_ops_map.setdefault(tid, {"credit": 0, "debit": 0})
+                tariff_ops_map[tid][str(op_type)] = int(total_amt or 0)
+
     items = []
     for agent in agents:
         credited = balance_rows.get(int(agent.id), {}).get("credit", 0)
         debited = balance_rows.get(int(agent.id), {}).get("debit", 0)
+        tariff_amount: Optional[int] = None
+        last_tariff = last_tariff_by_agent.get(int(agent.id))
+        if last_tariff is not None:
+            tariff_credit = tariff_ops_map.get(int(last_tariff.id), {}).get("credit", 0)
+            tariff_debit = tariff_ops_map.get(int(last_tariff.id), {}).get("debit", 0)
+            tariff_amount = int(last_tariff.base_amount or 0) + tariff_credit - tariff_debit
         items.append(
             schemas.AdminAgentSummaryItem(
                 user=_user_info_from_user(agent),
@@ -1886,6 +2018,7 @@ def list_agents_summary(db: Session) -> schemas.AdminAgentsListOut:
                 credited=credited,
                 debited=debited,
                 balance=credited - debited,
+                tariffAmount=tariff_amount,
                 createdAt=agent.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             )
         )
@@ -2907,6 +3040,7 @@ def create_client_tariff(
     amount: int,
     comment: Optional[str],
 ) -> schemas.ClientTariffOut:
+    target_user = _ensure_tariff_target_user(db, int(client_id))
     tariff = models.ClientTariff(
         client_id=client_id,
         base_amount=amount,
@@ -2916,6 +3050,17 @@ def create_client_tariff(
         updated_at=now_msk(),
     )
     db.add(tariff)
+    db.flush()
+    _apply_tariff_balance_effect(
+        db,
+        target_user=target_user,
+        actor_user_id=int(admin_id),
+        amount=int(amount),
+        op_type="credit",
+        tariff_id=int(tariff.id),
+        action="create",
+        comment=comment,
+    )
     db.commit()
     db.refresh(tariff)
     creator = _load_user_infos(db, [admin_id]).get(admin_id) or schemas.UserInfo(id=admin_id, login="unknown")
@@ -2945,6 +3090,11 @@ def create_client_tariff_operation(
     tariff = db.get(models.ClientTariff, tariff_id)
     if not tariff:
         raise ValueError("Tariff not found")
+    target_user = _ensure_tariff_target_user(db, int(tariff.client_id))
+    if op_type == "debit":
+        current_amount = _get_tariff_current_amount(db, tariff)
+        if current_amount < int(amount):
+            raise ValueError("Недостаточно объёма в тарифе для списания.")
     op = models.ClientTariffOperation(
         tariff_id=tariff_id,
         amount=amount,
@@ -2954,6 +3104,17 @@ def create_client_tariff_operation(
         created_at=now_msk(),
     )
     db.add(op)
+    db.flush()
+    _apply_tariff_balance_effect(
+        db,
+        target_user=target_user,
+        actor_user_id=int(admin_id),
+        amount=int(amount),
+        op_type=op_type,
+        tariff_id=int(tariff.id),
+        action=op_type,
+        comment=comment,
+    )
     tariff.updated_at = now_msk()
     db.add(tariff)
     db.commit()

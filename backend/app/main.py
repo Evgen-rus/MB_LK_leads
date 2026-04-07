@@ -2479,21 +2479,52 @@ def admin_create_agent_balance_op(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
+    raise HTTPException(status_code=410, detail="Прямые операции баланса агента отключены. Используйте тарифы агента.")
+
+
+@app.get("/admin/agents/{agent_id}/tariffs", response_model=schemas.ClientTariffListOut)
+def admin_agent_tariffs(
+    agent_id: int,
+    offset: int = 0,
+    limit: int = 50,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    agent = db_sess.get(models.User, int(agent_id))
+    if not agent or not crud.is_agent_user(agent):
+        raise HTTPException(status_code=404, detail="Agent not found")
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+    return crud.list_client_tariffs(
+        db_sess,
+        client_id=agent_id,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@app.post("/admin/agents/{agent_id}/tariffs", response_model=schemas.ClientTariffOut)
+def admin_create_agent_tariff(
+    agent_id: int,
+    payload: schemas.ClientTariffCreateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
     agent = db_sess.get(models.User, int(agent_id))
     if not agent or not crud.is_agent_user(agent):
         raise HTTPException(status_code=404, detail="Agent not found")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
-    if payload.type not in ("credit", "debit"):
-        raise HTTPException(status_code=400, detail="type must be credit or debit")
-    return crud.create_client_balance_operation(
-        db_sess,
-        client_id=agent_id,
-        admin_id=current_admin.id,
-        amount=payload.amount,
-        op_type=payload.type,
-        comment=payload.comment,
-    )
+    try:
+        return crud.create_client_tariff(
+            db_sess,
+            client_id=agent_id,
+            admin_id=current_admin.id,
+            amount=payload.amount,
+            comment=payload.comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/admin/clients/{client_id}/owner", response_model=schemas.ClientOwnerTransferOut)
@@ -3482,13 +3513,18 @@ def admin_create_client_tariff(
     _ensure_manager_client_access(db_sess, current_manager, client_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
-    return crud.create_client_tariff(
-        db_sess,
-        client_id=client_id,
-        admin_id=current_manager.id,
-        amount=payload.amount,
-        comment=payload.comment,
-    )
+    try:
+        tariff = crud.create_client_tariff(
+            db_sess,
+            client_id=client_id,
+            admin_id=current_manager.id,
+            amount=payload.amount,
+            comment=payload.comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _run_limit_control_for_client(db_sess, client_id=client_id, trigger="tariff_create")
+    return tariff
 
 
 @app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
@@ -3526,7 +3562,7 @@ def admin_create_client_tariff_operation(
     current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
+    tariff = _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     if payload.type not in ("credit", "debit"):
@@ -3535,7 +3571,7 @@ def admin_create_client_tariff_operation(
     if not comment:
         raise HTTPException(status_code=400, detail="comment is required")
     try:
-        return crud.create_client_tariff_operation(
+        result = crud.create_client_tariff_operation(
             db_sess,
             tariff_id=tariff_id,
             admin_id=current_manager.id,
@@ -3543,8 +3579,15 @@ def admin_create_client_tariff_operation(
             op_type=payload.type,
             comment=comment,
         )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Tariff not found")
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Tariff not found":
+            raise HTTPException(status_code=404, detail=message)
+        raise HTTPException(status_code=400, detail=message)
+    target_user = db_sess.get(models.User, int(tariff.clientId))
+    if target_user and crud.is_client_user(target_user):
+        _run_limit_control_for_client(db_sess, client_id=int(target_user.id), trigger="tariff_operation")
+    return result
 
 
 @app.post("/admin/clients/{client_id}/balance/ops", response_model=schemas.BalanceOperationOut)
@@ -3554,37 +3597,7 @@ def admin_create_balance_op(
     current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    client = _ensure_manager_client_access(db_sess, current_manager, client_id)
-    if payload.amount <= 0:
-        raise HTTPException(status_code=400, detail="amount must be positive")
-    if payload.type not in ("credit", "debit"):
-        raise HTTPException(status_code=400, detail="type must be credit or debit")
-    if crud.is_agent_user(current_manager):
-        if payload.type != "credit":
-            raise HTTPException(status_code=403, detail="Агент может только начислять баланс своим клиентам")
-        try:
-            op = crud.create_agent_credit_to_client_operation(
-                db_sess,
-                agent_user_id=int(current_manager.id),
-                client_id=client_id,
-                amount=payload.amount,
-                comment=payload.comment,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-    else:
-        if getattr(client, "owner_agent_id", None) is not None:
-            raise HTTPException(status_code=403, detail="Баланс клиента агента может пополнять только его агент")
-        op = crud.create_client_balance_operation(
-            db_sess,
-            client_id=client_id,
-            admin_id=current_manager.id,
-            amount=payload.amount,
-            op_type=payload.type,
-            comment=payload.comment,
-        )
-    _run_limit_control_for_client(db_sess, client_id=client_id, trigger="balance_operation")
-    return op
+    raise HTTPException(status_code=410, detail="Прямые операции баланса клиента отключены. Используйте тарифы.")
 
 
 @app.get("/admin/changes/{client_id}", response_model=schemas.AdminClientChangesOut)

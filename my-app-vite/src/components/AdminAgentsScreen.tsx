@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
+import TariffManagerModal from './TariffManagerModal';
 import {
   createAdminAgent,
-  createAdminAgentBalanceOp,
+  createAdminAgentTariff,
   fetchAdminAgentBalanceOps,
   fetchAdminAgentBalanceSummary,
+  fetchAdminAgentTariffs,
   fetchAdminAgents,
   fetchAdminClientsSummary,
+  fetchAdminTariffOps,
+  createAdminTariffOp,
   updateAdminAgent,
   type AdminAgentCreateResp,
   type AdminAgentSummaryItem,
@@ -28,65 +32,6 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 function getToday(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-type AgentOperationModalProps = {
-  agentId: number;
-  type: 'credit' | 'debit';
-  onClose: () => void;
-  onDone: () => void;
-};
-
-function AgentOperationModal({ agentId, type, onClose, onDone }: AgentOperationModalProps) {
-  const [amount, setAmount] = useState<number>(0);
-  const [comment, setComment] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (amount <= 0) {
-      setError('Укажите положительное число');
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-      await createAdminAgentBalanceOp(agentId, { amount, type, comment: comment.trim() || undefined });
-      onDone();
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Не удалось сохранить операцию'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: 460, borderRadius: 12, padding: 0, overflow: 'hidden' }}>
-        <div className="modal__header" style={{ padding: '14px 16px', borderBottom: '1px solid #eee' }}>
-          <div style={{ fontWeight: 600 }}>{type === 'credit' ? 'Начислить агенту' : 'Списать у агента'}</div>
-        </div>
-        <form onSubmit={handleSubmit} className="modal__body" style={{ display: 'grid', gap: 12, padding: '16px' }}>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="sub">Количество</span>
-            <input type="number" min={1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="sub">Комментарий</span>
-            <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} />
-          </label>
-          {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" className="btn btn--ghost" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={loading}>
-              {loading ? 'Сохранение…' : 'Сохранить'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 type AgentEditModalProps = {
@@ -187,7 +132,7 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
   const [agentBalance, setAgentBalance] = useState<number | null>(null);
   const [ownedClients, setOwnedClients] = useState<AdminClientSummaryItem[]>([]);
   const [editModal, setEditModal] = useState<{ mode: 'create' | 'edit'; agent?: AdminAgentSummaryItem } | null>(null);
-  const [balanceModal, setBalanceModal] = useState<'credit' | 'debit' | null>(null);
+  const [tariffModalOpen, setTariffModalOpen] = useState(false);
 
   const selectedAgent = useMemo(
     () => (selectedAgentId != null ? agents.find((item) => item.user.id === selectedAgentId) ?? null : null),
@@ -257,6 +202,7 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
                 <th>Агент</th>
                 <th>Статус</th>
                 <th>Баланс</th>
+                <th>Тариф</th>
                 <th>Клиентов</th>
                 <th>Создан</th>
                 <th>Действия</th>
@@ -265,7 +211,7 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
             <tbody>
               {!loading && agents.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted" style={{ padding: 16 }}>Агенты пока не созданы.</td>
+                  <td colSpan={7} className="muted" style={{ padding: 16 }}>Агенты пока не созданы.</td>
                 </tr>
               )}
               {agents.map((agent) => (
@@ -284,6 +230,7 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
                     </span>
                   </td>
                   <td>{agent.balance}</td>
+                  <td>{agent.tariffAmount ?? '-'}</td>
                   <td>{agent.clientCount}</td>
                   <td className="muted"><DateTimeCompact value={agent.createdAt} /></td>
                   <td>
@@ -315,11 +262,8 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
               <div className="sub">{selectedAgent.user.login} (id: {selectedAgent.user.id})</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn--primary" onClick={() => setBalanceModal('credit')}>
-                Начислить баланс
-              </button>
-              <button type="button" className="btn btn--secondary" onClick={() => setBalanceModal('debit')}>
-                Списать баланс
+              <button type="button" className="btn btn--primary" onClick={() => setTariffModalOpen(true)}>
+                Управление тарифами
               </button>
               <button
                 type="button"
@@ -344,6 +288,10 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
             <div className="summary-card">
               <div className="sub">Текущий баланс</div>
               <div className={`value${(agentBalance ?? 0) < 0 ? ' value--negative' : ''}`}>{agentBalance ?? '—'}</div>
+            </div>
+            <div className="summary-card">
+              <div className="sub">Текущий тариф</div>
+              <div className="value">{selectedAgent.tariffAmount ?? '—'}</div>
             </div>
             <div className="summary-card">
               <div className="sub">Начислено</div>
@@ -459,15 +407,16 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
         />
       )}
 
-      {balanceModal && selectedAgent && (
-        <AgentOperationModal
-          agentId={selectedAgent.user.id}
-          type={balanceModal}
-          onClose={() => setBalanceModal(null)}
-          onDone={() => {
-            setBalanceModal(null);
-            void loadData(selectedAgent.user.id);
-          }}
+      {tariffModalOpen && selectedAgent && (
+        <TariffManagerModal
+          targetId={selectedAgent.user.id}
+          title={`Тарифы агента #${selectedAgent.user.id}`}
+          onClose={() => setTariffModalOpen(false)}
+          onChanged={() => loadData(selectedAgent.user.id)}
+          fetchTariffs={fetchAdminAgentTariffs}
+          createTariff={createAdminAgentTariff}
+          fetchTariffOps={fetchAdminTariffOps}
+          createTariffOp={createAdminTariffOp}
         />
       )}
     </div>
