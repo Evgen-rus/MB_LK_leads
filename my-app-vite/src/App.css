@@ -200,6 +200,9 @@
   --rdp-animation_duration: 0s;
   font-size: 0.875rem;
 }
+.date-filter__calendar .rdp-months {
+  flex-wrap: nowrap;
+}
 .date-filter__calendar .rdp-month_caption {
   font-size: 0.95rem;
 }
@@ -228,14 +231,6 @@
   padding-top: 10px;
   padding-bottom: 4px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, #ffffff 18px);
-}
-@media (max-width: 860px) {
-  .date-filter__popover {
-    width: min(100vw - 32px, 420px);
-  }
-  .date-filter__calendar .rdp-months {
-    flex-direction: column;
-  }
 }
 @media (max-width: 767px) {
   .date-filter__popover--mobile-menu {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { DayPicker, type DateRange as DayPickerRange } from 'react-day-picker';
 import { ru } from 'react-day-picker/locale';
@@ -80,11 +80,13 @@ function detectPreset(from: string, to: string): PresetKey {
 
 function DateRangeFilter({ from, to, onChange }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const [openMode, setOpenMode] = useState<OpenMode>('closed');
   const [activePreset, setActivePreset] = useState<PresetKey>(() => detectPreset(from, to));
   const [draftFrom, setDraftFrom] = useState(from);
   const [draftTo, setDraftTo] = useState(to);
   const [isMobile, setIsMobile] = useState(false);
+  const [desktopPopoverStyle, setDesktopPopoverStyle] = useState<CSSProperties>({});
   const isOpen = openMode !== 'closed';
 
   const displayRange =
@@ -122,6 +124,47 @@ function DateRangeFilter({ from, to, onChange }: Props) {
     setOpenMode('closed');
   }, [from, to]);
 
+  const updateDesktopPopoverPosition = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const root = rootRef.current;
+    if (!root) return;
+
+    const rect = root.getBoundingClientRect();
+    const popover = popoverRef.current;
+    const viewportPadding = 16;
+    const gap = 8;
+    const maxWidth = Math.min(720, window.innerWidth - viewportPadding * 2);
+    const popoverWidth = Math.min(popover?.offsetWidth ?? maxWidth, maxWidth);
+    const popoverHeight = popover?.offsetHeight ?? 0;
+
+    let left = rect.left;
+    if (left + popoverWidth > window.innerWidth - viewportPadding) {
+      left = Math.max(viewportPadding, window.innerWidth - viewportPadding - popoverWidth);
+    }
+
+    const belowSpace = window.innerHeight - rect.bottom - gap - viewportPadding;
+    const aboveSpace = rect.top - gap - viewportPadding;
+    const shouldOpenUp = belowSpace < 360 && aboveSpace > belowSpace;
+
+    let top = rect.bottom + gap;
+    let maxHeight = Math.max(240, belowSpace);
+
+    if (shouldOpenUp) {
+      const safeHeight = popoverHeight > 0 ? Math.min(popoverHeight, aboveSpace) : aboveSpace;
+      top = Math.max(viewportPadding, rect.top - gap - safeHeight);
+      maxHeight = Math.max(240, aboveSpace);
+    }
+
+    setDesktopPopoverStyle({
+      position: 'fixed',
+      top: Math.round(top),
+      left: Math.round(left),
+      maxWidth,
+      maxHeight,
+      zIndex: 1200,
+    });
+  }, []);
+
   useEffect(() => {
     if (!isMobile || openMode !== 'menu') return undefined;
     const handlePointerDown = (event: PointerEvent) => {
@@ -134,6 +177,54 @@ function DateRangeFilter({ from, to, onChange }: Props) {
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [handleClose, isMobile, openMode]);
+
+  useEffect(() => {
+    if (isMobile || !isOpen) return undefined;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      const popover = popoverRef.current;
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (root?.contains(target) || popover?.contains(target)) return;
+      handleClose();
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    const handleViewportChange = () => {
+      updateDesktopPopoverPosition();
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      updateDesktopPopoverPosition();
+    });
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+    };
+  }, [handleClose, isMobile, isOpen, updateDesktopPopoverPosition]);
+
+  useEffect(() => {
+    if (isMobile || !isOpen) return undefined;
+    const frameId = window.requestAnimationFrame(() => {
+      updateDesktopPopoverPosition();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activePreset, draftFrom, draftTo, isMobile, isOpen, updateDesktopPopoverPosition]);
 
   const selectedRange = useMemo<DayPickerRange | undefined>(() => {
     const parsedFrom = parseDateInput(draftFrom);
@@ -254,7 +345,7 @@ function DateRangeFilter({ from, to, onChange }: Props) {
   );
 
   const desktopPopoverContent = (
-    <div className="date-filter__popover">
+    <div className="date-filter__popover" ref={popoverRef} style={desktopPopoverStyle}>
       {presetsContent}
       {activePreset === 'custom' && (
         <div className="date-filter__custom">
@@ -352,7 +443,7 @@ function DateRangeFilter({ from, to, onChange }: Props) {
         <span>{displayRange}</span>
         <span className="date-filter__icon">📅</span>
       </button>
-      {!isMobile && isOpen && desktopPopoverContent}
+      {!isMobile && isOpen && createPortal(desktopPopoverContent, document.body)}
       {isMobile && openMode === 'menu' && mobileMenuContent}
       {isMobile && openMode === 'custom' && createPortal(mobileCustomSheetContent, document.body)}
     </div>
