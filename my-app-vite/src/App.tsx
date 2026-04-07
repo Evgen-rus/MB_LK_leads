@@ -175,15 +175,6 @@ function App() {
       }
       return;
     }
-    if (isAgent && view === 'balance') {
-      setView('admin-clients');
-      try {
-        localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
     if (isManager && view === 'activity') {
       setView('admin-clients');
       try {
@@ -534,6 +525,7 @@ function App() {
         ) : view === 'balance' ? (
           isManager ? (
             <AdminBalance
+              managerRole={role}
               initialClientId={adminBalanceClientId ?? undefined}
               initialModalType={adminBalanceModalType ?? undefined}
             />

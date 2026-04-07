@@ -15,6 +15,7 @@ import {
 } from '../api';
 
 type AdminBalanceProps = {
+  managerRole?: 'admin' | 'agent';
   initialClientId?: number | null;
   initialModalType?: 'tariff' | null;
 };
@@ -27,7 +28,8 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function AdminBalance({ initialClientId = null, initialModalType = null }: AdminBalanceProps) {
+function AdminBalance({ managerRole = 'admin', initialClientId = null, initialModalType = null }: AdminBalanceProps) {
+  const isAgentManager = managerRole === 'agent';
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(initialClientId ?? null);
   const [summary, setSummary] = useState<ClientBalanceSummary | null>(null);
@@ -159,7 +161,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
                 <div className="sub">Клиент id: {summary.clientId}</div>
               </div>
               <button className="btn btn--primary" type="button" onClick={() => setTariffManagerOpen(true)}>
-                Управление тарифами
+                {isAgentManager ? 'Просмотр тарифов' : 'Управление тарифами'}
               </button>
             </div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -271,6 +273,7 @@ function AdminBalance({ initialClientId = null, initialModalType = null }: Admin
           title={`Тарифы клиента #${selectedClientId}`}
           onClose={() => setTariffManagerOpen(false)}
           onChanged={() => refreshClientData(selectedClientId)}
+          readOnly={isAgentManager}
           fetchTariffs={fetchAdminClientTariffs}
           createTariff={createAdminClientTariff}
           fetchTariffOps={fetchAdminTariffOps}

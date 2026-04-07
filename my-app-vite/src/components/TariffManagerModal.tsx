@@ -18,6 +18,7 @@ type TariffManagerModalProps = {
   title: string;
   onClose: () => void;
   onChanged?: () => void | Promise<void>;
+  readOnly?: boolean;
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
   createTariff: (targetId: number, payload: { amount: number; comment?: string }) => Promise<ClientTariff>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
@@ -37,6 +38,7 @@ function TariffManagerModal({
   title,
   onClose,
   onChanged,
+  readOnly = false,
   fetchTariffs,
   createTariff,
   fetchTariffOps,
@@ -179,7 +181,9 @@ function TariffManagerModal({
         <div className="modal__header" style={{ padding: '14px 16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <div style={{ fontWeight: 600 }}>{title}</div>
-            <div className="sub">Тарифные операции автоматически меняют баланс.</div>
+            <div className="sub">
+              {readOnly ? 'Режим просмотра без изменений.' : 'Тарифные операции автоматически меняют баланс.'}
+            </div>
           </div>
           <button type="button" className="btn btn--ghost" onClick={onClose}>Закрыть</button>
         </div>
@@ -187,7 +191,7 @@ function TariffManagerModal({
         <div className="modal__body" style={{ display: 'grid', gap: 16, padding: 16, maxHeight: '80vh', overflow: 'auto' }}>
           {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
 
-          {editor && (
+          {!readOnly && editor && (
             <form onSubmit={handleSubmit} className="table-card" style={{ display: 'grid', gap: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                 <div>
@@ -237,13 +241,15 @@ function TariffManagerModal({
               </div>
               <div className="actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {loadingTariffs ? <span className="sub">Загрузка…</span> : <span className="sub">Всего: {totalTariffs}</span>}
-                <button className="btn btn--primary" type="button" onClick={() => {
-                  setAmount(0);
-                  setComment('');
-                  setEditor({ mode: 'create' });
-                }}>
-                  Создать тариф
-                </button>
+                {!readOnly && (
+                  <button className="btn btn--primary" type="button" onClick={() => {
+                    setAmount(0);
+                    setComment('');
+                    setEditor({ mode: 'create' });
+                  }}>
+                    Создать тариф
+                  </button>
+                )}
               </div>
             </div>
             <div className="table-scroll">
@@ -289,22 +295,26 @@ function TariffManagerModal({
                           }}>
                             История
                           </button>
-                          <button className="btn btn--secondary" type="button" onClick={(e) => {
-                            e.stopPropagation();
-                            setAmount(0);
-                            setComment('');
-                            setEditor({ mode: 'credit', tariff });
-                          }}>
-                            Добавить
-                          </button>
-                          <button className="btn btn--secondary" type="button" onClick={(e) => {
-                            e.stopPropagation();
-                            setAmount(0);
-                            setComment('');
-                            setEditor({ mode: 'debit', tariff });
-                          }}>
-                            Списать
-                          </button>
+                          {!readOnly && (
+                            <>
+                              <button className="btn btn--secondary" type="button" onClick={(e) => {
+                                e.stopPropagation();
+                                setAmount(0);
+                                setComment('');
+                                setEditor({ mode: 'credit', tariff });
+                              }}>
+                                Добавить
+                              </button>
+                              <button className="btn btn--secondary" type="button" onClick={(e) => {
+                                e.stopPropagation();
+                                setAmount(0);
+                                setComment('');
+                                setEditor({ mode: 'debit', tariff });
+                              }}>
+                                Списать
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -3465,12 +3465,10 @@ def admin_client_tariffs(
     client_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    client = db_sess.get(models.User, int(client_id))
-    if not client or not crud.is_client_user(client):
-        raise HTTPException(status_code=404, detail="Client not found")
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariffs(
@@ -3510,13 +3508,10 @@ def admin_create_client_tariff(
 @app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
 def admin_get_client_tariff(
     tariff_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Tariff not found")
-    return tariff
+    return _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
 
 
 @app.get("/admin/tariffs/{tariff_id}/ops", response_model=schemas.ClientTariffOperationsListOut)
@@ -3524,12 +3519,10 @@ def admin_list_client_tariff_operations(
     tariff_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Tariff not found")
+    _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariff_operations(

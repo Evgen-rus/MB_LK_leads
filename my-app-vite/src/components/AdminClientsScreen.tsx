@@ -881,7 +881,13 @@ function AdminClientsScreen({
                         Управление тарифами
                       </button>
                     ) : (
-                      <span className="sub">Тарифы клиентов изменяет только администратор.</span>
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                      >
+                        Смотреть тарифы
+                      </button>
                     )}
                   </div>
                 </section>
