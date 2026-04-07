@@ -2479,7 +2479,7 @@ def admin_create_agent_balance_op(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    raise HTTPException(status_code=410, detail="Прямые операции баланса агента отключены. Используйте тарифы агента.")
+    raise HTTPException(status_code=410, detail="Прямые операции баланса агента отключены.")
 
 
 @app.get("/admin/agents/{agent_id}/tariffs", response_model=schemas.ClientTariffListOut)
@@ -2490,17 +2490,7 @@ def admin_agent_tariffs(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    agent = db_sess.get(models.User, int(agent_id))
-    if not agent or not crud.is_agent_user(agent):
-        raise HTTPException(status_code=404, detail="Agent not found")
-    limit = max(1, min(500, limit))
-    offset = max(0, offset)
-    return crud.list_client_tariffs(
-        db_sess,
-        client_id=agent_id,
-        offset=offset,
-        limit=limit,
-    )
+    raise HTTPException(status_code=410, detail="Тарифы агентов отключены.")
 
 
 @app.post("/admin/agents/{agent_id}/tariffs", response_model=schemas.ClientTariffOut)
@@ -2510,21 +2500,7 @@ def admin_create_agent_tariff(
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    agent = db_sess.get(models.User, int(agent_id))
-    if not agent or not crud.is_agent_user(agent):
-        raise HTTPException(status_code=404, detail="Agent not found")
-    if payload.amount <= 0:
-        raise HTTPException(status_code=400, detail="amount must be positive")
-    try:
-        return crud.create_client_tariff(
-            db_sess,
-            client_id=agent_id,
-            admin_id=current_admin.id,
-            amount=payload.amount,
-            comment=payload.comment,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    raise HTTPException(status_code=410, detail="Тарифы агентов отключены.")
 
 
 @app.post("/admin/clients/{client_id}/owner", response_model=schemas.ClientOwnerTransferOut)
@@ -3489,10 +3465,12 @@ def admin_client_tariffs(
     client_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_manager_client_access(db_sess, current_manager, client_id)
+    client = db_sess.get(models.User, int(client_id))
+    if not client or not crud.is_client_user(client):
+        raise HTTPException(status_code=404, detail="Client not found")
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariffs(
@@ -3507,17 +3485,19 @@ def admin_client_tariffs(
 def admin_create_client_tariff(
     client_id: int,
     payload: schemas.ClientTariffCreateIn,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_manager_client_access(db_sess, current_manager, client_id)
+    client = db_sess.get(models.User, int(client_id))
+    if not client or not crud.is_client_user(client):
+        raise HTTPException(status_code=404, detail="Client not found")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     try:
         tariff = crud.create_client_tariff(
             db_sess,
             client_id=client_id,
-            admin_id=current_manager.id,
+            admin_id=current_admin.id,
             amount=payload.amount,
             comment=payload.comment,
         )
@@ -3530,10 +3510,13 @@ def admin_create_client_tariff(
 @app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
 def admin_get_client_tariff(
     tariff_id: int,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    return _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    return tariff
 
 
 @app.get("/admin/tariffs/{tariff_id}/ops", response_model=schemas.ClientTariffOperationsListOut)
@@ -3541,10 +3524,12 @@ def admin_list_client_tariff_operations(
     tariff_id: int,
     offset: int = 0,
     limit: int = 50,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
     limit = max(1, min(500, limit))
     offset = max(0, offset)
     return crud.list_client_tariff_operations(
@@ -3559,10 +3544,12 @@ def admin_list_client_tariff_operations(
 def admin_create_client_tariff_operation(
     tariff_id: int,
     payload: schemas.ClientTariffOperationCreateIn,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    tariff = _ensure_manager_tariff_access(db_sess, current_manager, tariff_id)
+    tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
     if payload.amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     if payload.type not in ("credit", "debit"):
@@ -3574,7 +3561,7 @@ def admin_create_client_tariff_operation(
         result = crud.create_client_tariff_operation(
             db_sess,
             tariff_id=tariff_id,
-            admin_id=current_manager.id,
+            admin_id=current_admin.id,
             amount=payload.amount,
             op_type=payload.type,
             comment=comment,

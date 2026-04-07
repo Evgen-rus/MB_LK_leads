@@ -872,13 +872,17 @@ function AdminClientsScreen({
                 <section className="client-summary__section">
                   <div className="client-summary__section-title">Финансы</div>
                   <div className="client-summary__section-actions">
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
-                    >
-                      Управление тарифами
-                    </button>
+                    {!isAgentManager ? (
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                      >
+                        Управление тарифами
+                      </button>
+                    ) : (
+                      <span className="sub">Тарифы клиентов изменяет только администратор.</span>
+                    )}
                   </div>
                 </section>
 

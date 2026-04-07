@@ -479,7 +479,6 @@ class AdminAgentSummaryItem(BaseModel):
     credited: int
     debited: int
     balance: int
-    tariffAmount: int | None = None
     createdAt: str
 
 

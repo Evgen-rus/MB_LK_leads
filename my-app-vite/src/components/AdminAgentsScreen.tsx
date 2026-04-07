@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
-import TariffManagerModal from './TariffManagerModal';
 import {
   createAdminAgent,
-  createAdminAgentTariff,
   fetchAdminAgentBalanceOps,
   fetchAdminAgentBalanceSummary,
-  fetchAdminAgentTariffs,
   fetchAdminAgents,
   fetchAdminClientsSummary,
-  fetchAdminTariffOps,
-  createAdminTariffOp,
   updateAdminAgent,
   type AdminAgentCreateResp,
   type AdminAgentSummaryItem,
@@ -132,7 +127,6 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
   const [agentBalance, setAgentBalance] = useState<number | null>(null);
   const [ownedClients, setOwnedClients] = useState<AdminClientSummaryItem[]>([]);
   const [editModal, setEditModal] = useState<{ mode: 'create' | 'edit'; agent?: AdminAgentSummaryItem } | null>(null);
-  const [tariffModalOpen, setTariffModalOpen] = useState(false);
 
   const selectedAgent = useMemo(
     () => (selectedAgentId != null ? agents.find((item) => item.user.id === selectedAgentId) ?? null : null),
@@ -202,7 +196,6 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
                 <th>Агент</th>
                 <th>Статус</th>
                 <th>Баланс</th>
-                <th>Тариф</th>
                 <th>Клиентов</th>
                 <th>Создан</th>
                 <th>Действия</th>
@@ -211,7 +204,7 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
             <tbody>
               {!loading && agents.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ padding: 16 }}>Агенты пока не созданы.</td>
+                  <td colSpan={6} className="muted" style={{ padding: 16 }}>Агенты пока не созданы.</td>
                 </tr>
               )}
               {agents.map((agent) => (
@@ -230,7 +223,6 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
                     </span>
                   </td>
                   <td>{agent.balance}</td>
-                  <td>{agent.tariffAmount ?? '-'}</td>
                   <td>{agent.clientCount}</td>
                   <td className="muted"><DateTimeCompact value={agent.createdAt} /></td>
                   <td>
@@ -262,12 +254,9 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
               <div className="sub">{selectedAgent.user.login} (id: {selectedAgent.user.id})</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn--primary" onClick={() => setTariffModalOpen(true)}>
-                Управление тарифами
-              </button>
               <button
                 type="button"
-                className="btn btn--secondary"
+                className="btn btn--primary"
                 onClick={() => setEditModal({ mode: 'edit', agent: selectedAgent })}
               >
                 Настроить
@@ -288,10 +277,6 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
             <div className="summary-card">
               <div className="sub">Текущий баланс</div>
               <div className={`value${(agentBalance ?? 0) < 0 ? ' value--negative' : ''}`}>{agentBalance ?? '—'}</div>
-            </div>
-            <div className="summary-card">
-              <div className="sub">Текущий тариф</div>
-              <div className="value">{selectedAgent.tariffAmount ?? '—'}</div>
             </div>
             <div className="summary-card">
               <div className="sub">Начислено</div>
@@ -404,19 +389,6 @@ function AdminAgentsScreen({ onOpenAgentClients }: AdminAgentsScreenProps) {
             setEditModal(null);
             void loadData(selectedAgentId);
           }}
-        />
-      )}
-
-      {tariffModalOpen && selectedAgent && (
-        <TariffManagerModal
-          targetId={selectedAgent.user.id}
-          title={`Тарифы агента #${selectedAgent.user.id}`}
-          onClose={() => setTariffModalOpen(false)}
-          onChanged={() => loadData(selectedAgent.user.id)}
-          fetchTariffs={fetchAdminAgentTariffs}
-          createTariff={createAdminAgentTariff}
-          fetchTariffOps={fetchAdminTariffOps}
-          createTariffOp={createAdminTariffOp}
         />
       )}
     </div>

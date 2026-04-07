@@ -15,7 +15,6 @@ import {
 } from '../api';
 
 type AdminBalanceProps = {
-  managerRole?: 'admin' | 'agent';
   initialClientId?: number | null;
   initialModalType?: 'tariff' | null;
 };
