@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
+import DateRangeFilter from './DateRangeFilter';
 import AdminClientCardModal from './AdminClientCardModal';
 import {
   createAdminAgent,
@@ -66,6 +67,8 @@ type AgentEditModalProps = {
   onDone: (resp: AdminAgentCreateResp | { user: { isDisabled?: boolean | null } }) => void;
   agentId?: number;
 };
+
+type DateRange = { from: string; to: string };
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -229,6 +232,7 @@ function AdminAgentsScreen({
   const [expandedAgentId, setExpandedAgentId] = useState<number | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [range, setRange] = useState<DateRange>(() => ({ from: getToday(), to: getToday() }));
   const [editModal, setEditModal] = useState<{ mode: 'create' | 'edit'; agent?: AdminAgentSummaryItem } | null>(null);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
   const [cardClientData, setCardClientData] = useState<{
@@ -273,7 +277,7 @@ function AdminAgentsScreen({
       setError(null);
       const [agentsResp, clientsResp] = await Promise.all([
         fetchAdminAgents(),
-        fetchAdminClientsSummary({ fromDate: getToday(), toDate: getToday() }),
+        fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
       ]);
       const agentIds = agentsResp.items.map((agent) => agent.user.id);
       const opsEntries = await Promise.all(
@@ -315,9 +319,9 @@ function AdminAgentsScreen({
   }
 
   useEffect(() => {
-    void loadData(null, null);
+    void loadData(expandedAgentId, selectedClientId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [range]);
 
   useEffect(() => {
     if (!selectedClient) {
@@ -480,16 +484,21 @@ function AdminAgentsScreen({
                               </div>
 
                               <div className="table-card" style={{ padding: 12 }}>
-                                <div className="table-toolbar">
-                                  <div className="filters">
-                                    <span className="sub">Клиенты агента</span>
-                                  </div>
-                                  <div className="filters">
+                                <div className="table-toolbar toolbar-split">
+                                  <div className="filters toolbar-left">
+                                    <DateRangeFilter
+                                      from={range.from}
+                                      to={range.to}
+                                      onChange={(next) => {
+                                        setRange(next);
+                                      }}
+                                    />
                                     <input
+                                      type="search"
                                       value={search}
                                       onChange={(e) => setSearch(e.target.value)}
-                                      placeholder="Поиск по имени / id / логину"
-                                      style={{ minWidth: 260 }}
+                                      placeholder="Поиск по имени / ID клиента"
+                                      style={{ minWidth: 220, flex: 1 }}
                                     />
                                   </div>
                                 </div>
