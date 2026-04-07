@@ -414,9 +414,6 @@ function AdminAgentsScreen({
               )}
               {agents.map((agent) => {
                 const isExpanded = expandedAgentId === agent.user.id;
-                const clientsCount = agentClients.filter(
-                  (client) => client.ownerType === 'agent' && client.ownerUser?.id === agent.user.id,
-                ).length;
                 const agentOps = agentOpsById[agent.user.id] ?? [];
                 return (
                   <Fragment key={agent.user.id}>
@@ -479,25 +476,6 @@ function AdminAgentsScreen({
                                   >
                                     Настроить
                                   </button>
-                                </div>
-                              </div>
-
-                              <div className="summary-grid">
-                                <div className="summary-card">
-                                  <div className="sub">Текущий баланс</div>
-                                  <div className={`value${agent.balance < 0 ? ' value--negative' : ''}`}>{agent.balance}</div>
-                                </div>
-                                <div className="summary-card">
-                                  <div className="sub">Начислено</div>
-                                  <div className="value">{agent.credited}</div>
-                                </div>
-                                <div className="summary-card">
-                                  <div className="sub">Списано</div>
-                                  <div className="value">{agent.debited}</div>
-                                </div>
-                                <div className="summary-card">
-                                  <div className="sub">Клиентов</div>
-                                  <div className="value">{clientsCount}</div>
                                 </div>
                               </div>
 
