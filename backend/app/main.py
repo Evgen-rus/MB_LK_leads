@@ -2251,7 +2251,7 @@ def admin_create_client(
 @app.post("/admin/clients/{client_id}/impersonate")
 def admin_impersonate_client(
     client_id: int,
-    current_admin: models.User = Depends(require_admin),
+    current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
     """
@@ -2259,10 +2259,11 @@ def admin_impersonate_client(
     Токен имеет payload user_id клиента, без is_admin.
     """
     client_user = db_sess.get(models.User, client_id)
-    if not client_user:
+    if not client_user or not crud.is_client_user(client_user):
         raise HTTPException(status_code=404, detail="Client not found")
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
 
-    token = create_impersonation_token(client_user.id, admin_user_id=current_admin.id, ttl_minutes=1440)
+    token = create_impersonation_token(client_user.id, admin_user_id=current_manager.id, ttl_minutes=1440)
     return {"access_token": token, "ttl_minutes": 1440}
 
 

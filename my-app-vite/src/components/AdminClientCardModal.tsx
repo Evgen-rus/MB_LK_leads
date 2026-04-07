@@ -298,18 +298,14 @@ function AdminClientCardModal({
           )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid #eee', paddingTop: 12 }}>
-            {!isAgentManager ? (
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={handleOpenClientCabinet}
-                disabled={loading || !clientId}
-              >
-                Перейти в ЛК
-              </button>
-            ) : (
-              <span />
-            )}
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={handleOpenClientCabinet}
+              disabled={loading || !clientId}
+            >
+              Перейти в ЛК
+            </button>
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" className="btn" onClick={onClose}>Отмена</button>
               <button type="submit" className="btn btn--primary" disabled={loading}>

@@ -412,7 +412,31 @@ function App() {
           </div>
           </div>
           {view === 'agents' && isAdmin ? (
-            <AdminAgentsScreen />
+            <AdminAgentsScreen
+              onOpenClientProjects={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('projects');
+                setView('projects');
+              }}
+              onOpenClientChanges={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('changes');
+                setView('projects');
+              }}
+              onOpenClientBlacklistChanges={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('blacklist-changes');
+                setView('projects');
+              }}
+              onOpenClientBalance={(clientId, _clientName, action) => {
+                setAdminBalanceClientId(clientId);
+                setAdminBalanceModalType(action);
+                setView('balance');
+              }}
+            />
           ) : view === 'admin-clients' && isManager ? (
             <AdminClientsScreen
               managerRole={role}

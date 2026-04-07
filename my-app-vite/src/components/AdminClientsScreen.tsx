@@ -229,7 +229,10 @@ function AdminClientsScreen({
     })();
   }, [range, refreshKey]);
 
-  const clients = useMemo(() => baseClients, [baseClients]);
+  const clients = useMemo(() => {
+    if (isAgentManager) return baseClients;
+    return baseClients.filter((client) => client.ownerType === 'admin');
+  }, [baseClients, isAgentManager]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -257,6 +260,12 @@ function AdminClientsScreen({
     () => (selectedClientId != null ? clients.find((c) => c.id === selectedClientId) ?? null : null),
     [clients, selectedClientId],
   );
+
+  useEffect(() => {
+    if (selectedClientId == null) return;
+    if (clients.some((client) => client.id === selectedClientId)) return;
+    setSelectedClientId(clients[0]?.id ?? null);
+  }, [clients, selectedClientId]);
 
   useEffect(() => {
     if (!selectedClient) {
@@ -549,7 +558,6 @@ function AdminClientsScreen({
               <tr>
                 <th>ID клиента</th>
                 <th>Название клиента</th>
-                <th>Владелец</th>
                 <th>Кол-во проектов</th>
                 <th>Статус клиента</th>
                 <th>Тариф</th>
@@ -561,21 +569,21 @@ function AdminClientsScreen({
             <tbody>
               {error && (
                 <tr>
-                  <td colSpan={9} style={{ color: '#d00', padding: 16 }}>
+                  <td colSpan={8} style={{ color: '#d00', padding: 16 }}>
                     {error}
                   </td>
                 </tr>
               )}
               {!error && loading && (
                 <tr>
-                  <td colSpan={9} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
                     Загрузка списка клиентов…
                   </td>
                 </tr>
               )}
               {!error && !loading && pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
                     Клиенты не найдены.
                   </td>
                 </tr>
@@ -611,14 +619,6 @@ function AdminClientsScreen({
                           )}
                         </div>
                       )}
-                    </td>
-                    <td>
-                      <div style={{ display: 'grid', gap: 4 }}>
-                        <span className={row.ownerType === 'agent' ? 'badge badge--orange' : 'badge badge--gray'}>
-                          {row.ownerType === 'agent' ? 'Агент' : 'Админ'}
-                        </span>
-                        <span className="sub">{formatOwnerLabel(row)}</span>
-                      </div>
                     </td>
                     <td>{row.projectCount}</td>
                     <td>
@@ -696,7 +696,6 @@ function AdminClientsScreen({
                             void handleOpenClientCabinet(row.id);
                           }}
                           disabled={openingClientCabinetId === row.id}
-                          style={{ display: isAgentManager ? 'none' : undefined }}
                         >
                           {openingClientCabinetId === row.id ? 'Переходим…' : 'Перейти в ЛК'}
                         </button>
