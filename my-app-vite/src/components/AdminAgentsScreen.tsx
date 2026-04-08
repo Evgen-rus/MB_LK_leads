@@ -4,9 +4,14 @@ import DateRangeFilter from './DateRangeFilter';
 import AdminClientCardModal from './AdminClientCardModal';
 import AdminCreateAgentModal from './AdminCreateAgentModal';
 import AdminAgentCardModal from './AdminAgentCardModal';
+import TariffManagerModal from './TariffManagerModal';
 import {
   fetchAdminAgents,
   fetchAdminClientsSummary,
+  fetchAdminClientTariffs,
+  fetchAdminTariffOps,
+  createAdminClientTariff,
+  createAdminTariffOp,
   impersonateClient,
   transferAdminClientOwner,
   type AdminAgentSummaryItem,
@@ -137,6 +142,11 @@ function AdminAgentsScreen({
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AdminAgentSummaryItem | null>(null);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
+  const [tariffModalState, setTariffModalState] = useState<{
+    clientId: number;
+    clientName: string;
+    mode: 'create';
+  } | null>(null);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -307,6 +317,14 @@ function AdminAgentsScreen({
     } catch (err: unknown) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось переназначить клиента') }));
     }
+  }
+
+  function openTariffModal(client: Pick<AgentClientRow, 'id' | 'name'>) {
+    setTariffModalState({
+      clientId: client.id,
+      clientName: client.name,
+      mode: 'create',
+    });
   }
 
   return (
@@ -546,6 +564,16 @@ function AdminAgentsScreen({
                                             <td>{client.totalVolume}</td>
                                             <td>
                                               <div className="agent-client-row__actions">
+                                                <button
+                                                  className="btn btn--primary"
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openTariffModal(client);
+                                                  }}
+                                                >
+                                                  Создать тариф
+                                                </button>
                                                 <button
                                                   className="btn btn--primary"
                                                   type="button"
@@ -810,6 +838,23 @@ function AdminAgentsScreen({
             setCardClientId(null);
             void loadData(keepExpandedAgentId, keepSelectedClientId);
           }}
+        />
+      )}
+      {tariffModalState && (
+        <TariffManagerModal
+          targetId={tariffModalState.clientId}
+          targetName={tariffModalState.clientName}
+          title={`Тарифы клиента #${tariffModalState.clientId}`}
+          onClose={() => setTariffModalState(null)}
+          onChanged={() => {
+            void loadData(expandedAgentId, selectedClientId);
+          }}
+          initialEditorMode="create"
+          createOnly
+          fetchTariffs={fetchAdminClientTariffs}
+          createTariff={createAdminClientTariff}
+          fetchTariffOps={fetchAdminTariffOps}
+          createTariffOp={createAdminTariffOp}
         />
       )}
     </div>
