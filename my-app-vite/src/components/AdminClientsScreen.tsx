@@ -1216,6 +1216,7 @@ function AdminClientsScreen({
         }}
         readOnly={isAgentManager}
         initialEditorMode={tariffModalState.mode === 'create' ? 'create' : null}
+        createOnly={tariffModalState.mode === 'create'}
         fetchTariffs={fetchAdminClientTariffs}
         createTariff={createAdminClientTariff}
         fetchTariffOps={fetchAdminTariffOps}

@@ -21,6 +21,7 @@ type TariffManagerModalProps = {
   onChanged?: () => void | Promise<void>;
   readOnly?: boolean;
   initialEditorMode?: 'create' | null;
+  createOnly?: boolean;
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
   createTariff: (targetId: number, payload: { amount: number; comment?: string }) => Promise<ClientTariff>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
@@ -174,6 +175,7 @@ function TariffManagerModal({
   onChanged,
   readOnly = false,
   initialEditorMode = null,
+  createOnly = false,
   fetchTariffs,
   createTariff,
   fetchTariffOps,
@@ -189,10 +191,13 @@ function TariffManagerModal({
   const [loadingTariffs, setLoadingTariffs] = useState(false);
   const [loadingTariffOps, setLoadingTariffOps] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<TariffEditorState>(null);
+  const [editor, setEditor] = useState<TariffEditorState>(() => (
+    createOnly && initialEditorMode === 'create' && !readOnly ? { mode: 'create' } : null
+  ));
   const [amount, setAmount] = useState<number>(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const isCreateOnlyFlow = createOnly && initialEditorMode === 'create';
 
   const selectedTariff = useMemo(
     () => (selectedTariffId != null ? tariffs.find((item) => item.id === selectedTariffId) ?? null : null),
@@ -263,9 +268,10 @@ function TariffManagerModal({
   }, [fetchTariffOps, tariffOpsPageSize]);
 
   useEffect(() => {
+    if (isCreateOnlyFlow) return;
     setTariffOpsPage(1);
     void loadTariffs();
-  }, [loadTariffs]);
+  }, [isCreateOnlyFlow, loadTariffs]);
 
   useEffect(() => {
     if (readOnly || initialEditorMode !== 'create') return;
@@ -273,13 +279,14 @@ function TariffManagerModal({
   }, [initialEditorMode, openCreateDialog, readOnly, targetId]);
 
   useEffect(() => {
+    if (isCreateOnlyFlow) return;
     if (selectedTariffId == null) {
       setTariffOps([]);
       setTotalTariffOps(0);
       return;
     }
     void loadTariffOps(selectedTariffId, tariffOpsPage, tariffOpsPageSize);
-  }, [selectedTariffId, tariffOpsPage, tariffOpsPageSize, loadTariffOps]);
+  }, [isCreateOnlyFlow, selectedTariffId, tariffOpsPage, tariffOpsPageSize, loadTariffOps]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -323,18 +330,41 @@ function TariffManagerModal({
         nextTariffId = editor.tariff.id;
       }
 
-      const actualTariffId = await loadTariffs(nextTariffId);
-      setTariffOpsPage(1);
-      if (actualTariffId != null) {
-        await loadTariffOps(actualTariffId, 1, tariffOpsPageSize);
+      if (!isCreateOnlyFlow) {
+        const actualTariffId = await loadTariffs(nextTariffId);
+        setTariffOpsPage(1);
+        if (actualTariffId != null) {
+          await loadTariffOps(actualTariffId, 1, tariffOpsPageSize);
+        }
+      }
+      await onChanged?.();
+      if (isCreateOnlyFlow && editor.mode === 'create') {
+        onClose();
+        return;
       }
       resetEditor();
-      await onChanged?.();
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось сохранить изменение тарифа'));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (isCreateOnlyFlow && editor?.mode === 'create') {
+    return (
+      <TariffActionDialog
+        clientName={clientLabel}
+        editor={editor}
+        amount={amount}
+        comment={comment}
+        error={error}
+        submitting={submitting}
+        onAmountChange={setAmount}
+        onCommentChange={setComment}
+        onClose={onClose}
+        onSubmit={handleSubmit}
+      />
+    );
   }
 
   return (
