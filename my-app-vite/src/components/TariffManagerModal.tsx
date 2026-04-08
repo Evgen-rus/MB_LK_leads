@@ -65,6 +65,8 @@ function TariffActionDialog({
   const title = isCreate ? 'Создать тариф' : 'Изменить тариф';
   const amountLabel = isCreate ? 'Тариф' : 'Новый тариф';
   const submitLabel = isCreate ? 'Начислить' : 'Сохранить';
+  const commentLabel = isCreate ? 'Комментарий' : 'Комментарий';
+  const commentPlaceholder = isCreate ? 'Комментарий к созданию тарифа' : 'Почему меняем тариф';
 
   return (
     <div
@@ -134,18 +136,16 @@ function TariffActionDialog({
             />
           </label>
 
-          {!isCreate && (
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title">Комментарий</span>
-              <textarea
-                rows={3}
-                value={comment}
-                onChange={(e) => onCommentChange(e.target.value)}
-                placeholder="Почему меняем тариф"
-                required
-              />
-            </label>
-          )}
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span className="section-title">{commentLabel}</span>
+            <textarea
+              rows={3}
+              value={comment}
+              onChange={(e) => onCommentChange(e.target.value)}
+              placeholder={commentPlaceholder}
+              required={!isCreate}
+            />
+          </label>
 
           {error && (
             <div className="sub" style={{ color: '#d00' }}>
@@ -318,7 +318,7 @@ function TariffManagerModal({
 
       let nextTariffId: number | null = null;
       if (editor.mode === 'create') {
-        const tariff = await createTariff(targetId, { amount });
+        const tariff = await createTariff(targetId, { amount, comment: comment.trim() || undefined });
         nextTariffId = tariff.id;
       } else {
         const delta = amount - editor.tariff.currentAmount;
