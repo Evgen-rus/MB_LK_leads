@@ -2,14 +2,13 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
 import DateRangeFilter from './DateRangeFilter';
 import AdminClientCardModal from './AdminClientCardModal';
+import AdminCreateAgentModal from './AdminCreateAgentModal';
+import AdminAgentCardModal from './AdminAgentCardModal';
 import {
-  createAdminAgent,
   fetchAdminAgents,
   fetchAdminClientsSummary,
   impersonateClient,
   transferAdminClientOwner,
-  updateAdminAgent,
-  type AdminAgentCreateResp,
   type AdminAgentSummaryItem,
   type AdminClientSummaryItem,
 } from '../api';
@@ -54,16 +53,6 @@ const STATUS_COLORS: Record<ClientStatus, string> = {
   'Нет проектов': '#03A9F4',
   Долг: '#F44336',
   Дожим: '#7E57C2',
-};
-
-type AgentEditModalProps = {
-  mode: 'create' | 'edit';
-  initialName?: string;
-  initialLogin?: string;
-  initialDisabled?: boolean;
-  onClose: () => void;
-  onDone: (resp: AdminAgentCreateResp | { user: { isDisabled?: boolean | null } }) => void;
-  agentId?: number;
 };
 
 type DateRange = { from: string; to: string };
@@ -129,93 +118,6 @@ function mapSummaryItemToClientRow(it: AdminClientSummaryItem): AgentClientRow {
   return { ...row, status: deriveStatus(row) };
 }
 
-function AgentEditModal({
-  mode,
-  initialName = '',
-  initialLogin = '',
-  initialDisabled = false,
-  onClose,
-  onDone,
-  agentId,
-}: AgentEditModalProps) {
-  const [name, setName] = useState(initialName);
-  const [login, setLogin] = useState(initialLogin);
-  const [password, setPassword] = useState('');
-  const [isDisabled, setIsDisabled] = useState(initialDisabled);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError('Укажите имя агента');
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-      if (mode === 'create') {
-        const resp = await createAdminAgent({
-          name: name.trim(),
-          login: login.trim() || undefined,
-          password: password.trim() || undefined,
-        });
-        onDone(resp);
-        return;
-      }
-      if (!agentId) return;
-      const resp = await updateAdminAgent(agentId, {
-        name: name.trim(),
-        login: login.trim() || undefined,
-        password: password.trim() || undefined,
-        isDisabled,
-      });
-      onDone(resp);
-    } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Не удалось сохранить агента'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: 520, borderRadius: 12, padding: 0, overflow: 'hidden' }}>
-        <div className="modal__header" style={{ padding: '14px 16px', borderBottom: '1px solid #eee' }}>
-          <div style={{ fontWeight: 600 }}>{mode === 'create' ? 'Новый агент' : 'Редактирование агента'}</div>
-        </div>
-        <form onSubmit={handleSubmit} className="modal__body" style={{ display: 'grid', gap: 12, padding: '16px' }}>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="sub">Имя агента</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="sub">Логин</span>
-            <input value={login} onChange={(e) => setLogin(e.target.value)} />
-          </label>
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="sub">{mode === 'create' ? 'Пароль' : 'Новый пароль'}</span>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} />
-          </label>
-          {mode === 'edit' && (
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={isDisabled} onChange={(e) => setIsDisabled(e.target.checked)} />
-              <span>Агент отключён</span>
-            </label>
-          )}
-          {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button type="button" className="btn btn--ghost" onClick={onClose}>Отмена</button>
-            <button type="submit" className="btn btn--primary" disabled={loading}>
-              {loading ? 'Сохранение…' : 'Сохранить'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 function AdminAgentsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
@@ -230,7 +132,8 @@ function AdminAgentsScreen({
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [range, setRange] = useState<DateRange>(() => ({ from: getToday(), to: getToday() }));
-  const [editModal, setEditModal] = useState<{ mode: 'create' | 'edit'; agent?: AdminAgentSummaryItem } | null>(null);
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<AdminAgentSummaryItem | null>(null);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
@@ -381,7 +284,7 @@ function AdminAgentsScreen({
             <span className="sub">Всего агентов: {agents.length}</span>
           </div>
           <div className="actions">
-            <button type="button" className="btn btn--primary" onClick={() => setEditModal({ mode: 'create' })}>
+            <button type="button" className="btn btn--primary" onClick={() => setCreateAgentOpen(true)}>
               + Новый агент
             </button>
           </div>
@@ -437,15 +340,15 @@ function AdminAgentsScreen({
                           >
                             {isExpanded ? 'Свернуть' : 'Клиенты'}
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditModal({ mode: 'edit', agent });
-                            }}
-                          >
-                            Редактировать
+                              <button
+                                type="button"
+                                className="btn btn--ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingAgent(agent);
+                                }}
+                              >
+                                Редактировать
                           </button>
                         </div>
                       </td>
@@ -464,7 +367,7 @@ function AdminAgentsScreen({
                                   <button
                                     type="button"
                                     className="btn btn--primary"
-                                    onClick={() => setEditModal({ mode: 'edit', agent })}
+                                    onClick={() => setEditingAgent(agent)}
                                   >
                                     Настроить
                                   </button>
@@ -759,18 +662,21 @@ function AdminAgentsScreen({
         </div>
       </div>
 
-      {editModal && (
-        <AgentEditModal
-          mode={editModal.mode}
-          agentId={editModal.agent?.user.id}
-          initialName={editModal.agent?.user.name || editModal.agent?.user.login}
-          initialLogin={editModal.agent?.user.login}
-          initialDisabled={Boolean(editModal.agent?.user.isDisabled)}
-          onClose={() => setEditModal(null)}
-          onDone={() => {
-            const keepExpandedAgentId = editModal.agent?.user.id ?? expandedAgentId;
-            setEditModal(null);
-            void loadData(keepExpandedAgentId, selectedClientId);
+      {createAgentOpen && (
+        <AdminCreateAgentModal
+          onClose={() => setCreateAgentOpen(false)}
+          onCreated={() => {
+            void loadData(expandedAgentId, selectedClientId);
+          }}
+        />
+      )}
+
+      {editingAgent && (
+        <AdminAgentCardModal
+          agent={editingAgent}
+          onClose={() => setEditingAgent(null)}
+          onUpdated={() => {
+            void loadData(editingAgent.user.id, selectedClientId);
           }}
         />
       )}
