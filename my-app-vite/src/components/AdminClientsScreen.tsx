@@ -471,7 +471,6 @@ function AdminClientsScreen({
   }
 
   function openTariffModal(client: Pick<ClientRow, 'id' | 'name'>, mode: 'list' | 'create') {
-    setSelectedClientId(client.id);
     setTariffModalState({
       clientId: client.id,
       clientName: client.name,
