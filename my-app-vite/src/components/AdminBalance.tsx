@@ -388,7 +388,7 @@ function AdminBalance({
         <TariffManagerModal
           targetId={selectedClientId}
           targetName={selectedClientName}
-          title={`Тарифы клиента #${selectedClientId}`}
+          title={`Тарифы клиента: ${selectedClientName}`}
           onClose={() => setTariffManagerOpen(false)}
           onChanged={() => refreshClientData(selectedClientId)}
           readOnly={isAgentManager}

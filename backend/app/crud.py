@@ -137,7 +137,12 @@ def _build_target_tariff_balance_comment(target_user: models.User, action: str, 
         "credit": "Добавление к тарифу",
         "debit": "Списание из тарифа",
     }
-    base = f"Тариф клиента #{int(tariff_id)}: {action_map.get(action, 'Изменение тарифа')}"
+    client_label = (
+        str(getattr(target_user, "display_name", "") or "").strip()
+        or str(getattr(target_user, "login", "") or "").strip()
+        or f"id {int(getattr(target_user, 'id', 0) or 0)}"
+    )
+    base = f"Тариф клиента: {client_label}: {action_map.get(action, 'Изменение тарифа')}"
     return _append_balance_comment(base, comment)
 
 

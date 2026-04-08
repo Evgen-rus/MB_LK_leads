@@ -1222,7 +1222,7 @@ function AdminClientsScreen({
       <TariffManagerModal
         targetId={tariffModalState.clientId}
         targetName={tariffModalState.clientName}
-        title={`Тарифы клиента #${tariffModalState.clientId}`}
+        title={`Тарифы клиента: ${tariffModalState.clientName}`}
         onClose={() => setTariffModalState(null)}
         onChanged={() => {
           setRefreshKey((x) => x + 1);

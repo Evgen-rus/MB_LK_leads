@@ -886,7 +886,7 @@ function AdminAgentsScreen({
         <TariffManagerModal
           targetId={tariffModalState.clientId}
           targetName={tariffModalState.clientName}
-          title={`Тарифы клиента #${tariffModalState.clientId}`}
+          title={`Тарифы клиента: ${tariffModalState.clientName}`}
           onClose={() => setTariffModalState(null)}
           onChanged={() => {
             void loadData(expandedAgentId, selectedClientId);
