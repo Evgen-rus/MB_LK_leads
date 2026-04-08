@@ -4,7 +4,6 @@ import DateRangeFilter from './DateRangeFilter';
 import AdminClientCardModal from './AdminClientCardModal';
 import {
   createAdminAgent,
-  fetchAdminAgentBalanceOps,
   fetchAdminAgents,
   fetchAdminClientsSummary,
   impersonateClient,
@@ -13,7 +12,6 @@ import {
   type AdminAgentCreateResp,
   type AdminAgentSummaryItem,
   type AdminClientSummaryItem,
-  type BalanceOperation,
 } from '../api';
 
 type AdminAgentsScreenProps = {
@@ -225,7 +223,6 @@ function AdminAgentsScreen({
   onOpenClientBalance,
 }: AdminAgentsScreenProps) {
   const [agents, setAgents] = useState<AdminAgentSummaryItem[]>([]);
-  const [agentOpsById, setAgentOpsById] = useState<Record<number, BalanceOperation[]>>({});
   const [agentClients, setAgentClients] = useState<AgentClientRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -279,18 +276,10 @@ function AdminAgentsScreen({
         fetchAdminAgents(),
         fetchAdminClientsSummary({ fromDate: range.from, toDate: range.to }),
       ]);
-      const agentIds = agentsResp.items.map((agent) => agent.user.id);
-      const opsEntries = await Promise.all(
-        agentIds.map(async (agentId) => {
-          const resp = await fetchAdminAgentBalanceOps(agentId, { offset: 0, limit: 100 });
-          return [agentId, resp.items] as const;
-        }),
-      );
       const nextAgentClients = clientsResp.items.filter((item) => item.ownerType === 'agent').map(mapSummaryItemToClientRow);
 
       setAgents(agentsResp.items);
       setAgentClients(nextAgentClients);
-      setAgentOpsById(Object.fromEntries(opsEntries));
 
       const requestedExpandedAgentId = preferredExpandedAgentId === undefined ? expandedAgentId : preferredExpandedAgentId;
       const nextExpandedAgentId =
@@ -418,7 +407,6 @@ function AdminAgentsScreen({
               )}
               {agents.map((agent) => {
                 const isExpanded = expandedAgentId === agent.user.id;
-                const agentOps = agentOpsById[agent.user.id] ?? [];
                 return (
                   <Fragment key={agent.user.id}>
                     <tr
@@ -758,46 +746,6 @@ function AdminAgentsScreen({
                                 </div>
                               )}
 
-                              <div className="table-card agent-accordion__ops-card">
-                                <div className="table-toolbar">
-                                  <div className="filters">
-                                    <span className="sub">История операций по балансу агента</span>
-                                  </div>
-                                </div>
-                                <div className="table-scroll">
-                                  <table className="table">
-                                    <thead>
-                                      <tr>
-                                        <th>Дата</th>
-                                        <th>Тип</th>
-                                        <th>Количество</th>
-                                        <th>Комментарий</th>
-                                        <th>Создал</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {agentOps.length === 0 && (
-                                        <tr>
-                                          <td colSpan={5} className="muted" style={{ padding: 16 }}>Операций пока нет.</td>
-                                        </tr>
-                                      )}
-                                      {agentOps.map((op) => (
-                                        <tr key={op.id}>
-                                          <td className="muted"><DateTimeCompact value={op.createdAt} /></td>
-                                          <td>
-                                            <span className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'}>
-                                              {op.type === 'credit' ? 'Начисление' : 'Списание'}
-                                            </span>
-                                          </td>
-                                          <td>{op.amount}</td>
-                                          <td>{op.comment || '—'}</td>
-                                          <td className="muted">{op.createdBy.name || op.createdBy.login}</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
                             </div>
                           </div>
                         </td>
