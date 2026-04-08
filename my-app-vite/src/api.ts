@@ -408,6 +408,8 @@ export type MeResponse = {
   name?: string | null;
   role: 'admin' | 'client' | 'agent';
   ownerAgentId?: number | null;
+  viaImpersonation: boolean;
+  impersonatorUserId?: number | null;
   isDisabled: boolean;
   projectsMutationLocked: boolean;
   projectsMutationLockedAt?: string | null;

@@ -112,6 +112,8 @@ class SelfProfileOut(BaseModel):
     name: Optional[str] = None
     role: UserRole = 'client'
     ownerAgentId: Optional[int] = None
+    viaImpersonation: bool = False
+    impersonatorUserId: Optional[int] = None
     isDisabled: bool = False
     projectsMutationLocked: bool = False
     projectsMutationLockedAt: Optional[str] = None

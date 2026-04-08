@@ -94,6 +94,10 @@ function App() {
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
+  const [currentUserLogin, setCurrentUserLogin] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [viaImpersonation, setViaImpersonation] = useState(false);
+  const [impersonatorUserId, setImpersonatorUserId] = useState<number | null>(null);
   const [projectsMutationLocked, setProjectsMutationLocked] = useState(false);
   const [projectsMutationLockReason, setProjectsMutationLockReason] = useState<string | null>(null);
   const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(false);
@@ -127,6 +131,10 @@ function App() {
           }
           setNeedLogin(true);
           setRole('client');
+          setCurrentUserLogin(null);
+          setCurrentUserId(null);
+          setViaImpersonation(false);
+          setImpersonatorUserId(null);
           if (window.location.pathname !== '/login') {
             window.history.replaceState(null, '', '/login');
           }
@@ -249,10 +257,14 @@ function App() {
     })();
   }, [authChecked, needLogin, isManager]);
 
-  // Подтягиваем имя клиента для заголовка (только клиентская роль)
+  // Подтягиваем профиль текущего пользователя для шапки.
   useEffect(() => {
-    if (!authChecked || needLogin || isManager) {
+    if (!authChecked || needLogin || isAdmin) {
       setClientName(null);
+      setCurrentUserLogin(null);
+      setCurrentUserId(null);
+      setViaImpersonation(false);
+      setImpersonatorUserId(null);
       setProjectsMutationLocked(false);
       setProjectsMutationLockReason(null);
       setUniqueProjectNamesEnabled(false);
@@ -262,18 +274,26 @@ function App() {
       try {
         const me = await fetchMe();
         setClientName(me.name || me.login || null);
+        setCurrentUserLogin(me.login);
+        setCurrentUserId(me.id);
+        setViaImpersonation(Boolean(me.viaImpersonation));
+        setImpersonatorUserId(me.impersonatorUserId ?? null);
         setProjectsMutationLocked(Boolean(me.projectsMutationLocked));
         setProjectsMutationLockReason(me.projectsMutationLockReason || null);
         setUniqueProjectNamesEnabled(Boolean(me.uniqueProjectNamesEnabled));
       } catch (e) {
         console.error(e);
         setClientName(null);
+        setCurrentUserLogin(null);
+        setCurrentUserId(null);
+        setViaImpersonation(false);
+        setImpersonatorUserId(null);
         setProjectsMutationLocked(false);
         setProjectsMutationLockReason(null);
         setUniqueProjectNamesEnabled(false);
       }
     })();
-  }, [authChecked, needLogin, isManager]);
+  }, [authChecked, needLogin, isAdmin]);
 
   // Пауза до завершения первичной проверки, чтобы избежать «мигания»
   if (!authChecked) {
@@ -371,6 +391,25 @@ function App() {
                   {clientName}
                 </span>
               )}
+              {isAgent && clientName && (
+                <span
+                  className="sub"
+                  style={{
+                    color: '#4b4570',
+                    maxWidth: 420,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    border: '1px solid #d9d3ff',
+                    background: '#f4f1ff',
+                  }}
+                  title={`ЛК агента: ${clientName}${currentUserLogin ? ` (${currentUserLogin})` : ''}${currentUserId != null ? `, id: ${currentUserId}` : ''}`}
+                >
+                  {`ЛК агента: ${clientName}${currentUserLogin ? ` (${currentUserLogin})` : ''}${currentUserId != null ? `, id: ${currentUserId}` : ''}`}
+                </span>
+              )}
             </div>
           <div className="page-title__right">
             {!isManager && clientBalance && (
@@ -402,6 +441,10 @@ function App() {
                 console.error('Ошибка выхода', err);
               }
               setClientName(null);
+              setCurrentUserLogin(null);
+              setCurrentUserId(null);
+              setViaImpersonation(false);
+              setImpersonatorUserId(null);
               setRows([]);
               setUniqueProjectNamesEnabled(false);
               setRole('client');
@@ -412,6 +455,28 @@ function App() {
             }}>Выйти</button>
           </div>
           </div>
+          {isAgent && viaImpersonation && (
+            <div
+              style={{
+                marginTop: -4,
+                marginBottom: 12,
+                padding: '10px 12px',
+                borderRadius: 12,
+                border: '1px solid #f0cf8a',
+                background: '#fff7e6',
+                color: '#7a5300',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}
+            >
+              <strong>Служебный вход от имени агента</strong>
+              <span>{clientName || currentUserLogin || 'Агент'}</span>
+              {currentUserId != null && <span className="sub">id: {currentUserId}</span>}
+              {impersonatorUserId != null && <span className="sub">администратор id: {impersonatorUserId}</span>}
+            </div>
+          )}
           {view === 'agents' && isAdmin ? (
             <AdminAgentsScreen
               onOpenClientProjects={(clientId, clientName) => {

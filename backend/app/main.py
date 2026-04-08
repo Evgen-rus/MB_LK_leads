@@ -1125,6 +1125,8 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         name=(profile.name if profile else (getattr(current_user, "display_name", None) or None)),
         role=crud.get_user_role(current_user),  # type: ignore[arg-type]
         ownerAgentId=(int(current_user.owner_agent_id) if getattr(current_user, "owner_agent_id", None) is not None else None),
+        viaImpersonation=bool(getattr(current_user, "_via_impersonation", False)),
+        impersonatorUserId=(int(getattr(current_user, "_actor_user_id", 0) or 0) if bool(getattr(current_user, "_via_impersonation", False)) else None),
         isDisabled=bool(getattr(current_user, "is_disabled", False)),
         projectsMutationLocked=bool(getattr(current_user, "projects_mutation_locked", False)),
         projectsMutationLockedAt=current_user.projects_mutation_locked_at.isoformat() if getattr(current_user, "projects_mutation_locked_at", None) else None,
