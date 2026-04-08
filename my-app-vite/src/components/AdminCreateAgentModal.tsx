@@ -35,6 +35,10 @@ function generatePassword(length = 12): string {
   return result;
 }
 
+function normalizeDigits(value: string): string {
+  return value.replace(/\D+/g, '');
+}
+
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
@@ -53,6 +57,8 @@ function copyToClipboard(text: string) {
 
 function AdminCreateAgentModal({ onClose, onCreated }: AdminCreateAgentModalProps) {
   const [name, setName] = useState('');
+  const [inn, setInn] = useState('');
+  const [phone, setPhone] = useState('');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState(() => generatePassword());
   const [loginEdited, setLoginEdited] = useState(false);
@@ -74,12 +80,24 @@ function AdminCreateAgentModal({ onClose, onCreated }: AdminCreateAgentModalProp
       setError('Укажите имя агента');
       return;
     }
+    const innDigits = normalizeDigits(inn);
+    if (![10, 12].includes(innDigits.length)) {
+      setError('ИНН должен содержать 10 или 12 цифр');
+      return;
+    }
+    const phoneDigits = normalizeDigits(phone);
+    if (phoneDigits.length < 10) {
+      setError('Телефон должен содержать минимум 10 цифр');
+      return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       const resp = await createAdminAgent({
         name: name.trim(),
+        inn: innDigits,
+        phone: phone.trim(),
         login: login.trim() || undefined,
         password: password.trim() || undefined,
       });
@@ -136,6 +154,28 @@ function AdminCreateAgentModal({ onClose, onCreated }: AdminCreateAgentModalProp
               onChange={(e) => setName(e.target.value)}
             />
           </label>
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">ИНН</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="10 или 12 цифр"
+                value={inn}
+                onChange={(e) => setInn(e.target.value)}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">Телефон</span>
+              <input
+                type="tel"
+                placeholder="+7 999 123-45-67"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
+          </div>
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
             <label style={{ display: 'grid', gap: 6 }}>

@@ -1836,6 +1836,8 @@ def admin_update_client(
 def admin_create_agent(
     db: Session,
     name: str,
+    inn: str,
+    phone: str,
     login: Optional[str],
     password: Optional[str],
 ) -> schemas.AdminAgentCreateOut:
@@ -1843,6 +1845,13 @@ def admin_create_agent(
     name_clean = (name or "").strip()
     if not name_clean:
         raise ValueError("Имя агента не может быть пустым.")
+    inn_digits = re.sub(r"\D+", "", inn or "")
+    if len(inn_digits) not in (10, 12):
+        raise ValueError("ИНН агента должен содержать 10 или 12 цифр.")
+    phone_clean = (phone or "").strip()
+    phone_digits = re.sub(r"\D+", "", phone_clean)
+    if len(phone_digits) < 10:
+        raise ValueError("Телефон агента должен содержать минимум 10 цифр.")
 
     preferred_login = (login or "").strip().lower() if login else _translit_login_base(name_clean)
     final_login = _ensure_unique_login(db, preferred_login)
@@ -1852,6 +1861,8 @@ def admin_create_agent(
         login=final_login,
         password_hash=auth.hash_password(raw_password),
         display_name=name_clean,
+        inn=inn_digits,
+        phone=phone_clean,
         role=ROLE_AGENT,
         is_disabled=False,
         created_at=now,
@@ -1870,6 +1881,8 @@ def admin_update_agent(
     db: Session,
     agent_id: int,
     name: Optional[str],
+    inn: Optional[str],
+    phone: Optional[str],
     login: Optional[str],
     password: Optional[str],
     is_disabled: Optional[bool] = None,
@@ -1884,6 +1897,17 @@ def admin_update_agent(
         if not name_clean:
             raise ValueError("Имя агента не может быть пустым.")
         user.display_name = name_clean
+    if inn is not None:
+        inn_digits = re.sub(r"\D+", "", inn or "")
+        if len(inn_digits) not in (10, 12):
+            raise ValueError("ИНН агента должен содержать 10 или 12 цифр.")
+        user.inn = inn_digits
+    if phone is not None:
+        phone_clean = phone.strip()
+        phone_digits = re.sub(r"\D+", "", phone_clean)
+        if len(phone_digits) < 10:
+            raise ValueError("Телефон агента должен содержать минимум 10 цифр.")
+        user.phone = phone_clean
     if login is not None:
         preferred_login = (login or "").strip().lower()
         if preferred_login and preferred_login != user.login:
@@ -3136,6 +3160,8 @@ def _user_info_from_user(user: models.User, *, name: Optional[str] = None) -> sc
         id=int(user.id),
         login=user.login,
         name=resolved_name,
+        inn=(getattr(user, "inn", None) or None),
+        phone=(getattr(user, "phone", None) or None),
         role=get_user_role(user),  # type: ignore[arg-type]
         ownerAgentId=(int(user.owner_agent_id) if getattr(user, "owner_agent_id", None) is not None else None),
         isDisabled=bool(getattr(user, "is_disabled", False)),

@@ -21,6 +21,8 @@ class User(Base):
     login = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
+    inn = Column(String, nullable=True, index=True)
+    phone = Column(String, nullable=True)
     # Роль пользователя: admin | client | agent.
     # Инвариант проекта сохраняется: админ определяется как user.id == 1.
     role = Column(String, nullable=False, default="client", index=True)

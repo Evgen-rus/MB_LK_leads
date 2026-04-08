@@ -28,8 +28,14 @@ function copyToClipboard(text: string) {
   }
 }
 
+function normalizeDigits(value: string): string {
+  return value.replace(/\D+/g, '');
+}
+
 function AdminAgentCardModal({ agent, onClose, onUpdated }: AdminAgentCardModalProps) {
   const [name, setName] = useState(agent.user.name || agent.user.login);
+  const [inn, setInn] = useState(agent.user.inn || '');
+  const [phone, setPhone] = useState(agent.user.phone || '');
   const [login, setLogin] = useState(agent.user.login);
   const [password, setPassword] = useState('');
   const [isDisabled, setIsDisabled] = useState(Boolean(agent.user.isDisabled));
@@ -45,12 +51,24 @@ function AdminAgentCardModal({ agent, onClose, onUpdated }: AdminAgentCardModalP
       setError('Укажите имя агента');
       return;
     }
+    const innDigits = normalizeDigits(inn);
+    if (![10, 12].includes(innDigits.length)) {
+      setError('ИНН должен содержать 10 или 12 цифр');
+      return;
+    }
+    const phoneDigits = normalizeDigits(phone);
+    if (phoneDigits.length < 10) {
+      setError('Телефон должен содержать минимум 10 цифр');
+      return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       const resp = await updateAdminAgent(agent.user.id, {
         name: name.trim(),
+        inn: innDigits,
+        phone: phone.trim(),
         login: login.trim() || undefined,
         password: password.trim() || undefined,
         isDisabled,
@@ -113,24 +131,7 @@ function AdminAgentCardModal({ agent, onClose, onUpdated }: AdminAgentCardModalP
               </span>
               <span className="sub">Логин: {login || '—'}</span>
             </div>
-            <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-              <div>
-                <div className="sub">Клиентов</div>
-                <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{agent.clientCount}</div>
-              </div>
-              <div>
-                <div className="sub">Баланс</div>
-                <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{agent.balance}</div>
-              </div>
-              <div>
-                <div className="sub">Начислено</div>
-                <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{agent.credited}</div>
-              </div>
-              <div>
-                <div className="sub">Списано</div>
-                <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{agent.debited}</div>
-              </div>
-            </div>
+            <div className="sub">Дата создания: <DateTimeCompact value={agent.createdAt} /></div>
           </div>
 
           <label style={{ display: 'grid', gap: 6 }}>
@@ -141,6 +142,28 @@ function AdminAgentCardModal({ agent, onClose, onUpdated }: AdminAgentCardModalP
               onChange={(e) => setName(e.target.value)}
             />
           </label>
+
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">ИНН</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="10 или 12 цифр"
+                value={inn}
+                onChange={(e) => setInn(e.target.value)}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">Телефон</span>
+              <input
+                type="tel"
+                placeholder="+7 999 123-45-67"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
+          </div>
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
             <label style={{ display: 'grid', gap: 6 }}>

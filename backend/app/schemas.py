@@ -94,6 +94,8 @@ class UserInfo(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    inn: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[UserRole] = None
     ownerAgentId: Optional[int] = None
     isDisabled: Optional[bool] = None
@@ -450,12 +452,16 @@ class AdminClientsSummaryOut(BaseModel):
 
 class AdminAgentCreateIn(BaseModel):
     name: str
+    inn: str
+    phone: str
     login: Optional[str] = None
     password: Optional[str] = None
 
 
 class AdminAgentUpdateIn(BaseModel):
     name: Optional[str] = None
+    inn: Optional[str] = None
+    phone: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None
     isDisabled: Optional[bool] = None

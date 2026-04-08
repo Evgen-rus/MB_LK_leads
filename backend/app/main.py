@@ -110,6 +110,10 @@ def _ensure_user_projects_lock_columns() -> None:
     with engine.begin() as conn:
         if "display_name" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR"))
+        if "inn" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN inn VARCHAR"))
+        if "phone" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR"))
         if "role" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'client'"))
         if "owner_agent_id" not in columns:
@@ -2375,6 +2379,8 @@ def admin_create_agent(
         return crud.admin_create_agent(
             db_sess,
             name=payload.name,
+            inn=payload.inn,
+            phone=payload.phone,
             login=payload.login,
             password=payload.password,
         )
@@ -2400,6 +2406,8 @@ def admin_update_agent(
             db_sess,
             agent_id=agent_id,
             name=payload.name,
+            inn=payload.inn,
+            phone=payload.phone,
             login=payload.login,
             password=payload.password,
             is_disabled=payload.isDisabled,

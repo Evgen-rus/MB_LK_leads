@@ -642,6 +642,8 @@ export type UserInfo = {
   id: number;
   login: string;
   name?: string | null;
+  inn?: string | null;
+  phone?: string | null;
   role?: 'admin' | 'client' | 'agent' | null;
   ownerAgentId?: number | null;
   isDisabled?: boolean | null;
@@ -1107,6 +1109,8 @@ export type AdminAgentsListResp = {
 
 export type AdminAgentCreatePayload = {
   name: string;
+  inn: string;
+  phone: string;
   login?: string;
   password?: string;
 };
@@ -1119,6 +1123,8 @@ export type AdminAgentCreateResp = {
 
 export type AdminAgentUpdatePayload = {
   name?: string;
+  inn?: string;
+  phone?: string;
   login?: string;
   password?: string;
   isDisabled?: boolean;
