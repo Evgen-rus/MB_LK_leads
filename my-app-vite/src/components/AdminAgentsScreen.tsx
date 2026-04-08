@@ -547,16 +547,6 @@ function AdminAgentsScreen({
                                             <td>
                                               <div className="agent-client-row__actions">
                                                 <button
-                                                  className="btn btn--secondary"
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedClientId(client.id);
-                                                  }}
-                                                >
-                                                  Смотреть
-                                                </button>
-                                                <button
                                                   className="btn btn--primary"
                                                   type="button"
                                                   onClick={(e) => {
