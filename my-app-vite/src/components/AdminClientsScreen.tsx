@@ -6,6 +6,10 @@ import {
   fetchAdminChangesSummary,
   fetchAdminUsers,
   impersonateClient,
+  fetchAdminClientTariffs,
+  fetchAdminTariffOps,
+  createAdminClientTariff,
+  createAdminTariffOp,
   transferAdminClientOwner,
   updateAdminClient,
   fetchAdminClientCollectionState,
@@ -20,6 +24,7 @@ import DateRangeFilter from './DateRangeFilter';
 import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
+import TariffManagerModal from './TariffManagerModal';
 
 type ClientProfileWithContact = ClientProfile & {
   contact?: string | null;
@@ -115,7 +120,6 @@ function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
   onOpenClientBlacklistChanges,
-  onOpenClientBalance,
 }: AdminClientsScreenProps) {
   const isAgentManager = managerRole === 'agent';
   const env = import.meta.env as Record<string, unknown>;
@@ -139,6 +143,11 @@ function AdminClientsScreen({
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
+  const [tariffModalState, setTariffModalState] = useState<{
+    clientId: number;
+    clientName: string;
+    mode: 'list' | 'create';
+  } | null>(null);
   const [cardClientData, setCardClientData] = useState<{
     name: string;
     inn?: string | null;
@@ -461,6 +470,15 @@ function AdminClientsScreen({
     }
   }
 
+  function openTariffModal(client: Pick<ClientRow, 'id' | 'name'>, mode: 'list' | 'create') {
+    setSelectedClientId(client.id);
+    setTariffModalState({
+      clientId: client.id,
+      clientName: client.name,
+      mode,
+    });
+  }
+
   return (
     <>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -668,6 +686,18 @@ function AdminClientsScreen({
                         >
                           Смотреть
                         </button>
+                        {!isAgentManager && (
+                          <button
+                            className="btn btn--primary"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTariffModal(row, 'create');
+                            }}
+                          >
+                            Создать тариф
+                          </button>
+                        )}
                         <button
                           className="btn btn--primary"
                           type="button"
@@ -875,7 +905,7 @@ function AdminClientsScreen({
                       <button
                         type="button"
                         className="btn btn--primary"
-                        onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                        onClick={() => openTariffModal(selectedClient, 'list')}
                       >
                         Управление тарифами
                       </button>
@@ -883,7 +913,7 @@ function AdminClientsScreen({
                       <button
                         type="button"
                         className="btn btn--secondary"
-                        onClick={() => onOpenClientBalance && onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}
+                        onClick={() => openTariffModal(selectedClient, 'list')}
                       >
                         Смотреть тарифы
                       </button>
@@ -1184,6 +1214,23 @@ function AdminClientsScreen({
           setRefreshKey((x) => x + 1);
           setCardClientId(null);
         }}
+      />
+    )}
+    {tariffModalState && (
+      <TariffManagerModal
+        targetId={tariffModalState.clientId}
+        targetName={tariffModalState.clientName}
+        title={`Тарифы клиента #${tariffModalState.clientId}`}
+        onClose={() => setTariffModalState(null)}
+        onChanged={() => {
+          setRefreshKey((x) => x + 1);
+        }}
+        readOnly={isAgentManager}
+        initialEditorMode={tariffModalState.mode === 'create' ? 'create' : null}
+        fetchTariffs={fetchAdminClientTariffs}
+        createTariff={createAdminClientTariff}
+        fetchTariffOps={fetchAdminTariffOps}
+        createTariffOp={createAdminTariffOp}
       />
     )}
     </>

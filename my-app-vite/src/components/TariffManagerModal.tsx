@@ -20,6 +20,7 @@ type TariffManagerModalProps = {
   onClose: () => void;
   onChanged?: () => void | Promise<void>;
   readOnly?: boolean;
+  initialEditorMode?: 'create' | null;
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
   createTariff: (targetId: number, payload: { amount: number; comment?: string }) => Promise<ClientTariff>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
@@ -172,6 +173,7 @@ function TariffManagerModal({
   onClose,
   onChanged,
   readOnly = false,
+  initialEditorMode = null,
   fetchTariffs,
   createTariff,
   fetchTariffOps,
@@ -264,6 +266,11 @@ function TariffManagerModal({
     setTariffOpsPage(1);
     void loadTariffs();
   }, [loadTariffs]);
+
+  useEffect(() => {
+    if (readOnly || initialEditorMode !== 'create') return;
+    openCreateDialog();
+  }, [initialEditorMode, openCreateDialog, readOnly, targetId]);
 
   useEffect(() => {
     if (selectedTariffId == null) {
