@@ -20,12 +20,158 @@ type AdminBalanceProps = {
   initialModalType?: 'tariff' | null;
 };
 
+type BalanceJournalModalProps = {
+  clientId: number;
+  ops: BalanceOperation[];
+  totalOps: number;
+  loading: boolean;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  onClose: () => void;
+  onPrevPage: () => void;
+  onNextPage: () => void;
+  onPageSizeChange: (nextSize: number) => void;
+};
+
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
     if (typeof msg === 'string' && msg.trim()) return msg;
   }
   return fallback;
+}
+
+function BalanceJournalModal({
+  clientId,
+  ops,
+  totalOps,
+  loading,
+  page,
+  pageSize,
+  totalPages,
+  onClose,
+  onPrevPage,
+  onNextPage,
+  onPageSizeChange,
+}: BalanceJournalModalProps) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1300,
+        padding: 16,
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="modal-card"
+        style={{
+          background: '#fff',
+          borderRadius: 10,
+          width: '100%',
+          maxWidth: 1040,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+        }}
+      >
+        <div style={{ padding: 20, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Системный журнал баланса</div>
+            <div className="sub">Клиент id: {clientId}</div>
+          </div>
+          <button type="button" className="btn btn--ghost" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              display: 'grid',
+              gap: 8,
+              padding: 12,
+              border: '1px solid #eee',
+              borderRadius: 8,
+              background: '#fafbff',
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>Технический уровень учёта</div>
+            <div className="sub">
+              Здесь видны системные движения баланса: зеркалирование тарифов, служебные начисления и списания,
+              а также операции, влияющие на расчёт остатка клиента.
+            </div>
+          </div>
+
+          <div className="table-card" style={{ minWidth: 860, padding: '0 8px 8px' }}>
+            <div className="table-toolbar">
+              <div className="filters">
+                <span className="sub">Записи журнала</span>
+              </div>
+              <div className="actions">
+                {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Всего: {totalOps}</span>}
+              </div>
+            </div>
+            <div className="table-footer table-footer--top">
+              Показано {ops.length} из {totalOps}
+              <div className="spacer" />
+              <div className="pager">
+                <button className="pager__btn" disabled={page <= 1} onClick={onPrevPage}>‹</button>
+                <span className="pager__info">{page} / {totalPages}</span>
+                <button className="pager__btn" disabled={page >= totalPages} onClick={onNextPage}>›</button>
+                <select className="pager__size" value={pageSize} onChange={(e) => onPageSizeChange(Number(e.target.value))}>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Тип</th>
+                    <th>Количество</th>
+                    <th>Комментарий</th>
+                    <th>Создал</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!loading && ops.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="muted" style={{ padding: 16 }}>Записей журнала нет.</td>
+                    </tr>
+                  )}
+                  {ops.map((op) => (
+                    <tr key={op.id}>
+                      <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={op.createdAt} /></td>
+                      <td>
+                        <span className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'} style={{ textTransform: 'capitalize' }}>
+                          {op.type === 'credit' ? 'Начисление' : 'Списание'}
+                        </span>
+                      </td>
+                      <td>{op.amount}</td>
+                      <td>{op.comment || '—'}</td>
+                      <td className="muted">{op.createdBy.name || op.createdBy.login} (id: {op.createdBy.id})</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AdminBalance({ managerRole = 'admin', initialClientId = null, initialModalType = null }: AdminBalanceProps) {
@@ -43,6 +189,7 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
   const [currentTariffAmount, setCurrentTariffAmount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tariffManagerOpen, setTariffManagerOpen] = useState(initialModalType === 'tariff');
+  const [journalOpen, setJournalOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -114,16 +261,26 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
   const refreshClientData = useCallback(async (clientId: number) => {
     await Promise.all([
       loadSummary(clientId),
-      loadOps(clientId, 1, pageSize),
       loadCurrentTariff(clientId),
     ]);
-    setPage(1);
-  }, [loadCurrentTariff, loadOps, loadSummary, pageSize]);
+  }, [loadCurrentTariff, loadSummary]);
 
   useEffect(() => {
     if (!hasClient || selectedClientId == null) return;
     void refreshClientData(selectedClientId);
   }, [hasClient, refreshClientData, selectedClientId]);
+
+  useEffect(() => {
+    setJournalOpen(false);
+    setOps([]);
+    setTotalOps(0);
+    setPage(1);
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    if (!journalOpen || selectedClientId == null) return;
+    void loadOps(selectedClientId, page, pageSize);
+  }, [journalOpen, selectedClientId, page, pageSize, loadOps]);
 
   return (
     <div className="table-card" style={{ display: 'grid', gap: 16 }}>
@@ -193,75 +350,20 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
 
       {hasClient && (
         <div style={{ overflowX: 'auto' }}>
-          <div className="table-card" style={{ minWidth: 860, padding: '0 8px 8px' }}>
-            <div className="table-toolbar">
-              <div className="filters">
-                <span className="sub">Операции по балансу</span>
+          <div className="table-card" style={{ display: 'grid', gap: 12, minWidth: 720, padding: '12px 16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>Системный журнал баланса</div>
+                <div className="sub">
+                  Технический журнал движений баланса: зеркалирование тарифов, служебные начисления и списания.
+                </div>
               </div>
-              <div className="actions">
-                {loadingOps ? <span className="sub">Загрузка…</span> : <span className="sub">Всего: {totalOps}</span>}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {totalOps > 0 && <span className="sub">Последняя загрузка: {totalOps} записей</span>}
+                <button className="btn btn--secondary" type="button" onClick={() => setJournalOpen(true)}>
+                  Открыть журнал
+                </button>
               </div>
-            </div>
-            <div className="table-footer table-footer--top">
-              Показано {ops.length} из {totalOps}
-              <div className="spacer" />
-              <div className="pager">
-                <button className="pager__btn" disabled={page <= 1} onClick={() => {
-                  const nextPage = Math.max(1, page - 1);
-                  setPage(nextPage);
-                  if (selectedClientId != null) void loadOps(selectedClientId, nextPage);
-                }}>‹</button>
-                <span className="pager__info">{page} / {totalPages}</span>
-                <button className="pager__btn" disabled={page >= totalPages} onClick={() => {
-                  const nextPage = Math.min(totalPages, page + 1);
-                  setPage(nextPage);
-                  if (selectedClientId != null) void loadOps(selectedClientId, nextPage);
-                }}>›</button>
-                <select className="pager__size" value={pageSize} onChange={(e) => {
-                  const nextSize = Number(e.target.value);
-                  setPageSize(nextSize);
-                  setPage(1);
-                  if (selectedClientId != null) void loadOps(selectedClientId, 1, nextSize);
-                }}>
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-            </div>
-            <div className="table-scroll">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Дата</th>
-                    <th>Тип</th>
-                    <th>Количество</th>
-                    <th>Комментарий</th>
-                    <th>Создал</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!loadingOps && ops.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="muted" style={{ padding: 16 }}>Операций нет.</td>
-                    </tr>
-                  )}
-                  {ops.map((op) => (
-                    <tr key={op.id}>
-                      <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={op.createdAt} /></td>
-                      <td>
-                        <span className={op.type === 'credit' ? 'badge badge--green' : 'badge badge--orange'} style={{ textTransform: 'capitalize' }}>
-                          {op.type === 'credit' ? 'Начисление' : 'Списание'}
-                        </span>
-                      </td>
-                      <td>{op.amount}</td>
-                      <td>{op.comment || '—'}</td>
-                      <td className="muted">{op.createdBy.name || op.createdBy.login} (id: {op.createdBy.id})</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
@@ -278,6 +380,25 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
           createTariff={createAdminClientTariff}
           fetchTariffOps={fetchAdminTariffOps}
           createTariffOp={createAdminTariffOp}
+        />
+      )}
+
+      {journalOpen && selectedClientId != null && (
+        <BalanceJournalModal
+          clientId={selectedClientId}
+          ops={ops}
+          totalOps={totalOps}
+          loading={loadingOps}
+          page={page}
+          pageSize={pageSize}
+          totalPages={totalPages}
+          onClose={() => setJournalOpen(false)}
+          onPrevPage={() => setPage((prev) => Math.max(1, prev - 1))}
+          onNextPage={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+          onPageSizeChange={(nextSize) => {
+            setPageSize(nextSize);
+            setPage(1);
+          }}
         />
       )}
     </div>
