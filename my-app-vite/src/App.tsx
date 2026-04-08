@@ -85,6 +85,7 @@ function App() {
   const [adminBlacklistClientId, setAdminBlacklistClientId] = useState<number | null>(null);
   // Состояние для баланса: выбранный клиент и какая модалка открыть
   const [adminBalanceClientId, setAdminBalanceClientId] = useState<number | null>(null);
+  const [adminBalanceClientName, setAdminBalanceClientName] = useState<string | null>(null);
   const [adminBalanceModalType, setAdminBalanceModalType] = useState<'tariff' | null>(null);
   // Предзаполнение фильтров идентификаций при переходе из «Проектов»
   const [leadsPrefill, setLeadsPrefill] = useState<{ projectId?: number; from?: string; to?: string } | null>(null);
@@ -431,8 +432,9 @@ function App() {
                 setAdminProjectsFocus('blacklist-changes');
                 setView('projects');
               }}
-              onOpenClientBalance={(clientId, _clientName, action) => {
+              onOpenClientBalance={(clientId, clientName, action) => {
                 setAdminBalanceClientId(clientId);
+                setAdminBalanceClientName(clientName);
                 setAdminBalanceModalType(action);
                 setView('balance');
               }}
@@ -461,8 +463,9 @@ function App() {
                 setAdminProjectsFocus('blacklist-changes');
                 setView('projects');
               }}
-              onOpenClientBalance={(clientId, _clientName, action) => {
+              onOpenClientBalance={(clientId, clientName, action) => {
                 setAdminBalanceClientId(clientId);
+                setAdminBalanceClientName(clientName);
                 setAdminBalanceModalType(action);
                 setView('balance');
               }}
@@ -551,6 +554,7 @@ function App() {
             <AdminBalance
               managerRole={role}
               initialClientId={adminBalanceClientId ?? undefined}
+              initialClientName={adminBalanceClientName ?? undefined}
               initialModalType={adminBalanceModalType ?? undefined}
             />
           ) : (

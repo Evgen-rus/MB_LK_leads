@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
 import TariffManagerModal from './TariffManagerModal';
 import {
@@ -17,6 +17,7 @@ import {
 type AdminBalanceProps = {
   managerRole?: 'admin' | 'agent';
   initialClientId?: number | null;
+  initialClientName?: string | null;
   initialModalType?: 'tariff' | null;
 };
 
@@ -174,7 +175,12 @@ function BalanceJournalModal({
   );
 }
 
-function AdminBalance({ managerRole = 'admin', initialClientId = null, initialModalType = null }: AdminBalanceProps) {
+function AdminBalance({
+  managerRole = 'admin',
+  initialClientId = null,
+  initialClientName = null,
+  initialModalType = null,
+}: AdminBalanceProps) {
   const isAgentManager = managerRole === 'agent';
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(initialClientId ?? null);
@@ -212,6 +218,15 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
   }, [initialClientId, initialModalType]);
 
   const hasClient = selectedClientId != null;
+  const selectedClient = useMemo(
+    () => (selectedClientId != null ? users.find((user) => user.id === selectedClientId) ?? null : null),
+    [selectedClientId, users],
+  );
+  const selectedClientName =
+    selectedClient?.name
+    || selectedClient?.login
+    || (selectedClientId === initialClientId ? initialClientName : null)
+    || (selectedClientId != null ? `Клиент #${selectedClientId}` : '');
   const totalPages = Math.max(1, Math.ceil(totalOps / pageSize));
 
   const loadSummary = useCallback(async (clientId: number) => {
@@ -372,6 +387,7 @@ function AdminBalance({ managerRole = 'admin', initialClientId = null, initialMo
       {tariffManagerOpen && selectedClientId != null && (
         <TariffManagerModal
           targetId={selectedClientId}
+          targetName={selectedClientName}
           title={`Тарифы клиента #${selectedClientId}`}
           onClose={() => setTariffManagerOpen(false)}
           onChanged={() => refreshClientData(selectedClientId)}
