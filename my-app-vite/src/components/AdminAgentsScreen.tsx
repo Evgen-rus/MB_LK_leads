@@ -129,6 +129,7 @@ function AdminAgentsScreen({
   onOpenClientBlacklistChanges,
   onOpenClientBalance,
 }: AdminAgentsScreenProps) {
+  const env = import.meta.env as Record<string, unknown>;
   const [agents, setAgents] = useState<AdminAgentSummaryItem[]>([]);
   const [agentClients, setAgentClients] = useState<AgentClientRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -159,6 +160,10 @@ function AdminAgentsScreen({
   } | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
+  const clientCabinetBase =
+    typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
+      ? (env.VITE_CLIENT_PORTAL_URL as string)
+      : '/';
 
   const expandedClients = useMemo(
     () => agentClients.filter((client) => client.ownerType === 'agent' && client.ownerUser?.id === expandedAgentId),
@@ -297,7 +302,8 @@ function AdminAgentsScreen({
       } catch {
         /* ignore */
       }
-      window.location.href = '/';
+      const targetUrl = new URL(clientCabinetBase, window.location.origin).toString();
+      window.location.href = targetUrl;
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось открыть ЛК клиента'));
       setOpeningClientCabinetId(null);
