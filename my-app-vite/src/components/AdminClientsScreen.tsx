@@ -120,6 +120,7 @@ function AdminClientsScreen({
   onOpenClientProjects,
   onOpenClientChanges,
   onOpenClientBlacklistChanges,
+  onOpenClientBalance,
 }: AdminClientsScreenProps) {
   const isAgentManager = managerRole === 'agent';
   const env = import.meta.env as Record<string, unknown>;
@@ -894,7 +895,13 @@ function AdminClientsScreen({
                       <button
                         type="button"
                         className="btn btn--primary"
-                        onClick={() => openTariffModal(selectedClient, 'list')}
+                        onClick={() => {
+                          if (onOpenClientBalance) {
+                            onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff');
+                            return;
+                          }
+                          openTariffModal(selectedClient, 'list');
+                        }}
                       >
                         Управление тарифами
                       </button>
@@ -902,7 +909,13 @@ function AdminClientsScreen({
                       <button
                         type="button"
                         className="btn btn--secondary"
-                        onClick={() => openTariffModal(selectedClient, 'list')}
+                        onClick={() => {
+                          if (onOpenClientBalance) {
+                            onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff');
+                            return;
+                          }
+                          openTariffModal(selectedClient, 'list');
+                        }}
                       >
                         Смотреть тарифы
                       </button>
