@@ -676,16 +676,6 @@ function AdminClientsScreen({
                     <td>{row.totalVolume}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                          className="btn btn--secondary"
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedClientId(row.id);
-                          }}
-                        >
-                          Смотреть
-                        </button>
                         {!isAgentManager && (
                           <button
                             className="btn btn--primary"
