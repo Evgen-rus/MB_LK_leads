@@ -12,6 +12,7 @@ import {
   fetchAdminTariffOps,
   createAdminClientTariff,
   createAdminTariffOp,
+  impersonateAgent,
   impersonateClient,
   transferAdminClientOwner,
   type AdminAgentSummaryItem,
@@ -143,6 +144,7 @@ function AdminAgentsScreen({
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AdminAgentSummaryItem | null>(null);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
+  const [openingAgentCabinetId, setOpeningAgentCabinetId] = useState<number | null>(null);
   const [tariffModalState, setTariffModalState] = useState<{
     clientId: number;
     clientName: string;
@@ -310,6 +312,29 @@ function AdminAgentsScreen({
     }
   }
 
+  async function handleOpenAgentCabinet(agentId: number) {
+    if (!agentId) return;
+    setOpeningAgentCabinetId(agentId);
+    setError(null);
+    try {
+      const resp = await impersonateAgent(agentId);
+      try {
+        localStorage.setItem('access_token', resp.access_token);
+        sessionStorage.setItem('access_token', resp.access_token);
+        const parts = [`access_token=${encodeURIComponent(resp.access_token)}`, 'path=/', 'samesite=lax'];
+        if (window.location.protocol === 'https:') parts.push('secure');
+        document.cookie = parts.join('; ');
+      } catch {
+        /* ignore */
+      }
+      const targetUrl = new URL(clientCabinetBase, window.location.origin).toString();
+      window.location.href = targetUrl;
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Не удалось открыть ЛК агента'));
+      setOpeningAgentCabinetId(null);
+    }
+  }
+
   async function handleTransferOwner() {
     if (!selectedClient) return;
     const payload =
@@ -406,6 +431,17 @@ function AdminAgentsScreen({
                                 }}
                               >
                                 Редактировать
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleOpenAgentCabinet(agent.user.id);
+                            }}
+                            disabled={openingAgentCabinetId === agent.user.id}
+                          >
+                            {openingAgentCabinetId === agent.user.id ? 'Переходим…' : 'Перейти в ЛК'}
                           </button>
                         </div>
                       </td>

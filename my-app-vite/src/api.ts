@@ -430,6 +430,12 @@ export async function impersonateClient(clientId: number): Promise<{ access_toke
   });
 }
 
+export async function impersonateAgent(agentId: number): Promise<{ access_token: string; ttl_minutes: number }> {
+  return http<{ access_token: string; ttl_minutes: number }>(`/admin/agents/${agentId}/impersonate`, {
+    method: 'POST',
+  });
+}
+
 
 // -------- Лиды --------
 export type Lead = {

@@ -1050,8 +1050,6 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
     user = db_sess.get(models.User, int(user_id))
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    if crud.is_agent_user(user) and crud.user_is_disabled(user):
-        raise HTTPException(status_code=403, detail="Агент отключён.")
     impersonator_raw = payload.get("impersonator_user_id")
     impersonator_id: Optional[int] = None
     try:
@@ -1059,6 +1057,10 @@ def require_auth(request: Request, db_sess: Session = Depends(get_db)):
             impersonator_id = int(impersonator_raw)
     except Exception:
         impersonator_id = None
+    allow_disabled_target = bool(payload.get("allow_disabled_target"))
+    if crud.is_agent_user(user) and crud.user_is_disabled(user):
+        if not (allow_disabled_target and impersonator_id and impersonator_id != user.id):
+            raise HTTPException(status_code=403, detail="Агент отключён.")
 
     if impersonator_id and impersonator_id != user.id:
         setattr(user, "_actor_user_id", impersonator_id)
@@ -2214,16 +2216,25 @@ def admin_commit_provider_leads_import(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
-def create_impersonation_token(client_user_id: int, admin_user_id: int, ttl_minutes: int = 1440) -> str:
-    """Генерируем JWT для входа под клиентом (без флага is_admin)."""
+def create_impersonation_token(
+    target_user_id: int,
+    impersonator_user_id: int,
+    role: str = "client",
+    ttl_minutes: int = 1440,
+    allow_disabled_target: bool = False,
+) -> str:
+    """Генерируем JWT для служебного входа под target-пользователем без manager-прав."""
     from datetime import timedelta
 
+    extra_claims = {"impersonator_user_id": int(impersonator_user_id)}
+    if allow_disabled_target:
+        extra_claims["allow_disabled_target"] = True
     return auth.create_access_token(
-        user_id=client_user_id,
+        user_id=target_user_id,
         is_admin=False,
-        role="client",
+        role=str(role or "client"),
         expires_delta=timedelta(minutes=max(1, ttl_minutes)),
-        extra_claims={"impersonator_user_id": int(admin_user_id)},
+        extra_claims=extra_claims,
     )
 
 
@@ -2267,7 +2278,36 @@ def admin_impersonate_client(
         raise HTTPException(status_code=404, detail="Client not found")
     _ensure_manager_client_access(db_sess, current_manager, client_id)
 
-    token = create_impersonation_token(client_user.id, admin_user_id=current_manager.id, ttl_minutes=1440)
+    token = create_impersonation_token(
+        target_user_id=client_user.id,
+        impersonator_user_id=int(current_manager.id),
+        role="client",
+        ttl_minutes=1440,
+    )
+    return {"access_token": token, "ttl_minutes": 1440}
+
+
+@app.post("/admin/agents/{agent_id}/impersonate")
+def admin_impersonate_agent(
+    agent_id: int,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Выдаёт токен (24 часа) для служебного входа в ЛК агента.
+    Даже если агент отключён, администратору такой вход разрешён.
+    """
+    agent_user = db_sess.get(models.User, agent_id)
+    if not agent_user or not crud.is_agent_user(agent_user):
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    token = create_impersonation_token(
+        target_user_id=agent_user.id,
+        impersonator_user_id=int(current_admin.id),
+        role="agent",
+        ttl_minutes=1440,
+        allow_disabled_target=True,
+    )
     return {"access_token": token, "ttl_minutes": 1440}
 
 
