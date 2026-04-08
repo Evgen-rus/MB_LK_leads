@@ -212,7 +212,15 @@ Google Sheets export:
 - `DEBOUNCE_WINDOW_MINUTES`
 - `EXPORT_MAX_ROWS`
 
-## 8) Known Pitfalls
+## 8) Encoding / Text Policy
+
+- Repository text files are expected to be stored in `UTF-8`.
+- Cyrillic is intentionally used across the project: UI labels, docs, messages, logs, and test data may contain Russian text.
+- Do not replace Russian text with translit or Unicode escapes like `\u041f...` unless it is a short-term emergency workaround.
+- If terminal output shows mojibake / broken Cyrillic, do not copy that text back into source files without verifying encoding first.
+- When editing files with Cyrillic, preserve the existing file encoding and check diffs for broken text before finishing the task.
+
+## 9) Known Pitfalls
 
 1. Не полагаться только на frontend-проверки прав.
 2. Не менять бизнес-правила только в UI, без `crud.py`.

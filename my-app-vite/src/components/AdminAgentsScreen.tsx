@@ -209,7 +209,7 @@ function AdminAgentsScreen({
       } else if (selectedClientId != null && nextExpandedClients.some((client) => client.id === selectedClientId)) {
         setSelectedClientId(selectedClientId);
       } else {
-        setSelectedClientId(nextExpandedClients[0]?.id ?? null);
+        setSelectedClientId(null);
       }
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось загрузить агентов'));
@@ -232,11 +232,21 @@ function AdminAgentsScreen({
       setSelectedClientId(null);
       return;
     }
-    if (selectedClientId != null && pageRows.some((client) => client.id === selectedClientId)) {
+    if (selectedClientId == null) {
       return;
     }
-    setSelectedClientId(pageRows[0]?.id ?? filteredExpandedClients[0]?.id ?? null);
-  }, [filteredExpandedClients, pageRows, selectedClientId]);
+    if (!expandedClients.some((client) => client.id === selectedClientId)) {
+      setSelectedClientId(null);
+      return;
+    }
+    if (!filteredExpandedClients.some((client) => client.id === selectedClientId)) {
+      setSelectedClientId(null);
+      return;
+    }
+    if (!pageRows.some((client) => client.id === selectedClientId)) {
+      setSelectedClientId(null);
+    }
+  }, [expandedClients, filteredExpandedClients, pageRows, selectedClientId]);
 
   useEffect(() => {
     if (!selectedClient) {
@@ -259,8 +269,7 @@ function AdminAgentsScreen({
       return;
     }
     setExpandedAgentId(agentId);
-    const nextClients = agentClients.filter((client) => client.ownerType === 'agent' && client.ownerUser?.id === agentId);
-    setSelectedClientId(nextClients[0]?.id ?? null);
+    setSelectedClientId(null);
   }
 
   async function handleOpenClientCabinet(clientId: number) {
