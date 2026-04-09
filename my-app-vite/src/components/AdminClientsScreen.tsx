@@ -618,7 +618,7 @@ function AdminClientsScreen({
                       className={`client-row${isDebt ? ' row--debt' : ''}`}
                       style={{ cursor: 'pointer' }}
                       onClick={() => {
-                        setSelectedClientId(row.id);
+                        setSelectedClientId((prev) => (prev === row.id ? null : row.id));
                       }}
                     >
                     <td className="muted">{row.id}</td>
