@@ -508,13 +508,13 @@ function AdminAgentsScreen({
   }
 
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div className="table-card">
-        <div className="table-toolbar">
-          <div className="filters">
-            <span className="sub">Всего агентов: {agents.length}</span>
+        <div className="table-toolbar toolbar-split">
+          <div className="filters toolbar-left">
+            <span className="toolbar-meta">Всего агентов: {agents.length}</span>
           </div>
-          <div className="actions">
+          <div className="actions toolbar-right">
             <button type="button" className="btn btn--primary" onClick={() => setCreateAgentOpen(true)}>
               + Новый агент
             </button>
@@ -565,7 +565,7 @@ function AdminAgentsScreen({
           </div>
         </div>
         <div className="table-scroll">
-          <table className="table agents-table">
+          <table className="table">
             <thead>
               <tr>
                 <th>Агент</th>

@@ -1244,21 +1244,10 @@
   .filters select { flex: 1 1 calc(50% - 4px); margin-right: 0; }
   .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   .date-range { width: 100%; justify-content: space-between; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .agents-table {
-    min-width: 760px;
-  }
-  .agents-table th:nth-child(3),
-  .agents-table td:nth-child(3),
-  .agents-table th:nth-child(5),
-  .agents-table td:nth-child(5) {
-    display: none;
-  }
-  .agent-row__actions,
   .agent-accordion__actions,
   .agent-client-row__actions {
     width: 100%;
   }
-  .agent-row__actions .btn,
   .agent-accordion__actions .btn,
   .agent-client-row__actions .btn {
     flex: 1 1 100%;
