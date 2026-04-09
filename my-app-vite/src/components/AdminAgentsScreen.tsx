@@ -648,15 +648,6 @@ function AdminAgentsScreen({
                                   <div className="agent-accordion__title">{agent.user.name || agent.user.login}</div>
                                   <div className="sub">{agent.user.login} (id: {agent.user.id})</div>
                                 </div>
-                                <div className="agent-accordion__actions">
-                                  <button
-                                    type="button"
-                                    className="btn btn--primary"
-                                    onClick={() => setEditingAgent(agent)}
-                                  >
-                                    Настроить
-                                  </button>
-                                </div>
                               </div>
 
                               <div className="table-card agent-accordion__panel">
