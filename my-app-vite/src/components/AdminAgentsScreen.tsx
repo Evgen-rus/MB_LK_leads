@@ -143,6 +143,8 @@ function AdminAgentsScreen({
   const [expandedAgentId, setExpandedAgentId] = useState<number | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [agentsPage, setAgentsPage] = useState(1);
+  const [agentsPageSize, setAgentsPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [range, setRange] = useState<DateRange>(() => ({ from: getToday(), to: getToday() }));
@@ -182,6 +184,12 @@ function AdminAgentsScreen({
     () => agentClients.filter((client) => client.ownerType === 'agent' && client.ownerUser?.id === expandedAgentId),
     [agentClients, expandedAgentId],
   );
+  const totalAgents = agents.length;
+  const agentsTotalPages = Math.max(1, Math.ceil(totalAgents / agentsPageSize));
+  const agentsPageSafe = Math.min(Math.max(agentsPage, 1), agentsTotalPages);
+  const agentsStart = (agentsPageSafe - 1) * agentsPageSize;
+  const agentsEnd = agentsStart + agentsPageSize;
+  const agentsPageRows = agents.slice(agentsStart, agentsEnd);
   const filteredExpandedClients = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return expandedClients;
@@ -261,6 +269,13 @@ function AdminAgentsScreen({
   useEffect(() => {
     setPage(1);
   }, [search, expandedAgentId]);
+
+  useEffect(() => {
+    if (expandedAgentId == null) return;
+    if (agentsPageRows.some((agent) => agent.user.id === expandedAgentId)) return;
+    setExpandedAgentId(null);
+    setSelectedClientId(null);
+  }, [agentsPageRows, expandedAgentId]);
 
   useEffect(() => {
     if (filteredExpandedClients.length === 0) {
@@ -506,6 +521,49 @@ function AdminAgentsScreen({
           </div>
         </div>
         {error && <div className="sub" style={{ color: '#d00', padding: '0 16px 12px' }}>{error}</div>}
+        <div className="table-footer table-footer--top">
+          Показано {agentsPageRows.length} из {totalAgents}
+          <div className="spacer" />
+          <div className="pager">
+            <button
+              className="pager__btn"
+              disabled={agentsPageSafe <= 1}
+              onClick={() => {
+                const p = Math.max(1, agentsPageSafe - 1);
+                setAgentsPage(p);
+              }}
+            >
+              ‹
+            </button>
+            <span className="pager__info">
+              {agentsPageSafe} / {agentsTotalPages}
+            </span>
+            <button
+              className="pager__btn"
+              disabled={agentsPageSafe >= agentsTotalPages}
+              onClick={() => {
+                const p = Math.min(agentsTotalPages, agentsPageSafe + 1);
+                setAgentsPage(p);
+              }}
+            >
+              ›
+            </button>
+            <select
+              className="pager__size"
+              value={agentsPageSize}
+              onChange={(e) => {
+                const s = Number(e.target.value);
+                setAgentsPageSize(s);
+                setAgentsPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
         <div className="table-scroll">
           <table className="table agents-table">
             <thead>
@@ -524,7 +582,7 @@ function AdminAgentsScreen({
                   <td colSpan={6} className="muted" style={{ padding: 16 }}>Агенты пока не созданы.</td>
                 </tr>
               )}
-              {agents.map((agent) => {
+              {agentsPageRows.map((agent) => {
                 const isExpanded = expandedAgentId === agent.user.id;
                 return (
                   <Fragment key={agent.user.id}>
@@ -1155,6 +1213,49 @@ function AdminAgentsScreen({
               })}
             </tbody>
           </table>
+        </div>
+        <div className="table-footer">
+          Показано {agentsPageRows.length} из {totalAgents}
+          <div className="spacer" />
+          <div className="pager">
+            <button
+              className="pager__btn"
+              disabled={agentsPageSafe <= 1}
+              onClick={() => {
+                const p = Math.max(1, agentsPageSafe - 1);
+                setAgentsPage(p);
+              }}
+            >
+              ‹
+            </button>
+            <span className="pager__info">
+              {agentsPageSafe} / {agentsTotalPages}
+            </span>
+            <button
+              className="pager__btn"
+              disabled={agentsPageSafe >= agentsTotalPages}
+              onClick={() => {
+                const p = Math.min(agentsTotalPages, agentsPageSafe + 1);
+                setAgentsPage(p);
+              }}
+            >
+              ›
+            </button>
+            <select
+              className="pager__size"
+              value={agentsPageSize}
+              onChange={(e) => {
+                const s = Number(e.target.value);
+                setAgentsPageSize(s);
+                setAgentsPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
         </div>
       </div>
 
