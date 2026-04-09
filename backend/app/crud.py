@@ -1965,41 +1965,50 @@ def list_agents_summary(db: Session) -> schemas.AdminAgentsListOut:
     ).scalars().all()
     agent_ids = [int(agent.id) for agent in agents]
     client_count_map: Dict[int, int] = {}
+    agent_client_ids_map: Dict[int, List[int]] = {}
     if agent_ids:
         rows = db.execute(
-            select(models.User.owner_agent_id, func.count(models.User.id))
+            select(models.User.owner_agent_id, models.User.id)
             .where(models.User.role == ROLE_CLIENT, models.User.owner_agent_id.in_(agent_ids))
-            .group_by(models.User.owner_agent_id)
         ).all()
-        client_count_map = {int(owner_agent_id): int(total or 0) for owner_agent_id, total in rows if owner_agent_id is not None}
+        for owner_agent_id, client_id in rows:
+            if owner_agent_id is None or client_id is None:
+                continue
+            aid = int(owner_agent_id)
+            agent_client_ids_map.setdefault(aid, []).append(int(client_id))
+        client_count_map = {aid: len(client_ids) for aid, client_ids in agent_client_ids_map.items()}
 
-    balance_rows = {}
-    if agent_ids:
+    all_client_ids = [client_id for client_ids in agent_client_ids_map.values() for client_id in client_ids]
+    remaining_map = _get_client_remaining_map(db, all_client_ids)
+    client_balance_rows: Dict[int, Dict[str, int]] = {}
+    if all_client_ids:
         rows = db.execute(
             select(
                 models.ClientBalanceOperation.client_id,
                 models.ClientBalanceOperation.op_type,
                 func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0),
             )
-            .where(models.ClientBalanceOperation.client_id.in_(agent_ids))
+            .where(models.ClientBalanceOperation.client_id.in_(all_client_ids))
             .group_by(models.ClientBalanceOperation.client_id, models.ClientBalanceOperation.op_type)
         ).all()
         for client_id, op_type, total_amt in rows:
-            aid = int(client_id)
-            balance_rows.setdefault(aid, {"credit": 0, "debit": 0})
-            balance_rows[aid][str(op_type)] = int(total_amt or 0)
+            cid = int(client_id)
+            client_balance_rows.setdefault(cid, {"credit": 0, "debit": 0})
+            client_balance_rows[cid][str(op_type)] = int(total_amt or 0)
 
     items = []
     for agent in agents:
-        credited = balance_rows.get(int(agent.id), {}).get("credit", 0)
-        debited = balance_rows.get(int(agent.id), {}).get("debit", 0)
+        agent_client_ids = agent_client_ids_map.get(int(agent.id), [])
+        credited = sum(client_balance_rows.get(client_id, {}).get("credit", 0) for client_id in agent_client_ids)
+        debited = sum(client_balance_rows.get(client_id, {}).get("debit", 0) for client_id in agent_client_ids)
+        balance = sum(remaining_map.get(client_id, 0) for client_id in agent_client_ids)
         items.append(
             schemas.AdminAgentSummaryItem(
                 user=_user_info_from_user(agent),
                 clientCount=client_count_map.get(int(agent.id), 0),
                 credited=credited,
                 debited=debited,
-                balance=credited - debited,
+                balance=balance,
                 createdAt=agent.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             )
         )
@@ -2621,6 +2630,43 @@ def get_client_remaining_numbers(db: Session, client_id: int) -> int:
     return manual_balance - used_total
 
 
+def _get_client_remaining_map(db: Session, client_ids: List[int]) -> Dict[int, int]:
+    normalized_ids = [int(client_id) for client_id in client_ids if client_id is not None]
+    if not normalized_ids:
+        return {}
+
+    balance_rows = db.execute(
+        select(
+            models.ClientBalanceOperation.client_id,
+            models.ClientBalanceOperation.op_type,
+            func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0),
+        )
+        .where(models.ClientBalanceOperation.client_id.in_(normalized_ids))
+        .group_by(models.ClientBalanceOperation.client_id, models.ClientBalanceOperation.op_type)
+    ).all()
+    balance_map: Dict[int, Dict[str, int]] = {}
+    for client_id, op_type, total_amt in balance_rows:
+        cid = int(client_id)
+        balance_map.setdefault(cid, {"credit": 0, "debit": 0})
+        balance_map[cid][str(op_type)] = int(total_amt or 0)
+
+    used_total_rows = db.execute(
+        select(models.Project.user_id, func.count())
+        .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
+        .where(models.Project.user_id.in_(normalized_ids))
+        .group_by(models.Project.user_id)
+    ).all()
+    used_total_map = {int(user_id): int(total or 0) for user_id, total in used_total_rows if user_id is not None}
+
+    remaining_map: Dict[int, int] = {}
+    for client_id in normalized_ids:
+        credited = balance_map.get(client_id, {}).get("credit", 0)
+        debited = balance_map.get(client_id, {}).get("debit", 0)
+        used_total = used_total_map.get(client_id, 0)
+        remaining_map[client_id] = credited - debited - used_total
+    return remaining_map
+
+
 def get_client_active_projects_limit_sum(
     db: Session,
     client_id: int,
@@ -2704,6 +2750,86 @@ def get_client_balance_summary(
     remaining = manual_balance - used_total
     return schemas.ClientBalanceSummaryOut(
         clientId=client_id,
+        credited=int(credits or 0),
+        debited=int(debits or 0),
+        manualBalance=manual_balance,
+        usedTotal=used_total,
+        usedPeriod=used_period,
+        remaining=remaining,
+        debt=remaining < 0,
+        periodFrom=start_local.strftime("%Y-%m-%d") if start_local else None,
+        periodTo=end_local.strftime("%Y-%m-%d") if end_local else None,
+    )
+
+
+def get_agent_balance_summary(
+    db: Session,
+    agent_id: int,
+    start_local: Optional[datetime],
+    end_local: Optional[datetime],
+) -> schemas.ClientBalanceSummaryOut:
+    client_ids = [
+        int(client_id)
+        for client_id, in db.execute(
+            select(models.User.id).where(
+                models.User.role == ROLE_CLIENT,
+                models.User.owner_agent_id == int(agent_id),
+            )
+        ).all()
+        if client_id is not None
+    ]
+    if not client_ids:
+        return schemas.ClientBalanceSummaryOut(
+            clientId=int(agent_id),
+            credited=0,
+            debited=0,
+            manualBalance=0,
+            usedTotal=0,
+            usedPeriod=0,
+            remaining=0,
+            debt=False,
+            periodFrom=start_local.strftime("%Y-%m-%d") if start_local else None,
+            periodTo=end_local.strftime("%Y-%m-%d") if end_local else None,
+        )
+
+    credits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id.in_(client_ids),
+            models.ClientBalanceOperation.op_type == "credit",
+        )
+    ).scalar_one()
+    debits = db.execute(
+        select(func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0)).where(
+            models.ClientBalanceOperation.client_id.in_(client_ids),
+            models.ClientBalanceOperation.op_type == "debit",
+        )
+    ).scalar_one()
+    manual_balance = int(credits or 0) - int(debits or 0)
+
+    total_stmt = (
+        select(func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+    )
+    used_total = int(db.execute(total_stmt).scalar_one() or 0)
+
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    period_stmt = (
+        select(func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+    )
+    if start_local:
+        period_stmt = period_stmt.where(ts_col >= start_local)
+    if end_local:
+        period_stmt = period_stmt.where(ts_col <= end_local)
+    used_period = int(db.execute(period_stmt).scalar_one() or 0)
+
+    remaining = manual_balance - used_total
+    return schemas.ClientBalanceSummaryOut(
+        clientId=int(agent_id),
         credited=int(credits or 0),
         debited=int(debits or 0),
         manualBalance=manual_balance,
@@ -2817,6 +2943,66 @@ def list_client_balance_operations(
     return schemas.ClientBalanceOpsListOut(items=items, total=total)
 
 
+def list_agent_client_balance_operations(
+    db: Session,
+    agent_id: int,
+    offset: int,
+    limit: int,
+    start_local: Optional[datetime],
+    end_local: Optional[datetime],
+) -> schemas.ClientBalanceOpsListOut:
+    client_ids = [
+        int(client_id)
+        for client_id, in db.execute(
+            select(models.User.id).where(
+                models.User.role == ROLE_CLIENT,
+                models.User.owner_agent_id == int(agent_id),
+            )
+        ).all()
+        if client_id is not None
+    ]
+    if not client_ids:
+        return schemas.ClientBalanceOpsListOut(items=[], total=0)
+
+    base = select(models.ClientBalanceOperation).where(models.ClientBalanceOperation.client_id.in_(client_ids))
+    if start_local:
+        base = base.where(models.ClientBalanceOperation.created_at >= start_local)
+    if end_local:
+        base = base.where(models.ClientBalanceOperation.created_at <= end_local)
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = (
+        db.execute(
+            base.order_by(models.ClientBalanceOperation.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        ).scalars().all()
+    )
+
+    creator_ids = {r.created_by for r in rows if r.created_by}
+    creators_map: Dict[int, schemas.UserInfo] = {}
+    if creator_ids:
+        users = db.execute(select(models.User).where(models.User.id.in_(creator_ids))).scalars().all()
+        for u in users:
+            creators_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+
+    items: List[schemas.BalanceOperationOut] = []
+    for r in rows:
+        creator_info = creators_map.get(r.created_by) or schemas.UserInfo(id=r.created_by, login="unknown")
+        items.append(
+            schemas.BalanceOperationOut(
+                id=r.id,
+                clientId=r.client_id,
+                amount=r.amount,
+                type=r.op_type,  # type: ignore
+                comment=r.comment,
+                createdAt=r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                createdBy=creator_info,
+            )
+        )
+
+    return schemas.ClientBalanceOpsListOut(items=items, total=total)
+
+
 def transfer_client_to_owner(
     db: Session,
     *,
@@ -2841,27 +3027,6 @@ def transfer_client_to_owner(
             ownerType=next_owner_type,  # type: ignore[arg-type]
             ownerUser=_user_info_from_user(owner_user) if owner_user else None,
             transferredBalance=transferred_balance,
-        )
-
-    prev_agent = db.get(models.User, int(prev_agent_id)) if prev_agent_id is not None else None
-    if prev_agent is not None:
-        _add_balance_operation_row(
-            db,
-            user_id=int(prev_agent.id),
-            actor_user_id=int(admin_user_id),
-            amount=transferred_balance,
-            op_type="credit",
-            comment=f"Перенос клиента id={int(client.id)} от агента: возврат текущего остатка клиента",
-        )
-
-    if next_agent is not None:
-        _add_balance_operation_row(
-            db,
-            user_id=int(next_agent.id),
-            actor_user_id=int(admin_user_id),
-            amount=transferred_balance,
-            op_type="debit",
-            comment=f"Перенос клиента id={int(client.id)} агенту: принят текущий остаток клиента",
         )
 
     client.owner_agent_id = int(next_agent.id) if next_agent is not None else None

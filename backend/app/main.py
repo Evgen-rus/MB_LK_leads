@@ -2616,7 +2616,7 @@ def admin_agent_balance_summary(
     if not agent or not crud.is_agent_user(agent):
         raise HTTPException(status_code=404, detail="Agent not found")
     start_local, end_local = _parse_balance_date_range(fromDate, toDate)
-    return crud.get_client_balance_summary(db_sess, client_id=agent_id, start_local=start_local, end_local=end_local)
+    return crud.get_agent_balance_summary(db_sess, agent_id=agent_id, start_local=start_local, end_local=end_local)
 
 
 @app.get("/admin/agents/{agent_id}/balance/ops", response_model=schemas.ClientBalanceOpsListOut)
@@ -2635,9 +2635,9 @@ def admin_agent_balance_ops(
     start_local, end_local = _parse_balance_date_range(fromDate, toDate)
     limit = max(1, min(500, limit))
     offset = max(0, offset)
-    return crud.list_client_balance_operations(
+    return crud.list_agent_client_balance_operations(
         db_sess,
-        client_id=agent_id,
+        agent_id=agent_id,
         offset=offset,
         limit=limit,
         start_local=start_local,

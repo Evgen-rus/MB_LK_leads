@@ -1174,7 +1174,7 @@ function AdminAgentsScreen({
               <tr>
                 <th>Агент</th>
                 <th>Статус</th>
-                <th>Баланс</th>
+                <th>Остаток клиентов</th>
                 <th>Клиентов</th>
                 <th>Создан</th>
                 <th>Действия</th>
