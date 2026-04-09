@@ -708,10 +708,6 @@ function AdminAgentsScreen({
                                         <div className="client-summary__title">{selectedClient.name}</div>
                                         <div className="client-summary__meta">
                                           <span className="sub">ID: {selectedClient.id}</span>
-                                          <span className="sub">Логин: {selectedClient.login}</span>
-                                          <span className={`badge ${selectedClient.remaining < 0 ? 'badge--orange' : 'badge--green'}`}>
-                                            {selectedClient.remaining < 0 ? 'Есть долг' : 'В норме'}
-                                          </span>
                                         </div>
                                       </div>
                                     </div>
