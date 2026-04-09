@@ -880,9 +880,7 @@ function AdminAgentsScreen({
                                           </div>
                                         </div>
                                       </div>
-                                    </div>
-
-                                    <div className="client-summary__actions-panel">
+                                      <div className="client-summary__actions-panel">
                                       <div className="client-summary__panel-grid">
                                         <section className="client-summary__section">
                                           <div className="client-summary__section-title">Навигация</div>
@@ -1057,6 +1055,7 @@ function AdminAgentsScreen({
                                       </section>
                                     </div>
                                   </div>
+                                    </div>
 
                                   <div className="summary-grid">
                                     <div className="summary-card">
