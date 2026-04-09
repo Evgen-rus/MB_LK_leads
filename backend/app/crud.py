@@ -151,6 +151,32 @@ def _get_tariff_current_amount(db: Session, tariff: models.ClientTariff) -> int:
     return int(tariff.base_amount or 0) + int(adjustment.get("credit", 0)) - int(adjustment.get("debit", 0))
 
 
+def _validate_tariff_signals(amount: int, signal1: int, signal2: int, signal3: int) -> None:
+    if int(signal3) <= 0:
+        raise ValueError("Сигнал 3 должен быть больше нуля.")
+    if int(signal2) <= int(signal3):
+        raise ValueError("Сигнал 2 должен быть больше сигнала 3.")
+    if int(signal1) <= int(signal2):
+        raise ValueError("Сигнал 1 должен быть больше сигнала 2.")
+    if int(signal1) >= int(amount):
+        raise ValueError("Сигнал 1 должен быть меньше тарифа.")
+
+
+def _validate_existing_tariff_signals_for_amount(tariff: models.ClientTariff, amount: int) -> None:
+    if (
+        getattr(tariff, "signal1", None) is None
+        or getattr(tariff, "signal2", None) is None
+        or getattr(tariff, "signal3", None) is None
+    ):
+        return
+    _validate_tariff_signals(
+        amount=int(amount),
+        signal1=int(tariff.signal1 or 0),
+        signal2=int(tariff.signal2 or 0),
+        signal3=int(tariff.signal3 or 0),
+    )
+
+
 def _apply_tariff_balance_effect(
     db: Session,
     *,
@@ -2953,6 +2979,9 @@ def _tariff_to_out(
         baseAmount=int(tariff.base_amount or 0),
         currentAmount=current_amount,
         comment=tariff.comment,
+        signal1=(int(tariff.signal1) if getattr(tariff, "signal1", None) is not None else None),
+        signal2=(int(tariff.signal2) if getattr(tariff, "signal2", None) is not None else None),
+        signal3=(int(tariff.signal3) if getattr(tariff, "signal3", None) is not None else None),
         createdAt=tariff.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         updatedAt=tariff.updated_at.strftime("%Y-%m-%d %H:%M:%S"),
         createdBy=creator,
@@ -2994,12 +3023,19 @@ def create_client_tariff(
     admin_id: int,
     amount: int,
     comment: Optional[str],
+    signal1: int,
+    signal2: int,
+    signal3: int,
 ) -> schemas.ClientTariffOut:
     target_user = _ensure_tariff_target_user(db, int(client_id))
+    _validate_tariff_signals(amount=int(amount), signal1=int(signal1), signal2=int(signal2), signal3=int(signal3))
     tariff = models.ClientTariff(
         client_id=client_id,
         base_amount=amount,
         comment=(comment or "").strip() or None,
+        signal1=int(signal1),
+        signal2=int(signal2),
+        signal3=int(signal3),
         created_by=admin_id,
         created_at=now_msk(),
         updated_at=now_msk(),
@@ -3022,8 +3058,99 @@ def create_client_tariff(
     return _tariff_to_out(tariff=tariff, creator=creator)
 
 
+def update_client_tariff(
+    db: Session,
+    tariff_id: int,
+    admin_id: int,
+    amount: int,
+    comment: Optional[str],
+    signal1: int,
+    signal2: int,
+    signal3: int,
+) -> schemas.ClientTariffOut:
+    tariff = db.get(models.ClientTariff, tariff_id)
+    if not tariff:
+        raise ValueError("Tariff not found")
+    target_user = _ensure_tariff_target_user(db, int(tariff.client_id))
+    next_amount = int(amount)
+    if next_amount < 0:
+        raise ValueError("Тариф не может быть отрицательным.")
+    _validate_tariff_signals(amount=next_amount, signal1=int(signal1), signal2=int(signal2), signal3=int(signal3))
+
+    current_amount = _get_tariff_current_amount(db, tariff)
+    normalized_comment = (comment or "").strip()
+    signals_changed = (
+        int(getattr(tariff, "signal1", 0) or 0) != int(signal1)
+        or int(getattr(tariff, "signal2", 0) or 0) != int(signal2)
+        or int(getattr(tariff, "signal3", 0) or 0) != int(signal3)
+    )
+    amount_changed = next_amount != current_amount
+
+    if not amount_changed and not signals_changed:
+        raise ValueError("Изменений нет.")
+    if amount_changed and not normalized_comment:
+        raise ValueError("Комментарий обязателен при изменении тарифа.")
+
+    delta = next_amount - current_amount
+    if delta != 0:
+        op_type = "credit" if delta > 0 else "debit"
+        if op_type == "debit" and current_amount < abs(delta):
+            raise ValueError("Недостаточно объёма в тарифе для списания.")
+        op = models.ClientTariffOperation(
+            tariff_id=tariff_id,
+            amount=abs(delta),
+            op_type=op_type,
+            comment=normalized_comment,
+            created_by=admin_id,
+            created_at=now_msk(),
+        )
+        db.add(op)
+        db.flush()
+        _apply_tariff_balance_effect(
+            db,
+            target_user=target_user,
+            actor_user_id=int(admin_id),
+            amount=abs(delta),
+            op_type=op_type,
+            tariff_id=int(tariff.id),
+            action=op_type,
+            comment=normalized_comment,
+        )
+
+    tariff.signal1 = int(signal1)
+    tariff.signal2 = int(signal2)
+    tariff.signal3 = int(signal3)
+    tariff.updated_at = now_msk()
+    db.add(tariff)
+    db.commit()
+    db.refresh(tariff)
+    creator = _load_user_infos(db, [int(tariff.created_by)]).get(int(tariff.created_by)) or schemas.UserInfo(
+        id=int(tariff.created_by),
+        login="unknown",
+    )
+    adjustments_map = _get_tariff_adjustment_map(db, [int(tariff.id)])
+    return _tariff_to_out(tariff=tariff, creator=creator, adjustments=adjustments_map.get(int(tariff.id)))
+
+
 def get_client_tariff(db: Session, tariff_id: int) -> Optional[schemas.ClientTariffOut]:
     tariff = db.get(models.ClientTariff, tariff_id)
+    if not tariff:
+        return None
+    adjustments_map = _get_tariff_adjustment_map(db, [int(tariff.id)])
+    creator = _load_user_infos(db, [int(tariff.created_by)]).get(int(tariff.created_by)) or schemas.UserInfo(
+        id=int(tariff.created_by),
+        login="unknown",
+    )
+    return _tariff_to_out(tariff=tariff, creator=creator, adjustments=adjustments_map.get(int(tariff.id)))
+
+
+def get_latest_client_tariff(db: Session, client_id: int) -> Optional[schemas.ClientTariffOut]:
+    tariff = db.execute(
+        select(models.ClientTariff)
+        .where(models.ClientTariff.client_id == int(client_id))
+        .order_by(models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+        .limit(1)
+    ).scalars().first()
     if not tariff:
         return None
     adjustments_map = _get_tariff_adjustment_map(db, [int(tariff.id)])
@@ -3046,10 +3173,12 @@ def create_client_tariff_operation(
     if not tariff:
         raise ValueError("Tariff not found")
     target_user = _ensure_tariff_target_user(db, int(tariff.client_id))
+    current_amount = _get_tariff_current_amount(db, tariff)
+    next_amount = current_amount + int(amount) if op_type == "credit" else current_amount - int(amount)
     if op_type == "debit":
-        current_amount = _get_tariff_current_amount(db, tariff)
         if current_amount < int(amount):
             raise ValueError("Недостаточно объёма в тарифе для списания.")
+    _validate_existing_tariff_signals_for_amount(tariff, next_amount)
     op = models.ClientTariffOperation(
         tariff_id=tariff_id,
         amount=amount,

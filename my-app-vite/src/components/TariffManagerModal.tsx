@@ -23,19 +23,25 @@ type TariffManagerModalProps = {
   initialEditorMode?: 'create' | null;
   createOnly?: boolean;
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
-  createTariff: (targetId: number, payload: { amount: number; comment?: string }) => Promise<ClientTariff>;
+  createTariff: (targetId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
+  updateTariff: (tariffId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
-  createTariffOp: (tariffId: number, payload: { amount: number; type: 'credit' | 'debit'; comment: string }) => Promise<ClientTariffOperation>;
 };
 
 type TariffActionDialogProps = {
   clientName: string;
   editor: Exclude<TariffEditorState, null>;
   amount: number;
+  signal1: number;
+  signal2: number;
+  signal3: number;
   comment: string;
   error: string | null;
   submitting: boolean;
   onAmountChange: (next: number) => void;
+  onSignal1Change: (next: number) => void;
+  onSignal2Change: (next: number) => void;
+  onSignal3Change: (next: number) => void;
   onCommentChange: (next: string) => void;
   onClose: () => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -53,15 +59,22 @@ function TariffActionDialog({
   clientName,
   editor,
   amount,
+  signal1,
+  signal2,
+  signal3,
   comment,
   error,
   submitting,
   onAmountChange,
+  onSignal1Change,
+  onSignal2Change,
+  onSignal3Change,
   onCommentChange,
   onClose,
   onSubmit,
 }: TariffActionDialogProps) {
   const isCreate = editor.mode === 'create';
+  const currentTariffAmount = editor.mode === 'edit' ? editor.tariff.currentAmount : null;
   const title = isCreate ? 'Создать тариф' : 'Изменить тариф';
   const amountLabel = isCreate ? 'Тариф' : 'Новый тариф';
   const submitLabel = isCreate ? 'Начислить' : 'Сохранить';
@@ -136,6 +149,46 @@ function TariffActionDialog({
             />
           </label>
 
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div className="section-title">Сигналы Telegram</div>
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="sub">Сигнал 1</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={signal1}
+                  onChange={(e) => onSignal1Change(Number(e.target.value))}
+                  onWheel={preventNumberInputWheel}
+                  required
+                />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="sub">Сигнал 2</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={signal2}
+                  onChange={(e) => onSignal2Change(Number(e.target.value))}
+                  onWheel={preventNumberInputWheel}
+                  required
+                />
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="sub">Сигнал 3</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={signal3}
+                  onChange={(e) => onSignal3Change(Number(e.target.value))}
+                  onWheel={preventNumberInputWheel}
+                  required
+                />
+              </label>
+            </div>
+            <div className="sub">Правило: `Сигнал 1 &gt; Сигнал 2 &gt; Сигнал 3`, а `Сигнал 1` должен быть меньше тарифа.</div>
+          </div>
+
           <label style={{ display: 'grid', gap: 6 }}>
             <span className="section-title">{commentLabel}</span>
             <textarea
@@ -143,7 +196,7 @@ function TariffActionDialog({
               value={comment}
               onChange={(e) => onCommentChange(e.target.value)}
               placeholder={commentPlaceholder}
-              required={!isCreate}
+              required={!isCreate && currentTariffAmount != null && amount !== currentTariffAmount}
             />
           </label>
 
@@ -178,8 +231,8 @@ function TariffManagerModal({
   createOnly = false,
   fetchTariffs,
   createTariff,
+  updateTariff,
   fetchTariffOps,
-  createTariffOp,
 }: TariffManagerModalProps) {
   const [tariffs, setTariffs] = useState<ClientTariff[]>([]);
   const [totalTariffs, setTotalTariffs] = useState(0);
@@ -195,6 +248,9 @@ function TariffManagerModal({
     createOnly && initialEditorMode === 'create' && !readOnly ? { mode: 'create' } : null
   ));
   const [amount, setAmount] = useState<number>(0);
+  const [signal1, setSignal1] = useState<number>(0);
+  const [signal2, setSignal2] = useState<number>(0);
+  const [signal3, setSignal3] = useState<number>(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const isCreateOnlyFlow = createOnly && initialEditorMode === 'create';
@@ -209,12 +265,18 @@ function TariffManagerModal({
   const resetEditor = useCallback(() => {
     setEditor(null);
     setAmount(0);
+    setSignal1(0);
+    setSignal2(0);
+    setSignal3(0);
     setComment('');
     setError(null);
   }, []);
 
   const openCreateDialog = useCallback(() => {
     setAmount(0);
+    setSignal1(0);
+    setSignal2(0);
+    setSignal3(0);
     setComment('');
     setError(null);
     setEditor({ mode: 'create' });
@@ -222,6 +284,9 @@ function TariffManagerModal({
 
   const openEditDialog = useCallback((tariff: ClientTariff) => {
     setAmount(tariff.currentAmount);
+    setSignal1(tariff.signal1 ?? 0);
+    setSignal2(tariff.signal2 ?? 0);
+    setSignal3(tariff.signal3 ?? 0);
     setComment('');
     setError(null);
     setEditor({ mode: 'edit', tariff });
@@ -288,6 +353,22 @@ function TariffManagerModal({
     void loadTariffOps(selectedTariffId, tariffOpsPage, tariffOpsPageSize);
   }, [isCreateOnlyFlow, selectedTariffId, tariffOpsPage, tariffOpsPageSize, loadTariffOps]);
 
+  function validateSignals(nextAmount: number) {
+    if (signal3 <= 0) {
+      return 'Сигнал 3 должен быть больше нуля';
+    }
+    if (signal2 <= signal3) {
+      return 'Сигнал 2 должен быть больше сигнала 3';
+    }
+    if (signal1 <= signal2) {
+      return 'Сигнал 1 должен быть больше сигнала 2';
+    }
+    if (signal1 >= nextAmount) {
+      return 'Сигнал 1 должен быть меньше тарифа';
+    }
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!editor) return;
@@ -302,14 +383,25 @@ function TariffManagerModal({
         setError('Тариф не может быть отрицательным');
         return;
       }
-      if (!comment.trim()) {
+      if (amount !== editor.tariff.currentAmount && !comment.trim()) {
         setError('Комментарий обязателен');
         return;
       }
       if (amount === editor.tariff.currentAmount) {
-        setError('Новый тариф совпадает с текущим');
-        return;
+        const signalsUnchanged = (editor.tariff.signal1 ?? 0) === signal1
+          && (editor.tariff.signal2 ?? 0) === signal2
+          && (editor.tariff.signal3 ?? 0) === signal3;
+        if (signalsUnchanged) {
+          setError('Новый тариф совпадает с текущим');
+          return;
+        }
       }
+    }
+
+    const signalError = validateSignals(amount);
+    if (signalError) {
+      setError(signalError);
+      return;
     }
 
     try {
@@ -318,16 +410,23 @@ function TariffManagerModal({
 
       let nextTariffId: number | null = null;
       if (editor.mode === 'create') {
-        const tariff = await createTariff(targetId, { amount, comment: comment.trim() || undefined });
+        const tariff = await createTariff(targetId, {
+          amount,
+          comment: comment.trim() || undefined,
+          signal1,
+          signal2,
+          signal3,
+        });
         nextTariffId = tariff.id;
       } else {
-        const delta = amount - editor.tariff.currentAmount;
-        await createTariffOp(editor.tariff.id, {
-          amount: Math.abs(delta),
-          type: delta > 0 ? 'credit' : 'debit',
-          comment: comment.trim(),
+        const tariff = await updateTariff(editor.tariff.id, {
+          amount,
+          comment: comment.trim() || undefined,
+          signal1,
+          signal2,
+          signal3,
         });
-        nextTariffId = editor.tariff.id;
+        nextTariffId = tariff.id;
       }
 
       if (!isCreateOnlyFlow) {
@@ -356,10 +455,16 @@ function TariffManagerModal({
         clientName={clientLabel}
         editor={editor}
         amount={amount}
+        signal1={signal1}
+        signal2={signal2}
+        signal3={signal3}
         comment={comment}
         error={error}
         submitting={submitting}
         onAmountChange={setAmount}
+        onSignal1Change={setSignal1}
+        onSignal2Change={setSignal2}
+        onSignal3Change={setSignal3}
         onCommentChange={setComment}
         onClose={onClose}
         onSubmit={handleSubmit}
@@ -405,6 +510,7 @@ function TariffManagerModal({
                     <th>Создан</th>
                     <th>База</th>
                     <th>Текущее значение</th>
+                    <th>Сигналы</th>
                     <th>Комментарий</th>
                     <th>Создал</th>
                     <th>Действия</th>
@@ -413,7 +519,7 @@ function TariffManagerModal({
                 <tbody>
                   {!loadingTariffs && tariffs.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="muted" style={{ padding: 16 }}>Тарифы еще не созданы.</td>
+                      <td colSpan={8} className="muted" style={{ padding: 16 }}>Тарифы еще не созданы.</td>
                     </tr>
                   )}
                   {tariffs.map((tariff) => (
@@ -429,6 +535,7 @@ function TariffManagerModal({
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={tariff.createdAt} /></td>
                       <td>{tariff.baseAmount}</td>
                       <td style={{ fontWeight: 600 }}>{tariff.currentAmount}</td>
+                      <td>{[tariff.signal1, tariff.signal2, tariff.signal3].every((value) => typeof value === 'number') ? `${tariff.signal1} / ${tariff.signal2} / ${tariff.signal3}` : '-'}</td>
                       <td>{tariff.comment || '-'}</td>
                       <td className="muted">{tariff.createdBy.name || tariff.createdBy.login} (id: {tariff.createdBy.id})</td>
                       <td>
@@ -476,7 +583,7 @@ function TariffManagerModal({
                 </div>
               </div>
               <div className="sub tariff-manager__summary">
-                Текущее значение: <b>{selectedTariff.currentAmount}</b>, базовый размер: <b>{selectedTariff.baseAmount}</b>
+                Текущее значение: <b>{selectedTariff.currentAmount}</b>, базовый размер: <b>{selectedTariff.baseAmount}</b>, сигналы: <b>{selectedTariff.signal1 ?? '-'}</b> / <b>{selectedTariff.signal2 ?? '-'}</b> / <b>{selectedTariff.signal3 ?? '-'}</b>
               </div>
               <div className="table-footer table-footer--top">
                 Показано {tariffOps.length} из {totalTariffOps}
@@ -561,10 +668,16 @@ function TariffManagerModal({
           clientName={clientLabel}
           editor={editor}
           amount={amount}
+          signal1={signal1}
+          signal2={signal2}
+          signal3={signal3}
           comment={comment}
           error={error}
           submitting={submitting}
           onAmountChange={setAmount}
+          onSignal1Change={setSignal1}
+          onSignal2Change={setSignal2}
+          onSignal3Change={setSignal3}
           onCommentChange={setComment}
           onClose={resetEditor}
           onSubmit={handleSubmit}

@@ -1290,6 +1290,9 @@ export type ClientTariff = {
   baseAmount: number;
   currentAmount: number;
   comment?: string | null;
+  signal1?: number | null;
+  signal2?: number | null;
+  signal3?: number | null;
   createdAt: string;
   updatedAt: string;
   createdBy: UserInfo;
@@ -1328,10 +1331,20 @@ export async function fetchAdminClientTariffs(
 
 export async function createAdminClientTariff(
   clientId: number,
-  payload: { amount: number; comment?: string },
+  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number },
 ): Promise<ClientTariff> {
   return http<ClientTariff>(`/admin/clients/${clientId}/tariffs`, {
     method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminTariff(
+  tariffId: number,
+  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number },
+): Promise<ClientTariff> {
+  return http<ClientTariff>(`/admin/tariffs/${tariffId}`, {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }

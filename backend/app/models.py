@@ -48,6 +48,9 @@ class User(Base):
     # Последний отправленный порог уведомления по остатку: 3 / 2 / 1 / 0.
     # Нужен, чтобы не слать одно и то же сообщение повторно на каждом пересчёте.
     telegram_balance_alert_level = Column(Integer, nullable=True)
+    # Последний достигнутый тарифный сигнал по остатку клиента: 0 / 1 / 2 / 3.
+    # Нужен, чтобы повторно слать уведомление только после восстановления остатка выше порога.
+    telegram_tariff_signal_level = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
 
 
@@ -240,6 +243,9 @@ class ClientTariff(Base):
     client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     base_amount = Column(Integer, nullable=False)
     comment = Column(String, nullable=True)
+    signal1 = Column(Integer, nullable=True)
+    signal2 = Column(Integer, nullable=True)
+    signal3 = Column(Integer, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     created_at = Column(DateTime, nullable=False, default=now_msk)
     updated_at = Column(DateTime, nullable=False, default=now_msk)

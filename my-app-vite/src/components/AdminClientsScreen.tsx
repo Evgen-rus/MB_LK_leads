@@ -9,7 +9,7 @@ import {
   fetchAdminClientTariffs,
   fetchAdminTariffOps,
   createAdminClientTariff,
-  createAdminTariffOp,
+  updateAdminTariff,
   transferAdminClientOwner,
   updateAdminClient,
   fetchAdminClientCollectionState,
@@ -1232,8 +1232,8 @@ function AdminClientsScreen({
         createOnly={tariffModalState.mode === 'create'}
         fetchTariffs={fetchAdminClientTariffs}
         createTariff={createAdminClientTariff}
+        updateTariff={updateAdminTariff}
         fetchTariffOps={fetchAdminTariffOps}
-        createTariffOp={createAdminTariffOp}
       />
     )}
     </>

@@ -588,6 +588,9 @@ class ClientTariffOut(BaseModel):
     baseAmount: int
     currentAmount: int
     comment: Optional[str] = None
+    signal1: Optional[int] = None
+    signal2: Optional[int] = None
+    signal3: Optional[int] = None
     createdAt: str
     updatedAt: str
     createdBy: UserInfo
@@ -596,6 +599,17 @@ class ClientTariffOut(BaseModel):
 class ClientTariffCreateIn(BaseModel):
     amount: int
     comment: Optional[str] = None
+    signal1: int
+    signal2: int
+    signal3: int
+
+
+class ClientTariffUpdateIn(BaseModel):
+    amount: int
+    comment: Optional[str] = None
+    signal1: int
+    signal2: int
+    signal3: int
 
 
 class ClientTariffListOut(BaseModel):

@@ -20,7 +20,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -138,6 +138,16 @@ def _ensure_user_projects_lock_columns() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN unique_project_names_enabled BOOLEAN DEFAULT FALSE"))
         if "telegram_balance_alert_level" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_balance_alert_level INTEGER"))
+        if "telegram_tariff_signal_level" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_tariff_signal_level INTEGER"))
+    tariff_columns = {c["name"] for c in inspect(engine).get_columns("client_tariffs")}
+    with engine.begin() as conn:
+        if "signal1" not in tariff_columns:
+            conn.execute(text("ALTER TABLE client_tariffs ADD COLUMN signal1 INTEGER"))
+        if "signal2" not in tariff_columns:
+            conn.execute(text("ALTER TABLE client_tariffs ADD COLUMN signal2 INTEGER"))
+        if "signal3" not in tariff_columns:
+            conn.execute(text("ALTER TABLE client_tariffs ADD COLUMN signal3 INTEGER"))
 
     # На старых БД гарантируем не-null значение для bool-флагов.
     with engine.begin() as conn:
@@ -527,6 +537,11 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
         remaining=remaining,
         active_limit_sum=active_sum,
     )
+    _sync_client_tariff_signal_alert(
+        db_sess,
+        user_snapshot=user_snapshot,
+        remaining=remaining,
+    )
 
     if not bool(user_snapshot["auto_limit_control_enabled"]):
         return {"paused": 0, "errors": [], "skipped": 0}
@@ -590,6 +605,7 @@ def _snapshot_limit_control_user(user: models.User) -> dict:
         "telegram_notifications_chat_id": str(getattr(user, "telegram_notifications_chat_id", "") or "").strip(),
         "telegram_auto_pause_enabled": bool(getattr(user, "telegram_auto_pause_enabled", False)),
         "telegram_balance_alert_level": getattr(user, "telegram_balance_alert_level", None),
+        "telegram_tariff_signal_level": getattr(user, "telegram_tariff_signal_level", None),
     }
 
 
@@ -659,6 +675,108 @@ def _sync_client_balance_alert_for_client(client_id: int) -> None:
         )
 
 
+def _normalize_tariff_signal_level(value: Any) -> int:
+    try:
+        return max(0, min(3, int(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _resolve_tariff_signal_level(remaining: int, tariff: Optional[schemas.ClientTariffOut]) -> Optional[int]:
+    if not tariff:
+        return None
+    if tariff.signal1 is None or tariff.signal2 is None or tariff.signal3 is None:
+        return None
+    signal1 = int(tariff.signal1)
+    signal2 = int(tariff.signal2)
+    signal3 = int(tariff.signal3)
+    if signal3 <= 0 or signal2 <= signal3 or signal1 <= signal2 or signal1 >= int(tariff.currentAmount):
+        return None
+    if remaining <= signal3:
+        return 3
+    if remaining <= signal2:
+        return 2
+    if remaining <= signal1:
+        return 1
+    return 0
+
+
+def _set_client_tariff_signal_level(client_id: int, level: int) -> None:
+    with SessionLocal() as s:  # type: Session
+        user = s.get(models.User, int(client_id))
+        if not user:
+            return
+        user.telegram_tariff_signal_level = _normalize_tariff_signal_level(level)
+        s.add(user)
+        s.commit()
+
+
+def _build_client_tariff_signal_message(
+    user_snapshot: dict,
+    remaining: int,
+    tariff: schemas.ClientTariffOut,
+    signal_level: int,
+) -> str:
+    signal_value_map = {
+        1: int(tariff.signal1 or 0),
+        2: int(tariff.signal2 or 0),
+        3: int(tariff.signal3 or 0),
+    }
+    signal_value = signal_value_map.get(signal_level, 0)
+    return (
+        f"<b>[ЛК | Сигнал остатка тарифа {signal_level}]</b>\n"
+        f'Клиент: <code>{html.escape(str(user_snapshot.get("login", "") or ""))}</code> '
+        f'(id={html.escape(str(user_snapshot.get("id", "") or ""))})\n'
+        f"Текущий остаток: <b>{html.escape(str(int(remaining)))}</b>\n"
+        f"Достигнут порог: <b>{html.escape(str(signal_value))}</b>\n"
+        f"Текущий тариф: <b>{html.escape(str(int(tariff.currentAmount)))}</b>\n"
+        f"Сигналы: {html.escape(str(int(tariff.signal1 or 0)))} / "
+        f"{html.escape(str(int(tariff.signal2 or 0)))} / "
+        f"{html.escape(str(int(tariff.signal3 or 0)))}"
+    )
+
+
+def _sync_client_tariff_signal_alert(
+    db_sess: Session,
+    user_snapshot: dict,
+    remaining: int,
+) -> Optional[int]:
+    latest_tariff = crud.get_latest_client_tariff(db_sess, client_id=int(user_snapshot["id"]))
+    next_level = _resolve_tariff_signal_level(remaining, latest_tariff)
+    saved_level = _normalize_tariff_signal_level(user_snapshot.get("telegram_tariff_signal_level"))
+
+    if next_level is None:
+        if saved_level != 0:
+            _set_client_tariff_signal_level(int(user_snapshot["id"]), 0)
+        return None
+    if next_level == saved_level:
+        return next_level
+    if next_level < saved_level:
+        _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
+        return next_level
+
+    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
+    if not bot_token or not chat_id or not latest_tariff:
+        return None
+
+    text = _build_client_tariff_signal_message(
+        user_snapshot=user_snapshot,
+        remaining=remaining,
+        tariff=latest_tariff,
+        signal_level=next_level,
+    )
+    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
+        logging.getLogger("app").warning(
+            "Failed to send tariff signal alert to Telegram for client_id=%s level=%s",
+            user_snapshot.get("id"),
+            next_level,
+        )
+        return None
+    _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
+    return next_level
+
+
 def _notify_auto_limit_pause(
     user_snapshot: dict,
     remaining: int,
@@ -701,8 +819,12 @@ def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
       отправляем туда;
     - иначе используем общий TELEGRAM_CHAT_ID из env, чтобы не потерять уведомление.
     """
-    use_client_route = bool(getattr(user, "telegram_auto_pause_enabled", False))
-    client_chat_id = str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
+    if isinstance(user, dict):
+        use_client_route = bool(user.get("telegram_auto_pause_enabled", False))
+        client_chat_id = str(user.get("telegram_notifications_chat_id", "") or "").strip()
+    else:
+        use_client_route = bool(getattr(user, "telegram_auto_pause_enabled", False))
+        client_chat_id = str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
     return _resolve_notification_chat_id(use_client_route, client_chat_id)
 
 
@@ -3549,11 +3671,46 @@ def admin_create_client_tariff(
             admin_id=current_admin.id,
             amount=payload.amount,
             comment=payload.comment,
+            signal1=payload.signal1,
+            signal2=payload.signal2,
+            signal3=payload.signal3,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _run_limit_control_for_client(db_sess, client_id=client_id, trigger="tariff_create")
     return tariff
+
+
+@app.patch("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)
+def admin_update_client_tariff(
+    tariff_id: int,
+    payload: schemas.ClientTariffUpdateIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    existing_tariff = crud.get_client_tariff(db_sess, tariff_id=tariff_id)
+    if not existing_tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+    try:
+        result = crud.update_client_tariff(
+            db_sess,
+            tariff_id=tariff_id,
+            admin_id=current_admin.id,
+            amount=payload.amount,
+            comment=payload.comment,
+            signal1=payload.signal1,
+            signal2=payload.signal2,
+            signal3=payload.signal3,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Tariff not found":
+            raise HTTPException(status_code=404, detail=message)
+        raise HTTPException(status_code=400, detail=message)
+    target_user = db_sess.get(models.User, int(existing_tariff.clientId))
+    if target_user and crud.is_client_user(target_user):
+        _run_limit_control_for_client(db_sess, client_id=int(target_user.id), trigger="tariff_update")
+    return result
 
 
 @app.get("/admin/tariffs/{tariff_id}", response_model=schemas.ClientTariffOut)

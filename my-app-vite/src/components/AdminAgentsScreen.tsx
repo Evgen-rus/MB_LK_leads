@@ -12,7 +12,7 @@ import {
   fetchAdminClientTariffs,
   fetchAdminTariffOps,
   createAdminClientTariff,
-  createAdminTariffOp,
+  updateAdminTariff,
   impersonateAgent,
   impersonateClient,
   pauseAdminClientProjects,
@@ -1908,8 +1908,8 @@ function AdminAgentsScreen({
           createOnly
           fetchTariffs={fetchAdminClientTariffs}
           createTariff={createAdminClientTariff}
+          updateTariff={updateAdminTariff}
           fetchTariffOps={fetchAdminTariffOps}
-          createTariffOp={createAdminTariffOp}
         />
       )}
     </div>
