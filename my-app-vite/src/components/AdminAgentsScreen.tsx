@@ -175,6 +175,7 @@ function AdminAgentsScreen({
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
+  const [isMobile, setIsMobile] = useState(false);
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
       ? (env.VITE_CLIENT_PORTAL_URL as string)
@@ -208,6 +209,10 @@ function AdminAgentsScreen({
   const selectedClient = useMemo(
     () => (selectedClientId != null ? expandedClients.find((client) => client.id === selectedClientId) ?? null : null),
     [expandedClients, selectedClientId],
+  );
+  const selectedExpandedAgent = useMemo(
+    () => (expandedAgentId != null ? agents.find((agent) => agent.user.id === expandedAgentId) ?? null : null),
+    [agents, expandedAgentId],
   );
   const selectedPendingTotal =
     selectedClient != null
@@ -269,6 +274,16 @@ function AdminAgentsScreen({
   useEffect(() => {
     setPage(1);
   }, [search, expandedAgentId]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 768px)');
+    const handleChange = () => setIsMobile(media.matches);
+    handleChange();
+    media.addEventListener('change', handleChange);
+    return () => {
+      media.removeEventListener('change', handleChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (expandedAgentId == null) return;
@@ -507,8 +522,597 @@ function AdminAgentsScreen({
     });
   }
 
+  function renderExpandedAgentContent() {
+    return (
+      <>
+        <div className="table-card agent-accordion__panel">
+          <div className="table-toolbar toolbar-split">
+            <div className="filters toolbar-left">
+              <DateRangeFilter
+                from={range.from}
+                to={range.to}
+                onChange={(next) => {
+                  setPage(1);
+                  setRange(next);
+                }}
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Поиск по имени / ID клиента"
+                style={{ minWidth: 220, flex: 1 }}
+              />
+            </div>
+          </div>
+          <div className="table-footer table-footer--top">
+            Показано {pageRows.length} из {totalExpandedClients}
+            <div className="spacer" />
+            <div className="pager">
+              <button
+                className="pager__btn"
+                disabled={pageSafe <= 1}
+                onClick={() => {
+                  const p = Math.max(1, pageSafe - 1);
+                  setPage(p);
+                }}
+              >
+                ‹
+              </button>
+              <span className="pager__info">
+                {pageSafe} / {totalPages}
+              </span>
+              <button
+                className="pager__btn"
+                disabled={pageSafe >= totalPages}
+                onClick={() => {
+                  const p = Math.min(totalPages, pageSafe + 1);
+                  setPage(p);
+                }}
+              >
+                ›
+              </button>
+              <select
+                className="pager__size"
+                value={pageSize}
+                onChange={(e) => {
+                  const s = Number(e.target.value);
+                  setPageSize(s);
+                  setPage(1);
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+          <div className="table-scroll">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID клиента</th>
+                  <th>Название клиента</th>
+                  <th>Кол-во проектов</th>
+                  <th>Статус клиента</th>
+                  <th>Тариф</th>
+                  <th>Остаток</th>
+                  <th>Общий объём данных за период</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {totalExpandedClients === 0 && (
+                  <tr>
+                    <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                      У агента пока нет клиентов по текущему фильтру.
+                    </td>
+                  </tr>
+                )}
+                {pageRows.map((client) => {
+                  const blacklistTotal = (client.pendingBlacklistAdds ?? 0) + (client.pendingBlacklistDeletes ?? 0);
+                  const hasEvents = (client.pendingChanges ?? 0) > 0 || (client.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
+                  const isDebt = client.remaining < 0;
+                  return (
+                    <tr
+                      key={client.id}
+                      className={`client-row${isDebt ? ' row--debt' : ''}`}
+                      style={{
+                        cursor: 'pointer',
+                        backgroundColor: selectedClientId === client.id ? '#f7f8fc' : undefined,
+                      }}
+                      onClick={() => {
+                        setSelectedClientId((prev) => (prev === client.id ? null : client.id));
+                      }}
+                    >
+                      <td className="muted">{client.id}</td>
+                      <td>
+                        <div className="name">{client.name}</div>
+                        {hasEvents && (
+                          <div className="chip-stack">
+                            {client.pendingChanges > 0 && (
+                              <span className="badge badge--orange">Изменения: {client.pendingChanges}</span>
+                            )}
+                            {client.pendingCreates > 0 && (
+                              <span className="badge badge--gray">Создания: {client.pendingCreates}</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>{client.projectCount}</td>
+                      <td>
+                        {client.projectCount === 0 ? (
+                          <span className="badge badge--info">Нет проектов</span>
+                        ) : (
+                          <span className="agent-client-row__status">
+                            <span
+                              style={{
+                                width: 10,
+                                height: 10,
+                                borderRadius: '50%',
+                                backgroundColor: STATUS_COLORS[client.status],
+                              }}
+                            />
+                            <span className="sub" style={{ whiteSpace: 'nowrap' }}>{client.status}</span>
+                          </span>
+                        )}
+                      </td>
+                      <td>{client.tariffAmount == null ? '-' : client.tariffAmount}</td>
+                      <td>
+                        <div className={isDebt ? 'remaining-negative' : undefined}>{client.remaining}</div>
+                        {isDebt && <div className="sub" style={{ color: '#d23' }}>долг</div>}
+                      </td>
+                      <td>{client.totalVolume}</td>
+                      <td>
+                        <div className="agent-client-row__actions">
+                          <button
+                            className="btn btn--primary"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTariffModal(client);
+                            }}
+                          >
+                            Создать тариф
+                          </button>
+                          <button
+                            className="btn btn--primary"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCardClientId(client.id);
+                              setCardClientData({
+                                name: client.name,
+                                inn: client.inn,
+                                phone: client.phone,
+                                contact: client.contact,
+                                telegramNotificationsChatId: client.telegramNotificationsChatId,
+                                telegramAutoPauseEnabled: client.telegramAutoPauseEnabled,
+                                uniqueProjectNamesEnabled: client.uniqueProjectNamesEnabled,
+                                login: client.login,
+                              });
+                            }}
+                          >
+                            Карточка
+                          </button>
+                          <button
+                            className="btn btn--secondary"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleOpenClientCabinet(client.id);
+                            }}
+                            disabled={openingClientCabinetId === client.id}
+                          >
+                            {openingClientCabinetId === client.id ? 'Переходим…' : 'Перейти в ЛК'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-footer">
+            Показано {pageRows.length} из {totalExpandedClients}
+            <div className="spacer" />
+            <div className="pager">
+              <button
+                className="pager__btn"
+                disabled={pageSafe <= 1}
+                onClick={() => {
+                  const p = Math.max(1, pageSafe - 1);
+                  setPage(p);
+                }}
+              >
+                ‹
+              </button>
+              <span className="pager__info">
+                {pageSafe} / {totalPages}
+              </span>
+              <button
+                className="pager__btn"
+                disabled={pageSafe >= totalPages}
+                onClick={() => {
+                  const p = Math.min(totalPages, pageSafe + 1);
+                  setPage(p);
+                }}
+              >
+                ›
+              </button>
+              <select
+                className="pager__size"
+                value={pageSize}
+                onChange={(e) => {
+                  const s = Number(e.target.value);
+                  setPageSize(s);
+                  setPage(1);
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {selectedClient ? (
+          <div className="table-card client-summary-card agent-accordion__client-summary agent-accordion__client-summary--dense">
+            <div className="client-summary">
+              <div className="client-summary__header">
+                <div className="client-summary__info">
+                  <div className="client-summary__title">{selectedClient.name}</div>
+                  <div className="client-summary__meta">
+                    <span className="sub">ID: {selectedClient.id}</span>
+                    {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                    <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
+                  </div>
+                  <div className="client-summary__status-list">
+                    <div className="client-summary__status-item">
+                      <span className="sub">Статус клиента</span>
+                      <span className="client-summary__status-value">
+                        <span
+                          className="client-summary__status-dot"
+                          style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
+                        />
+                        <span>{selectedClient.status}</span>
+                      </span>
+                    </div>
+                    <div className="client-summary__status-item">
+                      <span className="sub">Авто-контроль</span>
+                      <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
+                        {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
+                      </span>
+                    </div>
+                    <div className="client-summary__status-item">
+                      <span className="sub">Сбор данных</span>
+                      {collectionLoading ? (
+                        <span className="badge badge--gray">Загрузка…</span>
+                      ) : (
+                        <span
+                          className={
+                            collectionState?.dataCollectionStatus === 'На паузе'
+                              ? 'badge badge--orange'
+                              : 'badge badge--green'
+                          }
+                        >
+                          {collectionState?.dataCollectionStatus ?? '—'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="client-summary__actions-panel">
+                  <div className="client-summary__panel-grid">
+                    <section className="client-summary__section">
+                      <div className="client-summary__section-title">Навигация</div>
+                      <div className="client-summary__section-actions">
+                        {onOpenClientChanges && (
+                          <button type="button" className="btn btn--secondary" onClick={() => onOpenClientChanges(selectedClient.id, selectedClient.name)}>
+                            Изменения клиента
+                            {(selectedClient.pendingChanges > 0 || selectedClient.pendingCreates > 0) && (
+                              <span className="btn__meta">
+                                {selectedClient.pendingChanges > 0 && (
+                                  <span className="badge badge--orange">Изм: {selectedClient.pendingChanges}</span>
+                                )}
+                                {selectedClient.pendingCreates > 0 && (
+                                  <span className="badge badge--gray">Созд: {selectedClient.pendingCreates}</span>
+                                )}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        {onOpenClientBlacklistChanges && (
+                          <button type="button" className="btn btn--secondary" onClick={() => onOpenClientBlacklistChanges(selectedClient.id, selectedClient.name)}>
+                            События ЧС
+                            {selectedBlacklistTotal > 0 && (
+                              <span className="btn__meta">
+                                <span className="badge badge--orange">ЧС: {selectedBlacklistTotal}</span>
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        {onOpenClientProjects && (
+                          <button type="button" className="btn btn--secondary" onClick={() => onOpenClientProjects(selectedClient.id, selectedClient.name)}>
+                            Перейти к проектам
+                          </button>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="client-summary__section">
+                      <div className="client-summary__section-title">Финансы</div>
+                      <div className="client-summary__section-actions">
+                        {onOpenClientBalance && (
+                          <button type="button" className="btn btn--primary" onClick={() => onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}>
+                            Управление тарифами
+                          </button>
+                        )}
+                      </div>
+                    </section>
+
+                    <section className="client-summary__section">
+                      <div className="client-summary__section-title">Владелец</div>
+                      <div className="client-summary__section-actions agent-accordion__owner-actions">
+                        <div className="sub">
+                          Текущий владелец: <b>{formatOwnerLabel(selectedClient)}</b>
+                        </div>
+                        <select className="agent-accordion__owner-select" value={ownerTarget} onChange={(e) => setOwnerTarget(e.target.value)}>
+                          <option value="admin">Админ</option>
+                          {agents
+                            .filter((item) => !item.user.isDisabled || ownerTarget === `agent:${item.user.id}`)
+                            .map((item) => (
+                              <option key={item.user.id} value={`agent:${item.user.id}`}>
+                                {item.user.name || item.user.login} ({item.user.login})
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn--secondary"
+                          disabled={
+                            (selectedClient.ownerType === 'admin' && ownerTarget === 'admin')
+                            || (selectedClient.ownerType === 'agent' && ownerTarget === `agent:${selectedClient.ownerUser?.id ?? 0}`)
+                          }
+                          onClick={() => {
+                            void handleTransferOwner();
+                          }}
+                        >
+                          Переназначить клиента
+                        </button>
+                      </div>
+                    </section>
+                  </div>
+
+                  <section className="client-summary__section client-summary__section--control">
+                    <div className="client-summary__section-title">Управление</div>
+                    <div className="client-summary__control-actions">
+                      <button
+                        type="button"
+                        className="btn btn--secondary client-summary__button--stacked"
+                        onClick={() => {
+                          void handleToggleAutoLimitControl();
+                        }}
+                      >
+                        <span>
+                          {selectedClient.autoLimitControlEnabled
+                            ? 'Выключить авто-контроль лимитов'
+                            : 'Включить авто-контроль лимитов'}
+                        </span>
+                        <span className="sub" style={{ opacity: 0.9 }}>
+                          Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary client-summary__button--stacked"
+                        disabled={
+                          collectionLoading
+                          || collectionActionLoading
+                          || !collectionState
+                          || !collectionState.actionEnabled
+                        }
+                        onClick={() => {
+                          void handleToggleCollection();
+                        }}
+                        title={collectionState?.actionDisabledReason || undefined}
+                      >
+                        <span>
+                          {collectionActionLoading
+                            ? 'Выполняем…'
+                            : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                        </span>
+                        <span className="sub client-summary__button-details">
+                          <span className="client-summary__button-detail-row">
+                            <span>Сбор данных:</span>
+                            {collectionLoading ? (
+                              <span className="badge badge--gray">Загрузка…</span>
+                            ) : (
+                              <span
+                                className={
+                                  collectionState?.dataCollectionStatus === 'На паузе'
+                                    ? 'badge badge--orange'
+                                    : 'badge badge--green'
+                                }
+                              >
+                                {collectionState?.dataCollectionStatus ?? '—'}
+                              </span>
+                            )}
+                          </span>
+                          <span className="client-summary__button-detail-row">
+                            <span>Изменения проектов:</span>
+                            {collectionLoading ? (
+                              <span className="badge badge--gray">Загрузка…</span>
+                            ) : (
+                              <span
+                                className={
+                                  collectionState?.projectsMutationLocked
+                                    ? 'badge badge--orange'
+                                    : 'badge badge--green'
+                                }
+                              >
+                                {collectionState?.projectsMutationLocked ? 'Заблокированы' : 'Разрешены'}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                    <div className="client-summary__control-notes">
+                      {!!collectionState?.actionDisabledReason && (
+                        <span className="sub" style={{ color: '#a55' }}>
+                          {collectionState.actionDisabledReason}
+                        </span>
+                      )}
+                      {collectionActionLoading && collectionRunInfo && (
+                        <span className="sub">
+                          {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
+                          {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
+                        </span>
+                      )}
+                      {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
+                        <span className="sub">{collectionLastInfo}</span>
+                      )}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <div className="summary-grid">
+              <div className="summary-card">
+                <div className="sub">Проектов</div>
+                <div className="value">{selectedClient.projectCount}</div>
+              </div>
+              <div className="summary-card">
+                <div className="sub">Объём за период</div>
+                <div className="value">{selectedClient.totalVolume}</div>
+              </div>
+              <div className="summary-card">
+                <div className="sub">Тариф</div>
+                <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
+              </div>
+              <div className="summary-card">
+                <div className="sub">Баланс</div>
+                <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
+                <div className="sub">Использовано: {selectedClient.usedTotal}</div>
+                <div className="sub">Начислено: {selectedAccrued}</div>
+              </div>
+            </div>
+
+            <div className="agent-accordion__snapshot">
+              <button
+                type="button"
+                className="btn btn--ghost agent-accordion__snapshot-toggle"
+                onClick={() => setPauseSnapshotExpanded((prev) => !prev)}
+                title={pauseSnapshotExpanded ? 'Свернуть список' : 'Развернуть список'}
+              >
+                <span className="agent-accordion__snapshot-summary">
+                  <span
+                    className="sub agent-accordion__snapshot-icon"
+                  >
+                    i
+                  </span>
+                  <span>
+                    Проекты из последней массовой паузы
+                    {collectionState ? ` (${collectionState.snapshotProjects.length})` : ''}
+                  </span>
+                </span>
+                <span className="sub agent-accordion__snapshot-caret">
+                  {pauseSnapshotExpanded ? '▾' : '▸'}
+                </span>
+              </button>
+
+              {pauseSnapshotExpanded && (
+                <div className="agent-accordion__snapshot-list">
+                  {collectionLoading && <div className="sub">Загрузка списка…</div>}
+                  {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
+                    <div className="sub">Снимок отсутствует.</div>
+                  )}
+                  {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
+                    <div className="agent-accordion__snapshot-projects">
+                      {collectionState.snapshotProjects.map((project) => (
+                        <div
+                          key={project.id}
+                          className="agent-accordion__snapshot-project"
+                        >
+                          <span>{project.name} (id: {project.id})</span>
+                          <span
+                            className={
+                              project.status === 'Активен'
+                                ? 'badge badge--green'
+                                : project.status === 'На паузе'
+                                  ? 'badge badge--orange'
+                                  : 'badge badge--gray'
+                            }
+                          >
+                            {project.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="table-card agent-accordion__placeholder">
+            <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>Клиент не выбран</div>
+            <div className="sub agent-accordion__placeholder-text">
+              Выберите клиента в таблице выше, чтобы открыть detail-режим.
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {isMobile && selectedExpandedAgent ? (
+        <div className="table-card agent-mobile-view">
+          <div className="agent-mobile-view__header">
+            <button
+              type="button"
+              className="btn btn--ghost agent-mobile-view__back"
+              onClick={() => toggleAgent(selectedExpandedAgent.user.id)}
+            >
+              ← К списку агентов
+            </button>
+            <div className="agent-mobile-view__identity">
+              <div className="agent-mobile-view__title">{selectedExpandedAgent.user.name || selectedExpandedAgent.user.login}</div>
+              <div className="sub">{selectedExpandedAgent.user.login} (id: {selectedExpandedAgent.user.id})</div>
+            </div>
+            <div className="agent-mobile-view__actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setEditingAgent(selectedExpandedAgent)}
+              >
+                Редактировать
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary"
+                onClick={() => {
+                  void handleOpenAgentCabinet(selectedExpandedAgent.user.id);
+                }}
+                disabled={openingAgentCabinetId === selectedExpandedAgent.user.id}
+              >
+                {openingAgentCabinetId === selectedExpandedAgent.user.id ? 'Переходим…' : 'Перейти в ЛК'}
+              </button>
+            </div>
+          </div>
+          <div className="agent-mobile-view__content">
+            {renderExpandedAgentContent()}
+          </div>
+        </div>
+      ) : (
       <div className="table-card">
         <div className="table-toolbar toolbar-split">
           <div className="filters toolbar-left">
@@ -1249,6 +1853,7 @@ function AdminAgentsScreen({
           </div>
         </div>
       </div>
+      )}
 
       {createAgentOpen && (
         <AdminCreateAgentModal
