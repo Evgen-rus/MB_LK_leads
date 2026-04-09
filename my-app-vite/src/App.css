@@ -1276,13 +1276,18 @@
   .filters select { flex: 1 1 calc(50% - 4px); margin-right: 0; }
   .actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
   .date-range { width: 100%; justify-content: space-between; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .agent-accordion__actions,
-  .agent-client-row__actions {
+  .agent-accordion__actions {
     width: 100%;
   }
-  .agent-accordion__actions .btn,
-  .agent-client-row__actions .btn {
+  .agent-accordion__actions .btn {
     flex: 1 1 100%;
+  }
+  .agent-client-row__actions {
+    width: auto;
+    justify-content: flex-start;
+  }
+  .agent-client-row__actions .btn {
+    flex: 0 1 auto;
   }
   .agent-accordion__body {
     padding: 12px;
