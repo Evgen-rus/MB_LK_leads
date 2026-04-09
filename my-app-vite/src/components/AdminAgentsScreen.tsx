@@ -835,7 +835,7 @@ function AdminAgentsScreen({
                               </div>
 
                               {selectedClient ? (
-                                <div className="table-card client-summary-card agent-accordion__client-summary">
+                                <div className="table-card client-summary-card agent-accordion__client-summary agent-accordion__client-summary--dense">
                                   <div className="client-summary">
                                     <div className="client-summary__header">
                                       <div className="client-summary__info">
@@ -1079,36 +1079,16 @@ function AdminAgentsScreen({
                                     </div>
                                   </div>
 
-                                  <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
+                                  <div className="agent-accordion__snapshot">
                                     <button
                                       type="button"
-                                      className="btn btn--ghost"
+                                      className="btn btn--ghost agent-accordion__snapshot-toggle"
                                       onClick={() => setPauseSnapshotExpanded((prev) => !prev)}
-                                      style={{
-                                        width: '100%',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        border: '1px solid #e7e9f5',
-                                        background: '#f7f8fc',
-                                        borderRadius: 10,
-                                        padding: '10px 12px',
-                                      }}
                                       title={pauseSnapshotExpanded ? 'Свернуть список' : 'Развернуть список'}
                                     >
-                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                      <span className="agent-accordion__snapshot-summary">
                                         <span
-                                          className="sub"
-                                          style={{
-                                            width: 16,
-                                            height: 16,
-                                            borderRadius: '50%',
-                                            border: '1px solid #d9dcef',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            lineHeight: 1,
-                                          }}
+                                          className="sub agent-accordion__snapshot-icon"
                                         >
                                           i
                                         </span>
@@ -1117,23 +1097,23 @@ function AdminAgentsScreen({
                                           {collectionState ? ` (${collectionState.snapshotProjects.length})` : ''}
                                         </span>
                                       </span>
-                                      <span className="sub" style={{ fontSize: 12 }}>
+                                      <span className="sub agent-accordion__snapshot-caret">
                                         {pauseSnapshotExpanded ? '▾' : '▸'}
                                       </span>
                                     </button>
 
                                     {pauseSnapshotExpanded && (
-                                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                                      <div className="agent-accordion__snapshot-list">
                                         {collectionLoading && <div className="sub">Загрузка списка…</div>}
                                         {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
                                           <div className="sub">Снимок отсутствует.</div>
                                         )}
                                         {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
-                                          <div style={{ display: 'grid', gap: 6 }}>
+                                          <div className="agent-accordion__snapshot-projects">
                                             {collectionState.snapshotProjects.map((project) => (
                                               <div
                                                 key={project.id}
-                                                style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                                                className="agent-accordion__snapshot-project"
                                               >
                                                 <span>{project.name} (id: {project.id})</span>
                                                 <span
