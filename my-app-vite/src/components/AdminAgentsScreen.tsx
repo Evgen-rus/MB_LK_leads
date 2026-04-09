@@ -8,14 +8,19 @@ import TariffManagerModal from './TariffManagerModal';
 import {
   fetchAdminAgents,
   fetchAdminClientsSummary,
+  fetchAdminClientCollectionState,
   fetchAdminClientTariffs,
   fetchAdminTariffOps,
   createAdminClientTariff,
   createAdminTariffOp,
   impersonateAgent,
   impersonateClient,
+  pauseAdminClientProjects,
+  resumeAdminClientProjects,
   transferAdminClientOwner,
+  updateAdminClient,
   type AdminAgentSummaryItem,
+  type AdminClientCollectionState,
   type AdminClientSummaryItem,
 } from '../api';
 
@@ -161,6 +166,11 @@ function AdminAgentsScreen({
     login: string;
   } | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
+  const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
+  const [collectionActionLoading, setCollectionActionLoading] = useState(false);
+  const [collectionRunInfo, setCollectionRunInfo] = useState<{ mode: 'pause' | 'resume'; total: number } | null>(null);
+  const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
@@ -277,6 +287,39 @@ function AdminAgentsScreen({
     setOwnerTarget('admin');
   }, [selectedClient]);
 
+  useEffect(() => {
+    if (selectedClientId == null) {
+      setCollectionState(null);
+      setCollectionLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setCollectionLoading(true);
+        const state = await fetchAdminClientCollectionState(selectedClientId);
+        if (!cancelled) setCollectionState(state);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setCollectionState(null);
+          window.dispatchEvent(
+            new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось загрузить состояние сбора данных') }),
+          );
+        }
+      } finally {
+        if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    setCollectionLastInfo(null);
+    setCollectionRunInfo(null);
+  }, [selectedClientId]);
+
   function toggleAgent(agentId: number) {
     setSearch('');
     setPage(1);
@@ -347,6 +390,88 @@ function AdminAgentsScreen({
       await loadData(payload.ownerType === 'agent' ? payload.agentId ?? null : expandedAgentId, selectedClient.id);
     } catch (err: unknown) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось переназначить клиента') }));
+    }
+  }
+
+  async function handleToggleCollection() {
+    if (!selectedClient) return;
+    if (!collectionState) return;
+
+    const isPause = collectionState.action === 'pause';
+    const confirmText = isPause
+      ? 'Поставить на паузу все активные проекты клиента? При включении восстановятся только те, что были активны.'
+      : 'Включить проекты ранее поставленные на паузу?';
+    if (!window.confirm(confirmText)) return;
+
+    const estimatedTotal = isPause
+      ? (collectionState.pauseCandidates || 0)
+      : (collectionState.resumeCandidates || 0);
+    setCollectionRunInfo({ mode: isPause ? 'pause' : 'resume', total: estimatedTotal });
+    setCollectionLastInfo(null);
+    setCollectionActionLoading(true);
+    try {
+      const resp = isPause
+        ? await pauseAdminClientProjects(selectedClient.id)
+        : await resumeAdminClientProjects(selectedClient.id);
+      setCollectionState(resp.state);
+      const successCount = isPause ? resp.pausedCount : resp.resumedCount;
+      const processedCount = successCount + resp.skippedCount + resp.failedCount;
+      setCollectionLastInfo(
+        `Выполнено: ${successCount}/${processedCount || 0}. Пропущено: ${resp.skippedCount}. Ошибок: ${resp.failedCount}.`,
+      );
+
+      const lines: string[] = [resp.message];
+      if (resp.failedCount > 0 || resp.skippedCount > 0) {
+        lines.push(
+          `Детали: успешно ${isPause ? resp.pausedCount : resp.resumedCount}, пропущено ${resp.skippedCount}, ошибок ${resp.failedCount}.`,
+        );
+      }
+      if (resp.errors.length > 0) {
+        lines.push(resp.errors.slice(0, 5).join('\n'));
+        if (resp.errors.length > 5) {
+          lines.push(`... и ещё ${resp.errors.length - 5}`);
+        }
+      }
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим сбора данных') }));
+    } finally {
+      setCollectionActionLoading(false);
+      setCollectionRunInfo(null);
+    }
+  }
+
+  async function handleToggleAutoLimitControl() {
+    if (!selectedClient) return;
+    const nextEnabled = !selectedClient.autoLimitControlEnabled;
+    const confirmText = nextEnabled
+      ? 'Включить авто-контроль лимитов для этого клиента?'
+      : 'Выключить авто-контроль лимитов для этого клиента? После этого управление будет полностью ручным.';
+    if (!window.confirm(confirmText)) return;
+    try {
+      await updateAdminClient(selectedClient.id, { autoLimitControlEnabled: nextEnabled });
+      setAgentClients((prev) =>
+        prev.map((row) =>
+          row.id === selectedClient.id
+            ? {
+                ...row,
+                autoLimitControlEnabled: nextEnabled,
+                status: deriveStatus({ ...row, autoLimitControlEnabled: nextEnabled }),
+              }
+            : row,
+        ),
+      );
+      window.dispatchEvent(
+        new CustomEvent('app-toast', {
+          detail: nextEnabled
+            ? 'Авто-контроль лимитов включён.'
+            : 'Авто-контроль лимитов выключен. Управление проектами полностью ручное.',
+        }),
+      );
+    } catch (err: unknown) {
+      window.dispatchEvent(
+        new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим авто-контроля лимитов') }),
+      );
     }
   }
 
@@ -793,6 +918,98 @@ function AdminAgentsScreen({
                                           </div>
                                         </section>
                                       </div>
+
+                                      <section className="client-summary__section client-summary__section--control">
+                                        <div className="client-summary__section-title">Управление</div>
+                                        <div className="client-summary__control-actions">
+                                          <button
+                                            type="button"
+                                            className="btn btn--secondary client-summary__button--stacked"
+                                            onClick={() => {
+                                              void handleToggleAutoLimitControl();
+                                            }}
+                                          >
+                                            <span>
+                                              {selectedClient.autoLimitControlEnabled
+                                                ? 'Выключить авто-контроль лимитов'
+                                                : 'Включить авто-контроль лимитов'}
+                                            </span>
+                                            <span className="sub" style={{ opacity: 0.9 }}>
+                                              Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                                            </span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="btn btn--secondary client-summary__button--stacked"
+                                            disabled={
+                                              collectionLoading
+                                              || collectionActionLoading
+                                              || !collectionState
+                                              || !collectionState.actionEnabled
+                                            }
+                                            onClick={() => {
+                                              void handleToggleCollection();
+                                            }}
+                                            title={collectionState?.actionDisabledReason || undefined}
+                                          >
+                                            <span>
+                                              {collectionActionLoading
+                                                ? 'Выполняем…'
+                                                : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
+                                            </span>
+                                            <span className="sub client-summary__button-details">
+                                              <span className="client-summary__button-detail-row">
+                                                <span>Сбор данных:</span>
+                                                {collectionLoading ? (
+                                                  <span className="badge badge--gray">Загрузка…</span>
+                                                ) : (
+                                                  <span
+                                                    className={
+                                                      collectionState?.dataCollectionStatus === 'На паузе'
+                                                        ? 'badge badge--orange'
+                                                        : 'badge badge--green'
+                                                    }
+                                                  >
+                                                    {collectionState?.dataCollectionStatus ?? '—'}
+                                                  </span>
+                                                )}
+                                              </span>
+                                              <span className="client-summary__button-detail-row">
+                                                <span>Изменения проектов:</span>
+                                                {collectionLoading ? (
+                                                  <span className="badge badge--gray">Загрузка…</span>
+                                                ) : (
+                                                  <span
+                                                    className={
+                                                      collectionState?.projectsMutationLocked
+                                                        ? 'badge badge--orange'
+                                                        : 'badge badge--green'
+                                                    }
+                                                  >
+                                                    {collectionState?.projectsMutationLocked ? 'Заблокированы' : 'Разрешены'}
+                                                  </span>
+                                                )}
+                                              </span>
+                                            </span>
+                                          </button>
+                                        </div>
+                                        <div className="client-summary__control-notes">
+                                          {!!collectionState?.actionDisabledReason && (
+                                            <span className="sub" style={{ color: '#a55' }}>
+                                              {collectionState.actionDisabledReason}
+                                            </span>
+                                          )}
+                                          {collectionActionLoading && collectionRunInfo && (
+                                            <span className="sub">
+                                              {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
+                                              {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
+                                            </span>
+                                          )}
+                                          {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
+                                            <span className="sub">{collectionLastInfo}</span>
+                                          )}
+                                        </div>
+                                      </section>
                                     </div>
                                   </div>
 
