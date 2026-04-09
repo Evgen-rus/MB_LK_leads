@@ -921,6 +921,49 @@
 .summary-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; padding: 12px; min-height: 72px; display: flex; flex-direction: column; justify-content: space-between; }
 .summary-card .value { font-size: 1.2rem; font-weight: 700; }
 .summary-card .value--negative { color: #d83a3a; }
+.admin-balance {
+  display: grid;
+  gap: 16px;
+}
+.admin-balance__toolbar {
+  gap: 12px;
+}
+.admin-balance__toolbar-actions {
+  align-items: center;
+}
+.admin-balance__section {
+  display: grid;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.admin-balance__section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.admin-balance__section-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.admin-balance__stats {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.admin-balance__stat {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+}
+.admin-balance__stat-value {
+  font-size: 20px;
+  font-weight: 600;
+}
 .agent-row__actions,
 .agent-accordion__actions,
 .agent-client-row__actions {
@@ -1302,6 +1345,23 @@
   .agent-mobile-view__actions .btn {
     flex: 1 1 100%;
   }
+  .admin-balance__section {
+    padding: 12px;
+  }
+  .admin-balance__section-header {
+    align-items: stretch;
+  }
+  .admin-balance__section-header > .btn,
+  .admin-balance__section-actions {
+    width: 100%;
+  }
+  .admin-balance__section-actions .btn {
+    width: 100%;
+  }
+  .admin-balance__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
   .agent-accordion__content {
     gap: 12px;
   }
@@ -1330,6 +1390,9 @@
 }
 
 @media (max-width: 420px) {
+  .admin-balance__stats {
+    grid-template-columns: 1fr;
+  }
   .page-title__balance-label-full {
     display: none;
   }

@@ -298,9 +298,9 @@ function AdminBalance({
   }, [journalOpen, selectedClientId, page, pageSize, loadOps]);
 
   return (
-    <div className="table-card" style={{ display: 'grid', gap: 16 }}>
-      <div className="table-toolbar" style={{ gap: 12 }}>
-        <div className="filters" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+    <div className="table-card admin-balance">
+      <div className="table-toolbar toolbar-split admin-balance__toolbar">
+        <div className="filters toolbar-left">
           <select
             value={selectedClientId ?? ''}
             onChange={(e) => {
@@ -316,7 +316,7 @@ function AdminBalance({
             ))}
           </select>
         </div>
-        <div className="actions">
+        <div className="actions toolbar-right admin-balance__toolbar-actions">
           {!hasClient && <span className="sub">Выберите клиента, чтобы увидеть баланс и тарифы</span>}
           {(loadingSummary || loadingTariffSummary) && <span className="sub">Загрузка…</span>}
         </div>
@@ -325,60 +325,56 @@ function AdminBalance({
       {error && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
 
       {hasClient && summary && (
-        <div style={{ overflowX: 'auto' }}>
-          <div className="table-card" style={{ display: 'grid', gap: 12, minWidth: 720, padding: '12px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
-                <div className="sub">Клиент id: {summary.clientId}</div>
-              </div>
-              <button className="btn btn--primary" type="button" onClick={() => setTariffManagerOpen(true)}>
-                {isAgentManager ? 'Просмотр тарифов' : 'Управление тарифами'}
-              </button>
+        <div className="table-card admin-balance__section">
+          <div className="admin-balance__section-header">
+            <div>
+              <div style={{ fontWeight: 600 }}>Сводка по клиенту</div>
+              <div className="sub">Клиент id: {summary.clientId}</div>
             </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <div>
-                <div className="sub">Текущий остаток</div>
-                <div style={{ fontSize: 20, fontWeight: 600, color: summary.debt ? '#d23' : '#111' }}>{summary.remaining}</div>
-                {summary.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
-              </div>
-              <div>
-                <div className="sub">Начислено всего</div>
-                <div>{summary.credited}</div>
-              </div>
-              <div>
-                <div className="sub">Списано всего</div>
-                <div>{summary.debited}</div>
-              </div>
-              <div>
-                <div className="sub">Выдано номеров (всего)</div>
-                <div>{summary.usedTotal}</div>
-              </div>
-              <div>
-                <div className="sub">Текущий тариф</div>
-                <div>{loadingTariffSummary ? '...' : (currentTariffAmount ?? '-')}</div>
-              </div>
+            <button className="btn btn--primary" type="button" onClick={() => setTariffManagerOpen(true)}>
+              {isAgentManager ? 'Просмотр тарифов' : 'Управление тарифами'}
+            </button>
+          </div>
+          <div className="admin-balance__stats">
+            <div className="admin-balance__stat">
+              <div className="sub">Текущий остаток</div>
+              <div className="admin-balance__stat-value" style={{ color: summary.debt ? '#d23' : '#111' }}>{summary.remaining}</div>
+              {summary.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
+            </div>
+            <div className="admin-balance__stat">
+              <div className="sub">Начислено всего</div>
+              <div>{summary.credited}</div>
+            </div>
+            <div className="admin-balance__stat">
+              <div className="sub">Списано всего</div>
+              <div>{summary.debited}</div>
+            </div>
+            <div className="admin-balance__stat">
+              <div className="sub">Выдано номеров (всего)</div>
+              <div>{summary.usedTotal}</div>
+            </div>
+            <div className="admin-balance__stat">
+              <div className="sub">Текущий тариф</div>
+              <div>{loadingTariffSummary ? '...' : (currentTariffAmount ?? '-')}</div>
             </div>
           </div>
         </div>
       )}
 
       {hasClient && (
-        <div style={{ overflowX: 'auto' }}>
-          <div className="table-card" style={{ display: 'grid', gap: 12, minWidth: 720, padding: '12px 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>Системный журнал баланса</div>
-                <div className="sub">
-                  Технический журнал движений баланса: зеркалирование тарифов, служебные начисления и списания.
-                </div>
+        <div className="table-card admin-balance__section">
+          <div className="admin-balance__section-header">
+            <div>
+              <div style={{ fontWeight: 600 }}>Системный журнал баланса</div>
+              <div className="sub">
+                Технический журнал движений баланса: зеркалирование тарифов, служебные начисления и списания.
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                {totalOps > 0 && <span className="sub">Последняя загрузка: {totalOps} записей</span>}
-                <button className="btn btn--secondary" type="button" onClick={() => setJournalOpen(true)}>
-                  Открыть журнал
-                </button>
-              </div>
+            </div>
+            <div className="admin-balance__section-actions">
+              {totalOps > 0 && <span className="sub">Последняя загрузка: {totalOps} записей</span>}
+              <button className="btn btn--secondary" type="button" onClick={() => setJournalOpen(true)}>
+                Открыть журнал
+              </button>
             </div>
           </div>
         </div>
