@@ -171,6 +171,7 @@ function AdminAgentsScreen({
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
   const [collectionRunInfo, setCollectionRunInfo] = useState<{ mode: 'pause' | 'resume'; total: number } | null>(null);
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
+  const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
@@ -200,6 +201,13 @@ function AdminAgentsScreen({
     () => (selectedClientId != null ? expandedClients.find((client) => client.id === selectedClientId) ?? null : null),
     [expandedClients, selectedClientId],
   );
+  const selectedPendingTotal =
+    selectedClient != null
+      ? (selectedClient.pendingChanges ?? 0)
+        + (selectedClient.pendingCreates ?? 0)
+        + (selectedClient.pendingBlacklistAdds ?? 0)
+        + (selectedClient.pendingBlacklistDeletes ?? 0)
+      : 0;
   const selectedBlacklistTotal =
     selectedClient != null
       ? (selectedClient.pendingBlacklistAdds ?? 0) + (selectedClient.pendingBlacklistDeletes ?? 0)
@@ -318,6 +326,7 @@ function AdminAgentsScreen({
   useEffect(() => {
     setCollectionLastInfo(null);
     setCollectionRunInfo(null);
+    setPauseSnapshotExpanded(false);
   }, [selectedClientId]);
 
   function toggleAgent(agentId: number) {
@@ -829,10 +838,46 @@ function AdminAgentsScreen({
                                 <div className="table-card client-summary-card agent-accordion__client-summary">
                                   <div className="client-summary">
                                     <div className="client-summary__header">
-                                      <div>
+                                      <div className="client-summary__info">
                                         <div className="client-summary__title">{selectedClient.name}</div>
                                         <div className="client-summary__meta">
                                           <span className="sub">ID: {selectedClient.id}</span>
+                                          {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                                          <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
+                                        </div>
+                                        <div className="client-summary__status-list">
+                                          <div className="client-summary__status-item">
+                                            <span className="sub">Статус клиента</span>
+                                            <span className="client-summary__status-value">
+                                              <span
+                                                className="client-summary__status-dot"
+                                                style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
+                                              />
+                                              <span>{selectedClient.status}</span>
+                                            </span>
+                                          </div>
+                                          <div className="client-summary__status-item">
+                                            <span className="sub">Авто-контроль</span>
+                                            <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
+                                              {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
+                                            </span>
+                                          </div>
+                                          <div className="client-summary__status-item">
+                                            <span className="sub">Сбор данных</span>
+                                            {collectionLoading ? (
+                                              <span className="badge badge--gray">Загрузка…</span>
+                                            ) : (
+                                              <span
+                                                className={
+                                                  collectionState?.dataCollectionStatus === 'На паузе'
+                                                    ? 'badge badge--orange'
+                                                    : 'badge badge--green'
+                                                }
+                                              >
+                                                {collectionState?.dataCollectionStatus ?? '—'}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
                                     </div>
@@ -1027,10 +1072,87 @@ function AdminAgentsScreen({
                                       <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
                                     </div>
                                     <div className="summary-card">
+                                      <div className="sub">Баланс</div>
                                       <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
                                       <div className="sub">Использовано: {selectedClient.usedTotal}</div>
                                       <div className="sub">Начислено: {selectedAccrued}</div>
                                     </div>
+                                  </div>
+
+                                  <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn--ghost"
+                                      onClick={() => setPauseSnapshotExpanded((prev) => !prev)}
+                                      style={{
+                                        width: '100%',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        border: '1px solid #e7e9f5',
+                                        background: '#f7f8fc',
+                                        borderRadius: 10,
+                                        padding: '10px 12px',
+                                      }}
+                                      title={pauseSnapshotExpanded ? 'Свернуть список' : 'Развернуть список'}
+                                    >
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                        <span
+                                          className="sub"
+                                          style={{
+                                            width: 16,
+                                            height: 16,
+                                            borderRadius: '50%',
+                                            border: '1px solid #d9dcef',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            lineHeight: 1,
+                                          }}
+                                        >
+                                          i
+                                        </span>
+                                        <span>
+                                          Проекты из последней массовой паузы
+                                          {collectionState ? ` (${collectionState.snapshotProjects.length})` : ''}
+                                        </span>
+                                      </span>
+                                      <span className="sub" style={{ fontSize: 12 }}>
+                                        {pauseSnapshotExpanded ? '▾' : '▸'}
+                                      </span>
+                                    </button>
+
+                                    {pauseSnapshotExpanded && (
+                                      <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+                                        {collectionLoading && <div className="sub">Загрузка списка…</div>}
+                                        {!collectionLoading && (!collectionState || collectionState.snapshotProjects.length === 0) && (
+                                          <div className="sub">Снимок отсутствует.</div>
+                                        )}
+                                        {!collectionLoading && collectionState && collectionState.snapshotProjects.length > 0 && (
+                                          <div style={{ display: 'grid', gap: 6 }}>
+                                            {collectionState.snapshotProjects.map((project) => (
+                                              <div
+                                                key={project.id}
+                                                style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                                              >
+                                                <span>{project.name} (id: {project.id})</span>
+                                                <span
+                                                  className={
+                                                    project.status === 'Активен'
+                                                      ? 'badge badge--green'
+                                                      : project.status === 'На паузе'
+                                                        ? 'badge badge--orange'
+                                                        : 'badge badge--gray'
+                                                  }
+                                                >
+                                                  {project.status}
+                                                </span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               ) : (
