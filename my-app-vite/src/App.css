@@ -484,6 +484,27 @@
 }
 
 /* Модалка: базовые стили под аккуратный UI */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 18, 34, 0.4);
+  overflow: auto;
+}
+.modal {
+  background: #fff;
+  border: 1px solid #ececf2;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  box-sizing: border-box;
+}
+.modal__header,
+.modal__body {
+  min-width: 0;
+}
 .modal-card input[type="text"],
 .modal-card input[type="number"],
 .modal-card input[type="search"],
@@ -924,9 +945,27 @@
 .admin-balance {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 .admin-balance__toolbar {
   gap: 12px;
+}
+.admin-balance__toolbar .toolbar-left,
+.admin-balance__toolbar .filters,
+.admin-balance__toolbar .toolbar-right,
+.admin-balance__toolbar-actions,
+.admin-balance__section,
+.admin-balance__section-header,
+.admin-balance__section-actions,
+.admin-balance__stats,
+.admin-balance__stat {
+  min-width: 0;
+}
+.admin-balance__toolbar .filters select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 100%;
 }
 .admin-balance__toolbar-actions {
   align-items: center;
@@ -963,6 +1002,48 @@
 .admin-balance__stat-value {
   font-size: 20px;
   font-weight: 600;
+}
+.tariff-manager {
+  max-width: 1120px;
+  width: min(1120px, calc(100vw - 32px));
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+.tariff-manager__header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.tariff-manager__body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  max-height: 80vh;
+  overflow: auto;
+  min-width: 0;
+}
+.tariff-manager__section {
+  min-width: 0;
+  padding: 0 8px 8px;
+}
+.tariff-manager__toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.tariff-manager__summary {
+  padding: 0 8px 8px;
+}
+.tariff-manager__row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .agent-row__actions,
 .agent-accordion__actions,
@@ -1348,6 +1429,9 @@
   .admin-balance__section {
     padding: 12px;
   }
+  .admin-balance__toolbar .filters {
+    width: 100%;
+  }
   .admin-balance__section-header {
     align-items: stretch;
   }
@@ -1361,6 +1445,38 @@
   .admin-balance__stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+  }
+  .tariff-manager {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+  .tariff-manager__header {
+    padding: 12px;
+    align-items: stretch;
+  }
+  .tariff-manager__header > .btn {
+    width: 100%;
+  }
+  .tariff-manager__body {
+    padding: 12px;
+    gap: 12px;
+  }
+  .tariff-manager__section {
+    padding: 0;
+  }
+  .tariff-manager__toolbar-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+  .tariff-manager__toolbar-actions .btn {
+    width: 100%;
+  }
+  .tariff-manager__summary {
+    padding: 0;
+  }
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: 8px;
   }
   .agent-accordion__content {
     gap: 12px;

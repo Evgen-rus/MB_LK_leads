@@ -369,8 +369,8 @@ function TariffManagerModal({
 
   return (
     <div className="modal-backdrop">
-      <div className="modal" style={{ maxWidth: 1120, width: 'min(1120px, calc(100vw - 32px))', borderRadius: 12, padding: 0, overflow: 'hidden' }}>
-        <div className="modal__header" style={{ padding: '14px 16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <div className="modal tariff-manager">
+        <div className="modal__header tariff-manager__header">
           <div>
             <div style={{ fontWeight: 600 }}>{title}</div>
             <div className="sub">
@@ -380,15 +380,15 @@ function TariffManagerModal({
           <button type="button" className="btn btn--ghost" onClick={onClose}>Закрыть</button>
         </div>
 
-        <div className="modal__body" style={{ display: 'grid', gap: 16, padding: 16, maxHeight: '80vh', overflow: 'auto' }}>
+        <div className="modal__body tariff-manager__body">
           {error && !editor && <div className="sub" style={{ color: '#d00' }}>{error}</div>}
 
-          <div className="table-card" style={{ minWidth: 940, padding: '0 8px 8px' }}>
+          <div className="table-card tariff-manager__section">
             <div className="table-toolbar">
               <div className="filters">
                 <span className="sub">Тарифы</span>
               </div>
-              <div className="actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="actions tariff-manager__toolbar-actions">
                 {loadingTariffs ? <span className="sub">Загрузка...</span> : <span className="sub">Всего: {totalTariffs}</span>}
                 {!readOnly && (
                   <button className="btn btn--primary" type="button" onClick={openCreateDialog}>
@@ -432,7 +432,7 @@ function TariffManagerModal({
                       <td>{tariff.comment || '-'}</td>
                       <td className="muted">{tariff.createdBy.name || tariff.createdBy.login} (id: {tariff.createdBy.id})</td>
                       <td>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div className="tariff-manager__row-actions">
                           <button
                             className="btn btn--ghost"
                             type="button"
@@ -466,16 +466,16 @@ function TariffManagerModal({
           </div>
 
           {selectedTariff && (
-            <div className="table-card" style={{ minWidth: 900, padding: '0 8px 8px' }}>
+            <div className="table-card tariff-manager__section">
               <div className="table-toolbar">
                 <div className="filters">
                   <span className="sub">История тарифа #{selectedTariff.id}</span>
                 </div>
-                <div className="actions">
+                <div className="actions tariff-manager__toolbar-actions">
                   {loadingTariffOps ? <span className="sub">Загрузка...</span> : <span className="sub">Всего: {totalTariffOps}</span>}
                 </div>
               </div>
-              <div style={{ padding: '0 8px 8px' }} className="sub">
+              <div className="sub tariff-manager__summary">
                 Текущее значение: <b>{selectedTariff.currentAmount}</b>, базовый размер: <b>{selectedTariff.baseAmount}</b>
               </div>
               <div className="table-footer table-footer--top">
