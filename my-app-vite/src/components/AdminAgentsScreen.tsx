@@ -698,7 +698,9 @@ function AdminAgentsScreen({
                                               cursor: 'pointer',
                                               backgroundColor: selectedClientId === client.id ? '#f7f8fc' : undefined,
                                             }}
-                                            onClick={() => setSelectedClientId(client.id)}
+                                            onClick={() => {
+                                              setSelectedClientId((prev) => (prev === client.id ? null : client.id));
+                                            }}
                                           >
                                             <td className="muted">{client.id}</td>
                                             <td>
