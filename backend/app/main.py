@@ -34,7 +34,7 @@ from sqlalchemy import inspect, select, text
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
-from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth
+from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth, notifications
 from . import provider_leads_xlsx_import as provider_leads_import
 from .time_utils import now_msk
 from .providers import prostats
@@ -748,12 +748,20 @@ def _sync_client_tariff_signal_alert(
         tariff=latest_tariff,
         signal_level=next_level,
     )
-    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
-        logging.getLogger("app").warning(
-            "Failed to send tariff signal alert to Telegram for client_id=%s level=%s",
-            user_snapshot.get("id"),
-            next_level,
-        )
+    result = notifications.send_system_notification(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+    )
+    if not result.delivered:
+        if result.reason != "telegram_disabled":
+            logging.getLogger("app").warning(
+                "Failed to send tariff signal alert for client_id=%s level=%s reason=%s",
+                user_snapshot.get("id"),
+                next_level,
+                result.reason,
+            )
         return None
     _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
     return next_level
@@ -789,7 +797,18 @@ def _notify_auto_limit_pause(
     )
     if errors:
         text += "\n\nОшибки:\n" + "\n".join(errors[:5])
-    telegram.send_text(bot_token, chat_id, text, parse_mode="HTML")
+    result = notifications.send_system_notification(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+    )
+    if not result.delivered and result.reason != "telegram_disabled":
+        logging.getLogger("app").warning(
+            "Failed to send auto limit pause notification for client_id=%s reason=%s",
+            user_snapshot.get("id"),
+            result.reason,
+        )
 
 
 def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
@@ -884,12 +903,20 @@ def _notify_provider_lead_project_ambiguity(
         + "\n".join(candidate_lines)
     )
 
-    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
-        logging.getLogger("app").warning(
-            "Failed to send Telegram notification about ambiguous provider lead: vid=%s page=%s",
-            vid,
-            project_name,
-        )
+    result = notifications.send_system_notification(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+    )
+    if not result.delivered:
+        if result.reason != "telegram_disabled":
+            logging.getLogger("app").warning(
+                "Failed to send notification about ambiguous provider lead: vid=%s page=%s reason=%s",
+                vid,
+                project_name,
+                result.reason,
+            )
 
 
 def _notify_unique_project_name_failure(
@@ -910,12 +937,20 @@ def _notify_unique_project_name_failure(
         f"provider_project_id: <code>{html.escape(str(provider_project_id or ''))}</code>\n"
         f"details: {html.escape(message)}"
     )
-    if not telegram.send_text(bot_token, chat_id, text, parse_mode="HTML"):
-        logging.getLogger("app").warning(
-            "Failed to send Telegram notification about unique project rename failure: client_id=%s provider_project_id=%s",
-            client_id,
-            provider_project_id,
-        )
+    result = notifications.send_system_notification(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+    )
+    if not result.delivered:
+        if result.reason != "telegram_disabled":
+            logging.getLogger("app").warning(
+                "Failed to send notification about unique project rename failure: client_id=%s provider_project_id=%s reason=%s",
+                client_id,
+                provider_project_id,
+                result.reason,
+            )
 
 
 @app.get("/health")

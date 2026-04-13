@@ -181,6 +181,7 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
 - Интеграция Prostats: `backend/app/providers/prostats.py`
 - Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
+- Notification routing / Telegram gate: `backend/app/notifications.py`
 - Telegram-отправка: `backend/app/telegram.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
@@ -206,6 +207,7 @@ Webhook и провайдер:
 - `PROSTATS_API_URL`
 
 Telegram:
+- `NOTIFICATIONS_TELEGRAM_ENABLED` (глобальный флаг для автоматических Telegram-уведомлений)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 
