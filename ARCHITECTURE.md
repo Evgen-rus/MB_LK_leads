@@ -207,7 +207,7 @@ Webhook и провайдер:
 - `PROSTATS_API_URL`
 
 Telegram:
-- `NOTIFICATIONS_TELEGRAM_ENABLED` (глобальный флаг для автоматических Telegram-уведомлений)
+- `NOTIFICATIONS_TELEGRAM_ENABLED` (глобальный флаг для всех Telegram-уведомлений backend)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 

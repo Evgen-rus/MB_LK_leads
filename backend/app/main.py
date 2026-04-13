@@ -1653,8 +1653,16 @@ def support_message(
     )
 
     db_sess.rollback()
-    ok = telegram.send_text(bot_token, chat_id, text)
-    if not ok:
+    result = notifications.send_telegram_notification(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+        kind="support",
+    )
+    if not result.delivered:
+        if result.reason == "telegram_disabled":
+            raise HTTPException(status_code=503, detail="Telegram уведомления глобально отключены")
         raise HTTPException(status_code=500, detail="Не удалось отправить сообщение в Telegram")
     return {"ok": True}
 
@@ -2395,13 +2403,19 @@ def admin_update_client(
                 )
                 validate_sess.rollback()
             bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
-            test_ok = telegram.send_text(
-                bot_token,
-                next_chat_id,
-                test_message,
+            test_result = notifications.send_telegram_notification(
+                bot_token=bot_token,
+                chat_id=next_chat_id,
+                text=test_message,
                 parse_mode="HTML",
+                kind="route_test",
             )
-            if not test_ok:
+            if not test_result.delivered:
+                if test_result.reason == "telegram_disabled":
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Глобальная отправка Telegram уведомлений отключена. Тест Telegram-маршрута недоступен.",
+                    )
                 raise HTTPException(
                     status_code=400,
                     detail=(
