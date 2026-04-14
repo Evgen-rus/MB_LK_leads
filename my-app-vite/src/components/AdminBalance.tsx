@@ -8,6 +8,7 @@ import {
   fetchAdminClientTariffs,
   fetchAdminTariffOps,
   createAdminClientTariff,
+  createAdminTariffOp,
   updateAdminTariff,
   type UserInfo,
   type BalanceOperation,
@@ -391,6 +392,7 @@ function AdminBalance({
           fetchTariffs={fetchAdminClientTariffs}
           createTariff={createAdminClientTariff}
           updateTariff={updateAdminTariff}
+          createTariffOp={createAdminTariffOp}
           fetchTariffOps={fetchAdminTariffOps}
         />
       )}

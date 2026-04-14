@@ -9,6 +9,7 @@ import {
   fetchAdminClientTariffs,
   fetchAdminTariffOps,
   createAdminClientTariff,
+  createAdminTariffOp,
   updateAdminTariff,
   transferAdminClientOwner,
   updateAdminClient,
@@ -1233,6 +1234,7 @@ function AdminClientsScreen({
         fetchTariffs={fetchAdminClientTariffs}
         createTariff={createAdminClientTariff}
         updateTariff={updateAdminTariff}
+        createTariffOp={createAdminTariffOp}
         fetchTariffOps={fetchAdminTariffOps}
       />
     )}

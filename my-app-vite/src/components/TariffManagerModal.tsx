@@ -10,7 +10,8 @@ import { preventNumberInputWheel } from '../utils/numberInput';
 
 type TariffEditorState =
   | { mode: 'create' }
-  | { mode: 'edit'; tariff: ClientTariff }
+  | { mode: 'credit'; tariff: ClientTariff }
+  | { mode: 'debit'; tariff: ClientTariff }
   | null;
 
 type TariffManagerModalProps = {
@@ -25,6 +26,7 @@ type TariffManagerModalProps = {
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
   createTariff: (targetId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
   updateTariff: (tariffId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
+  createTariffOp: (tariffId: number, payload: { amount: number; type: 'credit' | 'debit'; comment: string }) => Promise<ClientTariffOperation>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
 };
 
@@ -74,12 +76,29 @@ function TariffActionDialog({
   onSubmit,
 }: TariffActionDialogProps) {
   const isCreate = editor.mode === 'create';
-  const currentTariffAmount = editor.mode === 'edit' ? editor.tariff.currentAmount : null;
-  const title = isCreate ? 'Создать тариф' : 'Изменить тариф';
-  const amountLabel = isCreate ? 'Тариф' : 'Новый тариф';
-  const submitLabel = isCreate ? 'Начислить' : 'Сохранить';
-  const commentLabel = isCreate ? 'Комментарий' : 'Комментарий';
-  const commentPlaceholder = isCreate ? 'Комментарий к созданию тарифа' : 'Почему меняем тариф';
+  const isCredit = editor.mode === 'credit';
+  const isDebit = editor.mode === 'debit';
+  const showSignals = true;
+  const showAmount = isCreate || isCredit || isDebit;
+  const currentTariffAmount = editor.mode !== 'create' ? editor.tariff.currentAmount : null;
+  const projectedAmount = currentTariffAmount == null
+    ? null
+    : (isCredit
+      ? currentTariffAmount + Math.max(0, amount || 0)
+      : (isDebit ? currentTariffAmount - Math.max(0, amount || 0) : currentTariffAmount));
+  const title = isCreate
+    ? 'Создать тариф'
+    : (isCredit ? 'Добавить к тарифу' : 'Списать из тарифа');
+  const amountLabel = isCreate
+    ? 'Тариф'
+    : (isCredit ? 'Сумма пополнения' : 'Сумма списания');
+  const submitLabel = isCreate
+    ? 'Начислить'
+    : (isCredit ? 'Добавить' : 'Списать');
+  const commentPlaceholder = isCreate
+    ? 'Комментарий к созданию тарифа'
+    : (isCredit ? 'Зачем добавляем объём' : 'Причина списания');
+  const commentRequired = isCredit || isDebit;
 
   return (
     <div
@@ -133,70 +152,79 @@ function TariffActionDialog({
             >
               <div className="sub">Текущий тариф</div>
               <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{editor.tariff.currentAmount}</div>
+              {(isCredit || isDebit) && projectedAmount != null && (
+                <div className="sub">
+                  После операции: <b>{projectedAmount}</b>
+                </div>
+              )}
+            </div>
+          )}
+
+          {showAmount && (
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">{amountLabel}</span>
+              <input
+                autoFocus
+                type="number"
+                min={1}
+                value={amount}
+                onChange={(e) => onAmountChange(Number(e.target.value))}
+                onWheel={preventNumberInputWheel}
+                required
+              />
+            </label>
+          )}
+
+          {showSignals && (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div className="section-title">Сигналы Telegram</div>
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="sub">Сигнал 1</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={signal1}
+                    onChange={(e) => onSignal1Change(Number(e.target.value))}
+                    onWheel={preventNumberInputWheel}
+                    required
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="sub">Сигнал 2</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={signal2}
+                    onChange={(e) => onSignal2Change(Number(e.target.value))}
+                    onWheel={preventNumberInputWheel}
+                    required
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="sub">Сигнал 3</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={signal3}
+                    onChange={(e) => onSignal3Change(Number(e.target.value))}
+                    onWheel={preventNumberInputWheel}
+                    required
+                  />
+                </label>
+              </div>
+              <div className="sub">Правило: `Сигнал 1 &gt; Сигнал 2 &gt; Сигнал 3`, а `Сигнал 1` должен быть меньше тарифа.</div>
             </div>
           )}
 
           <label style={{ display: 'grid', gap: 6 }}>
-            <span className="section-title">{amountLabel}</span>
-            <input
-              autoFocus
-              type="number"
-              min={isCreate ? 1 : 0}
-              value={amount}
-              onChange={(e) => onAmountChange(Number(e.target.value))}
-              onWheel={preventNumberInputWheel}
-              required
-            />
-          </label>
-
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div className="section-title">Сигналы Telegram</div>
-            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className="sub">Сигнал 1</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={signal1}
-                  onChange={(e) => onSignal1Change(Number(e.target.value))}
-                  onWheel={preventNumberInputWheel}
-                  required
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className="sub">Сигнал 2</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={signal2}
-                  onChange={(e) => onSignal2Change(Number(e.target.value))}
-                  onWheel={preventNumberInputWheel}
-                  required
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className="sub">Сигнал 3</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={signal3}
-                  onChange={(e) => onSignal3Change(Number(e.target.value))}
-                  onWheel={preventNumberInputWheel}
-                  required
-                />
-              </label>
-            </div>
-            <div className="sub">Правило: `Сигнал 1 &gt; Сигнал 2 &gt; Сигнал 3`, а `Сигнал 1` должен быть меньше тарифа.</div>
-          </div>
-
-          <label style={{ display: 'grid', gap: 6 }}>
-            <span className="section-title">{commentLabel}</span>
+            <span className="section-title">Комментарий</span>
             <textarea
               rows={3}
               value={comment}
               onChange={(e) => onCommentChange(e.target.value)}
               placeholder={commentPlaceholder}
-              required={!isCreate && currentTariffAmount != null && amount !== currentTariffAmount}
+              required={commentRequired}
             />
           </label>
 
@@ -232,6 +260,7 @@ function TariffManagerModal({
   fetchTariffs,
   createTariff,
   updateTariff,
+  createTariffOp,
   fetchTariffOps,
 }: TariffManagerModalProps) {
   const [tariffs, setTariffs] = useState<ClientTariff[]>([]);
@@ -282,14 +311,14 @@ function TariffManagerModal({
     setEditor({ mode: 'create' });
   }, []);
 
-  const openEditDialog = useCallback((tariff: ClientTariff) => {
-    setAmount(tariff.currentAmount);
+  const openOperationDialog = useCallback((tariff: ClientTariff, mode: 'credit' | 'debit') => {
+    setAmount(0);
     setSignal1(tariff.signal1 ?? 0);
     setSignal2(tariff.signal2 ?? 0);
     setSignal3(tariff.signal3 ?? 0);
     setComment('');
     setError(null);
-    setEditor({ mode: 'edit', tariff });
+    setEditor({ mode, tariff });
   }, []);
 
   const loadTariffs = useCallback(async (preferredTariffId?: number | null) => {
@@ -372,37 +401,7 @@ function TariffManagerModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!editor) return;
-
-    if (editor.mode === 'create') {
-      if (amount <= 0) {
-        setError('Укажите тариф больше нуля');
-        return;
-      }
-    } else {
-      if (amount < 0) {
-        setError('Тариф не может быть отрицательным');
-        return;
-      }
-      if (amount !== editor.tariff.currentAmount && !comment.trim()) {
-        setError('Комментарий обязателен');
-        return;
-      }
-      if (amount === editor.tariff.currentAmount) {
-        const signalsUnchanged = (editor.tariff.signal1 ?? 0) === signal1
-          && (editor.tariff.signal2 ?? 0) === signal2
-          && (editor.tariff.signal3 ?? 0) === signal3;
-        if (signalsUnchanged) {
-          setError('Новый тариф совпадает с текущим');
-          return;
-        }
-      }
-    }
-
-    const signalError = validateSignals(amount);
-    if (signalError) {
-      setError(signalError);
-      return;
-    }
+    const trimmedComment = comment.trim();
 
     try {
       setSubmitting(true);
@@ -410,23 +409,62 @@ function TariffManagerModal({
 
       let nextTariffId: number | null = null;
       if (editor.mode === 'create') {
+        if (amount <= 0) {
+          setError('Укажите тариф больше нуля');
+          return;
+        }
+        const signalError = validateSignals(amount);
+        if (signalError) {
+          setError(signalError);
+          return;
+        }
         const tariff = await createTariff(targetId, {
           amount,
-          comment: comment.trim() || undefined,
+          comment: trimmedComment || undefined,
           signal1,
           signal2,
           signal3,
         });
         nextTariffId = tariff.id;
       } else {
-        const tariff = await updateTariff(editor.tariff.id, {
+        if (amount <= 0) {
+          setError('Укажите сумму больше нуля');
+          return;
+        }
+        if (!trimmedComment) {
+          setError('Комментарий обязателен');
+          return;
+        }
+        if (editor.mode === 'debit' && amount > editor.tariff.currentAmount) {
+          setError('Недостаточно объёма в тарифе для списания');
+          return;
+        }
+        const nextAmount = editor.mode === 'credit'
+          ? editor.tariff.currentAmount + amount
+          : editor.tariff.currentAmount - amount;
+        const signalError = validateSignals(nextAmount);
+        if (signalError) {
+          setError(signalError);
+          return;
+        }
+        await createTariffOp(editor.tariff.id, {
           amount,
-          comment: comment.trim() || undefined,
-          signal1,
-          signal2,
-          signal3,
+          type: editor.mode,
+          comment: trimmedComment,
         });
-        nextTariffId = tariff.id;
+        const signalsChanged = (editor.tariff.signal1 ?? 0) !== signal1
+          || (editor.tariff.signal2 ?? 0) !== signal2
+          || (editor.tariff.signal3 ?? 0) !== signal3;
+        if (signalsChanged) {
+          await updateTariff(editor.tariff.id, {
+            amount: nextAmount,
+            comment: undefined,
+            signal1,
+            signal2,
+            signal3,
+          });
+        }
+        nextTariffId = editor.tariff.id;
       }
 
       if (!isCreateOnlyFlow) {
@@ -443,7 +481,12 @@ function TariffManagerModal({
       }
       resetEditor();
     } catch (err: unknown) {
-      setError(getErrorMessage(err, 'Не удалось сохранить изменение тарифа'));
+      const fallback = editor.mode === 'credit'
+        ? 'Не удалось добавить объём к тарифу'
+        : (editor.mode === 'debit'
+          ? 'Не удалось списать объём из тарифа'
+          : 'Не удалось создать тариф');
+      setError(getErrorMessage(err, fallback));
     } finally {
       setSubmitting(false);
     }
@@ -552,16 +595,28 @@ function TariffManagerModal({
                             История
                           </button>
                           {!readOnly && (
-                            <button
-                              className="btn btn--secondary"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditDialog(tariff);
-                              }}
-                            >
-                              Изменить
-                            </button>
+                            <>
+                              <button
+                                className="btn btn--secondary"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openOperationDialog(tariff, 'credit');
+                                }}
+                              >
+                                Добавить
+                              </button>
+                              <button
+                                className="btn btn--secondary"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openOperationDialog(tariff, 'debit');
+                                }}
+                              >
+                                Списать
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
