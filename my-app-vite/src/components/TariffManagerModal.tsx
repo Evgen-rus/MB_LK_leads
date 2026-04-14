@@ -8,6 +8,8 @@ import {
 } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
 
+type NumericInputValue = number | '';
+
 type TariffEditorState =
   | { mode: 'create' }
   | { mode: 'credit'; tariff: ClientTariff }
@@ -33,17 +35,17 @@ type TariffManagerModalProps = {
 type TariffActionDialogProps = {
   clientName: string;
   editor: Exclude<TariffEditorState, null>;
-  amount: number;
-  signal1: number;
-  signal2: number;
-  signal3: number;
+  amount: NumericInputValue;
+  signal1: NumericInputValue;
+  signal2: NumericInputValue;
+  signal3: NumericInputValue;
   comment: string;
   error: string | null;
   submitting: boolean;
-  onAmountChange: (next: number) => void;
-  onSignal1Change: (next: number) => void;
-  onSignal2Change: (next: number) => void;
-  onSignal3Change: (next: number) => void;
+  onAmountChange: (next: NumericInputValue) => void;
+  onSignal1Change: (next: NumericInputValue) => void;
+  onSignal2Change: (next: NumericInputValue) => void;
+  onSignal3Change: (next: NumericInputValue) => void;
   onCommentChange: (next: string) => void;
   onClose: () => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -55,6 +57,16 @@ function getErrorMessage(err: unknown, fallback: string): string {
     if (typeof msg === 'string' && msg.trim()) return msg;
   }
   return fallback;
+}
+
+function parseNumberInputValue(raw: string): NumericInputValue {
+  if (!raw.trim()) return '';
+  const next = Number(raw);
+  return Number.isFinite(next) ? next : '';
+}
+
+function getInputNumber(value: NumericInputValue): number {
+  return value === '' ? 0 : Number(value);
 }
 
 function TariffActionDialog({
@@ -81,11 +93,12 @@ function TariffActionDialog({
   const showSignals = true;
   const showAmount = isCreate || isCredit || isDebit;
   const currentTariffAmount = editor.mode !== 'create' ? editor.tariff.currentAmount : null;
+  const amountNumber = getInputNumber(amount);
   const projectedAmount = currentTariffAmount == null
     ? null
     : (isCredit
-      ? currentTariffAmount + Math.max(0, amount || 0)
-      : (isDebit ? currentTariffAmount - Math.max(0, amount || 0) : currentTariffAmount));
+      ? currentTariffAmount + Math.max(0, amountNumber)
+      : (isDebit ? currentTariffAmount - Math.max(0, amountNumber) : currentTariffAmount));
   const title = isCreate
     ? 'Создать тариф'
     : (isCredit ? 'Добавить к тарифу' : 'Списать из тарифа');
@@ -168,7 +181,7 @@ function TariffActionDialog({
                 type="number"
                 min={1}
                 value={amount}
-                onChange={(e) => onAmountChange(Number(e.target.value))}
+                onChange={(e) => onAmountChange(parseNumberInputValue(e.target.value))}
                 onWheel={preventNumberInputWheel}
                 required
               />
@@ -185,7 +198,7 @@ function TariffActionDialog({
                     type="number"
                     min={1}
                     value={signal1}
-                    onChange={(e) => onSignal1Change(Number(e.target.value))}
+                    onChange={(e) => onSignal1Change(parseNumberInputValue(e.target.value))}
                     onWheel={preventNumberInputWheel}
                     required
                   />
@@ -196,7 +209,7 @@ function TariffActionDialog({
                     type="number"
                     min={1}
                     value={signal2}
-                    onChange={(e) => onSignal2Change(Number(e.target.value))}
+                    onChange={(e) => onSignal2Change(parseNumberInputValue(e.target.value))}
                     onWheel={preventNumberInputWheel}
                     required
                   />
@@ -207,7 +220,7 @@ function TariffActionDialog({
                     type="number"
                     min={1}
                     value={signal3}
-                    onChange={(e) => onSignal3Change(Number(e.target.value))}
+                    onChange={(e) => onSignal3Change(parseNumberInputValue(e.target.value))}
                     onWheel={preventNumberInputWheel}
                     required
                   />
@@ -276,10 +289,10 @@ function TariffManagerModal({
   const [editor, setEditor] = useState<TariffEditorState>(() => (
     createOnly && initialEditorMode === 'create' && !readOnly ? { mode: 'create' } : null
   ));
-  const [amount, setAmount] = useState<number>(0);
-  const [signal1, setSignal1] = useState<number>(0);
-  const [signal2, setSignal2] = useState<number>(0);
-  const [signal3, setSignal3] = useState<number>(0);
+  const [amount, setAmount] = useState<NumericInputValue>('');
+  const [signal1, setSignal1] = useState<NumericInputValue>('');
+  const [signal2, setSignal2] = useState<NumericInputValue>('');
+  const [signal3, setSignal3] = useState<NumericInputValue>('');
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const isCreateOnlyFlow = createOnly && initialEditorMode === 'create';
@@ -293,26 +306,26 @@ function TariffManagerModal({
 
   const resetEditor = useCallback(() => {
     setEditor(null);
-    setAmount(0);
-    setSignal1(0);
-    setSignal2(0);
-    setSignal3(0);
+    setAmount('');
+    setSignal1('');
+    setSignal2('');
+    setSignal3('');
     setComment('');
     setError(null);
   }, []);
 
   const openCreateDialog = useCallback(() => {
-    setAmount(0);
-    setSignal1(0);
-    setSignal2(0);
-    setSignal3(0);
+    setAmount('');
+    setSignal1('');
+    setSignal2('');
+    setSignal3('');
     setComment('');
     setError(null);
     setEditor({ mode: 'create' });
   }, []);
 
   const openOperationDialog = useCallback((tariff: ClientTariff, mode: 'credit' | 'debit') => {
-    setAmount(0);
+    setAmount('');
     setSignal1(tariff.signal1 ?? 0);
     setSignal2(tariff.signal2 ?? 0);
     setSignal3(tariff.signal3 ?? 0);
@@ -383,16 +396,22 @@ function TariffManagerModal({
   }, [isCreateOnlyFlow, selectedTariffId, tariffOpsPage, tariffOpsPageSize, loadTariffOps]);
 
   function validateSignals(nextAmount: number) {
-    if (signal3 <= 0) {
+    const signal1Number = getInputNumber(signal1);
+    const signal2Number = getInputNumber(signal2);
+    const signal3Number = getInputNumber(signal3);
+    if (signal1 === '' || signal2 === '' || signal3 === '') {
+      return 'Заполните все сигналы';
+    }
+    if (signal3Number <= 0) {
       return 'Сигнал 3 должен быть больше нуля';
     }
-    if (signal2 <= signal3) {
+    if (signal2Number <= signal3Number) {
       return 'Сигнал 2 должен быть больше сигнала 3';
     }
-    if (signal1 <= signal2) {
+    if (signal1Number <= signal2Number) {
       return 'Сигнал 1 должен быть больше сигнала 2';
     }
-    if (signal1 >= nextAmount) {
+    if (signal1Number >= nextAmount) {
       return 'Сигнал 1 должен быть меньше тарифа';
     }
     return null;
@@ -402,6 +421,10 @@ function TariffManagerModal({
     e.preventDefault();
     if (!editor) return;
     const trimmedComment = comment.trim();
+    const amountNumber = getInputNumber(amount);
+    const signal1Number = getInputNumber(signal1);
+    const signal2Number = getInputNumber(signal2);
+    const signal3Number = getInputNumber(signal3);
 
     try {
       setSubmitting(true);
@@ -409,25 +432,25 @@ function TariffManagerModal({
 
       let nextTariffId: number | null = null;
       if (editor.mode === 'create') {
-        if (amount <= 0) {
+        if (amountNumber <= 0) {
           setError('Укажите тариф больше нуля');
           return;
         }
-        const signalError = validateSignals(amount);
+        const signalError = validateSignals(amountNumber);
         if (signalError) {
           setError(signalError);
           return;
         }
         const tariff = await createTariff(targetId, {
-          amount,
+          amount: amountNumber,
           comment: trimmedComment || undefined,
-          signal1,
-          signal2,
-          signal3,
+          signal1: signal1Number,
+          signal2: signal2Number,
+          signal3: signal3Number,
         });
         nextTariffId = tariff.id;
       } else {
-        if (amount <= 0) {
+        if (amountNumber <= 0) {
           setError('Укажите сумму больше нуля');
           return;
         }
@@ -435,33 +458,33 @@ function TariffManagerModal({
           setError('Комментарий обязателен');
           return;
         }
-        if (editor.mode === 'debit' && amount > editor.tariff.currentAmount) {
+        if (editor.mode === 'debit' && amountNumber > editor.tariff.currentAmount) {
           setError('Недостаточно объёма в тарифе для списания');
           return;
         }
         const nextAmount = editor.mode === 'credit'
-          ? editor.tariff.currentAmount + amount
-          : editor.tariff.currentAmount - amount;
+          ? editor.tariff.currentAmount + amountNumber
+          : editor.tariff.currentAmount - amountNumber;
         const signalError = validateSignals(nextAmount);
         if (signalError) {
           setError(signalError);
           return;
         }
         await createTariffOp(editor.tariff.id, {
-          amount,
+          amount: amountNumber,
           type: editor.mode,
           comment: trimmedComment,
         });
-        const signalsChanged = (editor.tariff.signal1 ?? 0) !== signal1
-          || (editor.tariff.signal2 ?? 0) !== signal2
-          || (editor.tariff.signal3 ?? 0) !== signal3;
+        const signalsChanged = (editor.tariff.signal1 ?? 0) !== signal1Number
+          || (editor.tariff.signal2 ?? 0) !== signal2Number
+          || (editor.tariff.signal3 ?? 0) !== signal3Number;
         if (signalsChanged) {
           await updateTariff(editor.tariff.id, {
             amount: nextAmount,
             comment: undefined,
-            signal1,
-            signal2,
-            signal3,
+            signal1: signal1Number,
+            signal2: signal2Number,
+            signal3: signal3Number,
           });
         }
         nextTariffId = editor.tariff.id;
