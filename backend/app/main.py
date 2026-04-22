@@ -44,7 +44,7 @@ def get_settings():
     return {
         "DATABASE_URL": os.getenv("DATABASE_URL", "sqlite:///./app.db"),
         "DEBOUNCE_WINDOW_MINUTES": int(os.getenv("DEBOUNCE_WINDOW_MINUTES", "30")),
-        "AUTO_LIMIT_CHECK_SECONDS": int(os.getenv("AUTO_LIMIT_CHECK_SECONDS", "300")),
+        "AUTO_LIMIT_CHECK_SECONDS": int(os.getenv("AUTO_LIMIT_CHECK_SECONDS", "3600")),
         "DB_POOL_SIZE": int(os.getenv("DB_POOL_SIZE", "10")),
         "DB_MAX_OVERFLOW": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "DB_POOL_TIMEOUT": int(os.getenv("DB_POOL_TIMEOUT", "30")),

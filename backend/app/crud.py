@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from .time_utils import now_msk
+from .time_utils import as_local_naive, now_msk, now_msk_naive
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import os
 import re
@@ -1056,7 +1056,9 @@ def _apply_project_deleted_state(
     deleted: bool,
     now: Optional[datetime] = None,
 ) -> None:
-    ts = now or now_msk()
+    # Эти поля в БД хранятся как naive TIMESTAMP, поэтому сравниваем
+    # и записываем локальное время без tzinfo.
+    ts = as_local_naive(now or now_msk())
     if deleted:
         if getattr(p, "deleted_at", None) is None:
             p.deleted_at = ts
@@ -1215,7 +1217,7 @@ def resolve_project_by_name_for_provider_lead(
     if len(active_rows) > 1:
         return None, "ambiguous", active_rows
 
-    now = now_msk()
+    now = now_msk_naive()
     deleted_rows = db.execute(
         select(models.Project)
         .where(
