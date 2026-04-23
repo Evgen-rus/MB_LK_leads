@@ -1271,6 +1271,24 @@ def create_provider_lead(
     return row
 
 
+def _first_subdomain_value(subdomain: Optional[str]) -> Optional[str]:
+    raw = str(subdomain or "").strip()
+    if not raw:
+        return None
+    first = raw.split(";", 1)[0].strip()
+    return first or None
+
+
+def _build_utm_campaign(prov_source: Optional[str], subdomain: Optional[str]) -> Optional[str]:
+    source = str(prov_source or "").strip()
+    first_subdomain = _first_subdomain_value(subdomain)
+    if source and first_subdomain:
+        return f"{source}_{first_subdomain}"
+    if source:
+        return source
+    return first_subdomain
+
+
 def _provider_lead_to_export_row(
     lead: models.ProviderLead,
     user_info: Optional[schemas.UserInfo] = None,
@@ -1289,7 +1307,7 @@ def _provider_lead_to_export_row(
         "source": lead.prov_chanel,
         "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
         "phone": phone_value or "",
-        "utm_campaign": lead.prov_source,
+        "utm_campaign": _build_utm_campaign(lead.prov_source, lead.subdomain),
         "user_login": user_info.login if user_info else "",
         "user_id": user_info.id if user_info else 0,
     }
@@ -1422,7 +1440,7 @@ def list_provider_leads_paginated(
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=phone_value or "",
-            utm_campaign=r.prov_source,
+            utm_campaign=_build_utm_campaign(r.prov_source, r.subdomain),
             source=r.prov_chanel,
         ))
     return schemas.LeadsListOut(items=items, total=total)
@@ -3794,7 +3812,7 @@ def admin_list_provider_leads(
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=imported_at.strftime('%Y-%m-%d %H:%M:%S') if imported_at else "",
             phone=phone_value or "",
-            utm_campaign=r.prov_source,
+            utm_campaign=_build_utm_campaign(r.prov_source, r.subdomain),
             source=r.prov_chanel,
             project_name=r.project_name,
             user=user_info,

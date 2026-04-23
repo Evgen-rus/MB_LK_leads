@@ -3,13 +3,14 @@
 
 Берём только записи за последние N дней (LEADS_EXPORT_LOOKBACK_DAYS).
 Заполняем по позициям A..G:
- A Created At -> prov_created_at
- B id        -> vid
- C Phone     -> первый телефон
- D Unused    -> пусто
- E Project Tag -> project_name
- F GCK Tag     -> "ГЦК " + project_name без префикса B1_/B2_/B3_/B4_
- G Check_mark  -> subdomain
+ A Created At   -> prov_created_at
+ B id           -> vid
+ C Phone        -> первый телефон
+ D Unused       -> пусто
+ E Project Tag  -> project_name (+ "_first_subdomain", если он есть)
+ F GCK Tag      -> "ГЦК " + project_name без префикса B1_/B2_/B3_/B4_
+                   (+ "_first_subdomain", если он есть)
+ G Check_mark   -> subdomain
 """
 
 from __future__ import annotations
@@ -56,6 +57,17 @@ def _to_gck_tag(project_name: Optional[str]) -> str:
         return ""
     base = _strip_provider_channel(project_name).strip()
     return f"ГЦК {base}" if base else ""
+
+
+def _append_subdomain_suffix(value: Optional[str], subdomain: Optional[str]) -> str:
+    base = (value or "").strip()
+    raw_suffix = (subdomain or "").strip()
+    suffix = raw_suffix.split(";", 1)[0].strip() if raw_suffix else ""
+    if not base:
+        return ""
+    if not suffix:
+        return base
+    return f"{base}_{suffix}"
 
 
 def _format_dt(value: Optional[datetime]) -> str:
@@ -200,14 +212,16 @@ def export_provider_leads():
         if str(r.vid).strip() in existing_ids:
             skipped_count += 1
             continue
+        project_tag = _append_subdomain_suffix(r.project_name, r.subdomain)
+        gck_tag = _append_subdomain_suffix(_to_gck_tag(r.project_name), r.subdomain)
         out_rows.append(
             [
                 _format_dt(r.prov_created_at),
                 str(r.vid),
                 _extract_first_phone(r),
                 "",
-                r.project_name or "",
-                _to_gck_tag(r.project_name),
+                project_tag,
+                gck_tag,
                 r.subdomain or "",
             ]
         )
