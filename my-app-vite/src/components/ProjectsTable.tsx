@@ -12,6 +12,7 @@ import BulkEditStatusModal from './BulkEditStatusModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
@@ -97,7 +98,7 @@ function ProjectsTable({
       const resp = await fetchProjects({
         offset,
         limit: s,
-        q: q.trim() || undefined,
+        q: formatProjectNameForSubmit(q.trim()) || undefined,
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
@@ -198,7 +199,7 @@ function ProjectsTable({
     function formatNames(items: Array<{ id: number; name: string }>, max = 5): string {
       const preview = items
         .slice(0, max)
-        .map((item) => `${item.name} (id: ${item.id})`)
+        .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
         .join(', ');
       if (items.length <= max) return preview;
       return `${preview}, ... и еще ${items.length - max}`;
@@ -238,7 +239,7 @@ function ProjectsTable({
         lines.push(`... и еще ${result.errors.length - 3}`);
       }
     }
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
   }
 
   async function runBulkAction(
@@ -298,7 +299,7 @@ function ProjectsTable({
       setRows((prev) => prev.map((p) => (p.id === row.id ? result.project : p)));
       window.dispatchEvent(new CustomEvent('projects-refresh'));
       if (result.warning) {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
       }
     } catch (e) {
       console.error(e);
@@ -314,7 +315,7 @@ function ProjectsTable({
       const message = e instanceof Error && e.message
         ? e.message
         : 'Не удалось изменить статус проекта.';
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
     }
   }
 
@@ -323,7 +324,7 @@ function ProjectsTable({
       window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
       return;
     }
-    if (!window.confirm(`Удалить проект ${row.id} навсегда?`)) return;
+    if (!window.confirm(`Удалить проект ${formatProjectNameForDisplay(row.name)} (id: ${row.id}) навсегда?`)) return;
     try {
       await apiDeleteProject(row.id);
       window.dispatchEvent(new CustomEvent('projects-refresh'));
@@ -332,7 +333,7 @@ function ProjectsTable({
       const message = e instanceof Error && e.message
         ? e.message
         : 'Не удалось удалить проект. Попробуйте позже.';
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: message }));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
     }
   }
 
@@ -588,7 +589,7 @@ function ProjectsTable({
                 title="Открыть меню действий проекта"
               >
                 <div className="name">
-                  {row.name}
+                  {formatProjectNameForDisplay(row.name)}
                   <span className="project-id-badge">
                     id{row.id}
                   </span>
@@ -657,7 +658,7 @@ function ProjectsTable({
                   />
                 )}
               </td>
-              <td>{row.dataSourceCode}</td>
+              <td>{toDisplaySourceCode(row.dataSourceCode)}</td>
               <td>
                 <span
                   className={

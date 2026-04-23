@@ -245,7 +245,7 @@ function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: A
                 <span>Уникальные имена новых проектов</span>
               </label>
               <span className="sub" style={{ color: '#666' }}>
-                Если включено, новые проекты клиента будут создаваться с маркером вида `B1_[MB54] Магнум`.
+                Если включено, новые проекты клиента будут создаваться с маркером вида `A_[MB54] Магнум`.
               </span>
             </div>
           )}

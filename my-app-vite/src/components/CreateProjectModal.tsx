@@ -3,12 +3,19 @@ import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from 
 import type { CollectionSource, ProjectStatus } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
+import {
+  RAW_SOURCE_CODES,
+  formatSourceTextForDisplay,
+  getDisplayProjectPrefix,
+  toDisplaySourceCode,
+  type RawSourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type SubmitItem = {
   name: string;
   tag: string;
   collectionSource: CollectionSource;
-  dataSourceCode: 'B1' | 'B2' | 'B3' | 'B4';
+  dataSourceCode: RawSourceCode;
   dataLimit: number;
   status: ProjectStatus;
   regionMode: 'include' | 'exclude';
@@ -175,7 +182,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
     }
   }
 
-  function allowedCodesForSource(src: CollectionSource): ('B1'|'B2'|'B3'|'B4')[] {
+  function allowedCodesForSource(src: CollectionSource): RawSourceCode[] {
     if (src === 'Сайты' || src === 'Звонки') return ['B1','B2','B3','B4'];
     if (src === 'СМС') return ['B2','B3'];
     return ['B2'];
@@ -210,7 +217,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       if (isLikelyPhone(smsSenderName)) return;
     }
     // B-коды для генерации проектов
-    const allowedCodes: ('B1'|'B2'|'B3'|'B4')[] =
+    const allowedCodes: RawSourceCode[] =
       collectionSource === 'Сайты' || collectionSource === 'Звонки'
         ? ['B1','B2','B3','B4']
         : collectionSource === 'СМС'
@@ -332,7 +339,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
                   marginBottom: 4,
                 }}
               >
-                {submitError}
+                {formatSourceTextForDisplay(submitError)}
               </div>
             )}
             <label style={{ display: 'grid', gap: 6 }}>
@@ -351,7 +358,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
               )}
               {hasName && uniqueProjectNamesEnabled && (
                 <span className="hint" style={{ color: '#666' }}>
-                  Для этого клиента уникальное имя будет добавлено автоматически после создания. Пример: `B1_[MB54] Магнум`.
+                  Для этого клиента уникальное имя будет добавлено автоматически после создания. Пример: <code>{getDisplayProjectPrefix('B1', { projectId: 54, uniqueNameApplied: true })}Магнум</code>.
                 </span>
               )}
             </label>
@@ -393,10 +400,10 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
               <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div className="sub" style={{ color: '#666' }}>
-                Можно выбрать одного или нескольких поставщиков. Для каждого выбранного будет создан отдельный проект с префиксом поставщика (B1/B2/B3/B4).
+                Можно выбрать одного или нескольких поставщиков. Для каждого выбранного будет создан отдельный проект с префиксом поставщика (A/B/C/D).
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(['B1','B2','B3','B4'] as const).map(code => {
+                {RAW_SOURCE_CODES.map(code => {
                   const allowed = allowedCodes.includes(code);
                   const singleForced = allowedCodes.length === 1 && allowedCodes[0] === 'B2' && code === 'B2';
                   const active = code === 'B1' ? b1 : code === 'B2' ? b2 : code === 'B3' ? b3 : b4;
@@ -421,14 +428,14 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
                         cursor: (!allowed || singleForced) ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      {code}
+                      {toDisplaySourceCode(code)}
                     </button>
                   );
                 })}
               </div>
               <div style={{ fontSize: '0.75rem', color: '#666' }}>
                 {effectiveCodesPreview.length > 0
-                  ? `Будет создано ${effectiveCodesPreview.length} проектов. Лимит ${dataLimit} / день распределится между ними: ` + effectiveCodesPreview.map((c, i) => `${c}:${previewLimits[i]}`).join(', ')
+                  ? `Будет создано ${effectiveCodesPreview.length} проектов. Лимит ${dataLimit} / день распределится между ними: ` + effectiveCodesPreview.map((c, i) => `${toDisplaySourceCode(c)}:${previewLimits[i]}`).join(', ')
                   : 'Выберите источники данных'}
               </div>
               </div>

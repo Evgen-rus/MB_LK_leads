@@ -36,6 +36,7 @@ import {
 } from './api';
 import Login from './components/Login';
 import { getRoleFromToken, isJwtValid } from './utils/jwt';
+import { formatSourceTextForDisplay } from './utils/sourceCodeDisplay';
 
 const STORAGE_VIEW_KEY = 'last_view';
 
@@ -110,7 +111,7 @@ function App() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<string | null>).detail;
       if (detail && detail.trim()) {
-        setToast(detail);
+        setToast(formatSourceTextForDisplay(detail));
       }
     };
     window.addEventListener('app-toast', handler as EventListener);
@@ -652,13 +653,13 @@ function App() {
               setRows((prev) => [...result.items, ...prev]);
               window.dispatchEvent(new CustomEvent('projects-refresh'));
               if (result.warning) {
-                setToast(result.warning);
+                setToast(formatSourceTextForDisplay(result.warning));
               }
               return null;
             } catch (e) {
               console.error(e);
               if (e instanceof Error && e.message) {
-                return e.message;
+                return formatSourceTextForDisplay(e.message);
               }
               return 'Не удалось создать проект. Проверьте введенные данные и попробуйте еще раз.';
             }
@@ -674,7 +675,7 @@ function App() {
             setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
             window.dispatchEvent(new CustomEvent('projects-refresh'));
             if (result.warning) {
-              setToast(result.warning);
+              setToast(formatSourceTextForDisplay(result.warning));
             }
           }}
         />

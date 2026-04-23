@@ -6,13 +6,14 @@ import ExportDropdown from './ExportDropdown';
 import FilterDropdown from './FilterDropdown';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay, getSourceCodeFilterOptions, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 type Props = {
@@ -45,7 +46,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
   const projectNameMap = useMemo(() => {
     const m = new Map<number, string>();
-    projects.forEach((p) => m.set(p.id, p.name));
+    projects.forEach((p) => m.set(p.id, formatProjectNameForDisplay(p.name)));
     return m;
   }, [projects]);
 
@@ -142,7 +143,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
           <FilterDropdown
             label="Проекты"
-            options={projects.map((p) => ({ value: String(p.id), label: p.name }))}
+            options={projects.map((p) => ({ value: String(p.id), label: formatProjectNameForDisplay(p.name) }))}
             selected={projectIds.map(String)}
             allLabel="Все проекты"
             onApply={(vals) => {
@@ -153,7 +154,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
           <FilterDropdown
             label="Каналы"
-            options={sourcesList.map((s) => ({ value: s, label: s }))}
+            options={getSourceCodeFilterOptions(sourcesList)}
             selected={sources}
             allLabel="Все каналы"
             onApply={(vals) => {
@@ -221,8 +222,8 @@ function LeadsTable({ projects, initialFilter }: Props) {
                   ) : null}
                 </div>
               </td>
-              <td className="muted">{r.source ?? ''}</td>
-              <td className="muted">{r.utm_campaign ?? ''}</td>
+              <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
+              <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
               <td>{r.phone}</td>
             </tr>
           ))}

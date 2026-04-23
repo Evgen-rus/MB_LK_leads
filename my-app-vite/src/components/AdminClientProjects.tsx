@@ -6,6 +6,7 @@ import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 type AdminClientProjectsProps = {
   clientId: number;
@@ -36,9 +37,9 @@ const SMS_EDIT_BLOCKED_MESSAGE =
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -75,7 +76,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
       const resp = await fetchAdminProjects({
         offset,
         limit: s,
-        q: q.trim() || undefined,
+        q: formatProjectNameForSubmit(q.trim()) || undefined,
         userId: clientId,
         fromDate: from,
         toDate: to,
@@ -143,7 +144,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
       const result = await updateAdminProject(project.id, payload);
       setRows((prev) => prev.map((p) => (p.id === result.project.id ? result.project : p)));
       if (result.warning) {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
       }
     } catch (err: unknown) {
       console.error(err);
@@ -324,7 +325,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                     }}
                   >
                     <div className="name">
-                      {row.name}
+                      {formatProjectNameForDisplay(row.name)}
                       <span className="project-id-badge">
                         id{row.id}
                       </span>
@@ -376,7 +377,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                     />
                   )}
                   </td>
-                  <td>{row.dataSourceCode}</td>
+                  <td>{toDisplaySourceCode(row.dataSourceCode)}</td>
                   <td>
                     <span
                       className={

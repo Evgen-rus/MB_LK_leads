@@ -1,5 +1,6 @@
 import { updateProject, type Day, type ProjectUpdatePayload } from '../api';
 import type { Project } from '../types/project';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay } from './sourceCodeDisplay';
 
 const DAYS_MAP: Record<string, Day> = {
   'Пн.': 'Пн',
@@ -14,9 +15,9 @@ const DAYS_MAP: Record<string, Day> = {
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function parseDaysFromRow(row: Project): Day[] {
@@ -116,13 +117,13 @@ export async function runBulkProjectUpdatesSequential(
       const payload = buildUpdatePayloadFromProject(project, patch);
       const response = await updateProject(project.id, payload);
       updatedProjects.push(response.project);
-      updatedItems.push({ id: response.project.id, name: response.project.name });
-      if (response.warning) warnings.push(`Проект ${project.id} (${project.name}): ${response.warning}`);
+      updatedItems.push({ id: response.project.id, name: formatProjectNameForDisplay(response.project.name) });
+      if (response.warning) warnings.push(`Проект ${project.id} (${formatProjectNameForDisplay(project.name)}): ${formatSourceTextForDisplay(response.warning)}`);
     } catch (err: unknown) {
       failed += 1;
       const reason = getErrorMessage(err, 'Ошибка обновления');
-      failedItems.push({ id: project.id, name: project.name, reason });
-      errors.push(`Проект ${project.id} (${project.name}): ${reason}`);
+      failedItems.push({ id: project.id, name: formatProjectNameForDisplay(project.name), reason });
+      errors.push(`Проект ${project.id} (${formatProjectNameForDisplay(project.name)}): ${reason}`);
     } finally {
       done += 1;
       onProgress?.({

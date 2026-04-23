@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchAdminClientChanges, resolveAdminChange, type AdminChange, type AdminChangeStatus } from '../api';
 import ChangeProjectDiffModal from './ChangeProjectDiffModal';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 type ResolvedPayload = {
   change: AdminChange;
@@ -31,13 +32,12 @@ type AdminChangeWithMeta = AdminChange & { _batchCount?: number; _sources?: Set<
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function shortNameSummary(changes: AdminChange[]): string | null {
-  const normalize = (name: string) => name.replace(/^B[1-4][\s_-]*/i, '');
   // Используем имя из snapshot для созданий, чтобы не выводить "Несколько проектов"
   const names = changes
     .map((c) => {
@@ -49,7 +49,7 @@ function shortNameSummary(changes: AdminChange[]): string | null {
           ? (c.projectSnapshot as { name?: string }).name
           : undefined;
       const raw = snapName || c.projectName || '';
-      return raw ? normalize(raw) : '';
+      return raw ? formatProjectNameForDisplay(raw) : '';
     })
     .filter(Boolean);
 
@@ -148,7 +148,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           const sortedSources = Array.from(sources).sort();
           const limitsStr = sortedSources
             .filter((s) => typeof sourceLimits[s] === 'number')
-            .map((s) => `${s}: ${sourceLimits[s]}`)
+            .map((s) => `${toDisplaySourceCode(s)}: ${sourceLimits[s]}`)
             .join(', ');
           const seed: AdminChangeWithMeta = {
             ...c,
@@ -157,7 +157,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
             sources: sortedSources,
             sourceLimits,
             // Для батча чуть уточняем описание: какие источники и какие лимиты по ним
-            description: c.description + (limitsStr ? ` | Лимиты: ${limitsStr}` : (sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : '')),
+            description: c.description + (limitsStr ? ` | Лимиты: ${limitsStr}` : (sortedSources.length ? ` | Источники: ${sortedSources.map((s) => toDisplaySourceCode(s)).join(', ')}` : '')),
           };
           createsByBatch.set(c.batchId, seed);
         } else {
@@ -188,12 +188,12 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
           const sortedSources = Array.from(sources).sort();
           const limitsStr = sortedSources
             .filter((s) => typeof sourceLimits[s] === 'number')
-            .map((s) => `${s}: ${sourceLimits[s]}`)
+            .map((s) => `${toDisplaySourceCode(s)}: ${sourceLimits[s]}`)
             .join(', ');
           const updated: AdminChangeWithMeta = {
             ...existing,
             projectName: projects.size > 1 ? 'с несколькими источниками' : Array.from(projects)[0] || existing.projectName,
-            description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.join(', ')}` : ''}${limitsStr ? ` | Лимиты: ${limitsStr}` : ''}`,
+            description: `Создано проектов: ${count}${sortedSources.length ? ` | Источники: ${sortedSources.map((s) => toDisplaySourceCode(s)).join(', ')}` : ''}${limitsStr ? ` | Лимиты: ${limitsStr}` : ''}`,
             projectSnapshot: existing.projectSnapshot,
             sources: sortedSources,
             sourceLimits,
@@ -318,7 +318,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
               <div>
                 <div className="sub">Проект</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span>{g.projectName}</span>
+                  <span>{formatProjectNameForDisplay(g.projectName)}</span>
                   {g.projectId != null && (
                     <span className="sub">
                       (id: {g.projectId})
@@ -373,7 +373,7 @@ function AdminClientChanges({ clientId, clientName, onResolvedChange }: AdminCli
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td>{c.description}</td>
+                      <td>{formatSourceTextForDisplay(c.description)}</td>
                       <td>
                         {(() => {
                           const status = (c.status as AdminChangeStatus | undefined) ?? 'pending';

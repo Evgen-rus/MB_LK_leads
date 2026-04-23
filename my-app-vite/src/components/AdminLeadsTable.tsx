@@ -6,13 +6,14 @@ import ExportDropdown from './ExportDropdown';
 import DateRangeFilter from './DateRangeFilter';
 import FilterDropdown from './FilterDropdown';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay, getSourceCodeFilterOptions, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function formatDateInput(d: Date) {
@@ -48,7 +49,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   const projectNameMap = useMemo(() => {
     const m = new Map<number, string>();
-    projects.forEach((p) => m.set(p.id, p.name));
+    projects.forEach((p) => m.set(p.id, formatProjectNameForDisplay(p.name)));
     return m;
   }, [projects]);
 
@@ -212,7 +213,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           {/* Фильтр по проектам клиента (мультивыбор) */}
           <FilterDropdown
             label="Проекты"
-            options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: p.name }))}
+            options={(userIdFilter ? projects : []).map((p) => ({ value: String(p.id), label: formatProjectNameForDisplay(p.name) }))}
             selected={projectIds.map(String)}
             allLabel="Все проекты"
             disabled={!userIdFilter}
@@ -225,7 +226,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           {/* Фильтр по каналам */}
           <FilterDropdown
             label="Каналы"
-            options={sourcesList.map((s) => ({ value: s, label: s }))}
+            options={getSourceCodeFilterOptions(sourcesList)}
             selected={sources}
             allLabel="Все каналы"
             onApply={(vals) => {
@@ -294,7 +295,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                 <td><DateTimeCompact value={r.imported_at} /></td>
                 <td>
                   <div className="name">
-                    {r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—'}
+                    {formatProjectNameForDisplay(r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—')}
                     {r.project_id != null ? (
                       <span className="project-id-badge">
                         id{r.project_id}
@@ -302,8 +303,8 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                     ) : null}
                   </div>
                 </td>
-                <td className="muted">{r.source ?? ''}</td>
-                <td className="muted">{r.utm_campaign ?? ''}</td>
+                <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
+                <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
                 <td>{r.phone}</td>
                 <td className="muted">{r.ext_id}</td>
                 <td>

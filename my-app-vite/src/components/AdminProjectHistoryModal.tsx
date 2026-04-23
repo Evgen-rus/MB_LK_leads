@@ -3,6 +3,7 @@ import { fetchAdminProjectHistory, type AdminProjectHistoryItem } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
 type Props = {
   projectId: number;
@@ -13,9 +14,9 @@ type Props = {
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
@@ -94,7 +95,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
             <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>История изменений проекта</div>
             {projectName && (
               <div style={{ fontSize: '0.875rem', color: '#666', marginTop: 4 }}>
-                {projectName} (ID {projectId})
+                {formatProjectNameForDisplay(projectName)} (ID {projectId})
               </div>
             )}
           </div>
@@ -173,7 +174,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                         <span className="muted">—</span>
                       )}
                     </td>
-                    <td>{item.description}</td>
+                    <td>{formatSourceTextForDisplay(item.description)}</td>
                   </tr>
                 ))}
               </tbody>

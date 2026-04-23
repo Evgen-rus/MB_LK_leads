@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ProjectHistoryItem } from '../api';
 import { fetchProjectHistory } from '../api';
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
 type ProjectHistoryModalProps = {
   projectId: number;
@@ -17,9 +18,9 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
   const getErrorMessage = (err: unknown, fallback: string): string => {
     if (err && typeof err === 'object' && 'message' in err) {
       const msg = (err as { message?: unknown }).message;
-      if (typeof msg === 'string' && msg.trim()) return msg;
+      if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
     }
-    return fallback;
+    return formatSourceTextForDisplay(fallback);
   };
 
   useEffect(() => {
@@ -88,7 +89,7 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
             <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>История изменений проекта</div>
             {projectName && (
               <div style={{ fontSize: '0.875rem', color: '#666', marginTop: 4 }}>
-                {projectName} (ID {projectId})
+                {formatProjectNameForDisplay(projectName)} (ID {projectId})
               </div>
             )}
           </div>
@@ -144,7 +145,7 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                       )}
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#111' }}>
-                      {item.description}
+                      {formatSourceTextForDisplay(item.description)}
                     </td>
                   </tr>
                 ))}

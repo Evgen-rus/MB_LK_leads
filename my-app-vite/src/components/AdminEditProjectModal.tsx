@@ -6,6 +6,16 @@ import type { ProjectStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
+import {
+  RAW_SOURCE_CODES,
+  formatProjectNameForDisplay,
+  formatProjectNameForSubmit,
+  formatSourceTextForDisplay,
+  getDisplayProjectPrefix,
+  getRawProjectPrefix,
+  toDisplaySourceCode,
+  type RawSourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -19,15 +29,15 @@ type AdminEditProjectModalProps = {
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }: AdminEditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
-  const [name, setName] = useState(project.name);
+  const [name, setName] = useState(formatProjectNameForDisplay(project.name));
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
 
@@ -54,6 +64,16 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const uniqueNameApplied = project.name.startsWith(
+    getRawProjectPrefix(project.dataSourceCode, { projectId: project.id, uniqueNameApplied: true }),
+  );
+  const protectedNamePrefix = getDisplayProjectPrefix(project.dataSourceCode, {
+    projectId: project.id,
+    uniqueNameApplied,
+  });
+  const protectedNameHint = uniqueNameApplied
+    ? `Технический префикс "${protectedNamePrefix}" обязателен и не редактируется.`
+    : `Префикс источника "${protectedNamePrefix}" обязателен и не должен удаляться.`;
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -160,7 +180,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
     const sourceNow: CollectionSource = project.collectionSource;
 
     const original = {
-      name: normalizeString(project.name),
+      name: normalizeString(formatProjectNameForDisplay(project.name)),
       status: project.status,
       dataLimit: Number.isFinite(project.dataLimit) ? project.dataLimit : 0,
       regionMode: (project.regionMode || 'include') as 'include' | 'exclude',
@@ -218,6 +238,15 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
     if (readOnly) return;
     if (!name.trim()) return;
     if (!isDirty) return;
+    const normalizedName = name.trim();
+    if (!normalizedName.startsWith(protectedNamePrefix)) {
+      setError(protectedNameHint);
+      return;
+    }
+    if (!normalizedName.slice(protectedNamePrefix.length).trim()) {
+      setError('Название проекта после технического префикса не может быть пустым.');
+      return;
+    }
 
     const source: CollectionSource = project.collectionSource;
     if (source === 'СМС' || source === 'Пересечение') {
@@ -255,7 +284,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
     }
 
     const payload: AdminProjectUpdate = {
-      name: name.trim(),
+      name: formatProjectNameForSubmit(normalizedName),
       tag: project.tag,
       status,
       // Статус отгрузки больше не редактируем в модалке — отправляем текущее значение
@@ -276,7 +305,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       const result = await updateAdminProject(project.id, payload);
       onSubmit?.(result.project);
       if (result.warning) {
-        window.dispatchEvent(new CustomEvent('app-toast', { detail: result.warning }));
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
       }
       onClose();
     } catch (err: unknown) {
@@ -286,7 +315,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
     }
   }
 
-  const bActive = (code: 'B1'|'B2'|'B3'|'B4') => project.dataSourceCode === code;
+  const bActive = (code: RawSourceCode) => project.dataSourceCode === code;
   const source: CollectionSource = project.collectionSource;
 
   return (
@@ -312,6 +341,9 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
+              <span className="hint" style={{ color: '#666' }}>
+                {protectedNameHint}
+              </span>
             </label>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -331,9 +363,9 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(['B1','B2','B3','B4'] as const).map(code => (
+                {RAW_SOURCE_CODES.map(code => (
                   <button key={code} type="button" aria-pressed={bActive(code)} disabled style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid', borderColor: bActive(code) ? '#6a5cff' : '#dcdce6', background: bActive(code) ? '#6a5cff' : '#fff', color: bActive(code) ? '#fff' : '#1d1d1f', opacity: bActive(code) ? 1 : 0.6 }}>
-                    {code}
+                    {toDisplaySourceCode(code)}
                   </button>
                 ))}
               </div>

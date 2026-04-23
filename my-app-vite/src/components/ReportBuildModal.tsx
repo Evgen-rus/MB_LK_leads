@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 type ReportFormat = 'csv' | 'xlsx';
 
@@ -61,7 +62,7 @@ function ReportBuildModal({
   const filteredProjects = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return projects;
-    return projects.filter((p) => p.name.toLowerCase().includes(q));
+    return projects.filter((p) => formatProjectNameForDisplay(p.name).toLowerCase().includes(q));
   }, [projects, query]);
 
   const hasClientSelector = Array.isArray(users);
@@ -182,7 +183,7 @@ function ReportBuildModal({
                           checked={selectedProjectIds.includes(project.id)}
                           onChange={() => toggleProject(project.id)}
                         />
-                        <span>{project.name}</span>
+                        <span>{formatProjectNameForDisplay(project.name)}</span>
                       </label>
                     ))}
                 </div>

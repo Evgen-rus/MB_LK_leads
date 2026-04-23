@@ -1,6 +1,12 @@
 import React, { useMemo } from 'react';
 import type { AdminChange } from '../api';
 import DateTimeCompact from './DateTimeCompact';
+import {
+  RAW_SOURCE_CODES,
+  formatProjectNameForDisplay,
+  formatSourceTextForDisplay,
+  toDisplaySourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type Props = {
   change: AdminChange;
@@ -97,6 +103,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
   function renderText(_key: FieldKey, value: unknown) {
     if (Array.isArray(value)) return value.join(', ');
     if (value == null) return '—';
+    if (_key === 'dataSourceCode') return toDisplaySourceCode(String(value));
     return String(value);
   }
 
@@ -111,13 +118,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
     const order = Array.isArray(change.sources) && change.sources.length ? change.sources : keys.sort();
     return order
       .filter((k) => typeof limits[k] === 'number' && Number.isFinite(limits[k]))
-      .map((k) => `${k}: ${limits[k]}`)
+      .map((k) => `${toDisplaySourceCode(k)}: ${limits[k]}`)
       .join(', ');
-  }
-
-  // Удаляем префикс источника из названия (например, "B3_" или "B3 ").
-  function normalizeName(raw: string) {
-    return raw.replace(/^B[1-4][\s_-]*/i, '');
   }
 
   const baseInputStyle: React.CSSProperties = {
@@ -180,7 +182,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
               Карточка проекта ({change.action === 'create' ? 'Создание' : change.action === 'delete' ? 'Удаление' : 'Изменение'})
             </div>
             <div className="sub">
-              {change.projectName || 'Проект'}
+              {formatProjectNameForDisplay(change.projectName) || 'Проект'}
               {change.projectId ? ` (id: ${change.projectId})` : ''}
             </div>
             <div className="sub" style={{ display: 'grid', gap: 2 }}>
@@ -221,11 +223,11 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                 <span className="section-title">Название</span>
                 <input
                   readOnly
-                  value={normalizeName(after.name ?? '')}
+                  value={formatProjectNameForDisplay(after.name ?? '')}
                   style={isChanged('name' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                 />
                 {isChanged('name' as FieldKey) && before.name && (
-                  <span className="sub">Было: {normalizeName(before.name)}</span>
+                  <span className="sub">Было: {formatProjectNameForDisplay(before.name)}</span>
                 )}
               </label>
               {/* Тег скрываем — на фронте не используется */}
@@ -256,7 +258,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Источник данных</span>
               <div style={{ ...boxStyleFor('dataSourceCode'), display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(['B1', 'B2', 'B3', 'B4'] as const).map((code) => {
+                {RAW_SOURCE_CODES.map((code) => {
                   const activeList = Array.isArray(change.sources) && change.sources.length > 0 ? change.sources : null;
                   const active = activeList ? activeList.includes(code) : after.dataSourceCode === code;
                   return (
@@ -272,7 +274,7 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                         opacity: active ? 1 : 0.6,
                       }}
                     >
-                      {code}
+                      {toDisplaySourceCode(code)}
                     </span>
                   );
                 })}
@@ -368,11 +370,11 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
                     <span className="section-title">СМС отправитель</span>
                     <input
                       readOnly
-                      value={afterSms}
+                      value={formatSourceTextForDisplay(afterSms)}
                       style={isChanged('smsSenderName' as FieldKey) ? { ...baseInputStyle, ...highlight } : baseInputStyle}
                     />
                     {isChanged('smsSenderName' as FieldKey) && beforeSms && (
-                      <span className="sub">Было: {beforeSms}</span>
+                      <span className="sub">Было: {formatSourceTextForDisplay(beforeSms)}</span>
                     )}
                   </label>
                 )}

@@ -3,6 +3,16 @@ import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from 
 import type { Project, ProjectStatus, CollectionSource } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
+import {
+  RAW_SOURCE_CODES,
+  formatProjectNameForDisplay,
+  formatProjectNameForSubmit,
+  formatSourceTextForDisplay,
+  getDisplayProjectPrefix,
+  getRawProjectPrefix,
+  toDisplaySourceCode,
+  type RawSourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -28,15 +38,15 @@ type EditProjectModalProps = {
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
-    if (typeof msg === 'string' && msg.trim()) return msg;
+    if (typeof msg === 'string' && msg.trim()) return formatSourceTextForDisplay(msg);
   }
-  return fallback;
+  return formatSourceTextForDisplay(fallback);
 }
 
 function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
-  const [name, setName] = useState(project.name);
+  const [name, setName] = useState(formatProjectNameForDisplay(project.name));
   const [status, setStatus] = useState<ProjectStatus>(project.status);
   const [dataLimit, setDataLimit] = useState<number>(project.dataLimit);
   const isDeleted = project.status === 'Удалён';
@@ -67,11 +77,16 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
   const isSmsSenderValid =
     (project.collectionSource !== 'СМС' && project.collectionSource !== 'Пересечение')
       || (smsSenderName.trim() !== '' && smsSenderName.replace(/\D+/g, '').length < 10);
-  const uniqueNamePrefix = `${project.dataSourceCode}_[MB${project.id}] `;
-  const protectedNamePrefix = project.name.startsWith(uniqueNamePrefix) ? uniqueNamePrefix : `${project.dataSourceCode}_`;
-  const protectedNameHint = project.name.startsWith(uniqueNamePrefix)
-    ? `Технический префикс "${uniqueNamePrefix}" обязателен и не редактируется.`
-    : `Префикс источника "${project.dataSourceCode}_" обязателен и не должен удаляться.`;
+  const uniqueNameApplied = project.name.startsWith(
+    getRawProjectPrefix(project.dataSourceCode, { projectId: project.id, uniqueNameApplied: true }),
+  );
+  const protectedNamePrefix = getDisplayProjectPrefix(project.dataSourceCode, {
+    projectId: project.id,
+    uniqueNameApplied,
+  });
+  const protectedNameHint = uniqueNameApplied
+    ? `Технический префикс "${protectedNamePrefix}" обязателен и не редактируется.`
+    : `Префикс источника "${protectedNamePrefix}" обязателен и не должен удаляться.`;
 
   function parseList(text: string): string[] {
     return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -177,7 +192,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     const sourceNow: CollectionSource = project.collectionSource;
 
     const original = {
-      name: normalizeString(project.name),
+      name: normalizeString(formatProjectNameForDisplay(project.name)),
       status: project.status,
       dataLimit: Number.isFinite(project.dataLimit) ? project.dataLimit : 0,
       regionMode: (project.regionMode || 'include') as 'include' | 'exclude',
@@ -281,8 +296,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       setPhonesError(null);
       phones = res.normalized;
     }
+    const rawName = formatProjectNameForSubmit(normalizedName);
     const update: SubmitUpdate = {
-      name: normalizedName,
+      name: rawName,
       // tag пользователь не редактирует в модалке — сохраняем текущий tag проекта.
       // Это предотвращает "ложные изменения" при нажатии Сохранить без правок.
       tag: project.tag,
@@ -307,7 +323,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     }
   }
 
-  const bActive = (code: 'B1'|'B2'|'B3'|'B4') => project.dataSourceCode === code;
+  const bActive = (code: RawSourceCode) => project.dataSourceCode === code;
   const source: CollectionSource = project.collectionSource;
 
   return (
@@ -345,9 +361,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {(['B1','B2','B3','B4'] as const).map(code => (
+                {RAW_SOURCE_CODES.map(code => (
                   <button key={code} type="button" aria-pressed={bActive(code)} disabled style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid', borderColor: bActive(code) ? '#6a5cff' : '#dcdce6', background: bActive(code) ? '#6a5cff' : '#fff', color: bActive(code) ? '#fff' : '#1d1d1f', opacity: bActive(code) ? 1 : 0.6 }}>
-                    {code}
+                    {toDisplaySourceCode(code)}
                   </button>
                 ))}
               </div>

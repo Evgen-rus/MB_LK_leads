@@ -1,4 +1,5 @@
 import DateTimeCompact from './DateTimeCompact';
+import { formatProjectNameForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 
 type Props = {
   snapshot: Record<string, unknown>;
@@ -11,6 +12,12 @@ type Props = {
 
 function ProjectSnapshotModal({ snapshot, projectName, projectId, createdAt, action = 'update', onClose }: Props) {
   const entries = Object.entries(snapshot || {});
+
+  function getDisplayValue(key: string, value: unknown): string {
+    if (key === 'name' || key === 'tag') return formatProjectNameForDisplay(String(value ?? ''));
+    if (key === 'dataSourceCode') return toDisplaySourceCode(String(value ?? ''));
+    return typeof value === 'object' ? JSON.stringify(value) : String(value ?? '');
+  }
 
   function copyJSON() {
     try {
@@ -63,7 +70,7 @@ function ProjectSnapshotModal({ snapshot, projectName, projectId, createdAt, act
           <div style={{ display: 'grid', gap: 4 }}>
             <div style={{ fontWeight: 600 }}>Карточка проекта ({action === 'create' ? 'Создание' : action === 'delete' ? 'Удаление' : 'Изменение'})</div>
             <div className="sub">
-              {projectName ? `${projectName}` : 'Проект'}
+              {projectName ? `${formatProjectNameForDisplay(projectName)}` : 'Проект'}
               {projectId ? ` (id: ${projectId})` : ''}
             </div>
             {createdAt && (
@@ -98,7 +105,7 @@ function ProjectSnapshotModal({ snapshot, projectName, projectId, createdAt, act
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{key}</td>
                     <td>
                       <div style={{ maxWidth: 520, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
+                        {getDisplayValue(key, value)}
                       </div>
                     </td>
                     <td>
