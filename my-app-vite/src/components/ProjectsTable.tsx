@@ -72,7 +72,7 @@ function ProjectsTable({
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100);
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);

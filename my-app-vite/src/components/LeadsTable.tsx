@@ -195,10 +195,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
         <thead>
           <tr>
             <th>Дата</th>
-            <th>Проект</th>
-            <th>Канал</th>
-            <th>Источник</th>
             <th>Телефон</th>
+            <th>Канал</th>
+            <th>Источники</th>
+            <th>Проект</th>
           </tr>
         </thead>
         <tbody>
@@ -212,6 +212,9 @@ function LeadsTable({ projects, initialFilter }: Props) {
           {rows.map((r) => (
             <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
               <td><DateTimeCompact value={r.imported_at} /></td>
+              <td>{r.phone}</td>
+              <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
+              <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
               <td>
                 <div className="name">
                   {r.project_id != null ? projectNameMap.get(r.project_id) ?? '—' : '—'}
@@ -222,9 +225,6 @@ function LeadsTable({ projects, initialFilter }: Props) {
                   ) : null}
                 </div>
               </td>
-              <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
-              <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
-              <td>{r.phone}</td>
             </tr>
           ))}
         </tbody>

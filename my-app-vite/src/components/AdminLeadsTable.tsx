@@ -267,10 +267,10 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           <thead>
             <tr>
               <th>Дата</th>
-              <th>Проект</th>
-              <th>Канал</th>
-              <th>Источник</th>
               <th>Телефон</th>
+              <th>Канал</th>
+              <th>Источники</th>
+              <th>Проект</th>
               <th>ext_id</th>
               <th>Клиент</th>
             </tr>
@@ -293,6 +293,9 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             {rows.map((r) => (
               <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
                 <td><DateTimeCompact value={r.imported_at} /></td>
+                <td>{r.phone}</td>
+                <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
+                <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
                 <td>
                   <div className="name">
                     {formatProjectNameForDisplay(r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—')}
@@ -303,9 +306,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                     ) : null}
                   </div>
                 </td>
-                <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
-                <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
-                <td>{r.phone}</td>
                 <td className="muted">{r.ext_id}</td>
                 <td>
                   <div className="name">{r.user.name || r.user.login}</div>
