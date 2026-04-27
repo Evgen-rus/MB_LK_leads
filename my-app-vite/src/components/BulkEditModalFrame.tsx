@@ -11,6 +11,7 @@ type BulkEditModalFrameProps = {
   submitDisabled?: boolean;
   submitting?: boolean;
   progress?: BulkProgress | null;
+  progressUpdatedLabel?: string;
 };
 
 function BulkEditModalFrame({
@@ -23,6 +24,7 @@ function BulkEditModalFrame({
   submitDisabled = false,
   submitting = false,
   progress = null,
+  progressUpdatedLabel = 'Обновлено',
 }: BulkEditModalFrameProps) {
   const progressPercent =
     progress && progress.total > 0 ? Math.max(0, Math.min(100, Math.round((progress.done / progress.total) * 100))) : 0;
@@ -85,7 +87,7 @@ function BulkEditModalFrame({
               </div>
               <div className="bulk-progress-card__meta">
                 <span>{progressPercent}% выполнено</span>
-                <span>Обновлено: {progress.updated}</span>
+                <span>{progressUpdatedLabel}: {progress.updated}</span>
                 <span>Пропущено: {progress.skipped}</span>
                 <span>Ошибок: {progress.failed}</span>
               </div>

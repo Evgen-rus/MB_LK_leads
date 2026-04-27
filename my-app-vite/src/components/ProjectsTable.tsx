@@ -9,6 +9,7 @@ import BulkEditLimitModal from './BulkEditLimitModal';
 import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkEditContactsModal';
 import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
+import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
@@ -35,7 +36,7 @@ function formatDateInput(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
-type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status';
+type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'delete';
 
 const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
 const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
@@ -185,6 +186,15 @@ function ProjectsTable({
     setRows((prev) => prev.map((item) => map.get(item.id) ?? item));
   }
 
+  function formatBulkItemNames(items: Array<{ id: number; name: string }>, max = 5): string {
+    const preview = items
+      .slice(0, max)
+      .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
+      .join(', ');
+    if (items.length <= max) return preview;
+    return `${preview}, ... и еще ${items.length - max}`;
+  }
+
   function showBulkResultToast(result: {
     updatedCount: number;
     skippedCount: number;
@@ -196,19 +206,10 @@ function ProjectsTable({
     failedItems: Array<{ id: number; name: string; reason: string }>;
     skippedReasonLabel?: string;
   }) {
-    function formatNames(items: Array<{ id: number; name: string }>, max = 5): string {
-      const preview = items
-        .slice(0, max)
-        .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
-        .join(', ');
-      if (items.length <= max) return preview;
-      return `${preview}, ... и еще ${items.length - max}`;
-    }
-
     const lines: string[] = [];
     lines.push(`Обновлено: ${result.updatedCount}.`);
     if (result.updatedItems.length > 0) {
-      lines.push(`Применено к: ${formatNames(result.updatedItems)}.`);
+      lines.push(`Применено к: ${formatBulkItemNames(result.updatedItems)}.`);
     }
     if (result.skippedCount > 0) {
       lines.push(
@@ -218,7 +219,7 @@ function ProjectsTable({
       );
     }
     if (result.skippedItems.length > 0) {
-      lines.push(`Не применено к: ${formatNames(result.skippedItems)}.`);
+      lines.push(`Не применено к: ${formatBulkItemNames(result.skippedItems)}.`);
     }
     if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
     if (result.failedItems.length > 0) {
@@ -271,6 +272,80 @@ function ProjectsTable({
         failedItems: result.failedItems,
         skippedReasonLabel: options?.skippedReasonLabel,
       });
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      setSelectedIds([]);
+      setActiveBulkAction(null);
+      setBulkProgress(null);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function runBulkDeleteAction() {
+    if (selectedRows.length === 0) return;
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
+
+    const deletedItems: Array<{ id: number; name: string }> = [];
+    const failedItems: Array<{ id: number; name: string; reason: string }> = [];
+    let done = 0;
+    let failed = 0;
+
+    setBulkSaving(true);
+    setBulkProgress({
+      total: selectedRows.length,
+      done,
+      updated: deletedItems.length,
+      skipped: 0,
+      failed,
+    });
+
+    try {
+      for (const project of selectedRows) {
+        try {
+          await apiDeleteProject(project.id);
+          deletedItems.push({ id: project.id, name: project.name });
+        } catch (err: unknown) {
+          failed += 1;
+          const reason = err instanceof Error && err.message
+            ? formatSourceTextForDisplay(err.message)
+            : 'Ошибка удаления';
+          failedItems.push({
+            id: project.id,
+            name: formatProjectNameForDisplay(project.name),
+            reason,
+          });
+        } finally {
+          done += 1;
+          setBulkProgress({
+            total: selectedRows.length,
+            done,
+            updated: deletedItems.length,
+            skipped: 0,
+            failed,
+          });
+        }
+      }
+
+      const lines: string[] = [`Удалено: ${deletedItems.length}.`];
+      if (deletedItems.length > 0) {
+        lines.push(`Удалены: ${formatBulkItemNames(deletedItems)}.`);
+      }
+      if (failedItems.length > 0) {
+        lines.push(`Ошибок: ${failedItems.length}.`);
+        const failedPreview = failedItems
+          .slice(0, 3)
+          .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
+          .join('\n');
+        lines.push(`Ошибки по проектам:\n${failedPreview}`);
+        if (failedItems.length > 3) {
+          lines.push(`... и еще ${failedItems.length - 3} проект(ов) с ошибкой.`);
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
       window.dispatchEvent(new CustomEvent('projects-refresh'));
       setSelectedIds([]);
       setActiveBulkAction(null);
@@ -505,6 +580,7 @@ function ProjectsTable({
                 <button className="btn btn--ghost" onClick={() => openBulkAction('contacts')}>Телефоны/сайты конкурентов</button>
                 <button className="btn btn--ghost" onClick={() => openBulkAction('regions')}>Регионы</button>
                 <button className="btn btn--ghost" onClick={() => openBulkAction('status')}>Статус проекта</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('delete')}>Удалить проекты</button>
               </div>
             )}
           </div>
@@ -828,6 +904,15 @@ function ProjectsTable({
           progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkStatusSubmit}
+        />
+      )}
+      {activeBulkAction === 'delete' && (
+        <BulkDeleteProjectsModal
+          selectedProjects={selectedRows}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={runBulkDeleteAction}
         />
       )}
     </div>
