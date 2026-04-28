@@ -420,6 +420,14 @@
 .table-sort--active {
   color: #4f46e5;
 }
+.table-sort:focus {
+  outline: none;
+}
+.table-sort:focus-visible {
+  outline: 2px solid #c7d2fe;
+  outline-offset: 3px;
+  border-radius: 6px;
+}
 .table-sort__indicator {
   color: #8b8b98;
   font-size: 0.75rem;
