@@ -41,6 +41,7 @@ const ALL_TIME_TO_DATE = '2099-12-31';
 const SMS_SOURCE = 'СМС';
 const SMS_EDIT_BLOCKED_MESSAGE =
   'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
+const SEARCH_DEBOUNCE_MS = 400;
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -55,6 +56,7 @@ const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
@@ -73,7 +75,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   async function load(
     p = page,
     s = pageSize,
-    q = search,
+    q = debouncedSearch,
     from = fromDate,
     to = toDate,
     withDeleted = includeDeleted,
@@ -108,9 +110,17 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   }
 
   useEffect(() => {
-    load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
+  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -211,16 +221,10 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <div className="filters">
           <input
             type="search"
-            placeholder="Поиск по названию/ID проекта клиента"
+            placeholder="Поиск по названию проекта"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                setPage(1);
-                load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted, statusFilter);
-              }
             }}
           />
           <select

@@ -515,18 +515,8 @@ def list_projects_paginated(
     if q:
         q = q.strip()
         if q:
-            # поиск по id, name, tag
-            cond = or_(
-                models.Project.name.ilike(f"%{q}%"),
-                models.Project.tag.ilike(f"%{q}%"),
-            )
-            # Длинные числовые строки могут быть телефонами в имени проекта.
-            # По id ищем только если значение безопасно для PostgreSQL INTEGER.
-            if q.isdigit():
-                qid = int(q)
-                if 0 < qid <= POSTGRES_INT_MAX:
-                    cond = or_(cond, models.Project.id == qid)
-            stmt = stmt.where(cond)
+            # Поиск проектов выполняется строго по названию.
+            stmt = stmt.where(models.Project.name.ilike(f"%{q}%"))
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(
         stmt,
@@ -3613,7 +3603,7 @@ def admin_list_all_projects(
 ) -> schemas.AdminProjectListOut:
     """
     Список всех проектов всех пользователей (для админа).
-    Опционально фильтрация по user_id, id, name, tag.
+    Опционально фильтрация по user_id и названию проекта.
     """
     stmt = select(models.Project)
 
@@ -3632,18 +3622,8 @@ def admin_list_all_projects(
     if q:
         q = q.strip()
         if q:
-            cond = or_(
-                models.Project.name.ilike(f"%{q}%"),
-                models.Project.tag.ilike(f"%{q}%"),
-            )
-            # Длинные числовые строки могут быть телефонами в имени проекта.
-            # По id и user_id ищем только если значение безопасно для PostgreSQL INTEGER.
-            if q.isdigit():
-                qid = int(q)
-                if 0 < qid <= POSTGRES_INT_MAX:
-                    cond = or_(cond, models.Project.id == qid)
-                    cond = or_(cond, models.Project.user_id == qid)
-            stmt = stmt.where(cond)
+            # Поиск проектов выполняется строго по названию.
+            stmt = stmt.where(models.Project.name.ilike(f"%{q}%"))
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(

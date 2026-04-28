@@ -43,6 +43,7 @@ const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Перес
 const SMS_SOURCE = 'СМС';
 const SMS_EDIT_BLOCKED_MESSAGE =
   'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
+const SEARCH_DEBOUNCE_MS = 400;
 
 type ApiError = Error & {
   status?: number;
@@ -68,6 +69,7 @@ function ProjectsTable({
 }: ProjectsTableProps) {
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
@@ -91,7 +93,7 @@ function ProjectsTable({
     async (
       p: number,
       s = pageSize,
-      q = search,
+      q = debouncedSearch,
       from = fromDate,
       to = toDate,
       withDeleted = includeDeleted,
@@ -114,16 +116,24 @@ function ProjectsTable({
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir],
+    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir],
   );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
+  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -516,10 +526,9 @@ function ProjectsTable({
 
           <input
             type="search"
-            placeholder="Поиск по названию/ID"
+            placeholder="Поиск по названию"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e)=> { if (e.key==='Enter') { setPage(1); load(1, pageSize, (e.target as HTMLInputElement).value, fromDate, toDate, includeDeleted, statusFilter); }}}
           />
           <select
             value={statusFilter}
