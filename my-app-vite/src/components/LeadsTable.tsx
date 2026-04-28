@@ -218,7 +218,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
       <div className="table-scroll">
       </div>
       <div className="table-scroll">
-      <table className="table">
+      <table className="table table--leads">
         <thead>
           <tr>
             <th>Дата</th>

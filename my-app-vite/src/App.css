@@ -1466,6 +1466,8 @@
   .table { font-size: 0.8rem; }
   .table thead th { font-size: 0.6rem; padding: 8px 10px; }
   .table tbody td { font-size: 0.74rem; padding: 6px 10px; line-height: 1.2; }
+  .table--leads .datetime-compact__date { font-size: 0.74rem; }
+  .table--leads .datetime-compact__time { font-size: 0.64rem; }
   .name { font-size: 0.86rem; line-height: 1.15; }
   .sub, .muted, .pager__info, .toolbar-meta { font-size: 0.6rem; }
   .badge { height: 18px; padding: 0 7px; font-size: 0.62rem; gap: 4px; }

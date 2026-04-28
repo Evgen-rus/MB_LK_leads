@@ -263,7 +263,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
         </div>
       </div>
       <div className="table-scroll">
-        <table className="table">
+        <table className="table table--leads">
           <thead>
             <tr>
               <th>Дата</th>
