@@ -1678,6 +1678,7 @@ def list_leads(
     sources: Optional[str] = None,     # "B1,B2"; если нет — все
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
+    q: Optional[str] = None,         # поиск по телефону и источникам
     offset: int = 0,
     limit: int = 50,
     current_user: models.User = Depends(require_auth),
@@ -1730,6 +1731,7 @@ def list_leads(
         offset=offset,
         limit=limit,
         sources=src_list,
+        search_query=q,
         user_id=current_user.id,
     )
 

@@ -12,7 +12,7 @@ import re
 import secrets
 import string
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import String, cast, select, func, or_, and_
 from sqlalchemy.orm import Session
 
 from . import models, schemas, auth
@@ -1468,6 +1468,7 @@ def list_provider_leads_paginated(
     offset: int,
     limit: int,
     sources: Optional[List[str]] = None,
+    search_query: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> schemas.LeadsListOut:
     proj_ids: Optional[List[int]] = None
@@ -1491,6 +1492,24 @@ def list_provider_leads_paginated(
         base = base.where(models.ProviderLead.project_id.in_(proj_ids))
     if sources:
         base = base.where(models.ProviderLead.prov_chanel.in_(sources))
+    if search_query:
+        search = search_query.strip()
+        if search:
+            like_value = f"%{search}%"
+            utm_expr = (
+                func.coalesce(models.ProviderLead.prov_source, "")
+                + "_"
+                + func.coalesce(models.ProviderLead.subdomain, "")
+            )
+            base = base.where(
+                or_(
+                    models.ProviderLead.phone.ilike(like_value),
+                    cast(models.ProviderLead.phones_raw, String).ilike(like_value),
+                    models.ProviderLead.prov_source.ilike(like_value),
+                    models.ProviderLead.subdomain.ilike(like_value),
+                    utm_expr.ilike(like_value),
+                )
+            )
 
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = db.execute(

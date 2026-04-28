@@ -468,7 +468,7 @@ export type Lead = {
 
 export type LeadsListResp = { items: Lead[]; total: number };
 
-export async function fetchLeads(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
+export async function fetchLeads(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; q?: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
   const q = new URLSearchParams({
     fromDate: params.fromDate,
     toDate: params.toDate,
@@ -479,6 +479,7 @@ export async function fetchLeads(params: { projectIds?: number[]; sources?: stri
   if (params.sources && params.sources.length > 0) {
     q.set('sources', params.sources.join(','));
   }
+  if (params.q && params.q.trim()) q.set('q', params.q.trim());
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
   return http<LeadsListResp>(`/leads?${q.toString()}`);

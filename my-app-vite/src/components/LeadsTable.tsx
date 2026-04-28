@@ -21,6 +21,8 @@ type Props = {
   initialFilter?: { projectId?: number; from?: string; to?: string };
 };
 
+const SEARCH_DEBOUNCE_MS = 400;
+
 // Формат для value инпута даты (YYYY-MM-DD)
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
@@ -32,6 +34,8 @@ function formatDateInput(d: Date) {
 function LeadsTable({ projects, initialFilter }: Props) {
   const [projectIds, setProjectIds] = useState<number[]>([]);
   const [sources, setSources] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<Lead[]>([]);
@@ -90,7 +94,15 @@ function LeadsTable({ projects, initialFilter }: Props) {
       // Если массивы пустые — считаем, что выбрано «все», поэтому не передаём фильтр.
       const projectIdsFilter = projectIds.length ? projectIds : undefined;
       const sourcesFilter = sources.length ? sources : undefined;
-      const resp = await fetchLeads({ projectIds: projectIdsFilter, sources: sourcesFilter, fromDate, toDate, offset, limit: s });
+      const resp = await fetchLeads({
+        projectIds: projectIdsFilter,
+        sources: sourcesFilter,
+        fromDate,
+        toDate,
+        q: debouncedSearch.trim() || undefined,
+        offset,
+        limit: s,
+      });
       setRows(resp.items);
       setTotal(resp.total);
     } catch (e: unknown) {
@@ -99,11 +111,19 @@ function LeadsTable({ projects, initialFilter }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [pageSize, projectIds, sources, fromDate, toDate]);
+  }, [pageSize, projectIds, sources, fromDate, toDate, debouncedSearch]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     load(1);
-  }, [projectIds, sources, fromDate, toDate, load]);
+  }, [projectIds, sources, fromDate, toDate, debouncedSearch, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -161,6 +181,13 @@ function LeadsTable({ projects, initialFilter }: Props) {
               setSources(vals);
               setPage(1);
             }}
+          />
+
+          <input
+            type="search"
+            placeholder="Поиск по телефону и источникам"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
