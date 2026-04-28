@@ -1,6 +1,6 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import type { Day, ProjectUpdatePayload } from '../api';
+import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
+import type { Day, ProjectSortBy, ProjectUpdatePayload, SortDir } from '../api';
 import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
 import type { Project, ProjectStatus } from '../types/project';
 import DateRangeFilter from './DateRangeFilter';
@@ -82,6 +82,8 @@ function ProjectsTable({
   const [activeBulkAction, setActiveBulkAction] = useState<BulkActionType | null>(null);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
+  const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
@@ -94,6 +96,8 @@ function ProjectsTable({
       to = toDate,
       withDeleted = includeDeleted,
       projectStatus = statusFilter,
+      sortField = sortBy,
+      direction = sortDir,
     ) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
@@ -104,20 +108,22 @@ function ProjectsTable({
         toDate: to,
         includeDeleted: withDeleted,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
+        sortBy: sortField,
+        sortDir: direction,
       });
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, search, fromDate, toDate, includeDeleted, statusFilter],
+    [pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir],
   );
 
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter);
+    const h = () => load(page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter]);
+  }, [load, page, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -167,6 +173,30 @@ function ProjectsTable({
       const union = new Set([...prev, ...selectableIds]);
       return Array.from(union);
     });
+  }
+
+  function handleSort(nextSortBy: ProjectSortBy) {
+    const nextSortDir: SortDir = sortBy === nextSortBy && sortDir === 'asc' ? 'desc' : 'asc';
+    setSortBy(nextSortBy);
+    setSortDir(nextSortDir);
+    setPage(1);
+  }
+
+  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties) {
+    const active = sortBy === key;
+    return (
+      <th style={style}>
+        <button
+          type="button"
+          className={`table-sort${active ? ' table-sort--active' : ''}`}
+          onClick={() => handleSort(key)}
+          title={`Сортировать: ${label}`}
+        >
+          <span>{label}</span>
+          <span className="table-sort__indicator">{active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+        </button>
+      </th>
+    );
   }
 
   function openBulkAction(action: BulkActionType) {
@@ -618,17 +648,17 @@ function ProjectsTable({
                 title="Выбрать все доступные проекты на странице"
               />
             </th>
-            <th style={{ width: 72 }}>ID</th>
-            <th>Название</th>
-            <th>Источник</th>
-            <th>Статус проекта</th>
-            <th>Лимит</th>
-            <th>Номеров за период</th>
-            <th>Номеров получено всего</th>
+            {renderSortableHeader('ID', 'id', { width: 72 })}
+            {renderSortableHeader('Название', 'name')}
+            {renderSortableHeader('Источник', 'dataSourceCode')}
+            {renderSortableHeader('Статус проекта', 'status')}
+            {renderSortableHeader('Лимит', 'dataLimit')}
+            {renderSortableHeader('Номеров за период', 'numbersPeriod')}
+            {renderSortableHeader('Номеров получено всего', 'numbersTotal')}
             <th>Дни получения номеров</th>
-            <th>Источник сбора</th>
-            <th>Доменов/номеров</th>
-            <th>Дата создания</th>
+            {renderSortableHeader('Источник сбора', 'collectionSource')}
+            {renderSortableHeader('Доменов/номеров', 'sourcesCount')}
+            {renderSortableHeader('Дата создания', 'createdAt')}
             <th>Действия</th>
           </tr>
         </thead>

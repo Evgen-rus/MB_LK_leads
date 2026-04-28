@@ -313,6 +313,18 @@ async function httpForm<T>(path: string, formData: FormData, init?: RequestInit)
 export type ProjectListResp = { items: Project[]; total: number };
 export type CreateProjectsResp = { items: Project[]; warning?: string | null };
 export type UpdateProjectResp = { project: Project; warning?: string | null };
+export type ProjectSortBy =
+  | 'id'
+  | 'name'
+  | 'dataSourceCode'
+  | 'status'
+  | 'dataLimit'
+  | 'collectionSource'
+  | 'sourcesCount'
+  | 'createdAt'
+  | 'numbersPeriod'
+  | 'numbersTotal';
+export type SortDir = 'asc' | 'desc';
 
 export async function fetchProjects(params?: {
   offset?: number;
@@ -322,6 +334,8 @@ export async function fetchProjects(params?: {
   toDate?: string;
   includeDeleted?: boolean;
   projectStatus?: ProjectStatus;
+  sortBy?: ProjectSortBy;
+  sortDir?: SortDir;
 }): Promise<ProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -331,6 +345,8 @@ export async function fetchProjects(params?: {
   if (params?.toDate) q.set('toDate', params.toDate);
   if (params?.includeDeleted) q.set('includeDeleted', 'true');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
+  if (params?.sortBy) q.set('sortBy', params.sortBy);
+  if (params?.sortDir) q.set('sortDir', params.sortDir);
   const qs = q.toString();
   return http<ProjectListResp>(`/projects${qs ? `?${qs}` : ''}`);
 }
@@ -739,6 +755,8 @@ export async function fetchAdminProjects(params?: {
   toDate?: string;
   includeDeleted?: boolean;
   projectStatus?: ProjectStatus;
+  sortBy?: ProjectSortBy;
+  sortDir?: SortDir;
 }): Promise<AdminProjectListResp> {
   const q = new URLSearchParams();
   if (params?.offset != null) q.set('offset', String(params.offset));
@@ -749,6 +767,8 @@ export async function fetchAdminProjects(params?: {
   if (params?.toDate) q.set('toDate', params.toDate);
   q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
+  if (params?.sortBy) q.set('sortBy', params.sortBy);
+  if (params?.sortDir) q.set('sortDir', params.sortDir);
   const qs = q.toString();
   return http<AdminProjectListResp>(`/admin/projects${qs ? `?${qs}` : ''}`);
 }

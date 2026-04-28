@@ -1173,6 +1173,8 @@ def list_projects(
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
     projectStatus: Optional[schemas.ProjectStatus] = None,
+    sortBy: Optional[str] = None,
+    sortDir: Optional[str] = None,
     current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
@@ -1211,6 +1213,8 @@ def list_projects(
         end_local=end_naive,
         include_deleted=includeDeleted,
         project_status=projectStatus,
+        sort_by=sortBy,
+        sort_dir=sortDir,
     )
 
 
@@ -2642,6 +2646,8 @@ def admin_list_projects(
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
     projectStatus: Optional[schemas.ProjectStatus] = None,
+    sortBy: Optional[str] = None,
+    sortDir: Optional[str] = None,
     current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
@@ -2685,6 +2691,8 @@ def admin_list_projects(
         end_local=end_naive,
         include_deleted=includeDeleted,
         project_status=projectStatus,
+        sort_by=sortBy,
+        sort_dir=sortDir,
     )
 
 

@@ -23,6 +23,19 @@ POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
 ROLE_AGENT = "agent"
+PROJECT_SORT_FIELDS = {
+    "id",
+    "name",
+    "dataSourceCode",
+    "status",
+    "dataLimit",
+    "collectionSource",
+    "sourcesCount",
+    "createdAt",
+    "numbersPeriod",
+    "numbersTotal",
+}
+PROJECT_SORT_DIRECTIONS = {"asc", "desc"}
 
 
 def get_user_role(user: Optional[models.User]) -> str:
@@ -236,6 +249,66 @@ def _apply_project_status_filter(stmt, *, project_status: Optional[schemas.Proje
     return stmt
 
 
+def _normalize_project_sort(
+    sort_by: Optional[str],
+    sort_dir: Optional[str],
+) -> Tuple[str, str]:
+    safe_sort_by = sort_by if sort_by in PROJECT_SORT_FIELDS else "id"
+    safe_sort_dir = sort_dir if sort_dir in PROJECT_SORT_DIRECTIONS else "desc"
+    return safe_sort_by, safe_sort_dir
+
+
+def _apply_project_sort(
+    stmt,
+    *,
+    sort_by: Optional[str],
+    sort_dir: Optional[str],
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+):
+    safe_sort_by, safe_sort_dir = _normalize_project_sort(sort_by, sort_dir)
+    direction = "asc" if safe_sort_dir == "asc" else "desc"
+
+    if safe_sort_by == "numbersPeriod":
+        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+        counts_stmt = select(
+            models.ProviderLead.project_id.label("project_id"),
+            func.count().label("sort_count"),
+        ).where(models.ProviderLead.project_id.is_not(None))
+        if start_local and end_local:
+            counts_stmt = counts_stmt.where(ts_col >= start_local, ts_col <= end_local)
+        counts_subq = counts_stmt.group_by(models.ProviderLead.project_id).subquery()
+        stmt = stmt.outerjoin(counts_subq, models.Project.id == counts_subq.c.project_id)
+        sort_expr = func.coalesce(counts_subq.c.sort_count, 0)
+    elif safe_sort_by == "numbersTotal":
+        counts_subq = (
+            select(
+                models.ProviderLead.project_id.label("project_id"),
+                func.count().label("sort_count"),
+            )
+            .where(models.ProviderLead.project_id.is_not(None))
+            .group_by(models.ProviderLead.project_id)
+            .subquery()
+        )
+        stmt = stmt.outerjoin(counts_subq, models.Project.id == counts_subq.c.project_id)
+        sort_expr = func.coalesce(counts_subq.c.sort_count, 0)
+    else:
+        sort_expr = {
+            "id": models.Project.id,
+            "name": models.Project.name,
+            "dataSourceCode": models.Project.data_source_code,
+            "status": models.Project.status,
+            "dataLimit": models.Project.data_limit,
+            "collectionSource": models.Project.collection_source,
+            "sourcesCount": models.Project.sources_count,
+            "createdAt": models.Project.created_at,
+        }[safe_sort_by]
+
+    primary_order = sort_expr.asc() if direction == "asc" else sort_expr.desc()
+    secondary_order = models.Project.id.asc() if direction == "asc" else models.Project.id.desc()
+    return stmt.order_by(primary_order, secondary_order)
+
+
 def find_duplicates_in_projects(
     db: Session,
     items: List[str],
@@ -430,6 +503,8 @@ def list_projects_paginated(
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
     project_status: Optional[schemas.ProjectStatus] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> schemas.ProjectListOut:
     stmt = select(models.Project).where(models.Project.user_id == user_id)
     stmt = _apply_project_status_filter(
@@ -453,7 +528,14 @@ def list_projects_paginated(
                     cond = or_(cond, models.Project.id == qid)
             stmt = stmt.where(cond)
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
-    rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
+    stmt = _apply_project_sort(
+        stmt,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        start_local=start_local,
+        end_local=end_local,
+    )
+    rows = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
     # Подсчёт лидов за период, если диапазон задан
     counts_period_map: Dict[int, int] = {}
     counts_total_map: Dict[int, int] = {}
@@ -3524,6 +3606,8 @@ def admin_list_all_projects(
     end_local: Optional[datetime] = None,
     include_deleted: bool = True,
     project_status: Optional[schemas.ProjectStatus] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = None,
 ) -> schemas.AdminProjectListOut:
     """
     Список всех проектов всех пользователей (для админа).
@@ -3560,7 +3644,14 @@ def admin_list_all_projects(
             stmt = stmt.where(cond)
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
-    rows = db.execute(stmt.order_by(models.Project.id.desc()).offset(offset).limit(limit)).scalars().all()
+    stmt = _apply_project_sort(
+        stmt,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        start_local=start_local,
+        end_local=end_local,
+    )
+    rows = db.execute(stmt.offset(offset).limit(limit)).scalars().all()
 
     # Собираем user info для всех проектов
     user_ids = set(p.user_id for p in rows if p.user_id)

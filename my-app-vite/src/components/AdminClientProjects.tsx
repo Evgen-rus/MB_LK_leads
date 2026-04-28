@@ -1,7 +1,15 @@
 // Экран «Проекты клиента» для админа.
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
-import { useEffect, useState } from 'react';
-import { fetchAdminProjects, updateAdminProject, type AdminProject, type AdminProjectUpdate, type Day } from '../api';
+import { useEffect, useState, type CSSProperties } from 'react';
+import {
+  fetchAdminProjects,
+  updateAdminProject,
+  type AdminProject,
+  type AdminProjectUpdate,
+  type Day,
+  type ProjectSortBy,
+  type SortDir,
+} from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import ProjectActionMenu from './ProjectActionMenu';
@@ -59,6 +67,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
+  const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   async function load(
     p = page,
@@ -68,6 +78,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
     to = toDate,
     withDeleted = includeDeleted,
     projectStatus = statusFilter,
+    sortField = sortBy,
+    direction = sortDir,
   ) {
     try {
       setLoading(true);
@@ -82,6 +94,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         toDate: to,
         includeDeleted: withDeleted,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
+        sortBy: sortField,
+        sortDir: direction,
       });
       setRows(resp.items);
       setTotal(resp.total);
@@ -94,9 +108,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   }
 
   useEffect(() => {
-    load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter);
+    load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, fromDate, toDate, includeDeleted, statusFilter]);
+  }, [clientId, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -165,6 +179,30 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
 
   function handleBlockedSmsEditNotice() {
     window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
+  }
+
+  function handleSort(nextSortBy: ProjectSortBy) {
+    const nextSortDir: SortDir = sortBy === nextSortBy && sortDir === 'asc' ? 'desc' : 'asc';
+    setSortBy(nextSortBy);
+    setSortDir(nextSortDir);
+    setPage(1);
+  }
+
+  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties) {
+    const active = sortBy === key;
+    return (
+      <th style={style}>
+        <button
+          type="button"
+          className={`table-sort${active ? ' table-sort--active' : ''}`}
+          onClick={() => handleSort(key)}
+          title={`Сортировать: ${label}`}
+        >
+          <span>{label}</span>
+          <span className="table-sort__indicator">{active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
+        </button>
+      </th>
+    );
   }
 
   return (
@@ -270,17 +308,17 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <table className="table">
           <thead>
             <tr>
-              <th style={{ width: 72 }}>ID</th>
-              <th>Название</th>
-              <th>Источник</th>
-              <th>Статус проекта</th>
-              <th>Лимит</th>
-              <th>Номеров за период</th>
-              <th>Номеров получено всего</th>
+              {renderSortableHeader('ID', 'id', { width: 72 })}
+              {renderSortableHeader('Название', 'name')}
+              {renderSortableHeader('Источник', 'dataSourceCode')}
+              {renderSortableHeader('Статус проекта', 'status')}
+              {renderSortableHeader('Лимит', 'dataLimit')}
+              {renderSortableHeader('Номеров за период', 'numbersPeriod')}
+              {renderSortableHeader('Номеров получено всего', 'numbersTotal')}
               <th>Дни получения номеров</th>
-              <th>Источник сбора</th>
-              <th>Доменов/номеров</th>
-              <th>Дата создания</th>
+              {renderSortableHeader('Источник сбора', 'collectionSource')}
+              {renderSortableHeader('Доменов/номеров', 'sourcesCount')}
+              {renderSortableHeader('Дата создания', 'createdAt')}
               <th>Действия</th>
             </tr>
           </thead>

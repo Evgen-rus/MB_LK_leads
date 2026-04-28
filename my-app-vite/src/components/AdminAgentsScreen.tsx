@@ -593,7 +593,7 @@ function AdminAgentsScreen({
             <table className="table">
               <thead>
                 <tr>
-                  <th>ID клиента</th>
+                  <th>ID</th>
                   <th>Название клиента</th>
                   <th>Кол-во проектов</th>
                   <th>Статус клиента</th>
@@ -1322,7 +1322,7 @@ function AdminAgentsScreen({
                                   <table className="table">
                                     <thead>
                                       <tr>
-                                        <th>ID клиента</th>
+                                        <th>ID</th>
                                         <th>Название клиента</th>
                                         <th>Кол-во проектов</th>
                                         <th>Статус клиента</th>
