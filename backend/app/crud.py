@@ -2267,7 +2267,9 @@ def admin_clients_summary(
     """
     # Все пользователи-клиенты (исключаем админа id=1)
     users = db.execute(
-        select(models.User).where(models.User.role == ROLE_CLIENT)
+        select(models.User)
+        .where(models.User.role == ROLE_CLIENT)
+        .order_by(models.User.id.asc())
     ).scalars().all()
     user_row_map = {int(user.id): user for user in users}
     users_map: Dict[int, schemas.UserInfo] = {
