@@ -1421,7 +1421,7 @@ export async function fetchAdminProjectHistory(projectId: number, params: { from
 }
 
 // -------- Создание отчёта админом --------
-export async function createAdminReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; clientId: number; }): Promise<AdminReportItem> {
+export async function createAdminReport(payload: { fromDate: string; toDate: string; projectIds?: number[]; format: 'csv' | 'xlsx'; clientId?: number | null; }): Promise<AdminReportItem> {
   return http<AdminReportItem>('/admin/reports', {
     method: 'POST',
     body: JSON.stringify({

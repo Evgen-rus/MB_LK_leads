@@ -3047,10 +3047,16 @@ def admin_create_report(
     current_manager: models.User = Depends(require_manager),
     db_sess: Session = Depends(get_db),
 ):
-    proj_ids = payload.projectIds or None
     client_id = payload.clientId
-    _ensure_manager_client_access(db_sess, current_manager, client_id)
-    client_user = db_sess.get(models.User, client_id)
+    if client_id is None:
+        if not crud.is_admin_user(current_manager):
+            raise HTTPException(status_code=403, detail="Only admin can create report for all clients")
+        proj_ids = None
+        client_user = None
+    else:
+        proj_ids = payload.projectIds or None
+        _ensure_manager_client_access(db_sess, current_manager, client_id)
+        client_user = db_sess.get(models.User, client_id)
     row = crud.log_report_export(
         db_sess,
         user_id=current_manager.id,
@@ -3068,7 +3074,7 @@ def admin_create_report(
         projectIds=row.project_ids,
         format=row.format,
         user=schemas.UserInfo(id=current_manager.id, login=current_manager.login, role=crud.get_user_role(current_manager)),
-        client=schemas.UserInfo(id=client_id, login=client_user.login if client_user else str(client_id)),
+        client=schemas.UserInfo(id=client_id, login=client_user.login if client_user else str(client_id)) if client_id is not None else None,
     )
 
 

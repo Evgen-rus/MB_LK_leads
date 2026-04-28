@@ -606,7 +606,7 @@ function App() {
           ) : view === 'leads' ? (
             isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
           ) : view === 'reports' ? (
-            isManager ? <AdminReports /> : <Reports />
+            isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
         ) : view === 'activity' ? (
           isManager ? (
             <div className="table-card" style={{ padding: 16 }}>

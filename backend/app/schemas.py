@@ -675,7 +675,7 @@ class AdminCreateReportIn(BaseModel):
     toDate: str
     projectIds: Optional[List[int]] = None
     format: str = "csv"
-    clientId: int
+    clientId: Optional[int] = None
 
 
 class ClientCreateReportIn(BaseModel):

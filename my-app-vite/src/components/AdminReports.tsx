@@ -14,6 +14,9 @@ import ReportBuildModal from './ReportBuildModal';
 import DateTimeCompact from './DateTimeCompact';
 import DateRangeCompact from './DateRangeCompact';
 
+type ClientSelection = number | 'all' | null;
+type ManagerRole = 'admin' | 'agent';
+
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const msg = (err as { message?: unknown }).message;
@@ -22,7 +25,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function AdminReports() {
+function AdminReports({ managerRole }: { managerRole: ManagerRole }) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [items, setItems] = useState<AdminReportItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +35,7 @@ function AdminReports() {
   const [total, setTotal] = useState(0);
   const [buildModalOpen, setBuildModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<ClientSelection>(null);
   const [projects, setProjects] = useState<Array<{ id: number; name: string }>>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   async function loadUsers() {
@@ -81,8 +84,8 @@ function AdminReports() {
     return parts.length ? parts : undefined;
   }
 
-  async function loadProjectsForClient(clientId: number | null) {
-    if (!clientId) {
+  async function loadProjectsForClient(clientId: ClientSelection) {
+    if (typeof clientId !== 'number') {
       setProjects([]);
       return;
     }
@@ -103,15 +106,14 @@ function AdminReports() {
     toDate: string;
     format: 'csv' | 'xlsx';
     projectIds?: number[];
-    clientId?: number;
+    clientId?: number | null;
   }) {
-    if (!payload.clientId) return;
     try {
       setCreating(true);
       await createAdminReport({
         fromDate: payload.fromDate,
         toDate: payload.toDate,
-        projectIds: payload.projectIds,
+        projectIds: payload.clientId == null ? undefined : payload.projectIds,
         format: payload.format,
         clientId: payload.clientId,
       });
@@ -231,7 +233,7 @@ function AdminReports() {
                     <div className="sub">id: {r.user.id}</div>
                   </td>
                   <td>
-                    <div className="name">{r.client ? (r.client.name || r.client.login) : '—'}</div>
+                    <div className="name">{r.client ? (r.client.name || r.client.login) : 'Все клиенты'}</div>
                     {r.client && <div className="sub">id: {r.client.id}</div>}
                   </td>
                   <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={r.createdAt} /></td>
@@ -321,6 +323,7 @@ function AdminReports() {
           submitting={creating}
           users={users.map((u) => ({ id: u.id, name: u.name || u.login }))}
           selectedClientId={selectedClientId}
+          allowAllClients={managerRole === 'admin'}
           onClientChange={(clientId) => {
             setSelectedClientId(clientId);
             void loadProjectsForClient(clientId);

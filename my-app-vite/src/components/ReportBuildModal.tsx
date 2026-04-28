@@ -13,12 +13,14 @@ type ProjectOption = {
   name: string;
 };
 
+type ClientSelection = number | 'all' | null;
+
 type ReportBuildModalSubmitPayload = {
   fromDate: string;
   toDate: string;
   format: ReportFormat;
   projectIds?: number[];
-  clientId?: number;
+  clientId?: number | null;
 };
 
 type ReportBuildModalProps = {
@@ -27,8 +29,9 @@ type ReportBuildModalProps = {
   onSubmit: (payload: ReportBuildModalSubmitPayload) => Promise<void>;
   submitting: boolean;
   users?: UserOption[];
-  selectedClientId?: number | null;
-  onClientChange?: (clientId: number | null) => void;
+  selectedClientId?: ClientSelection;
+  onClientChange?: (clientId: ClientSelection) => void;
+  allowAllClients?: boolean;
   projects: ProjectOption[];
   projectsLoading?: boolean;
 };
@@ -48,6 +51,7 @@ function ReportBuildModal({
   users,
   selectedClientId = null,
   onClientChange,
+  allowAllClients = false,
   projects,
   projectsLoading = false,
 }: ReportBuildModalProps) {
@@ -66,15 +70,28 @@ function ReportBuildModal({
   }, [projects, query]);
 
   const hasClientSelector = Array.isArray(users);
+  const allClientsSelected = hasClientSelector && selectedClientId === 'all';
+  const selectedNumericClientId = typeof selectedClientId === 'number' ? selectedClientId : undefined;
+  const selectedClientValue = selectedClientId === 'all' ? 'all' : selectedClientId ?? '';
   const dateInvalid = !fromDate || !toDate || fromDate > toDate;
-  const projectsInvalid = projectMode === 'selected' && selectedProjectIds.length === 0;
-  const clientInvalid = hasClientSelector && !selectedClientId;
+  const projectsInvalid = !allClientsSelected && projectMode === 'selected' && selectedProjectIds.length === 0;
+  const clientInvalid = hasClientSelector && !allClientsSelected && selectedNumericClientId == null;
   const submitDisabled = submitting || dateInvalid || projectsInvalid || clientInvalid;
 
   function toggleProject(projectId: number) {
     setSelectedProjectIds((prev) =>
       prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId],
     );
+  }
+
+  function handleClientSelect(value: string) {
+    if (value === 'all') {
+      setProjectMode('all');
+      setSelectedProjectIds([]);
+      onClientChange?.('all');
+      return;
+    }
+    onClientChange?.(value ? Number(value) : null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -84,8 +101,8 @@ function ReportBuildModal({
       fromDate,
       toDate,
       format,
-      projectIds: projectMode === 'all' ? undefined : selectedProjectIds,
-      clientId: hasClientSelector ? selectedClientId ?? undefined : undefined,
+      projectIds: allClientsSelected || projectMode === 'all' ? undefined : selectedProjectIds,
+      clientId: hasClientSelector ? (allClientsSelected ? null : selectedNumericClientId) : undefined,
     });
   }
 
@@ -127,10 +144,11 @@ function ReportBuildModal({
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Клиент</span>
               <select
-                value={selectedClientId ?? ''}
-                onChange={(e) => onClientChange?.(e.target.value ? Number(e.target.value) : null)}
+                value={selectedClientValue}
+                onChange={(e) => handleClientSelect(e.target.value)}
               >
                 <option value="">Выберите клиента</option>
+                {allowAllClients && <option value="all">Все клиенты</option>}
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name}
@@ -147,7 +165,7 @@ function ReportBuildModal({
                 <input
                   type="radio"
                   name="projectMode"
-                  checked={projectMode === 'all'}
+                  checked={allClientsSelected || projectMode === 'all'}
                   onChange={() => setProjectMode('all')}
                 />{' '}
                 Все проекты
@@ -158,11 +176,15 @@ function ReportBuildModal({
                   name="projectMode"
                   checked={projectMode === 'selected'}
                   onChange={() => setProjectMode('selected')}
+                  disabled={allClientsSelected}
                 />{' '}
                 Выбрать проекты
               </label>
             </div>
-            {projectMode === 'selected' && (
+            {allClientsSelected && (
+              <div className="sub">Для отчёта по всем клиентам используется режим “Все проекты”.</div>
+            )}
+            {!allClientsSelected && projectMode === 'selected' && (
               <div style={{ display: 'grid', gap: 8 }}>
                 <input
                   type="search"
