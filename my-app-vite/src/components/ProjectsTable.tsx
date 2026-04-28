@@ -182,10 +182,10 @@ function ProjectsTable({
     setPage(1);
   }
 
-  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties) {
+  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties, thClassName?: string) {
     const active = sortBy === key;
     return (
-      <th style={style}>
+      <th style={style} className={thClassName}>
         <button
           type="button"
           className={`table-sort${active ? ' table-sort--active' : ''}`}
@@ -638,9 +638,13 @@ function ProjectsTable({
       </div>
       <div className="table-scroll">
       <table className="table">
+        <colgroup>
+          <col style={{ width: 48 }} />
+          <col style={{ width: 48 }} />
+        </colgroup>
         <thead>
           <tr>
-            <th style={{ width: 36 }}>
+            <th className="table-sticky-cell table-sticky-cell--check">
               <input
                 type="checkbox"
                 checked={allSelectableOnPageSelected}
@@ -648,7 +652,7 @@ function ProjectsTable({
                 title="Выбрать все доступные проекты на странице"
               />
             </th>
-            {renderSortableHeader('ID', 'id', { width: 72 })}
+            {renderSortableHeader('ID', 'id', { width: 20 }, 'table-sticky-cell table-sticky-cell--after-check')}
             {renderSortableHeader('Название', 'name')}
             {renderSortableHeader('Источник', 'dataSourceCode')}
             {renderSortableHeader('Статус проекта', 'status')}
@@ -665,7 +669,7 @@ function ProjectsTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>
+              <td className="table-sticky-cell table-sticky-cell--check">
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(row.id)}
@@ -680,7 +684,7 @@ function ProjectsTable({
                   onChange={() => toggleRowSelection(row.id)}
                 />
               </td>
-              <td className="muted">{row.id}</td>
+              <td className="muted table-sticky-cell table-sticky-cell--after-check">{row.id}</td>
               <td
                 style={{ cursor: 'pointer', position: 'relative' }}
                 onClick={(event) => {

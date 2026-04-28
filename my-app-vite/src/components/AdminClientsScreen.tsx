@@ -575,7 +575,7 @@ function AdminClientsScreen({
           <table className="table">
             <thead>
               <tr>
-                <th>ID</th>
+                <th className="table-sticky-cell table-sticky-cell--lead">ID</th>
                 <th>Название клиента</th>
                 <th>Кол-во проектов</th>
                 <th>Статус клиента</th>
@@ -622,7 +622,7 @@ function AdminClientsScreen({
                         setSelectedClientId((prev) => (prev === row.id ? null : row.id));
                       }}
                     >
-                    <td className="muted">{row.id}</td>
+                    <td className="muted table-sticky-cell table-sticky-cell--lead">{row.id}</td>
                     <td>
                       <div className="name">{row.name}</div>
                       {hasEvents && (

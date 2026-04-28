@@ -309,6 +309,55 @@
 .table tbody tr { background: #ffffff; transition: background-color 0.15s ease; }
 .table tbody tr:hover { background: #f4f3ff; }
 .table tbody tr.row--debt td:first-child { border-left: 3px solid #ff5a5a; }
+
+/* Липкие левые столбцы при горизонтальном скролле (.table-scroll) — удобно на узких экранах */
+.table .table-sticky-cell {
+  position: sticky;
+  background-clip: padding-box;
+}
+.table thead .table-sticky-cell {
+  z-index: 2;
+  background: #f7f5ff;
+}
+.table tbody .table-sticky-cell {
+  z-index: 1;
+  background: #ffffff;
+}
+.table tbody tr:hover .table-sticky-cell {
+  background: #f4f3ff;
+}
+/* Одна закреплённая колонка (например только ID) */
+.table .table-sticky-cell--lead {
+  left: 0;
+  box-shadow: 4px 0 8px -4px rgba(20, 22, 30, 0.12);
+}
+.table thead .table-sticky-cell--lead {
+  z-index: 3;
+}
+/* Таблица проектов: чекбокс + ID — ширина чекбокса должна совпадать с left у ID и <col> */
+.table .table-sticky-cell--check {
+  left: 0;
+  z-index: 2;
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+  padding-left: 6px;
+  padding-right: 6px;
+  text-align: center;
+  vertical-align: middle;
+  box-shadow: none;
+}
+.table thead .table-sticky-cell--check {
+  z-index: 4;
+}
+.table .table-sticky-cell--after-check {
+  left: 40px;
+  box-shadow: 4px 0 8px -4px rgba(20, 22, 30, 0.12);
+  white-space: nowrap;
+}
+.table thead .table-sticky-cell--after-check {
+  z-index: 3;
+}
 .table tbody td { padding: 7px 12px; border-bottom: 1px solid #e6e6f2; line-height: 1.25; }
 .table tbody tr:last-child td { border-bottom: none; }
 .datetime-compact {

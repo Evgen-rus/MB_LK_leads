@@ -188,10 +188,10 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
     setPage(1);
   }
 
-  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties) {
+  function renderSortableHeader(label: string, key: ProjectSortBy, style?: CSSProperties, thClassName?: string) {
     const active = sortBy === key;
     return (
-      <th style={style}>
+      <th style={style} className={thClassName}>
         <button
           type="button"
           className={`table-sort${active ? ' table-sort--active' : ''}`}
@@ -308,7 +308,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <table className="table">
           <thead>
             <tr>
-              {renderSortableHeader('ID', 'id', { width: 72 })}
+              {renderSortableHeader('ID', 'id', { width: 20 }, 'table-sticky-cell table-sticky-cell--lead')}
               {renderSortableHeader('Название', 'name')}
               {renderSortableHeader('Источник', 'dataSourceCode')}
               {renderSortableHeader('Статус проекта', 'status')}
@@ -348,7 +348,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
               !loading &&
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="muted">{row.id}</td>
+                  <td className="muted table-sticky-cell table-sticky-cell--lead">{row.id}</td>
                   <td
                     style={{ cursor: 'pointer', position: 'relative' }}
                     title="Открыть меню действий проекта"
