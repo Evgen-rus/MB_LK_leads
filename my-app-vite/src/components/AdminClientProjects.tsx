@@ -270,6 +270,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <table className="table">
           <thead>
             <tr>
+              <th style={{ width: 72 }}>ID</th>
               <th>Название</th>
               <th>Источник</th>
               <th>Статус проекта</th>
@@ -286,21 +287,21 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
           <tbody>
             {error && (
               <tr>
-                <td colSpan={11} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={12} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
             )}
             {!error && loading && (
               <tr>
-                <td colSpan={11} className="muted" style={{ padding: 16 }}>
+                <td colSpan={12} className="muted" style={{ padding: 16 }}>
                   Загрузка проектов…
                 </td>
               </tr>
             )}
             {!error && !loading && rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="muted" style={{ padding: 16 }}>
+                <td colSpan={12} className="muted" style={{ padding: 16 }}>
                   Проекты клиента не найдены.
                 </td>
               </tr>
@@ -309,6 +310,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
               !loading &&
               rows.map((row) => (
                 <tr key={row.id}>
+                  <td className="muted">{row.id}</td>
                   <td
                     style={{ cursor: 'pointer', position: 'relative' }}
                     title="Открыть меню действий проекта"
@@ -326,9 +328,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                   >
                     <div className="name">
                       {formatProjectNameForDisplay(row.name)}
-                      <span className="project-id-badge">
-                        id{row.id}
-                      </span>
                     </div>
                   {openProjectMenuId === row.id && projectMenuAnchorRect && (
                     <ProjectActionMenu

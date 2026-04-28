@@ -618,6 +618,7 @@ function ProjectsTable({
                 title="Выбрать все доступные проекты на странице"
               />
             </th>
+            <th style={{ width: 72 }}>ID</th>
             <th>Название</th>
             <th>Источник</th>
             <th>Статус проекта</th>
@@ -649,6 +650,7 @@ function ProjectsTable({
                   onChange={() => toggleRowSelection(row.id)}
                 />
               </td>
+              <td className="muted">{row.id}</td>
               <td
                 style={{ cursor: 'pointer', position: 'relative' }}
                 onClick={(event) => {
@@ -666,9 +668,6 @@ function ProjectsTable({
               >
                 <div className="name">
                   {formatProjectNameForDisplay(row.name)}
-                  <span className="project-id-badge">
-                    id{row.id}
-                  </span>
                 </div>
                 {openProjectMenuId === row.id && projectMenuAnchorRect && (
                   <ProjectActionMenu
