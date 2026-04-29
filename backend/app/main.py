@@ -57,7 +57,12 @@ def _source_code_for_display(value: Optional[str]) -> str:
 
 def _source_text_for_display(value: Optional[str]) -> str:
     text_value = str(value or "")
-    return re.sub(r"\b(B1|B2|B3|B4)\b", lambda m: _source_code_for_display(m.group(1)), text_value)
+    return re.sub(
+        r"(^|[^A-Za-z0-9А-Яа-яЁё])(B1|B2|B3|B4)(?=$|[^A-Za-z0-9А-Яа-яЁё])",
+        lambda m: f"{m.group(1)}{_source_code_for_display(m.group(2))}",
+        text_value,
+        flags=re.IGNORECASE,
+    )
 
 
 def _project_name_for_display(value: Optional[str]) -> str:

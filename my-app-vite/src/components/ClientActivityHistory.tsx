@@ -3,6 +3,7 @@ import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
 import DateRangeCompact from './DateRangeCompact';
 import { fetchClientActivityEvents, type ActivityEntity, type ActivityEvent } from '../api';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 type DateRange = { from: string; to: string };
 
@@ -201,7 +202,7 @@ function ClientActivityHistory() {
                       Период: <DateRangeCompact from={row.periodFrom} to={row.periodTo} />
                     </div>
                   )}
-                  {row.projectName && <div className="sub">{row.projectName}</div>}
+                  {row.projectName && <div className="sub">{formatProjectNameForDisplay(row.projectName)}</div>}
                 </td>
                 <td>
                   <span className="badge badge--gray" style={{ fontWeight: 500 }}>

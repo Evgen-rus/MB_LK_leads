@@ -34,7 +34,9 @@ export function toRawSourceCode(displayCode: string | null | undefined): string 
 
 export function formatSourceTextForDisplay(text: string | null | undefined): string {
   if (!text) return '';
-  return text.replace(/\b(B1|B2|B3|B4)\b/g, (match) => toDisplaySourceCode(match));
+  return text.replace(/(^|[^A-Za-z0-9А-Яа-яЁё])(B1|B2|B3|B4)(?=$|[^A-Za-z0-9А-Яа-яЁё])/gi, (_match, prefix: string, code: string) => (
+    `${prefix}${toDisplaySourceCode(code)}`
+  ));
 }
 
 export function formatProjectNameForDisplay(rawName: string | null | undefined): string {

@@ -24,6 +24,7 @@ import {
   type AdminClientCollectionState,
   type AdminClientSummaryItem,
 } from '../api';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 type AdminAgentsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
@@ -1041,7 +1042,7 @@ function AdminAgentsScreen({
                           key={project.id}
                           className="agent-accordion__snapshot-project"
                         >
-                          <span>{project.name} (id: {project.id})</span>
+                          <span>{formatProjectNameForDisplay(project.name)} (id: {project.id})</span>
                           <span
                             className={
                               project.status === 'Активен'
@@ -1770,7 +1771,7 @@ function AdminAgentsScreen({
                                                 key={project.id}
                                                 className="agent-accordion__snapshot-project"
                                               >
-                                                <span>{project.name} (id: {project.id})</span>
+                                                <span>{formatProjectNameForDisplay(project.name)} (id: {project.id})</span>
                                                 <span
                                                   className={
                                                     project.status === 'Активен'

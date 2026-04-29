@@ -6,6 +6,7 @@ import {
   type AdminProviderLeadsImportPreviewResp,
   type AdminProviderLeadsImportPreviewSample,
 } from '../api';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -70,7 +71,7 @@ function SampleTable({ items }: { items: AdminProviderLeadsImportPreviewSample[]
             <tr key={`${item.vid || 'no-vid'}-${idx}`}>
               <td>{item.xlsxRowNumber ?? '—'}</td>
               <td>{item.vid || '—'}</td>
-              <td>{item.projectName || '—'}</td>
+              <td>{item.projectName ? formatProjectNameForDisplay(item.projectName) : '—'}</td>
               <td>{item.phone || '—'}</td>
               <td>{item.subdomain || '—'}</td>
               <td>{item.note}</td>

@@ -26,6 +26,7 @@ import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 import TariffManagerModal from './TariffManagerModal';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 type ClientProfileWithContact = ClientProfile & {
   contact?: string | null;
@@ -1139,7 +1140,7 @@ function AdminClientsScreen({
                         key={project.id}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
                       >
-                        <span>{project.name} (id: {project.id})</span>
+                        <span>{formatProjectNameForDisplay(project.name)} (id: {project.id})</span>
                         <span
                           className={
                             project.status === 'Активен'

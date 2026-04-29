@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues } from '../data/regions';
 import type { Project } from '../types/project';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
 type RegionMode = 'include' | 'exclude';
@@ -88,7 +89,7 @@ function BulkEditRegionsModal({
         Будут изменены ({targetProjects.length}):{' '}
         {targetProjects
           .slice(0, 4)
-          .map((project) => `${project.name} (id: ${project.id})`)
+          .map((project) => `${formatProjectNameForDisplay(project.name)} (id: ${project.id})`)
           .join(', ')}
         {targetProjects.length > 4 ? `, ... и еще ${targetProjects.length - 4}` : ''}
       </div>
@@ -97,7 +98,7 @@ function BulkEditRegionsModal({
           Не будут изменены ({skippedProjects.length}, другой режим):{' '}
           {skippedProjects
             .slice(0, 4)
-            .map((project) => `${project.name} (id: ${project.id})`)
+            .map((project) => `${formatProjectNameForDisplay(project.name)} (id: ${project.id})`)
             .join(', ')}
           {skippedProjects.length > 4 ? `, ... и еще ${skippedProjects.length - 4}` : ''}
         </div>
