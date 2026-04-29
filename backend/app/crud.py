@@ -1381,6 +1381,7 @@ def _provider_lead_to_export_row(
         "phone": phone_value or "",
         "utm_campaign": _build_utm_campaign(lead.prov_source, lead.subdomain),
         "user_login": user_info.login if user_info else "",
+        "user_name": (user_info.name or user_info.login) if user_info else "",
         "user_id": user_info.id if user_info else 0,
     }
 
@@ -1428,8 +1429,32 @@ def iter_provider_leads_for_export(
         if not batch:
             break
 
+        user_info_by_project_id: Dict[int, schemas.UserInfo] = {}
+        if user_info is None:
+            batch_project_ids = sorted({int(lead.project_id) for lead in batch if lead.project_id is not None})
+            if batch_project_ids:
+                projects = (
+                    db.execute(select(models.Project).where(models.Project.id.in_(batch_project_ids)))
+                    .scalars()
+                    .all()
+                )
+                user_ids = sorted({int(p.user_id) for p in projects if p.user_id is not None})
+                user_info_by_id = {
+                    uid: info
+                    for uid in user_ids
+                    if (info := _get_user_info(db, uid)) is not None
+                }
+                user_info_by_project_id = {
+                    int(p.id): user_info_by_id[int(p.user_id)]
+                    for p in projects
+                    if p.user_id is not None and int(p.user_id) in user_info_by_id
+                }
+
         for lead in batch:
-            yield _provider_lead_to_export_row(lead, user_info=user_info)
+            row_user_info = user_info
+            if row_user_info is None and lead.project_id is not None:
+                row_user_info = user_info_by_project_id.get(int(lead.project_id))
+            yield _provider_lead_to_export_row(lead, user_info=row_user_info)
 
         remaining -= len(batch)
         tail = batch[-1]

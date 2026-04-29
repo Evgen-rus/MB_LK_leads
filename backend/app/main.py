@@ -8,6 +8,8 @@
 - Стартует фоновый воркер уведомлений в Telegram ("тихое окно")
 """
 import os
+import csv
+import io
 import json
 import tempfile
 import html
@@ -38,6 +40,36 @@ from . import db, models, schemas, crud, telegram, notify_worker, logging_setup,
 from . import provider_leads_xlsx_import as provider_leads_import
 from .time_utils import now_msk
 from .providers import prostats
+
+
+SOURCE_CODE_DISPLAY_MAP = {
+    "B1": "A",
+    "B2": "B",
+    "B3": "C",
+    "B4": "D",
+}
+
+
+def _source_code_for_display(value: Optional[str]) -> str:
+    normalized = str(value or "").strip().upper()
+    return SOURCE_CODE_DISPLAY_MAP.get(normalized, normalized)
+
+
+def _source_text_for_display(value: Optional[str]) -> str:
+    text_value = str(value or "")
+    return re.sub(r"\b(B1|B2|B3|B4)\b", lambda m: _source_code_for_display(m.group(1)), text_value)
+
+
+def _project_name_for_display(value: Optional[str]) -> str:
+    text_value = str(value or "")
+    return re.sub(r"^(B1|B2|B3|B4)(?=[\s_-])", lambda m: _source_code_for_display(m.group(1)), text_value, flags=re.IGNORECASE)
+
+
+def _csv_export_line(values: List[Any]) -> str:
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, delimiter=";", lineterminator="\n")
+    writer.writerow(["" if value is None else value for value in values])
+    return buf.getvalue()
 
 
 def get_settings():
@@ -1890,8 +1922,12 @@ def export_leads(
         logging.getLogger("app").warning("Invalid EXPORT_MAX_ROWS value, fallback to 15000")
         max_rows = 15000
     max_rows = max(1, max_rows)
-    user_info = crud._get_user_info(db_sess, effective_client_id or current_user.id)
+    # Для менеджерского отчёта по всем клиентам клиент определяется по проекту каждой строки.
+    export_user_info = crud._get_user_info(db_sess, effective_client_id) if effective_client_id is not None else None
+    if export_user_info is None and not is_admin:
+        export_user_info = crud._get_user_info(db_sess, current_user.id)
     export_started = time.perf_counter()
+    include_client_column = is_admin or is_agent
 
     filename = f"leads_{fromDate}_{toDate}.{format}"
 
@@ -1903,25 +1939,29 @@ def export_leads(
             end_local=end_local,
             max_rows=max_rows,
             sources=src_list,
-            user_info=user_info,
+            user_info=export_user_info,
         )
 
     if (format or "csv").lower() == "csv":
         def gen():
             rows_count = 0
             try:
-                if is_admin:
-                    yield ("ext_id;project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
-                else:
-                    yield ("project_id;project_name;channel;imported_at;phone;source;user_login;user_id\n").encode('utf-8-sig')
+                headers = ["Дата", "Телефон", "Канал", "Источники", "Проект"]
+                if include_client_column:
+                    headers.extend(["ext_id", "Клиент"])
+                yield _csv_export_line(headers).encode('utf-8-sig')
                 for r in iter_export_rows():
-                    utm = r["utm_campaign"] or ""
-                    if is_admin:
-                        line = f"{r['ext_id']};{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
-                    else:
-                        line = f"{r['project_id']};{r['project_name']};{r['source'] or ''};{r['imported_at']};{r['phone']};{utm};{r['user_login']};{r['user_id']}\n"
+                    row = [
+                        r["imported_at"],
+                        r["phone"],
+                        _source_code_for_display(r["source"]),
+                        _source_text_for_display(r["utm_campaign"]),
+                        _project_name_for_display(r["project_name"]),
+                    ]
+                    if include_client_column:
+                        row.extend([r["ext_id"], r["user_name"]])
                     rows_count += 1
-                    yield line.encode('utf-8')
+                    yield _csv_export_line(row).encode('utf-8')
             finally:
                 duration_ms = int((time.perf_counter() - export_started) * 1000)
                 logging.getLogger("app").info(
@@ -1947,24 +1987,21 @@ def export_leads(
         try:
             wb = Workbook(write_only=True)
             ws = wb.create_sheet(title="leads")
-            if is_admin:
-                ws.append(["ext_id", "project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
-            else:
-                ws.append(["project_id", "project_name", "channel", "imported_at", "phone", "source", "user_login", "user_id"])
+            headers = ["Дата", "Телефон", "Канал", "Источники", "Проект"]
+            if include_client_column:
+                headers.extend(["ext_id", "Клиент"])
+            ws.append(headers)
 
             for r in iter_export_rows():
                 row = [
-                    r["project_id"],
-                    r["project_name"],
-                    r["source"] or "",
                     r["imported_at"],
                     r["phone"],
-                    r["utm_campaign"] or "",
-                    r["user_login"],
-                    r["user_id"],
+                    _source_code_for_display(r["source"]),
+                    _source_text_for_display(r["utm_campaign"]),
+                    _project_name_for_display(r["project_name"]),
                 ]
-                if is_admin:
-                    row.insert(0, r["ext_id"])
+                if include_client_column:
+                    row.extend([r["ext_id"], r["user_name"]])
                 ws.append(row)
                 rows_count += 1
 
