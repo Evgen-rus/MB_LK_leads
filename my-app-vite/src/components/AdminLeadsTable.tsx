@@ -292,7 +292,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             )}
             {rows.map((r) => (
               <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
-                <td><DateTimeCompact value={r.imported_at} /></td>
+                <td><DateTimeCompact value={r.created_at} /></td>
                 <td>{r.phone}</td>
                 <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
                 <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
