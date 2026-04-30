@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-04-07
+Last updated: 2026-04-30
 
 ## 1) System At A Glance
 
@@ -53,6 +53,7 @@ Last updated: 2026-04-07
 - `Project`
 - `ProviderLead`
 - `AuditEvent`
+- `ProjectOperationEvent`
 - `ClientBalanceOperation`
 - `ClientTariff`
 - `ClientTariffOperation`
@@ -61,6 +62,7 @@ Last updated: 2026-04-07
 Важно:
 - `User` теперь хранит не только данные авторизации, но и роль/иерархию доступа: `display_name`, `role`, `owner_agent_id`, `is_disabled`, а также пер-клиентные флаги, в т.ч. `auto_limit_control_enabled`, Telegram-настройки и `unique_project_names_enabled`. Для Telegram-сигналов тарифа у клиента также хранится последний уже отправленный уровень сигнала, чтобы повторно слать alert только после восстановления остатка выше порога.
 - `Project` содержит `provider_project_id`, флаг `unique_name_applied`, а также поля мягкого удаления `deleted_at` и `provider_leads_grace_until` для grace-привязки хвостовых webhook-лидов после удаления проекта.
+- `AuditEvent` хранит успешные изменения проектов/ЧС и участвует в админской очереди необработанных изменений; `ProjectOperationEvent` хранит только неудачные попытки `create` / `update` / `delete` проектов и не попадает в эту очередь.
 - `ClientBalanceOperation` остаётся старым контуром баланса клиента: он участвует в расчёте `remaining`, лимит-контроле и автопаузе проектов. Агентский баланс теперь не хранится отдельно, а агрегируется из текущих остатков клиентов агента.
 - `ClientTariff` и `ClientTariffOperation` — тарифный контур клиента. Каждая тарифная операция зеркалится в `ClientBalanceOperation`, поэтому тарифы влияют на `remaining`, лимит-контроль и автопаузу. У тарифа есть обязательные пороги `signal1` / `signal2` / `signal3` для Telegram-уведомлений по остатку клиента. Тариф назначается только клиенту; изменять тарифы может только админ, агенту доступен только просмотр тарифов и их истории у своих клиентов.
 
@@ -70,6 +72,10 @@ Last updated: 2026-04-07
 
 ### A) UI -> API
 Frontend вызывает API -> backend проверяет auth/roles -> `crud.py` -> БД/интеграции -> ответ в UI.
+
+История проектов/действий в UI собирается из двух источников:
+- успешные изменения (`create` / `update` / `delete`) пишутся в `audit_events`;
+- неудачные попытки проектных операций пишутся в `project_operation_events` со статусом `failed`, показываются с результатом `Ошибка`, но не требуют админской отметки “выполнено”.
 
 ### B) Provider Webhook
 Провайдер вызывает `POST /api/provider-test/{secret}` -> валидация секрета/payload -> поиск проекта по `payload.page`: сначала среди неудалённых, затем fallback к удалённым с неистёкшим `provider_leads_grace_until` -> запись в `provider_leads` (или skip дубля по `vid`) -> лог в `logs/provider_webhook.log` -> быстрый ответ без запуска лимит-контроля в этом же запросе.
@@ -185,6 +191,7 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - Notification routing / Telegram gate: `backend/app/notifications.py`
 - Telegram-отправка: `backend/app/telegram.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
+- История успешных и неуспешных операций проектов: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/ProjectHistoryModal.tsx` + `my-app-vite/src/components/AdminProjectHistoryModal.tsx` + `my-app-vite/src/components/ClientActivityHistory.tsx` + `my-app-vite/src/components/NotificationBell.tsx`
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
 - Агентский уровень доступа и владение клиентами: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/App.tsx` + `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/Sidebar.tsx`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
@@ -258,3 +265,4 @@ Google Sheets export:
 17. Тарифные сигналы проверяются в периодическом лимит-контроле, а не в webhook провайдера и не в момент записи каждого нового лида. Если нужна мгновенная реакция, это уже изменение архитектуры, а не просто UI/API-правка.
 18. При изменении логики тарифов не ломать инвариант пересечения порогов: если остаток упал сразу ниже нескольких сигналов, в Telegram должно уйти одно сообщение только по самому нижнему достигнутому сигналу.
 19. Не путать display-коды frontend (`A` / `B` / `C` / `D`) и raw-коды backend (`B1` / `B2` / `B3` / `B4`). Если задача только про UI-переименование, менять нужно прежде всего `my-app-vite/src/utils/sourceCodeDisplay.ts`; полная замена raw-кодов — это уже отдельная миграция backend, БД и интеграций.
+20. Не записывать неудачные проектные операции в `audit_events`: они начнут считаться успешными изменениями и попадут в админскую очередь pending. Для ошибок `create` / `update` / `delete` проектов использовать только `project_operation_events`; историю в UI объединять на уровне API.

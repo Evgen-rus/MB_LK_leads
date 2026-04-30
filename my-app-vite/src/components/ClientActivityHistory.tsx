@@ -161,20 +161,21 @@ function ClientActivityHistory() {
               <th>Дата/время</th>
               <th>Кто</th>
               <th>Что сделано</th>
+              <th>Результат</th>
               <th>Сущность</th>
             </tr>
           </thead>
           <tbody>
             {!loading && !error && rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="muted" style={{ padding: 16 }}>
+                <td colSpan={6} className="muted" style={{ padding: 16 }}>
                   Событий по выбранным фильтрам не найдено.
                 </td>
               </tr>
             )}
             {error && (
               <tr>
-                <td colSpan={5} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={6} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
@@ -203,6 +204,11 @@ function ClientActivityHistory() {
                     </div>
                   )}
                   {row.projectName && <div className="sub">{formatProjectNameForDisplay(row.projectName)}</div>}
+                </td>
+                <td>
+                  <span className={row.outcome === 'failed' ? 'badge badge--orange' : 'badge badge--green'} style={{ fontWeight: 500 }}>
+                    {row.outcome === 'failed' ? 'Ошибка' : 'Успешно'}
+                  </span>
                 </td>
                 <td>
                   <span className="badge badge--gray" style={{ fontWeight: 500 }}>

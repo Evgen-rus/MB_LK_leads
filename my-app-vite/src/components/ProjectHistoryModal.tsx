@@ -119,18 +119,24 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                 <tr>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 150 }}>Дата</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Действие</th>
+                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Результат</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 220 }}>Кто</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666' }}>Описание</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id}>
+                  <tr key={`${item.outcome || 'success'}-${item.id}`}>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 150 }}>
                       <DateTimeCompact value={item.createdAt} />
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 120 }}>
                       {item.action === 'create' ? 'Создание' : item.action === 'update' ? 'Изменение' : 'Удаление'}
+                    </td>
+                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 120 }}>
+                      <span className={item.outcome === 'failed' ? 'badge badge--orange' : 'badge badge--green'}>
+                        {item.outcome === 'failed' ? 'Ошибка' : 'Успешно'}
+                      </span>
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 220 }}>
                       {item.actor ? (

@@ -144,6 +144,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                 <tr>
                   <th>Дата</th>
                   <th>Действие</th>
+                  <th>Результат</th>
                   <th>Статус</th>
                   <th>Кто</th>
                   <th>Описание</th>
@@ -151,12 +152,17 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id}>
+                  <tr key={`${item.outcome || 'success'}-${item.id}`}>
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={item.createdAt} /></td>
                     <td>{item.action === 'create' ? 'Создание' : item.action === 'update' ? 'Изменение' : 'Удаление'}</td>
                     <td>
+                      <span className={item.outcome === 'failed' ? 'badge badge--orange' : 'badge badge--green'}>
+                        {item.outcome === 'failed' ? 'Ошибка' : 'Успешно'}
+                      </span>
+                    </td>
+                    <td>
                       <span className={item.status === 'done' ? 'badge badge--green' : 'badge badge--gray'}>
-                        {item.status === 'done' ? 'Выполнено' : 'Не выполнено'}
+                        {item.outcome === 'failed' ? 'Не требует обработки' : item.status === 'done' ? 'Выполнено' : 'Не выполнено'}
                       </span>
                     </td>
                     <td>

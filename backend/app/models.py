@@ -156,6 +156,23 @@ class AuditEvent(Base):
     admin_processed_by = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
 
+class ProjectOperationEvent(Base):
+    __tablename__ = "project_operation_events"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    project_id = Column(Integer, nullable=True, index=True)
+    operation = Column(String, nullable=False, index=True)  # 'create' | 'update' | 'delete'
+    status = Column(String, nullable=False, default="failed", index=True)
+    project_name = Column(String, nullable=True)
+    request_payload = Column(JSON, nullable=True)
+    error_message = Column(String, nullable=False)
+    error_code = Column(String, nullable=True)
+    via_impersonation = Column(Boolean, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+
+
 class NotifyState(Base):
     __tablename__ = "notify_state"
 

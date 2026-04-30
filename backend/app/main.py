@@ -133,6 +133,45 @@ def _ensure_audit_event_columns() -> None:
 _ensure_audit_event_columns()
 
 
+def _ensure_project_operation_event_columns() -> None:
+    """
+    Лёгкая schema-evolution для журнала неудачных операций с проектами.
+    create_all создаёт таблицу на новых БД, а эта проверка помогает старым БД.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "project_operation_events" not in tables:
+        models.ProjectOperationEvent.__table__.create(bind=engine, checkfirst=True)
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("project_operation_events")}
+    with engine.begin() as conn:
+        if "actor_user_id" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN actor_user_id INTEGER"))
+        if "project_id" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN project_id INTEGER"))
+        if "operation" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN operation VARCHAR"))
+        if "status" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN status VARCHAR DEFAULT 'failed'"))
+        if "project_name" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN project_name VARCHAR"))
+        if "request_payload" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN request_payload JSON"))
+        if "error_message" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN error_message VARCHAR"))
+        if "error_code" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN error_code VARCHAR"))
+        if "via_impersonation" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN via_impersonation BOOLEAN"))
+        if "created_at" not in columns:
+            conn.execute(text("ALTER TABLE project_operation_events ADD COLUMN created_at TIMESTAMP"))
+        conn.execute(text("UPDATE project_operation_events SET status = 'failed' WHERE status IS NULL OR status = ''"))
+
+
+_ensure_project_operation_event_columns()
+
+
 def _ensure_user_projects_lock_columns() -> None:
     """
     Лёгкая schema-evolution: добавляем поля блокировки изменений проектов,
@@ -1176,6 +1215,74 @@ def _audit_actor_context(current_user: models.User) -> tuple[int, bool]:
     return actor_user_id, via_impersonation
 
 
+def _http_error_message(detail: object) -> str:
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("detail")
+        if message:
+            return str(message)
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    return "Операция не выполнена"
+
+
+def _http_error_code(detail: object) -> Optional[str]:
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if code:
+            return str(code)
+    return None
+
+
+def _project_payload_for_history(payload: object) -> dict:
+    try:
+        if hasattr(payload, "dict"):
+            data = payload.dict()
+        elif isinstance(payload, dict):
+            data = dict(payload)
+        else:
+            data = {}
+    except Exception:
+        data = {}
+    # Храним только параметры формы проекта, без служебных auth-данных.
+    return data
+
+
+def _record_failed_project_operation(
+    *,
+    user_id: int,
+    actor_user_id: int,
+    operation: str,
+    error_message: str,
+    via_impersonation: bool,
+    project_id: Optional[int] = None,
+    project_name: Optional[str] = None,
+    request_payload: Optional[dict] = None,
+    error_code: Optional[str] = None,
+) -> None:
+    try:
+        with SessionLocal() as s:  # type: Session
+            crud.record_project_operation_failed(
+                s,
+                user_id=user_id,
+                actor_user_id=actor_user_id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_name,
+                request_payload=request_payload,
+                error_message=error_message,
+                error_code=error_code,
+                via_impersonation=via_impersonation,
+            )
+    except Exception:
+        logging.getLogger("app").warning(
+            "Failed to record project operation failure: user_id=%s project_id=%s operation=%s",
+            user_id,
+            project_id,
+            operation,
+            exc_info=True,
+        )
+
+
 @app.get("/me", response_model=schemas.SelfProfileOut)
 def get_me(current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
     profile = db_sess.execute(
@@ -1303,6 +1410,16 @@ def _create_projects_with_unique_names(
             message = exc.message
             if prostats._should_check_duplicates(exc.message, target_type):
                 message = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=message,
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=via_impersonation,
+            )
             notices.append(f'Проект "{item.name}" не создан: {message}')
             continue
 
@@ -1352,6 +1469,16 @@ def _create_projects_with_unique_names(
                     f"{exc.message}; retryable={retryable_failure}; cleanup_ok={cleanup_ok}; cleanup_error={cleanup_error}"
                 ),
             )
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=exc.message,
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=via_impersonation,
+            )
             if retryable_failure:
                 notices.append(
                     f'Проект "{item.name}" не создан: провайдер долго подтверждает уникальное имя. Подождите и проверьте результат позже.'
@@ -1394,10 +1521,39 @@ def _create_projects_with_unique_names(
 
 @app.post("/projects", response_model=schemas.CreateProjectsOut)
 def create_projects(payload: schemas.CreateProjectsPayload, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    try:
+        _assert_projects_mutation_allowed(current_user)
+    except HTTPException as exc:
+        message = _http_error_message(exc.detail)
+        code = _http_error_code(exc.detail)
+        for item in payload.items:
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=message,
+                error_code=code,
+                via_impersonation=via_impersonation,
+            )
+        raise
     for item in payload.items:
-        _validate_create_project_item_name(item)
+        try:
+            _validate_create_project_item_name(item)
+        except HTTPException as exc:
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=_http_error_message(exc.detail),
+                error_code=_http_error_code(exc.detail),
+                via_impersonation=via_impersonation,
+            )
+            raise
 
     if bool(getattr(current_user, "unique_project_names_enabled", False)):
         created, warning_text = _create_projects_with_unique_names(
@@ -1454,6 +1610,16 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             message = exc.message
             if prostats._should_check_duplicates(exc.message, target_type):
                 message = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=message,
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=via_impersonation,
+            )
             notices.append(f'Проект "{item.name}" не создан: {message}')
 
     # 2) Если все успешны — сохраняем у нас
@@ -1486,16 +1652,67 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
 
 @app.patch("/projects/{project_id}", response_model=schemas.UpdateProjectOut)
 def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    operation = "delete" if payload.status == "Удалён" else "update"
+    try:
+        _assert_projects_mutation_allowed(current_user)
+    except HTTPException as exc:
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            project_id=project_id,
+            project_name=payload.name,
+            request_payload=_project_payload_for_history(payload),
+            error_message=_http_error_message(exc.detail),
+            error_code=_http_error_code(exc.detail),
+            via_impersonation=via_impersonation,
+        )
+        raise
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
     if project_row.status == "Удалён":
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            project_id=project_id,
+            project_name=project_row.name,
+            request_payload=_project_payload_for_history(payload),
+            error_message="Проект удалён. Редактирование запрещено.",
+            error_code="PROJECT_DELETED",
+            via_impersonation=via_impersonation,
+        )
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            project_id=project_id,
+            project_name=project_row.name,
+            request_payload=_project_payload_for_history(payload),
+            error_message="Project is not linked to provider",
+            error_code="PROVIDER_LINK_MISSING",
+            via_impersonation=via_impersonation,
+        )
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
-    payload.name = _validate_project_name_update(project_row, payload.name)
+    try:
+        payload.name = _validate_project_name_update(project_row, payload.name)
+    except HTTPException as exc:
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            project_id=project_id,
+            project_name=project_row.name,
+            request_payload=_project_payload_for_history(payload),
+            error_message=_http_error_message(exc.detail),
+            error_code=_http_error_code(exc.detail),
+            via_impersonation=via_impersonation,
+        )
+        raise
     if bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
@@ -1505,12 +1722,24 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
             projected_data_limit=int(payload.dataLimit),
         )
         if not can_activate:
+            detail = {
+                "code": "LIMIT_CONTROL_BLOCK",
+                "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
+            }
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message=_http_error_message(detail),
+                error_code=_http_error_code(detail),
+                via_impersonation=via_impersonation,
+            )
             raise HTTPException(
                 status_code=409,
-                detail={
-                    "code": "LIMIT_CONTROL_BLOCK",
-                    "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
-                },
+                detail=detail,
             )
     warning_text = None
     project_snapshot = _project_snapshot_for_prostats(project_row)
@@ -1561,9 +1790,42 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                         if target_type == "hosts"
                         else "Номера уже используются в наших проектах."
                     )
+                    _record_failed_project_operation(
+                        user_id=current_user.id,
+                        actor_user_id=actor_user_id,
+                        operation=operation,
+                        project_id=project_id,
+                        project_name=project_snapshot.name,
+                        request_payload=_project_payload_for_history(payload),
+                        error_message=_http_error_message(detail),
+                        error_code=str(exc.status_code) if exc.status_code else None,
+                        via_impersonation=via_impersonation,
+                    )
                     raise HTTPException(status_code=422, detail=detail)
                 detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+                _record_failed_project_operation(
+                    user_id=current_user.id,
+                    actor_user_id=actor_user_id,
+                    operation=operation,
+                    project_id=project_id,
+                    project_name=project_snapshot.name,
+                    request_payload=_project_payload_for_history(payload),
+                    error_message=_http_error_message(detail),
+                    error_code=str(exc.status_code) if exc.status_code else None,
+                    via_impersonation=via_impersonation,
+                )
                 raise HTTPException(status_code=422, detail=detail)
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation=operation,
+            project_id=project_id,
+            project_name=project_snapshot.name,
+            request_payload=_project_payload_for_history(payload),
+            error_message=_http_error_message(detail),
+            error_code=str(exc.status_code) if exc.status_code else None,
+            via_impersonation=via_impersonation,
+        )
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
@@ -1618,12 +1880,36 @@ def project_history(
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: int, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
-    _assert_projects_mutation_allowed(current_user)
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    try:
+        _assert_projects_mutation_allowed(current_user)
+    except HTTPException as exc:
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation="delete",
+            project_id=project_id,
+            request_payload={"projectId": project_id},
+            error_message=_http_error_message(exc.detail),
+            error_code=_http_error_code(exc.detail),
+            via_impersonation=via_impersonation,
+        )
+        raise
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
     if not project_row.provider_project_id:
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation="delete",
+            project_id=project_id,
+            project_name=project_row.name,
+            request_payload={"projectId": project_id},
+            error_message="Проект не связан с Prostats. Удаление запрещено.",
+            error_code="PROVIDER_LINK_MISSING",
+            via_impersonation=via_impersonation,
+        )
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     try:
         project_snapshot = _project_snapshot_for_prostats(project_row)
@@ -1631,6 +1917,17 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
         prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
+        _record_failed_project_operation(
+            user_id=current_user.id,
+            actor_user_id=actor_user_id,
+            operation="delete",
+            project_id=project_id,
+            project_name=project_snapshot.name,
+            request_payload={"projectId": project_id},
+            error_message=_http_error_message(detail),
+            error_code=str(exc.status_code) if exc.status_code else None,
+            via_impersonation=via_impersonation,
+        )
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     with SessionLocal() as write_sess:  # type: Session
@@ -2811,13 +3108,54 @@ def admin_update_project(
 ):
     """Обновить проект (включая delivery_status)."""
     project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
+    operation = "delete" if payload.status == "Удалён" else "update"
+    owner_user_id = int(project_row.user_id) if project_row.user_id else None
     if project_row.status == "Удалён":
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message="Проект удалён. Редактирование запрещено.",
+                error_code="PROJECT_DELETED",
+                via_impersonation=False,
+            )
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
     if not project_row.provider_project_id:
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message="Project is not linked to provider",
+                error_code="PROVIDER_LINK_MISSING",
+                via_impersonation=False,
+            )
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     if crud.is_agent_user(current_manager):
         payload.deliveryStatus = project_row.delivery_status  # type: ignore[assignment]
-    payload.name = _validate_project_name_update(project_row, payload.name)
+    try:
+        payload.name = _validate_project_name_update(project_row, payload.name)
+    except HTTPException as exc:
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message=_http_error_message(exc.detail),
+                error_code=_http_error_code(exc.detail),
+                via_impersonation=False,
+            )
+        raise
     if bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
@@ -2827,16 +3165,28 @@ def admin_update_project(
             projected_data_limit=int(payload.dataLimit),
         )
         if not can_activate:
+            detail = {
+                "code": "LIMIT_CONTROL_BLOCK",
+                "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
+            }
+            if owner_user_id:
+                _record_failed_project_operation(
+                    user_id=owner_user_id,
+                    actor_user_id=current_manager.id,
+                    operation=operation,
+                    project_id=project_id,
+                    project_name=project_row.name,
+                    request_payload=_project_payload_for_history(payload),
+                    error_message=_http_error_message(detail),
+                    error_code=_http_error_code(detail),
+                    via_impersonation=False,
+                )
             raise HTTPException(
                 status_code=409,
-                detail={
-                    "code": "LIMIT_CONTROL_BLOCK",
-                    "message": reason or "Нельзя включить проект из-за ограничения по лимитам клиента.",
-                },
+                detail=detail,
             )
     warning_text = None
     project_snapshot = _project_snapshot_for_prostats(project_row)
-    owner_user_id = int(project_row.user_id) if project_row.user_id else None
     db_sess.rollback()
     try:
         if payload.status == "Удалён":
@@ -2884,9 +3234,45 @@ def admin_update_project(
                         if target_type == "hosts"
                         else "Номера уже используются в наших проектах."
                     )
+                    if owner_user_id:
+                        _record_failed_project_operation(
+                            user_id=owner_user_id,
+                            actor_user_id=current_manager.id,
+                            operation=operation,
+                            project_id=project_id,
+                            project_name=project_snapshot.name,
+                            request_payload=_project_payload_for_history(payload),
+                            error_message=_http_error_message(detail),
+                            error_code=str(exc.status_code) if exc.status_code else None,
+                            via_impersonation=False,
+                        )
                     raise HTTPException(status_code=422, detail=detail)
                 detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+                if owner_user_id:
+                    _record_failed_project_operation(
+                        user_id=owner_user_id,
+                        actor_user_id=current_manager.id,
+                        operation=operation,
+                        project_id=project_id,
+                        project_name=project_snapshot.name,
+                        request_payload=_project_payload_for_history(payload),
+                        error_message=_http_error_message(detail),
+                        error_code=str(exc.status_code) if exc.status_code else None,
+                        via_impersonation=False,
+                    )
                 raise HTTPException(status_code=422, detail=detail)
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_snapshot.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message=_http_error_message(detail),
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=False,
+            )
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
@@ -2916,15 +3302,39 @@ def admin_delete_project(
 ):
     """Удалить проект (для админа)."""
     project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
+    owner_user_id = int(project_row.user_id) if project_row.user_id else None
     if not project_row.provider_project_id:
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation="delete",
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload={"projectId": project_id},
+                error_message="Проект не связан с Prostats. Удаление запрещено.",
+                error_code="PROVIDER_LINK_MISSING",
+                via_impersonation=False,
+            )
         raise HTTPException(status_code=409, detail="Проект не связан с Prostats. Удаление запрещено.")
     project_snapshot = _project_snapshot_for_prostats(project_row)
-    owner_user_id = int(project_row.user_id) if project_row.user_id else None
     db_sess.rollback()
     try:
         prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
         detail = {"message": exc.message, **(exc.details or {})}
+        if owner_user_id:
+            _record_failed_project_operation(
+                user_id=owner_user_id,
+                actor_user_id=current_manager.id,
+                operation="delete",
+                project_id=project_id,
+                project_name=project_snapshot.name,
+                request_payload={"projectId": project_id},
+                error_message=_http_error_message(detail),
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=False,
+            )
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     with SessionLocal() as write_sess:  # type: Session

@@ -331,6 +331,7 @@ class AdminBlacklistListOut(BaseModel):
 # -------- История активности клиента --------
 ActivityEntity = Literal['project', 'blacklist', 'balance', 'report']
 ActorMode = Literal['client', 'admin', 'admin_impersonation']
+OperationOutcome = Literal['success', 'failed']
 
 
 class ActivityEventOut(BaseModel):
@@ -341,6 +342,8 @@ class ActivityEventOut(BaseModel):
     createdAt: str
     actor: Optional[UserInfo] = None
     description: str
+    outcome: OperationOutcome = 'success'
+    errorMessage: Optional[str] = None
     projectId: Optional[int] = None
     projectName: Optional[str] = None
     periodFrom: Optional[str] = None
@@ -358,6 +361,8 @@ class ProjectHistoryItem(BaseModel):
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
+    outcome: OperationOutcome = 'success'
+    errorMessage: Optional[str] = None
     actor: Optional[UserInfo] = None
     actorMode: Optional[ActorMode] = None
 
@@ -367,6 +372,8 @@ class AdminProjectHistoryItem(BaseModel):
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
+    outcome: OperationOutcome = 'success'
+    errorMessage: Optional[str] = None
     user: Optional[UserInfo] = None
     actorMode: Optional[ActorMode] = None
     status: Literal['pending', 'done'] = 'pending'

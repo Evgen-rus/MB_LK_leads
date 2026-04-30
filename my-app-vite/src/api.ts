@@ -492,6 +492,8 @@ export type ProjectHistoryItem = {
   action: 'create' | 'update' | 'delete';
   createdAt: string;      // 'YYYY-MM-DD HH:MM:SS'
   description: string;    // краткое текстовое описание изменения
+  outcome?: 'success' | 'failed';
+  errorMessage?: string | null;
   actor?: UserInfo | null;
   actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
 };
@@ -552,6 +554,8 @@ export type ActivityEvent = {
   createdAt: string;       // YYYY-MM-DD HH:mm:ss
   actor?: UserInfo | null; // кто выполнил действие
   description: string;     // краткое описание
+  outcome?: 'success' | 'failed';
+  errorMessage?: string | null;
   projectId?: number | null;
   projectName?: string | null;
   periodFrom?: string | null;
@@ -1403,6 +1407,8 @@ export type AdminProjectHistoryItem = {
   action: 'create' | 'update' | 'delete';
   createdAt: string;
   description: string;
+  outcome?: 'success' | 'failed';
+  errorMessage?: string | null;
   user?: UserInfo;
   actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
   status: AdminChangeStatus;

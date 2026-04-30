@@ -115,6 +115,9 @@ function NotificationBell({ onOpenFullHistory }: Props) {
                 <div key={item.eventId} className="notif__item">
                   <div className="notif__meta">
                     <span className="sub">{item.eventId}</span>
+                    <span className={item.outcome === 'failed' ? 'badge badge--orange' : 'badge badge--green'} style={{ fontWeight: 500 }}>
+                      {item.outcome === 'failed' ? 'Ошибка' : 'Успешно'}
+                    </span>
                     <span className="badge badge--gray" style={{ fontWeight: 500 }}>
                       {entityLabel(item.entity)}
                     </span>

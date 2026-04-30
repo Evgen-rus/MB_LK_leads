@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from .time_utils import as_local_naive, now_msk, now_msk_naive
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
+import html
 import os
 import re
 import secrets
@@ -696,6 +697,157 @@ def _audit_event_to_history_item(
     )
 
 
+def _normalize_project_operation(operation: Optional[str]) -> str:
+    if operation in ("create", "update", "delete"):
+        return operation
+    return "update"
+
+
+def _clean_project_operation_error_message(value: Any) -> str:
+    """
+    Приводит технические ошибки внешних сервисов к тексту для истории.
+    Например, nginx иногда возвращает HTML-страницу 502, которую не стоит
+    показывать пользователю как сырой HTML.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return "Операция не выполнена"
+
+    text = html.unescape(raw)
+    text = re.sub(r"(?is)<script\b[^>]*>.*?</script>", " ", text)
+    text = re.sub(r"(?is)<style\b[^>]*>.*?</style>", " ", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "Операция не выполнена"
+
+    # Частый HTML-ответ nginx даёт дубль: title + h1.
+    text = re.sub(r"\b(502 Bad Gateway)\s+\1\b", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(504 Gateway Time-out)\s+\1\b", r"\1", text, flags=re.IGNORECASE)
+
+    max_len = 500
+    if len(text) > max_len:
+        text = text[:max_len].rstrip() + "…"
+    return text
+
+
+def _project_operation_description(ev: models.ProjectOperationEvent) -> str:
+    operation = _normalize_project_operation(getattr(ev, "operation", None))
+    if operation == "create":
+        base = "Не удалось создать проект"
+    elif operation == "delete":
+        base = "Не удалось удалить проект"
+    else:
+        base = "Не удалось изменить проект"
+
+    project_name = str(getattr(ev, "project_name", "") or "").strip()
+    if project_name:
+        base += f' "{project_name}"'
+
+    message = _clean_project_operation_error_message(getattr(ev, "error_message", ""))
+    return f"{base}: {message}" if message else base
+
+
+def _project_operation_to_history_item(
+    ev: models.ProjectOperationEvent,
+    actor: Optional[schemas.UserInfo] = None,
+    actor_mode: Optional[str] = None,
+) -> schemas.ProjectHistoryItem:
+    created_at_str = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    operation = _normalize_project_operation(getattr(ev, "operation", None))
+    error_message = _clean_project_operation_error_message(getattr(ev, "error_message", "")) or None
+    return schemas.ProjectHistoryItem(
+        id=ev.id,
+        action=operation,  # type: ignore[arg-type]
+        createdAt=created_at_str,
+        description=_project_operation_description(ev),
+        outcome="failed",
+        errorMessage=error_message,
+        actor=actor,
+        actorMode=actor_mode,  # type: ignore[arg-type]
+    )
+
+
+def _operation_event_actor_user_id(ev: models.ProjectOperationEvent) -> Optional[int]:
+    raw_actor = getattr(ev, "actor_user_id", None)
+    try:
+        if raw_actor is not None:
+            actor_id = int(raw_actor)
+            if actor_id > 0:
+                return actor_id
+    except Exception:
+        pass
+    try:
+        if ev.user_id:
+            return int(ev.user_id)
+    except Exception:
+        pass
+    return None
+
+
+def _operation_event_actor_mode(ev: models.ProjectOperationEvent, actor_user_id: Optional[int]) -> Optional[str]:
+    try:
+        if bool(getattr(ev, "via_impersonation", False)):
+            return "admin_impersonation"
+    except Exception:
+        pass
+    if actor_user_id == 1:
+        return "admin"
+    if actor_user_id:
+        return "client"
+    return None
+
+
+def _load_user_info_map(db: Session, user_ids: Iterable[int]) -> Dict[int, schemas.UserInfo]:
+    ids = {int(uid) for uid in user_ids if uid}
+    users_map: Dict[int, schemas.UserInfo] = {}
+    if not ids:
+        return users_map
+    users = db.execute(select(models.User).where(models.User.id.in_(ids))).scalars().all()
+    for u in users:
+        users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+    return users_map
+
+
+def record_project_operation_failed(
+    db: Session,
+    *,
+    user_id: int,
+    operation: str,
+    error_message: str,
+    actor_user_id: Optional[int] = None,
+    project_id: Optional[int] = None,
+    project_name: Optional[str] = None,
+    request_payload: Optional[Dict[str, Any]] = None,
+    error_code: Optional[str] = None,
+    via_impersonation: bool = False,
+) -> models.ProjectOperationEvent:
+    """
+    Фиксирует неудачную попытку операции с проектом.
+
+    Это отдельный журнал, а не audit_events: такие записи не становятся
+    задачами для админской обработки и не считаются успешными изменениями.
+    """
+    operation = _normalize_project_operation(operation)
+    message = _clean_project_operation_error_message(error_message)
+    row = models.ProjectOperationEvent(
+        user_id=int(user_id),
+        actor_user_id=actor_user_id or user_id,
+        project_id=project_id,
+        operation=operation,
+        status="failed",
+        project_name=(str(project_name).strip() if project_name else None),
+        request_payload=request_payload,
+        error_message=message,
+        error_code=(str(error_code).strip() if error_code else None),
+        via_impersonation=via_impersonation,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def _build_balance_activity_description(op_type: str, amount: int, comment: Optional[str]) -> str:
     action_label = "Начисление" if op_type == "credit" else "Списание"
     desc = f"{action_label} остатка: {amount}"
@@ -822,6 +974,56 @@ def list_client_activity_events(
                 }
             )
 
+    if "project" in selected_entities:
+        failed_stmt = select(models.ProjectOperationEvent).where(
+            models.ProjectOperationEvent.user_id == client_id,
+            models.ProjectOperationEvent.status == "failed",
+            models.ProjectOperationEvent.operation.in_(["create", "update", "delete"]),
+        )
+        if start_local:
+            failed_stmt = failed_stmt.where(models.ProjectOperationEvent.created_at >= start_local)
+        if end_local:
+            failed_stmt = failed_stmt.where(models.ProjectOperationEvent.created_at <= end_local)
+
+        failed_rows = db.execute(failed_stmt).scalars().all()
+        for ev in failed_rows:
+            actor_id = _operation_event_actor_user_id(ev)
+            actor = get_user_info(actor_id)
+            description = _project_operation_description(ev)
+            event_id = f"POE-{ev.id}"
+            actor_login = actor.login if actor else ""
+            project_name = str(getattr(ev, "project_name", "") or "").strip() or None
+            search_blob = " ".join(
+                [
+                    event_id,
+                    "project",
+                    ev.operation or "",
+                    "failed",
+                    description,
+                    project_name or "",
+                    actor_login,
+                ]
+            ).lower()
+            rows.append(
+                {
+                    "created_at": ev.created_at,
+                    "search": search_blob,
+                    "item": schemas.ActivityEventOut(
+                        eventId=event_id,
+                        sourceId=ev.id,
+                        entity="project",
+                        action=_normalize_project_operation(ev.operation),
+                        createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        actor=actor,
+                        description=description,
+                        outcome="failed",
+                        errorMessage=_clean_project_operation_error_message(ev.error_message),
+                        projectId=ev.project_id,
+                        projectName=project_name,
+                    ),
+                }
+            )
+
     if "balance" in selected_entities:
         balance_stmt = select(models.ClientBalanceOperation).where(
             models.ClientBalanceOperation.client_id == client_id
@@ -937,12 +1139,28 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
         .limit(limit)
     )
     rows = db.execute(stmt).scalars().all()
-    actor_ids = {aid for aid in (_audit_event_actor_user_id(ev) for ev in rows) if aid}
-    users_map: Dict[int, schemas.UserInfo] = {}
-    if actor_ids:
-        users = db.execute(select(models.User).where(models.User.id.in_(actor_ids))).scalars().all()
-        for u in users:
-            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+    failed_rows = (
+        db.execute(
+            select(models.ProjectOperationEvent)
+            .where(models.ProjectOperationEvent.project_id == project_id)
+            .where(models.ProjectOperationEvent.user_id == user_id)
+            .where(models.ProjectOperationEvent.status == "failed")
+            .where(models.ProjectOperationEvent.operation.in_(["create", "update", "delete"]))
+            .order_by(models.ProjectOperationEvent.created_at.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    actor_ids = {
+        aid
+        for aid in (
+            [_audit_event_actor_user_id(ev) for ev in rows]
+            + [_operation_event_actor_user_id(ev) for ev in failed_rows]
+        )
+        if aid
+    }
+    users_map = _load_user_info_map(db, actor_ids)
 
     items: List[schemas.ProjectHistoryItem] = []
     for ev in rows:
@@ -950,7 +1168,13 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
         actor = users_map.get(actor_id) if actor_id else None
         actor_mode = _audit_event_actor_mode(ev, actor_id)
         items.append(_audit_event_to_history_item(ev, actor=actor, actor_mode=actor_mode))
-    return items
+    for ev in failed_rows:
+        actor_id = _operation_event_actor_user_id(ev)
+        actor = users_map.get(actor_id) if actor_id else None
+        actor_mode = _operation_event_actor_mode(ev, actor_id)
+        items.append(_project_operation_to_history_item(ev, actor=actor, actor_mode=actor_mode))
+    items.sort(key=lambda item: item.createdAt, reverse=True)
+    return items[:limit]
 
 
 def admin_list_project_history(
@@ -991,14 +1215,42 @@ def admin_list_project_history(
         .scalars()
         .all()
     )
+    failed_rows: List[models.ProjectOperationEvent] = []
+    failed_total = 0
+    if status is None:
+        failed_base = (
+            select(models.ProjectOperationEvent)
+            .where(models.ProjectOperationEvent.project_id == project_id)
+            .where(models.ProjectOperationEvent.status == "failed")
+            .where(models.ProjectOperationEvent.operation.in_(["create", "update", "delete"]))
+        )
+        failed_actor_expr = func.coalesce(models.ProjectOperationEvent.actor_user_id, models.ProjectOperationEvent.user_id)
+        if user_id_filter:
+            failed_base = failed_base.where(failed_actor_expr == user_id_filter)
+        if start_local:
+            failed_base = failed_base.where(models.ProjectOperationEvent.created_at >= start_local)
+        if end_local:
+            failed_base = failed_base.where(models.ProjectOperationEvent.created_at <= end_local)
+        failed_total = db.execute(select(func.count()).select_from(failed_base.subquery())).scalar_one()
+        failed_rows = (
+            db.execute(
+                failed_base.order_by(models.ProjectOperationEvent.created_at.desc()).limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        total += failed_total
 
     # Собираем actor info
-    user_ids = {aid for aid in (_audit_event_actor_user_id(ev) for ev in rows) if aid}
-    users_map: Dict[int, schemas.UserInfo] = {}
-    if user_ids:
-        users = db.execute(select(models.User).where(models.User.id.in_(user_ids))).scalars().all()
-        for u in users:
-            users_map[u.id] = schemas.UserInfo(id=u.id, login=u.login)
+    user_ids = {
+        aid
+        for aid in (
+            [_audit_event_actor_user_id(ev) for ev in rows]
+            + [_operation_event_actor_user_id(ev) for ev in failed_rows]
+        )
+        if aid
+    }
+    users_map = _load_user_info_map(db, user_ids)
 
     items: List[schemas.AdminProjectHistoryItem] = []
     for ev in rows:
@@ -1022,6 +1274,30 @@ def admin_list_project_history(
                 projectSnapshot=ev.after or ev.before,
             )
         )
+    for ev in failed_rows:
+        actor_id = _operation_event_actor_user_id(ev)
+        actor_mode = _operation_event_actor_mode(ev, actor_id)
+        hist_item = _project_operation_to_history_item(
+            ev,
+            actor=users_map.get(actor_id) if actor_id else None,
+            actor_mode=actor_mode,
+        )
+        items.append(
+            schemas.AdminProjectHistoryItem(
+                id=hist_item.id,
+                action=hist_item.action,
+                createdAt=hist_item.createdAt,
+                description=hist_item.description,
+                outcome=hist_item.outcome,
+                errorMessage=hist_item.errorMessage,
+                user=hist_item.actor,
+                actorMode=hist_item.actorMode,  # type: ignore[arg-type]
+                status="done",
+                projectSnapshot=ev.request_payload,
+            )
+        )
+    items.sort(key=lambda item: item.createdAt, reverse=True)
+    items = items[:limit]
 
     return schemas.AdminProjectHistoryListOut(items=items, total=total)
 
