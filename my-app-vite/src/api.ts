@@ -489,6 +489,7 @@ export async function fetchLeads(params: { projectIds?: number[]; sources?: stri
 // -------- История изменений проектов --------
 export type ProjectHistoryItem = {
   id: number;
+  eventId: string;
   action: 'create' | 'update' | 'delete';
   createdAt: string;      // 'YYYY-MM-DD HH:MM:SS'
   description: string;    // краткое текстовое описание изменения
@@ -584,6 +585,16 @@ export async function fetchClientActivityEvents(params?: {
   if (params?.q && params.q.trim()) q.set('q', params.q.trim());
   const qs = q.toString();
   return http<ActivityEventsListResp>(`/activity/events${qs ? `?${qs}` : ''}`);
+}
+
+export type HistoryEventDetail = ProjectChangeCardData & {
+  eventId: string;
+  source: 'audit' | 'project_operation';
+  sourceId: number;
+};
+
+export async function fetchHistoryEventDetail(eventId: string): Promise<HistoryEventDetail> {
+  return http<HistoryEventDetail>(`/activity/events/${encodeURIComponent(eventId)}`);
 }
 
 export function buildLeadsExportUrl(params: {
@@ -954,11 +965,13 @@ export type AdminChangeStatus = 'pending' | 'done';
 
 export type AdminChangeAction = 'create' | 'update' | 'delete' | 'blacklist_add' | 'blacklist_delete';
 
-export type AdminChange = {
-  id: number;
+export type ProjectChangeCardData = {
+  id?: number;
+  eventId?: string;
+  source?: 'audit' | 'project_operation';
+  sourceId?: number;
   projectId?: number | null;
   projectName?: string | null;
-  batchId?: string | null;
   sources?: string[]; // список источников батча (для созданий)
   // Для агрегированного "создания" (batchId): лимит по каждому источнику (B1..B4).
   // Это поле формируется на фронте (из projectSnapshot), бэк его не обязан присылать.
@@ -967,11 +980,19 @@ export type AdminChange = {
   action: AdminChangeAction;
   description: string;
   status?: AdminChangeStatus;
+  outcome?: 'success' | 'failed';
+  errorMessage?: string | null;
   projectSnapshot?: Record<string, unknown> | null;
   beforeSnapshot?: Record<string, unknown> | null;
   changedFields?: string[] | null;
   actor?: UserInfo | null;
   actorMode?: 'client' | 'admin' | 'admin_impersonation' | null;
+};
+
+export type AdminChange = ProjectChangeCardData & {
+  id: number;
+  batchId?: string | null;
+  action: AdminChangeAction;
 };
 
 export type AdminClientChangesOut = {
@@ -1404,6 +1425,7 @@ export async function createAdminTariffOp(
 // -------- История проекта (админ) --------
 export type AdminProjectHistoryItem = {
   id: number;
+  eventId: string;
   action: 'create' | 'update' | 'delete';
   createdAt: string;
   description: string;

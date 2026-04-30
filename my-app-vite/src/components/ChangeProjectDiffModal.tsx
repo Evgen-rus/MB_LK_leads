@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { AdminChange } from '../api';
+import type { ProjectChangeCardData } from '../api';
 import DateTimeCompact from './DateTimeCompact';
 import {
   RAW_SOURCE_CODES,
@@ -9,8 +9,9 @@ import {
 } from '../utils/sourceCodeDisplay';
 
 type Props = {
-  change: AdminChange;
+  change: ProjectChangeCardData;
   onClose: () => void;
+  showCopyJson?: boolean;
 };
 
 type ProjectSnapshot = {
@@ -60,7 +61,7 @@ const fieldLabels: Record<FieldKey, string> = {
   daysReceived: 'Дни получения',
 };
 
-function ChangeProjectDiffModal({ change, onClose }: Props) {
+function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props) {
   const after: ProjectSnapshot = (change.projectSnapshot || {}) as ProjectSnapshot;
   const before: ProjectSnapshot = (change.beforeSnapshot || {}) as ProjectSnapshot;
   const changed = useMemo(() => new Set(change.changedFields || []), [change.changedFields]);
@@ -176,8 +177,8 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
           flexDirection: 'column',
         }}
       >
-        <div style={{ padding: 16, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <div style={{ display: 'grid', gap: 4 }}>
+        <div style={{ padding: 16, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ display: 'grid', gap: 4, minWidth: 0, flex: '1 1 auto' }}>
             <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>
               Карточка проекта ({change.action === 'create' ? 'Создание' : change.action === 'delete' ? 'Удаление' : 'Изменение'})
             </div>
@@ -190,26 +191,33 @@ function ChangeProjectDiffModal({ change, onClose }: Props) {
               <DateTimeCompact value={change.createdAt} />
             </div>
             {changedList.length > 0 && (
-              <div className="sub">
+              <div className="sub" style={{ overflowWrap: 'anywhere' }}>
                 Изменений: {changedList.length}{' '}
                 {changedList.length ? '— ' + changedList.map((f) => fieldLabels[f as FieldKey] || f).join(', ') : ''}
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button
-              className="btn"
-              type="button"
-              onClick={() => {
-                try {
-                  navigator.clipboard?.writeText(JSON.stringify(change.projectSnapshot || {}, null, 2));
-                } catch (e) {
-                  console.error(e);
-                }
-              }}
-            >
-              Копировать JSON
-            </button>
+          {change.outcome === 'failed' && (
+            <div className="sub" style={{ color: '#b45309', minWidth: 0, flex: '1 1 auto', overflowWrap: 'anywhere' }}>
+              Ошибка: {formatSourceTextForDisplay(change.errorMessage || change.description)}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flex: '0 0 auto' }}>
+            {showCopyJson && (
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  try {
+                    navigator.clipboard?.writeText(JSON.stringify(change.projectSnapshot || {}, null, 2));
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+              >
+                Копировать JSON
+              </button>
+            )}
             <button className="btn btn--secondary" onClick={onClose} type="button">
               Закрыть
             </button>

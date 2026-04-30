@@ -332,6 +332,7 @@ class AdminBlacklistListOut(BaseModel):
 ActivityEntity = Literal['project', 'blacklist', 'balance', 'report']
 ActorMode = Literal['client', 'admin', 'admin_impersonation']
 OperationOutcome = Literal['success', 'failed']
+HistoryEventSource = Literal['audit', 'project_operation']
 
 
 class ActivityEventOut(BaseModel):
@@ -358,6 +359,7 @@ class ActivityEventListOut(BaseModel):
 # -------- История изменений проектов --------
 class ProjectHistoryItem(BaseModel):
     id: int
+    eventId: str
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
@@ -369,6 +371,7 @@ class ProjectHistoryItem(BaseModel):
 
 class AdminProjectHistoryItem(BaseModel):
     id: int
+    eventId: str
     action: Literal['create', 'update', 'delete']
     createdAt: str
     description: str
@@ -383,6 +386,24 @@ class AdminProjectHistoryItem(BaseModel):
 class AdminProjectHistoryListOut(BaseModel):
     items: List[AdminProjectHistoryItem]
     total: int
+
+
+class HistoryEventDetailOut(BaseModel):
+    eventId: str
+    source: HistoryEventSource
+    sourceId: int
+    action: Literal['create', 'update', 'delete']
+    createdAt: str
+    description: str
+    outcome: OperationOutcome = 'success'
+    errorMessage: Optional[str] = None
+    projectId: Optional[int] = None
+    projectName: Optional[str] = None
+    actor: Optional[UserInfo] = None
+    actorMode: Optional[ActorMode] = None
+    projectSnapshot: Optional[dict] = None
+    beforeSnapshot: Optional[dict] = None
+    changedFields: Optional[List[str]] = None
 
 
 # -------- Админ: изменения клиентов --------

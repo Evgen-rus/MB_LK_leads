@@ -689,6 +689,7 @@ def _audit_event_to_history_item(
 
     return schemas.ProjectHistoryItem(
         id=ev.id,
+        eventId=f"AE-{ev.id}",
         action=action,  # type: ignore[arg-type]
         createdAt=created_at_str,
         description=desc,
@@ -758,6 +759,7 @@ def _project_operation_to_history_item(
     error_message = _clean_project_operation_error_message(getattr(ev, "error_message", "")) or None
     return schemas.ProjectHistoryItem(
         id=ev.id,
+        eventId=f"POE-{ev.id}",
         action=operation,  # type: ignore[arg-type]
         createdAt=created_at_str,
         description=_project_operation_description(ev),
@@ -846,6 +848,132 @@ def record_project_operation_failed(
     db.commit()
     db.refresh(row)
     return row
+
+
+def _history_viewer_can_access_owner(db: Session, viewer: models.User, owner_id: Optional[int]) -> bool:
+    if owner_id is None:
+        return False
+    if is_admin_user(viewer):
+        return True
+    if is_agent_user(viewer):
+        return manager_can_access_client(db, viewer, int(owner_id))
+    return int(viewer.id) == int(owner_id)
+
+
+def _project_name_from_snapshot(snapshot: Any) -> Optional[str]:
+    if isinstance(snapshot, dict):
+        name = snapshot.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def _history_detail_actor(db: Session, actor_id: Optional[int]) -> Optional[schemas.UserInfo]:
+    if not actor_id:
+        return None
+    user = db.get(models.User, int(actor_id))
+    if not user:
+        return schemas.UserInfo(id=int(actor_id), login="(unknown)")
+    return schemas.UserInfo(id=user.id, login=user.login)
+
+
+def get_history_event_detail(
+    db: Session,
+    *,
+    event_id: str,
+    viewer: models.User,
+) -> Optional[schemas.HistoryEventDetailOut]:
+    """
+    Возвращает полную карточку события истории по публичному eventId.
+    Поддерживает только проектные события: AE-* и POE-*.
+    """
+    raw = str(event_id or "").strip().upper()
+    if raw.startswith("AE-"):
+        try:
+            source_id = int(raw[3:])
+        except ValueError:
+            return None
+        ev = db.get(models.AuditEvent, source_id)
+        if not ev or ev.action not in ("create", "update", "delete"):
+            return None
+
+        project = db.get(models.Project, int(ev.project_id)) if ev.project_id else None
+        owner_id = int(project.user_id) if project and project.user_id is not None else ev.user_id
+        if not _history_viewer_can_access_owner(db, viewer, owner_id):
+            return None
+
+        actor_id = _audit_event_actor_user_id(ev)
+        actor_mode = _audit_event_actor_mode(ev, actor_id)
+        after = ev.after if isinstance(ev.after, dict) else None
+        before = ev.before if isinstance(ev.before, dict) else None
+        project_name = (
+            (str(project.name).strip() if project and project.name else None)
+            or _project_name_from_snapshot(after)
+            or _project_name_from_snapshot(before)
+        )
+        changed_fields = ev.changed_fields if isinstance(ev.changed_fields, list) else None
+        return schemas.HistoryEventDetailOut(
+            eventId=f"AE-{ev.id}",
+            source="audit",
+            sourceId=ev.id,
+            action=ev.action,  # type: ignore[arg-type]
+            createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            description=_audit_event_compact_description(ev),
+            outcome="success",
+            errorMessage=None,
+            projectId=ev.project_id,
+            projectName=project_name,
+            actor=_history_detail_actor(db, actor_id),
+            actorMode=actor_mode,  # type: ignore[arg-type]
+            projectSnapshot=after or before,
+            beforeSnapshot=before,
+            changedFields=[str(f) for f in changed_fields] if changed_fields else None,
+        )
+
+    if raw.startswith("POE-"):
+        try:
+            source_id = int(raw[4:])
+        except ValueError:
+            return None
+        ev = db.get(models.ProjectOperationEvent, source_id)
+        if not ev or ev.operation not in ("create", "update", "delete"):
+            return None
+        if not _history_viewer_can_access_owner(db, viewer, int(ev.user_id)):
+            return None
+
+        actor_id = _operation_event_actor_user_id(ev)
+        actor_mode = _operation_event_actor_mode(ev, actor_id)
+        snapshot = dict(ev.request_payload) if isinstance(ev.request_payload, dict) else None
+        if snapshot and "days" in snapshot and "daysReceived" not in snapshot:
+            raw_days = snapshot.pop("days")
+            if isinstance(raw_days, list):
+                snapshot["daysReceived"] = _join_days(str(day) for day in raw_days)
+        project_name = (
+            str(ev.project_name).strip()
+            if ev.project_name
+            else _project_name_from_snapshot(snapshot)
+        )
+        changed_fields = list(snapshot.keys()) if snapshot else None
+        error_message = _clean_project_operation_error_message(ev.error_message)
+        return schemas.HistoryEventDetailOut(
+            eventId=f"POE-{ev.id}",
+            source="project_operation",
+            sourceId=ev.id,
+            action=_normalize_project_operation(ev.operation),  # type: ignore[arg-type]
+            createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            description=_project_operation_description(ev),
+            outcome="failed",
+            errorMessage=error_message,
+            projectId=ev.project_id,
+            projectName=project_name or None,
+            actor=_history_detail_actor(db, actor_id),
+            actorMode=actor_mode,  # type: ignore[arg-type]
+            projectSnapshot=snapshot,
+            beforeSnapshot=None,
+            changedFields=[str(f) for f in changed_fields] if changed_fields else None,
+        )
+
+    return None
 
 
 def _build_balance_activity_description(op_type: str, amount: int, comment: Optional[str]) -> str:
@@ -1265,6 +1393,7 @@ def admin_list_project_history(
         items.append(
             schemas.AdminProjectHistoryItem(
                 id=hist_item.id,
+                eventId=hist_item.eventId,
                 action=hist_item.action,
                 createdAt=hist_item.createdAt,
                 description=hist_item.description,
@@ -1285,6 +1414,7 @@ def admin_list_project_history(
         items.append(
             schemas.AdminProjectHistoryItem(
                 id=hist_item.id,
+                eventId=hist_item.eventId,
                 action=hist_item.action,
                 createdAt=hist_item.createdAt,
                 description=hist_item.description,

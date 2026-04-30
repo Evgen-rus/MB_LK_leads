@@ -3,6 +3,7 @@ import { fetchAdminProjectHistory, type AdminProjectHistoryItem } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
+import HistoryEventCardButton from './HistoryEventCardButton';
 import { formatProjectNameForDisplay, formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
 type Props = {
@@ -148,6 +149,7 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                   <th>Статус</th>
                   <th>Кто</th>
                   <th>Описание</th>
+                  <th>Карточка</th>
                 </tr>
               </thead>
               <tbody>
@@ -181,6 +183,13 @@ function AdminProjectHistoryModal({ projectId, projectName, onClose }: Props) {
                       )}
                     </td>
                     <td>{formatSourceTextForDisplay(item.description)}</td>
+                    <td>
+                      <HistoryEventCardButton
+                        eventId={item.eventId}
+                        className="btn"
+                        style={{ padding: '4px 8px' }}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

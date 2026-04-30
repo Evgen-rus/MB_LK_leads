@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import DateRangeFilter from './DateRangeFilter';
 import DateTimeCompact from './DateTimeCompact';
 import DateRangeCompact from './DateRangeCompact';
+import HistoryEventCardButton from './HistoryEventCardButton';
 import { fetchClientActivityEvents, type ActivityEntity, type ActivityEvent } from '../api';
 import { formatProjectNameForDisplay, formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
@@ -163,19 +164,20 @@ function ClientActivityHistory() {
               <th>Что сделано</th>
               <th>Результат</th>
               <th>Сущность</th>
+              <th>Карточка</th>
             </tr>
           </thead>
           <tbody>
             {!loading && !error && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted" style={{ padding: 16 }}>
+                <td colSpan={7} className="muted" style={{ padding: 16 }}>
                   Событий по выбранным фильтрам не найдено.
                 </td>
               </tr>
             )}
             {error && (
               <tr>
-                <td colSpan={6} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={7} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
@@ -214,6 +216,17 @@ function ClientActivityHistory() {
                   <span className="badge badge--gray" style={{ fontWeight: 500 }}>
                     {entityLabel(row.entity)}
                   </span>
+                </td>
+                <td>
+                  {row.entity === 'project' ? (
+                    <HistoryEventCardButton
+                      eventId={row.eventId}
+                      className="btn"
+                      style={{ padding: '4px 8px' }}
+                    />
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
                 </td>
               </tr>
             ))}

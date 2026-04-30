@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ProjectHistoryItem } from '../api';
 import { fetchProjectHistory } from '../api';
 import DateTimeCompact from './DateTimeCompact';
+import HistoryEventCardButton from './HistoryEventCardButton';
 import { formatProjectNameForDisplay, formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
 type ProjectHistoryModalProps = {
@@ -114,20 +115,21 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
             </div>
           )}
           {!loading && !error && items.length > 0 && (
-            <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 150 }}>Дата</th>
+                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 72 }}>Дата</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Действие</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Результат</th>
-                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 220 }}>Кто</th>
+                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 150 }}>Кто</th>
                   <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666' }}>Описание</th>
+                  <th style={{ textAlign: 'left', padding: '8px 4px', fontSize: '0.75rem', color: '#666', whiteSpace: 'nowrap', width: 120 }}>Карточка</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
                   <tr key={`${item.outcome || 'success'}-${item.id}`}>
-                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 150 }}>
+                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 72 }}>
                       <DateTimeCompact value={item.createdAt} />
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 120 }}>
@@ -138,7 +140,7 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                         {item.outcome === 'failed' ? 'Ошибка' : 'Успешно'}
                       </span>
                     </td>
-                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 220 }}>
+                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#555', whiteSpace: 'nowrap', width: 150 }}>
                       {item.actor ? (
                         <>
                           {item.actor.login}
@@ -152,6 +154,13 @@ function ProjectHistoryModal({ projectId, projectName, onClose }: ProjectHistory
                     </td>
                     <td style={{ padding: '6px 4px', fontSize: '0.875rem', color: '#111' }}>
                       {formatSourceTextForDisplay(item.description)}
+                    </td>
+                    <td style={{ padding: '6px 4px', fontSize: '0.875rem', whiteSpace: 'nowrap', width: 120 }}>
+                      <HistoryEventCardButton
+                        eventId={item.eventId}
+                        className="btn"
+                        style={{ padding: '4px 8px' }}
+                      />
                     </td>
                   </tr>
                 ))}

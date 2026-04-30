@@ -2483,6 +2483,18 @@ def list_client_activity_events(
         q=q,
     )
 
+
+@app.get("/activity/events/{event_id}", response_model=schemas.HistoryEventDetailOut)
+def get_activity_event_detail(
+    event_id: str,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    detail = crud.get_history_event_detail(db_sess, event_id=event_id, viewer=current_user)
+    if not detail:
+        raise HTTPException(status_code=404, detail="History event not found")
+    return detail
+
 # ----------------------- Черный список -----------------------
 @app.get("/blacklist", response_model=schemas.BlacklistListOut)
 def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):

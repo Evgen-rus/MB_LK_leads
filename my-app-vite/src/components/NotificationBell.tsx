@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchClientActivityEvents, type ActivityEvent } from '../api';
 import DateTimeCompact from './DateTimeCompact';
 import DateRangeCompact from './DateRangeCompact';
+import HistoryEventCardButton from './HistoryEventCardButton';
 import { formatSourceTextForDisplay } from '../utils/sourceCodeDisplay';
 
 type Props = {
@@ -134,6 +135,15 @@ function NotificationBell({ onOpenFullHistory }: Props) {
                   <div className="sub" style={{ marginTop: 4 }}>
                     {item.actor ? `${item.actor.login} (id: ${item.actor.id})` : 'Система'}
                   </div>
+                  {item.entity === 'project' && (
+                    <div style={{ marginTop: 8 }}>
+                      <HistoryEventCardButton
+                        eventId={item.eventId}
+                        className="btn"
+                        style={{ padding: '4px 8px' }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
