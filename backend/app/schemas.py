@@ -341,10 +341,12 @@ class ActivityEventOut(BaseModel):
     entity: ActivityEntity
     action: str
     createdAt: str
+    client: Optional[UserInfo] = None
     actor: Optional[UserInfo] = None
     description: str
     outcome: OperationOutcome = 'success'
     errorMessage: Optional[str] = None
+    status: Literal['pending', 'done'] = 'done'
     projectId: Optional[int] = None
     projectName: Optional[str] = None
     periodFrom: Optional[str] = None

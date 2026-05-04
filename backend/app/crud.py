@@ -995,26 +995,70 @@ def _build_report_activity_description(row: models.ReportExport) -> str:
     return f"Сформирован отчёт ({fmt}), {projects_part}"
 
 
-def list_client_activity_events(
+def _load_client_info_map(db: Session, client_ids: Iterable[int]) -> Dict[int, schemas.UserInfo]:
+    ids = {int(client_id) for client_id in client_ids if client_id}
+    if not ids:
+        return {}
+    users = db.execute(select(models.User).where(models.User.id.in_(ids))).scalars().all()
+    profiles = db.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id.in_(ids))
+    ).scalars().all()
+    profile_map = {int(profile.user_id): profile for profile in profiles}
+    result: Dict[int, schemas.UserInfo] = {}
+    for user in users:
+        profile = profile_map.get(int(user.id))
+        result[int(user.id)] = schemas.UserInfo(
+            id=int(user.id),
+            login=user.login,
+            name=(profile.name if profile else getattr(user, "display_name", None)),
+            inn=(profile.inn if profile else None),
+            phone=(profile.phone if profile else None),
+            role=get_user_role(user),  # type: ignore[arg-type]
+            ownerAgentId=getattr(user, "owner_agent_id", None),
+        )
+    return result
+
+
+def _activity_status_matches(status_filter: Optional[str], *, outcome: str, status: str) -> bool:
+    if not status_filter or status_filter == "all":
+        return True
+    if status_filter == "success":
+        return outcome == "success"
+    if status_filter == "failed":
+        return outcome == "failed"
+    if status_filter == "pending":
+        return status == "pending"
+    if status_filter == "done":
+        return status == "done"
+    return True
+
+
+def list_activity_events_for_clients(
     db: Session,
-    client_id: int,
+    client_ids: List[int],
     offset: int,
     limit: int,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     entities: Optional[List[str]] = None,
     q: Optional[str] = None,
+    status: Optional[str] = None,
+    include_client: bool = False,
 ) -> schemas.ActivityEventListOut:
     """
-    Единая лента активности по аккаунту клиента.
+    Единая лента активности по одному или нескольким клиентским аккаунтам.
 
     Источники:
     - audit_events: create/update/delete проектов, blacklist_add/blacklist_delete;
+    - project_operation_events: неуспешные create/update/delete проектов;
     - client_balance_operations: credit/debit;
     - report_exports: создание отчётов.
     """
     limit = max(1, min(500, limit))
     offset = max(0, offset)
+    normalized_client_ids = sorted({int(client_id) for client_id in client_ids if client_id})
+    if not normalized_client_ids:
+        return schemas.ActivityEventListOut(items=[], total=0)
 
     allowed_entities = {"project", "blacklist", "balance", "report"}
     selected_entities = {e for e in (entities or list(allowed_entities)) if e in allowed_entities}
@@ -1033,9 +1077,19 @@ def list_client_activity_events(
         users_map[user_id] = info
         return info
 
+    clients_map = _load_client_info_map(db, normalized_client_ids) if include_client else {}
+
+    def get_client_info(client_id: Optional[int]) -> Optional[schemas.UserInfo]:
+        if not include_client or not client_id:
+            return None
+        return clients_map.get(int(client_id))
+
     rows: List[Dict[str, Any]] = []
 
-    if "project" in selected_entities or "blacklist" in selected_entities:
+    include_success = status not in ("failed",)
+    include_failed = status in (None, "all", "failed", "done")
+
+    if include_success and ("project" in selected_entities or "blacklist" in selected_entities):
         audit_actions: List[str] = []
         if "project" in selected_entities:
             audit_actions.extend(["create", "update", "delete"])
@@ -1056,24 +1110,34 @@ def list_client_activity_events(
             or_(
                 and_(
                     models.AuditEvent.project_id.is_not(None),
-                    models.Project.user_id == client_id,
+                    models.Project.user_id.in_(normalized_client_ids),
                 ),
                 and_(
                     models.AuditEvent.project_id.is_(None),
-                    models.AuditEvent.user_id == client_id,
+                    models.AuditEvent.user_id.in_(normalized_client_ids),
                     models.AuditEvent.action.in_(["blacklist_add", "blacklist_delete"]),
                 ),
             )
         )
+        if status == "pending":
+            audit_stmt = audit_stmt.where(models.AuditEvent.admin_processed_at.is_(None))
+        elif status == "done":
+            audit_stmt = audit_stmt.where(models.AuditEvent.admin_processed_at.is_not(None))
 
         audit_rows = db.execute(audit_stmt).all()
-        for ev, project_name, _project_owner_id in audit_rows:
+        for ev, project_name, project_owner_id in audit_rows:
             entity = "blacklist" if ev.action in ("blacklist_add", "blacklist_delete") else "project"
+            client_id = int(project_owner_id or ev.user_id or 0)
             actor_id = _audit_event_actor_user_id(ev)
             actor = get_user_info(actor_id)
             description = _audit_event_compact_description(ev)
             event_id = f"AE-{ev.id}"
             actor_login = actor.login if actor else ""
+            client = get_client_info(client_id)
+            client_label = f"{client.name or client.login} {client.id}" if client else ""
+            item_status = "done" if ev.admin_processed_at is not None else "pending"
+            if not _activity_status_matches(status, outcome="success", status=item_status):
+                continue
             search_blob = " ".join(
                 [
                     event_id,
@@ -1082,6 +1146,7 @@ def list_client_activity_events(
                     description,
                     project_name or "",
                     actor_login,
+                    client_label,
                 ]
             ).lower()
             rows.append(
@@ -1094,17 +1159,19 @@ def list_client_activity_events(
                         entity=entity,  # type: ignore[arg-type]
                         action=ev.action or "update",
                         createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        client=client,
                         actor=actor,
                         description=description,
+                        status=item_status,  # type: ignore[arg-type]
                         projectId=ev.project_id,
                         projectName=project_name,
                     ),
                 }
             )
 
-    if "project" in selected_entities:
+    if include_failed and "project" in selected_entities:
         failed_stmt = select(models.ProjectOperationEvent).where(
-            models.ProjectOperationEvent.user_id == client_id,
+            models.ProjectOperationEvent.user_id.in_(normalized_client_ids),
             models.ProjectOperationEvent.status == "failed",
             models.ProjectOperationEvent.operation.in_(["create", "update", "delete"]),
         )
@@ -1121,6 +1188,11 @@ def list_client_activity_events(
             event_id = f"POE-{ev.id}"
             actor_login = actor.login if actor else ""
             project_name = str(getattr(ev, "project_name", "") or "").strip() or None
+            client_id = int(ev.user_id)
+            client = get_client_info(client_id)
+            client_label = f"{client.name or client.login} {client.id}" if client else ""
+            if not _activity_status_matches(status, outcome="failed", status="done"):
+                continue
             search_blob = " ".join(
                 [
                     event_id,
@@ -1130,6 +1202,7 @@ def list_client_activity_events(
                     description,
                     project_name or "",
                     actor_login,
+                    client_label,
                 ]
             ).lower()
             rows.append(
@@ -1142,19 +1215,21 @@ def list_client_activity_events(
                         entity="project",
                         action=_normalize_project_operation(ev.operation),
                         createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        client=client,
                         actor=actor,
                         description=description,
                         outcome="failed",
                         errorMessage=_clean_project_operation_error_message(ev.error_message),
+                        status="done",
                         projectId=ev.project_id,
                         projectName=project_name,
                     ),
                 }
             )
 
-    if "balance" in selected_entities:
+    if include_success and "balance" in selected_entities and status != "pending":
         balance_stmt = select(models.ClientBalanceOperation).where(
-            models.ClientBalanceOperation.client_id == client_id
+            models.ClientBalanceOperation.client_id.in_(normalized_client_ids)
         )
         if start_local:
             balance_stmt = balance_stmt.where(models.ClientBalanceOperation.created_at >= start_local)
@@ -1167,6 +1242,8 @@ def list_client_activity_events(
             description = _build_balance_activity_description(op.op_type, op.amount, op.comment)
             event_id = f"BO-{op.id}"
             actor_login = actor.login if actor else ""
+            client = get_client_info(int(op.client_id))
+            client_label = f"{client.name or client.login} {client.id}" if client else ""
             search_blob = " ".join(
                 [
                     event_id,
@@ -1174,6 +1251,7 @@ def list_client_activity_events(
                     op.op_type,
                     description,
                     actor_login,
+                    client_label,
                 ]
             ).lower()
             rows.append(
@@ -1186,17 +1264,19 @@ def list_client_activity_events(
                         entity="balance",
                         action=op.op_type,
                         createdAt=op.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        client=client,
                         actor=actor,
                         description=description,
+                        status="done",
                         projectId=None,
                         projectName=None,
                     ),
                 }
             )
 
-    if "report" in selected_entities:
+    if include_success and "report" in selected_entities and status != "pending":
         report_stmt = select(models.ReportExport).where(
-            models.ReportExport.target_client_id == client_id
+            models.ReportExport.target_client_id.in_(normalized_client_ids)
         )
         if start_local:
             report_stmt = report_stmt.where(models.ReportExport.created_at >= start_local)
@@ -1209,6 +1289,8 @@ def list_client_activity_events(
             description = _build_report_activity_description(rep)
             event_id = f"RE-{rep.id}"
             actor_login = actor.login if actor else ""
+            client = get_client_info(int(rep.target_client_id))
+            client_label = f"{client.name or client.login} {client.id}" if client else ""
             search_blob = " ".join(
                 [
                     event_id,
@@ -1218,6 +1300,7 @@ def list_client_activity_events(
                     actor_login,
                     rep.from_date or "",
                     rep.to_date or "",
+                    client_label,
                 ]
             ).lower()
             rows.append(
@@ -1230,8 +1313,10 @@ def list_client_activity_events(
                         entity="report",
                         action="create",
                         createdAt=rep.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        client=client,
                         actor=actor,
                         description=description,
+                        status="done",
                         projectId=None,
                         projectName=None,
                         periodFrom=rep.from_date,
@@ -1249,6 +1334,32 @@ def list_client_activity_events(
     page_rows = rows[offset : offset + limit]
     items = [row["item"] for row in page_rows]
     return schemas.ActivityEventListOut(items=items, total=total)
+
+
+def list_client_activity_events(
+    db: Session,
+    client_id: int,
+    offset: int,
+    limit: int,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+    entities: Optional[List[str]] = None,
+    q: Optional[str] = None,
+) -> schemas.ActivityEventListOut:
+    """
+    Единая лента активности по аккаунту клиента.
+    """
+    return list_activity_events_for_clients(
+        db,
+        client_ids=[client_id],
+        offset=offset,
+        limit=limit,
+        start_local=start_local,
+        end_local=end_local,
+        entities=entities,
+        q=q,
+        include_client=False,
+    )
 
 
 def list_project_history(db: Session, project_id: int, user_id: int, limit: int = 100) -> List[schemas.ProjectHistoryItem]:

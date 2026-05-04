@@ -553,10 +553,12 @@ export type ActivityEvent = {
   entity: ActivityEntity;
   action: string;
   createdAt: string;       // YYYY-MM-DD HH:mm:ss
+  client?: UserInfo | null; // клиент, к которому относится событие (для manager-зоны)
   actor?: UserInfo | null; // кто выполнил действие
   description: string;     // краткое описание
   outcome?: 'success' | 'failed';
   errorMessage?: string | null;
+  status?: 'pending' | 'done';
   projectId?: number | null;
   projectName?: string | null;
   periodFrom?: string | null;
@@ -585,6 +587,29 @@ export async function fetchClientActivityEvents(params?: {
   if (params?.q && params.q.trim()) q.set('q', params.q.trim());
   const qs = q.toString();
   return http<ActivityEventsListResp>(`/activity/events${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchAdminActivityEvents(params?: {
+  offset?: number;
+  limit?: number;
+  fromDate?: string;
+  toDate?: string;
+  clientId?: number;
+  entities?: ActivityEntity[];
+  q?: string;
+  status?: 'all' | 'success' | 'failed' | 'pending' | 'done';
+}): Promise<ActivityEventsListResp> {
+  const q = new URLSearchParams();
+  if (params?.offset != null) q.set('offset', String(params.offset));
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  if (params?.fromDate) q.set('fromDate', params.fromDate);
+  if (params?.toDate) q.set('toDate', params.toDate);
+  if (params?.clientId != null) q.set('clientId', String(params.clientId));
+  if (params?.entities && params.entities.length > 0) q.set('entities', params.entities.join(','));
+  if (params?.q && params.q.trim()) q.set('q', params.q.trim());
+  if (params?.status && params.status !== 'all') q.set('status', params.status);
+  const qs = q.toString();
+  return http<ActivityEventsListResp>(`/admin/activity/events${qs ? `?${qs}` : ''}`);
 }
 
 export type HistoryEventDetail = ProjectChangeCardData & {

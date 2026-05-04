@@ -143,6 +143,18 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Отчеты</span>
           </li>
+          {(isAdmin || isAgent) && (
+            <li className={active === 'activity' ? 'active' : ''} onClick={() => onNavigate('activity')}>
+              <span className="nav-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 3-6.7" />
+                  <path d="M3 4v5h5" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </span>
+              <span className="nav-label">История изменений</span>
+            </li>
+          )}
           {!isAgent && (
             <li className={active === 'balance' ? 'active' : ''} onClick={() => onNavigate('balance')}>
               <span className="nav-icon" aria-hidden>

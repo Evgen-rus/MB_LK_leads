@@ -19,7 +19,9 @@ import AdminProjectsScreen, {
 import AdminBalance from './components/AdminBalance';
 import ClientBalance from './components/ClientBalance';
 import ClientActivityHistory from './components/ClientActivityHistory';
+import AdminActivityHistory from './components/AdminActivityHistory';
 import NotificationBell from './components/NotificationBell';
+import AdminActivityBell from './components/AdminActivityBell';
 import { useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
@@ -180,15 +182,6 @@ function App() {
       setView('projects');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-    if (isManager && view === 'activity') {
-      setView('admin-clients');
-      try {
-        localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
       } catch {
         /* ignore */
       }
@@ -423,7 +416,18 @@ function App() {
                 {clientBalance.debt && <div className="sub" style={{ color: '#d23' }}>Долг</div>}
               </div>
             )}
-            {!isManager && (
+            {isManager ? (
+              <AdminActivityBell
+                onOpenFullHistory={() => {
+                  setView('activity');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              />
+            ) : (
               <NotificationBell
                 onOpenFullHistory={() => {
                   setView('activity');
@@ -608,13 +612,7 @@ function App() {
           ) : view === 'reports' ? (
             isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
         ) : view === 'activity' ? (
-          isManager ? (
-            <div className="table-card" style={{ padding: 16 }}>
-              Раздел истории изменений доступен только в клиентском ЛК.
-            </div>
-          ) : (
-            <ClientActivityHistory />
-          )
+          isManager ? <AdminActivityHistory /> : <ClientActivityHistory />
         ) : view === 'balance' ? (
           isManager ? (
             <AdminBalance

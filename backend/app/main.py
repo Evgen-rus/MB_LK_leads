@@ -2495,6 +2495,74 @@ def get_activity_event_detail(
         raise HTTPException(status_code=404, detail="History event not found")
     return detail
 
+
+@app.get("/admin/activity/events", response_model=schemas.ActivityEventListOut)
+def list_admin_activity_events(
+    offset: int = 0,
+    limit: int = 50,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    clientId: Optional[int] = None,
+    entities: Optional[str] = None,
+    q: Optional[str] = None,
+    status: Optional[str] = None,  # all|success|failed|pending|done
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Единая история действий по клиентам, доступным текущему manager-пользователю.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    limit = max(1, min(500, limit))
+    offset = max(0, offset)
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    start_naive: Optional[datetime] = None
+    end_naive: Optional[datetime] = None
+    if fromDate or toDate:
+        if not fromDate and toDate:
+            fromDate = toDate
+        if not toDate and fromDate:
+            toDate = fromDate
+        try:
+            y, m, d = [int(x) for x in (fromDate or "").split("-")]
+            start_local = datetime(y, m, d, 0, 0, 0, tzinfo=tz)
+            y2, m2, d2 = [int(x) for x in (toDate or "").split("-")]
+            end_local = datetime(y2, m2, d2, 23, 59, 59, tzinfo=tz)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid fromDate/toDate format, expected YYYY-MM-DD")
+        start_naive = start_local.replace(tzinfo=None)
+        end_naive = end_local.replace(tzinfo=None)
+
+    if clientId is not None:
+        _ensure_manager_client_access(db_sess, current_manager, int(clientId))
+        client_ids = [int(clientId)]
+    else:
+        client_ids = crud.get_accessible_client_ids_for_manager(db_sess, current_manager)
+
+    entities_list = [e.strip() for e in (entities or "").split(",") if e.strip()] or None
+    status_value = (status or "all").strip().lower()
+    if status_value not in ("all", "success", "failed", "pending", "done"):
+        status_value = "all"
+
+    return crud.list_activity_events_for_clients(
+        db_sess,
+        client_ids=client_ids,
+        offset=offset,
+        limit=limit,
+        start_local=start_naive,
+        end_local=end_naive,
+        entities=entities_list,
+        q=q,
+        status=status_value,
+        include_client=True,
+    )
+
 # ----------------------- Черный список -----------------------
 @app.get("/blacklist", response_model=schemas.BlacklistListOut)
 def list_blacklist(offset: int = 0, limit: int = 50, q: str | None = None, current_user: models.User = Depends(require_auth), db_sess: Session = Depends(get_db)):
