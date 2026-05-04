@@ -1613,17 +1613,18 @@ def create_projects(
         db.flush()
 
         after = _project_to_out(p).dict()
-        db.add(models.AuditEvent(
+        add_project_audit_event(
+            db,
+            project=p,
             user_id=user_id,
             actor_user_id=actor_user_id or user_id,
-            project_id=p.id,
             batch_id=batch_id,
             action='create',
             before=None,
             after=after,
             changed_fields=list(after.keys()),
             via_impersonation=via_impersonation,
-        ))
+        )
         created.append(_project_to_out(p))
 
     db.commit()
@@ -1637,6 +1638,39 @@ def _snapshot_project(p: models.Project) -> dict:
     snapshot["deletedAt"] = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if deleted_at else None
     snapshot["providerLeadsGraceUntil"] = grace_until.strftime("%Y-%m-%d %H:%M:%S") if grace_until else None
     return snapshot
+
+
+def _project_audit_should_start_done(project: models.Project) -> bool:
+    return str(getattr(project, "collection_source", "") or "").strip() != "СМС"
+
+
+def add_project_audit_event(
+    db: Session,
+    *,
+    project: models.Project,
+    user_id: int,
+    actor_user_id: Optional[int],
+    action: str,
+    before: Optional[dict],
+    after: Optional[dict],
+    changed_fields: Optional[List[str]],
+    via_impersonation: bool,
+    batch_id: Optional[str] = None,
+) -> None:
+    event = models.AuditEvent(
+        user_id=user_id,
+        actor_user_id=actor_user_id,
+        project_id=project.id,
+        batch_id=batch_id,
+        action=action,
+        before=before,
+        after=after,
+        changed_fields=changed_fields,
+        via_impersonation=via_impersonation,
+    )
+    if _project_audit_should_start_done(project):
+        event.admin_processed_at = now_msk()
+    db.add(event)
 
 
 def _apply_project_deleted_state(
@@ -1701,16 +1735,17 @@ def update_project(
 
     after = _snapshot_project(p)
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
-    db.add(models.AuditEvent(
+    add_project_audit_event(
+        db,
+        project=p,
         user_id=user_id,
         actor_user_id=actor_user_id or user_id,
-        project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed,
         via_impersonation=via_impersonation,
-    ))
+    )
     db.commit()
     db.refresh(p)
     return _project_to_out(p)
@@ -1735,16 +1770,17 @@ def delete_project(
     p.updated_at = deleted_now
     db.flush()
     after = _snapshot_project(p)
-    db.add(models.AuditEvent(
+    add_project_audit_event(
+        db,
+        project=p,
         user_id=user_id,
         actor_user_id=actor_user_id or user_id,
-        project_id=project_id,
         action='delete',
         before=before,
         after=after,
         changed_fields=['status', 'deletedAt', 'providerLeadsGraceUntil'],
         via_impersonation=via_impersonation,
-    ))
+    )
     db.commit()
     return True
 
@@ -4290,16 +4326,17 @@ def admin_update_project(
 
     after = _snapshot_project(p)
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
-    db.add(models.AuditEvent(
+    add_project_audit_event(
+        db,
+        project=p,
         user_id=admin_user_id,
         actor_user_id=admin_user_id,
-        project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed,
         via_impersonation=False,
-    ))
+    )
     db.commit()
     db.refresh(p)
 
@@ -4331,16 +4368,17 @@ def update_project_status_with_audit(
         after["limitControlReason"] = audit_reason
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
 
-    db.add(models.AuditEvent(
+    add_project_audit_event(
+        db,
+        project=p,
         user_id=event_user_id,
         actor_user_id=actor_user_id,
-        project_id=p.id,
         action='update',
         before=before,
         after=after,
         changed_fields=changed or ['status'],
         via_impersonation=False,
-    ))
+    )
     db.commit()
     return True
 
@@ -4372,16 +4410,17 @@ def admin_delete_project(db: Session, project_id: int, admin_user_id: int) -> bo
     p.updated_at = deleted_now
     db.flush()
     after = _snapshot_project(p)
-    db.add(models.AuditEvent(
+    add_project_audit_event(
+        db,
+        project=p,
         user_id=admin_user_id,
         actor_user_id=admin_user_id,
-        project_id=project_id,
         action='delete',
         before=before,
         after=after,
         changed_fields=['status', 'deletedAt', 'providerLeadsGraceUntil'],
         via_impersonation=False,
-    ))
+    )
     db.commit()
     return True
 

@@ -1515,17 +1515,18 @@ def _create_projects_with_unique_names(
         project_row.unique_name_applied = True
         project_row.updated_at = now_msk()
         after = crud._project_to_out(project_row).dict()
-        db_sess.add(models.AuditEvent(
+        crud.add_project_audit_event(
+            db_sess,
+            project=project_row,
             user_id=current_user.id,
             actor_user_id=actor_user_id or current_user.id,
-            project_id=project_row.id,
             batch_id=batch_id,
             action='create',
             before=None,
             after=after,
             changed_fields=list(after.keys()),
             via_impersonation=via_impersonation,
-        ))
+        )
         db_sess.commit()
         db_sess.refresh(project_row)
         created.append(crud._project_to_out(project_row))
