@@ -40,9 +40,6 @@ type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'de
 
 const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
 const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
-const SMS_SOURCE = 'СМС';
-const SMS_EDIT_BLOCKED_MESSAGE =
-  'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
 const SEARCH_DEBOUNCE_MS = 400;
 
 type ApiError = Error & {
@@ -403,10 +400,6 @@ function ProjectsTable({
       window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
       return;
     }
-    if (row.collectionSource === SMS_SOURCE) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
-      return;
-    }
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
     try {
       const payload = buildUpdatePayloadFromProject(row, { status: nextStatus });
@@ -450,10 +443,6 @@ function ProjectsTable({
         : 'Не удалось удалить проект. Попробуйте позже.';
       window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
     }
-  }
-
-  function handleBlockedSmsEditNotice() {
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
   }
 
   async function handleBulkDaysSubmit(days: Day[]) {
@@ -738,18 +727,10 @@ function ProjectsTable({
                             window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
                             return;
                           }
-                          if (row.collectionSource === SMS_SOURCE) {
-                            handleBlockedSmsEditNotice();
-                            return;
-                          }
                           onEdit?.(row);
                         },
-                        disabled: projectsMutationLocked || row.collectionSource === SMS_SOURCE,
-                        title: projectsMutationLocked
-                          ? projectsMutationLockMessage
-                          : row.collectionSource === SMS_SOURCE
-                            ? SMS_EDIT_BLOCKED_MESSAGE
-                            : undefined,
+                        disabled: projectsMutationLocked,
+                        title: projectsMutationLocked ? projectsMutationLockMessage : undefined,
                       },
                       {
                         key: 'history',
@@ -789,7 +770,7 @@ function ProjectsTable({
                   style={{
                     whiteSpace: 'nowrap',
                     cursor:
-                      projectsMutationLocked || row.status === 'Удалён' || row.collectionSource === SMS_SOURCE
+                      projectsMutationLocked || row.status === 'Удалён'
                         ? 'default'
                         : 'pointer',
                   }}
@@ -798,9 +779,7 @@ function ProjectsTable({
                       ? projectsMutationLockMessage
                       : row.status === 'Удалён'
                       ? 'Проект помечен как удалённый'
-                      : row.collectionSource === SMS_SOURCE
-                        ? SMS_EDIT_BLOCKED_MESSAGE
-                        : 'Нажмите, чтобы переключить статус проекта'
+                      : 'Нажмите, чтобы переключить статус проекта'
                   }
                   onClick={() => {
                     if (projectsMutationLocked) {
@@ -808,10 +787,6 @@ function ProjectsTable({
                       return;
                     }
                     if (row.status === 'Удалён') return;
-                    if (row.collectionSource === SMS_SOURCE) {
-                      handleBlockedSmsEditNotice();
-                      return;
-                    }
                     handleToggleStatus(row);
                   }}
                 >
@@ -859,14 +834,8 @@ function ProjectsTable({
                   </button>
                   <button
                     className="icon-btn"
-                    title={row.collectionSource === SMS_SOURCE ? SMS_EDIT_BLOCKED_MESSAGE : 'Настройки'}
-                    onClick={() => {
-                      if (row.collectionSource === SMS_SOURCE) {
-                        handleBlockedSmsEditNotice();
-                        return;
-                      }
-                      onEdit?.(row);
-                    }}
+                    title="Настройки"
+                    onClick={() => onEdit?.(row)}
                   >
                     ⚙️
                   </button>

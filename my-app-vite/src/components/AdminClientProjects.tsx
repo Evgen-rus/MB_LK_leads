@@ -38,9 +38,6 @@ type AdminClientProjectsProps = {
 // потому что /admin/leads и /leads требуют fromDate/toDate. Даем максимально широкий интервал.
 const ALL_TIME_FROM_DATE = '1970-01-01';
 const ALL_TIME_TO_DATE = '2099-12-31';
-const SMS_SOURCE = 'СМС';
-const SMS_EDIT_BLOCKED_MESSAGE =
-  'Редактирование проектов с источником СМС временно недоступно. Обратитесь в техподдержку.';
 const SEARCH_DEBOUNCE_MS = 400;
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -179,16 +176,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
     if (project.status === 'Удалён') return;
-    if (project.collectionSource === SMS_SOURCE) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
-      return;
-    }
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     await applyUpdate(project, { status: nextStatus });
-  }
-
-  function handleBlockedSmsEditNotice() {
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: SMS_EDIT_BLOCKED_MESSAGE }));
   }
 
   function handleSort(nextSortBy: ProjectSortBy) {
@@ -399,15 +388,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           key: 'settings',
                           label: 'Настройки проекта',
                           onSelect: () => {
-                            if (row.collectionSource === SMS_SOURCE) {
-                              handleBlockedSmsEditNotice();
-                              return;
-                            }
                             setEditing(row);
                             setEditingReadOnly(!canEditProject(row));
                           },
-                          disabled: row.collectionSource === SMS_SOURCE,
-                          title: row.collectionSource === SMS_SOURCE ? SMS_EDIT_BLOCKED_MESSAGE : undefined,
                         },
                         {
                           key: 'history',
@@ -428,20 +411,14 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                             ? 'badge badge--orange'
                             : 'badge badge--gray'
                       }
-                      style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' || row.collectionSource === SMS_SOURCE ? 'default' : 'pointer' }}
+                      style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
                       title={
                         row.status === 'Удалён'
                           ? 'Проект помечен как удалённый'
-                          : row.collectionSource === SMS_SOURCE
-                            ? SMS_EDIT_BLOCKED_MESSAGE
-                            : 'Нажмите, чтобы переключить статус проекта'
+                          : 'Нажмите, чтобы переключить статус проекта'
                       }
                       onClick={() => {
                         if (row.status === 'Удалён') return;
-                        if (row.collectionSource === SMS_SOURCE) {
-                          handleBlockedSmsEditNotice();
-                          return;
-                        }
                         handleToggleStatus(row);
                       }}
                     >
@@ -493,17 +470,11 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           <button
                             className="icon-btn"
                             title={
-                              row.collectionSource === SMS_SOURCE
-                                ? SMS_EDIT_BLOCKED_MESSAGE
-                                : canEdit
-                                  ? 'Редактировать проект'
-                                  : 'Только просмотр (редактировать свои или через ЛК клиента)'
+                              canEdit
+                                ? 'Редактировать проект'
+                                : 'Только просмотр (редактировать свои или через ЛК клиента)'
                             }
                             onClick={() => {
-                              if (row.collectionSource === SMS_SOURCE) {
-                                handleBlockedSmsEditNotice();
-                                return;
-                              }
                               setEditing(row);
                               setEditingReadOnly(!canEdit);
                             }}

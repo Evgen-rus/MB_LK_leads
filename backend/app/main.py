@@ -32,7 +32,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import inspect, select, text
+from sqlalchemy import inspect, or_, select, text
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
@@ -598,7 +598,10 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
         select(models.Project).where(
             models.Project.user_id == int(client_id),
             models.Project.status == "Активен",
-            models.Project.provider_project_id.is_not(None),
+            or_(
+                models.Project.provider_project_id.is_not(None),
+                models.Project.collection_source == "СМС",
+            ),
         )
     ).scalars().all()
     active_project_snapshots = [_snapshot_limit_control_project(project) for project in active_projects]
@@ -631,12 +634,14 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
     for project in pause_candidates:
         if active_sum <= remaining:
             break
-        if not project["provider_project_id"]:
+        skip_provider_sync = _should_skip_provider_sync_for_status_change(project, "На паузе")
+        if not skip_provider_sync and not project["provider_project_id"]:
             skipped += 1
             continue
         try:
-            project_obj = SimpleNamespace(**project)
-            prostats.update_project_status(str(project["provider_project_id"]), project_obj, "На паузе")
+            if not skip_provider_sync:
+                project_obj = SimpleNamespace(**project)
+                prostats.update_project_status(str(project["provider_project_id"]), project_obj, "На паузе")
             with SessionLocal() as update_sess:  # type: Session
                 ok = crud.update_project_status_with_audit(
                     update_sess,
@@ -702,6 +707,18 @@ def _snapshot_limit_control_project(project: models.Project) -> dict:
 
 def _project_snapshot_for_prostats(project: models.Project) -> SimpleNamespace:
     return SimpleNamespace(**_snapshot_limit_control_project(project))
+
+
+def _project_field(project: Any, key: str, default: Any = None) -> Any:
+    if isinstance(project, dict):
+        return project.get(key, default)
+    return getattr(project, key, default)
+
+
+def _should_skip_provider_sync_for_status_change(project: Any, next_status: str) -> bool:
+    # Для SMS-проектов обновление и ручное переключение статуса живут только локально:
+    # провайдер не поддерживает редактирование таких проектов.
+    return next_status != "Удалён" and str(_project_field(project, "collection_source", "") or "").strip() == "СМС"
 
 
 def _find_duplicates_with_new_session(
@@ -1672,6 +1689,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    skip_provider_sync = _should_skip_provider_sync_for_status_change(project_row, payload.status)
     if project_row.status == "Удалён":
         _record_failed_project_operation(
             user_id=current_user.id,
@@ -1685,7 +1703,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
             via_impersonation=via_impersonation,
         )
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
-    if not project_row.provider_project_id:
+    if not skip_provider_sync and not project_row.provider_project_id:
         _record_failed_project_operation(
             user_id=current_user.id,
             actor_user_id=actor_user_id,
@@ -1742,54 +1760,68 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 detail=detail,
             )
     warning_text = None
-    project_snapshot = _project_snapshot_for_prostats(project_row)
-    db_sess.rollback()
-    try:
-        if payload.status == "Удалён":
-            prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
-        else:
-            result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
-            missing_items = result.get("missing_items") or []
-            target_type = result.get("target_type")
-            if missing_items and target_type in ("hosts", "calls"):
-                duplicates = _find_duplicates_with_new_session(
-                    missing_items,
-                    target_type,
-                    user_id=current_user.id,
-                    provider_project_id=project_snapshot.provider_project_id,
-                    exclude_project_id=project_snapshot.id,
-                )
-                warning_text = prostats._build_partial_warning(
-                    payload.name,
-                    target_type,
-                    missing_items,
-                    duplicates,
-                    action="обновлён",
-                )
-                if target_type == "hosts":
-                    payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
-                else:
-                    payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
-    except prostats.ProstatsError as exc:
-        detail = {"message": exc.message, **(exc.details or {})}
-        if payload.status != "Удалён":
-            target_type = prostats._type_from_collection(project_snapshot.collection_source)
-            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
-                items = payload.sites if target_type == "hosts" else payload.phones
-                duplicates = _find_duplicates_with_new_session(
-                    items or [],
-                    target_type,
-                    user_id=current_user.id,
-                    provider_project_id=project_snapshot.provider_project_id,
-                    exclude_project_id=project_snapshot.id,
-                )
-                if duplicates:
-                    detail["duplicates"] = duplicates
-                    detail["message"] = (
-                        "Домены уже используются в наших проектах."
-                        if target_type == "hosts"
-                        else "Номера уже используются в наших проектах."
+    if not skip_provider_sync:
+        project_snapshot = _project_snapshot_for_prostats(project_row)
+        db_sess.rollback()
+        try:
+            if payload.status == "Удалён":
+                prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
+            else:
+                result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
+                missing_items = result.get("missing_items") or []
+                target_type = result.get("target_type")
+                if missing_items and target_type in ("hosts", "calls"):
+                    duplicates = _find_duplicates_with_new_session(
+                        missing_items,
+                        target_type,
+                        user_id=current_user.id,
+                        provider_project_id=project_snapshot.provider_project_id,
+                        exclude_project_id=project_snapshot.id,
                     )
+                    warning_text = prostats._build_partial_warning(
+                        payload.name,
+                        target_type,
+                        missing_items,
+                        duplicates,
+                        action="обновлён",
+                    )
+                    if target_type == "hosts":
+                        payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
+                    else:
+                        payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
+        except prostats.ProstatsError as exc:
+            detail = {"message": exc.message, **(exc.details or {})}
+            if payload.status != "Удалён":
+                target_type = prostats._type_from_collection(project_snapshot.collection_source)
+                if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
+                    items = payload.sites if target_type == "hosts" else payload.phones
+                    duplicates = _find_duplicates_with_new_session(
+                        items or [],
+                        target_type,
+                        user_id=current_user.id,
+                        provider_project_id=project_snapshot.provider_project_id,
+                        exclude_project_id=project_snapshot.id,
+                    )
+                    if duplicates:
+                        detail["duplicates"] = duplicates
+                        detail["message"] = (
+                            "Домены уже используются в наших проектах."
+                            if target_type == "hosts"
+                            else "Номера уже используются в наших проектах."
+                        )
+                        _record_failed_project_operation(
+                            user_id=current_user.id,
+                            actor_user_id=actor_user_id,
+                            operation=operation,
+                            project_id=project_id,
+                            project_name=project_snapshot.name,
+                            request_payload=_project_payload_for_history(payload),
+                            error_message=_http_error_message(detail),
+                            error_code=str(exc.status_code) if exc.status_code else None,
+                            via_impersonation=via_impersonation,
+                        )
+                        raise HTTPException(status_code=422, detail=detail)
+                    detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
                     _record_failed_project_operation(
                         user_id=current_user.id,
                         actor_user_id=actor_user_id,
@@ -1802,31 +1834,18 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                         via_impersonation=via_impersonation,
                     )
                     raise HTTPException(status_code=422, detail=detail)
-                detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
-                _record_failed_project_operation(
-                    user_id=current_user.id,
-                    actor_user_id=actor_user_id,
-                    operation=operation,
-                    project_id=project_id,
-                    project_name=project_snapshot.name,
-                    request_payload=_project_payload_for_history(payload),
-                    error_message=_http_error_message(detail),
-                    error_code=str(exc.status_code) if exc.status_code else None,
-                    via_impersonation=via_impersonation,
-                )
-                raise HTTPException(status_code=422, detail=detail)
-        _record_failed_project_operation(
-            user_id=current_user.id,
-            actor_user_id=actor_user_id,
-            operation=operation,
-            project_id=project_id,
-            project_name=project_snapshot.name,
-            request_payload=_project_payload_for_history(payload),
-            error_message=_http_error_message(detail),
-            error_code=str(exc.status_code) if exc.status_code else None,
-            via_impersonation=via_impersonation,
-        )
-        raise HTTPException(status_code=exc.status_code, detail=detail)
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_snapshot.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message=_http_error_message(detail),
+                error_code=str(exc.status_code) if exc.status_code else None,
+                via_impersonation=via_impersonation,
+            )
+            raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
         with SessionLocal() as write_sess:  # type: Session
@@ -3190,6 +3209,7 @@ def admin_update_project(
     project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
     operation = "delete" if payload.status == "Удалён" else "update"
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    skip_provider_sync = _should_skip_provider_sync_for_status_change(project_row, payload.status)
     if project_row.status == "Удалён":
         if owner_user_id:
             _record_failed_project_operation(
@@ -3204,7 +3224,7 @@ def admin_update_project(
                 via_impersonation=False,
             )
         raise HTTPException(status_code=409, detail="Проект удалён. Редактирование запрещено.")
-    if not project_row.provider_project_id:
+    if not skip_provider_sync and not project_row.provider_project_id:
         if owner_user_id:
             _record_failed_project_operation(
                 user_id=owner_user_id,
@@ -3266,54 +3286,69 @@ def admin_update_project(
                 detail=detail,
             )
     warning_text = None
-    project_snapshot = _project_snapshot_for_prostats(project_row)
-    db_sess.rollback()
-    try:
-        if payload.status == "Удалён":
-            prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
-        else:
-            result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
-            missing_items = result.get("missing_items") or []
-            target_type = result.get("target_type")
-            if missing_items and target_type in ("hosts", "calls"):
-                duplicates = _find_duplicates_with_new_session(
-                    missing_items,
-                    target_type,
-                    user_id=owner_user_id or 0,
-                    provider_project_id=project_snapshot.provider_project_id,
-                    exclude_project_id=project_snapshot.id,
-                )
-                warning_text = prostats._build_partial_warning(
-                    payload.name,
-                    target_type,
-                    missing_items,
-                    duplicates,
-                    action="обновлён",
-                )
-                if target_type == "hosts":
-                    payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
-                else:
-                    payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
-    except prostats.ProstatsError as exc:
-        detail = {"message": exc.message, **(exc.details or {})}
-        if payload.status != "Удалён":
-            target_type = prostats._type_from_collection(project_snapshot.collection_source)
-            if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
-                items = payload.sites if target_type == "hosts" else payload.phones
-                duplicates = _find_duplicates_with_new_session(
-                    items or [],
-                    target_type,
-                    user_id=owner_user_id or 0,
-                    provider_project_id=project_snapshot.provider_project_id,
-                    exclude_project_id=project_snapshot.id,
-                )
-                if duplicates:
-                    detail["duplicates"] = duplicates
-                    detail["message"] = (
-                        "Домены уже используются в наших проектах."
-                        if target_type == "hosts"
-                        else "Номера уже используются в наших проектах."
+    if not skip_provider_sync:
+        project_snapshot = _project_snapshot_for_prostats(project_row)
+        db_sess.rollback()
+        try:
+            if payload.status == "Удалён":
+                prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
+            else:
+                result = prostats.update_project(str(project_snapshot.provider_project_id), project_snapshot, payload)
+                missing_items = result.get("missing_items") or []
+                target_type = result.get("target_type")
+                if missing_items and target_type in ("hosts", "calls"):
+                    duplicates = _find_duplicates_with_new_session(
+                        missing_items,
+                        target_type,
+                        user_id=owner_user_id or 0,
+                        provider_project_id=project_snapshot.provider_project_id,
+                        exclude_project_id=project_snapshot.id,
                     )
+                    warning_text = prostats._build_partial_warning(
+                        payload.name,
+                        target_type,
+                        missing_items,
+                        duplicates,
+                        action="обновлён",
+                    )
+                    if target_type == "hosts":
+                        payload.sites = [s for s in (payload.sites or []) if s not in missing_items]
+                    else:
+                        payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
+        except prostats.ProstatsError as exc:
+            detail = {"message": exc.message, **(exc.details or {})}
+            if payload.status != "Удалён":
+                target_type = prostats._type_from_collection(project_snapshot.collection_source)
+                if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
+                    items = payload.sites if target_type == "hosts" else payload.phones
+                    duplicates = _find_duplicates_with_new_session(
+                        items or [],
+                        target_type,
+                        user_id=owner_user_id or 0,
+                        provider_project_id=project_snapshot.provider_project_id,
+                        exclude_project_id=project_snapshot.id,
+                    )
+                    if duplicates:
+                        detail["duplicates"] = duplicates
+                        detail["message"] = (
+                            "Домены уже используются в наших проектах."
+                            if target_type == "hosts"
+                            else "Номера уже используются в наших проектах."
+                        )
+                        if owner_user_id:
+                            _record_failed_project_operation(
+                                user_id=owner_user_id,
+                                actor_user_id=current_manager.id,
+                                operation=operation,
+                                project_id=project_id,
+                                project_name=project_snapshot.name,
+                                request_payload=_project_payload_for_history(payload),
+                                error_message=_http_error_message(detail),
+                                error_code=str(exc.status_code) if exc.status_code else None,
+                                via_impersonation=False,
+                            )
+                        raise HTTPException(status_code=422, detail=detail)
+                    detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
                     if owner_user_id:
                         _record_failed_project_operation(
                             user_id=owner_user_id,
@@ -3327,33 +3362,19 @@ def admin_update_project(
                             via_impersonation=False,
                         )
                     raise HTTPException(status_code=422, detail=detail)
-                detail["message"] = "Данные номера/сайты используются в других проектах. Подробности недоступны."
-                if owner_user_id:
-                    _record_failed_project_operation(
-                        user_id=owner_user_id,
-                        actor_user_id=current_manager.id,
-                        operation=operation,
-                        project_id=project_id,
-                        project_name=project_snapshot.name,
-                        request_payload=_project_payload_for_history(payload),
-                        error_message=_http_error_message(detail),
-                        error_code=str(exc.status_code) if exc.status_code else None,
-                        via_impersonation=False,
-                    )
-                raise HTTPException(status_code=422, detail=detail)
-        if owner_user_id:
-            _record_failed_project_operation(
-                user_id=owner_user_id,
-                actor_user_id=current_manager.id,
-                operation=operation,
-                project_id=project_id,
-                project_name=project_snapshot.name,
-                request_payload=_project_payload_for_history(payload),
-                error_message=_http_error_message(detail),
-                error_code=str(exc.status_code) if exc.status_code else None,
-                via_impersonation=False,
-            )
-        raise HTTPException(status_code=exc.status_code, detail=detail)
+            if owner_user_id:
+                _record_failed_project_operation(
+                    user_id=owner_user_id,
+                    actor_user_id=current_manager.id,
+                    operation=operation,
+                    project_id=project_id,
+                    project_name=project_snapshot.name,
+                    request_payload=_project_payload_for_history(payload),
+                    error_message=_http_error_message(detail),
+                    error_code=str(exc.status_code) if exc.status_code else None,
+                    via_impersonation=False,
+                )
+            raise HTTPException(status_code=exc.status_code, detail=detail)
 
     if payload.status == "Удалён":
         with SessionLocal() as write_sess:  # type: Session
@@ -3756,10 +3777,14 @@ def _pause_and_lock_client_projects_by_admin(client_id: int, admin_user_id: int,
 
     paused_ids: List[int] = []
     for project_snapshot in active_project_snapshots:
-        if project_snapshot.status == "Удалён" or not project_snapshot.provider_project_id:
+        if project_snapshot.status == "Удалён":
+            continue
+        skip_provider_sync = _should_skip_provider_sync_for_status_change(project_snapshot, "На паузе")
+        if not skip_provider_sync and not project_snapshot.provider_project_id:
             continue
         try:
-            prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "На паузе")
+            if not skip_provider_sync:
+                prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "На паузе")
             with SessionLocal() as write_sess:  # type: Session
                 ok = crud.admin_update_project_status_only(
                     write_sess,
@@ -3841,13 +3866,15 @@ def admin_pause_client_projects(
         if p.status == "Удалён":
             skipped_count += 1
             continue
-        if not p.provider_project_id:
+        skip_provider_sync = _should_skip_provider_sync_for_status_change(p, "На паузе")
+        if not skip_provider_sync and not p.provider_project_id:
             skipped_count += 1
             errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
             continue
         try:
-            db_sess.rollback()
-            prostats.update_project_status(str(p.provider_project_id), p, "На паузе")
+            if not skip_provider_sync:
+                db_sess.rollback()
+                prostats.update_project_status(str(p.provider_project_id), p, "На паузе")
             with SessionLocal() as write_sess:  # type: Session
                 ok = crud.admin_update_project_status_only(
                     write_sess,
@@ -3953,7 +3980,8 @@ def admin_resume_client_projects(
         if p.status == "Удалён":
             skipped_count += 1
             continue
-        if not p.provider_project_id:
+        skip_provider_sync = _should_skip_provider_sync_for_status_change(p, "Активен")
+        if not skip_provider_sync and not p.provider_project_id:
             skipped_count += 1
             errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
             continue
@@ -3972,8 +4000,9 @@ def admin_resume_client_projects(
             continue
         try:
             project_snapshot = project_snapshots[int(p.id)]
-            db_sess.rollback()
-            prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "Активен")
+            if not skip_provider_sync:
+                db_sess.rollback()
+                prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "Активен")
             with SessionLocal() as write_sess:  # type: Session
                 ok = crud.admin_update_project_status_only(
                     write_sess,
