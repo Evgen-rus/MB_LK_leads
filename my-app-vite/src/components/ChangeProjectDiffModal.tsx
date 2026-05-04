@@ -7,6 +7,7 @@ import {
   formatSourceTextForDisplay,
   toDisplaySourceCode,
 } from '../utils/sourceCodeDisplay';
+import { regionLabelByCode } from '../data/regions';
 
 type Props = {
   change: ProjectChangeCardData;
@@ -82,6 +83,7 @@ function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props)
   );
 
   const isChanged = (key: FieldKey) => changed.has(key);
+  const formatRegion = (code: string) => regionLabelByCode(code);
 
   const pill = (text: string, color = '#ececff', fg = '#363568') => (
     <span
@@ -323,13 +325,13 @@ function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props)
                 {afterRegions.length
                   ? afterRegions.map((r) => (
                       <span key={r} className="badge badge--secondary" style={{ margin: 4, display: 'inline-block' }}>
-                        {r}
+                        {formatRegion(r)}
                       </span>
                     ))
                   : <span className="muted">Не заданы</span>}
               </div>
               {isChanged('regions' as FieldKey) && beforeRegions.length > 0 && (
-                <span className="sub">Было: {beforeRegions.join(', ') || '—'}</span>
+                <span className="sub">Было: {beforeRegions.map(formatRegion).join(', ') || '—'}</span>
               )}
             </div>
 
