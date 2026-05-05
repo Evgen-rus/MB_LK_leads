@@ -110,7 +110,21 @@ def _get_token() -> str:
 
 
 def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
-    response = requests.post(_get_api_url(), json=payload, timeout=60)
+    try:
+        response = requests.post(_get_api_url(), json=payload, timeout=60)
+    except requests.exceptions.Timeout as exc:
+        raise ProstatsError(
+            "API провайдера не ответило за 60 секунд",
+            status_code=504,
+            details={"error": str(exc)},
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        raise ProstatsError(
+            "Не удалось подключиться к API провайдера",
+            status_code=502,
+            details={"error": str(exc)},
+        ) from exc
+
     raw_text = response.text
     parsed = None
     try:
