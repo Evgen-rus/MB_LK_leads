@@ -272,6 +272,52 @@ def _ensure_project_provider_leads_grace_columns() -> None:
 _ensure_project_provider_leads_grace_columns()
 
 
+def _ensure_active_project_name_unique_index() -> None:
+    """
+    PostgreSQL guard against duplicate names among non-deleted projects.
+    The webhook resolves provider leads by exact project name, so active
+    project names must be globally unique.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "projects" not in tables:
+        return
+
+    duplicate_check_sql = text(
+        """
+        SELECT name, COUNT(*) AS count
+        FROM projects
+        WHERE status <> 'Удалён'
+        GROUP BY name
+        HAVING COUNT(*) > 1
+        LIMIT 10
+        """
+    )
+    with engine.begin() as conn:
+        duplicates = conn.execute(duplicate_check_sql).fetchall()
+        if duplicates:
+            logging.getLogger("app").error(
+                "Cannot create uq_projects_active_name: duplicate active project names exist: %s",
+                [{"name": row[0], "count": row[1]} for row in duplicates],
+            )
+            return
+        conn.execute(
+            text(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_projects_active_name
+                ON projects (name)
+                WHERE status <> 'Удалён'
+                """
+            )
+        )
+
+
+_ensure_active_project_name_unique_index()
+
+
 def get_db():
     db_sess = SessionLocal()
     try:
@@ -393,6 +439,36 @@ def _extract_project_display_name(name: Optional[str]) -> str:
     return _strip_mb_marker(_strip_provider_prefix_from_name(name))
 
 
+def _project_name_unavailable_detail() -> dict:
+    return {
+        "code": "PROJECT_NAME_UNAVAILABLE",
+        "message": crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+    }
+
+
+def _raise_project_name_unavailable() -> None:
+    raise HTTPException(status_code=409, detail=_project_name_unavailable_detail())
+
+
+def _is_project_name_unique_violation(exc: IntegrityError) -> bool:
+    text_value = f"{getattr(exc, 'orig', '')} {exc}"
+    return "uq_projects_active_name" in text_value
+
+
+def _ensure_project_name_available(
+    db_sess: Session,
+    project_name: str,
+    *,
+    exclude_project_id: Optional[int] = None,
+) -> None:
+    if crud.active_project_name_exists(
+        db_sess,
+        project_name,
+        exclude_project_id=exclude_project_id,
+    ):
+        _raise_project_name_unavailable()
+
+
 def _required_project_name_prefix(project: models.Project) -> str:
     prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
     if bool(getattr(project, "unique_name_applied", False)):
@@ -410,6 +486,7 @@ def _validate_create_project_item_name(item: schemas.CreateProjectItem) -> None:
         )
     if not _extract_project_display_name(raw_name):
         raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+    item.name = raw_name
 
 
 def _validate_project_name_update(project: models.Project, proposed_name: str) -> str:
@@ -430,11 +507,42 @@ def _validate_project_name_update(project: models.Project, proposed_name: str) -
     return raw_name
 
 
+def _ensure_create_project_names_available(
+    db_sess: Session,
+    items: List[schemas.CreateProjectItem],
+    *,
+    user_id: int,
+    actor_user_id: int,
+    via_impersonation: bool,
+) -> None:
+    seen: set[str] = set()
+    for item in items:
+        name = str(item.name or "").strip()
+        if name in seen or crud.active_project_name_exists(db_sess, name):
+            _record_failed_project_operation(
+                user_id=user_id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=name,
+                request_payload=_project_payload_for_history(item),
+                error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                error_code="PROJECT_NAME_UNAVAILABLE",
+                via_impersonation=via_impersonation,
+            )
+            _raise_project_name_unavailable()
+        seen.add(name)
+
+
 def _build_unique_project_name(data_source_code: str, project_id: int, raw_name: str) -> str:
     base_name = _extract_project_display_name(raw_name)
     if not base_name:
         raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
     return f'{_provider_prefix_for_code(data_source_code)}[MB{int(project_id)}] {base_name}'
+
+
+def _build_pending_unique_project_name(item: schemas.CreateProjectItem) -> str:
+    base_name = _extract_project_display_name(item.name) or "project"
+    return f"{_provider_prefix_for_code(item.dataSourceCode)}[MBPENDING{secrets.token_hex(8)}] {base_name}"
 
 
 def _build_project_update_from_create_item(item: schemas.CreateProjectItem, *, name: str, tag: Optional[str] = None) -> schemas.ProjectUpdate:
@@ -1446,10 +1554,62 @@ def _create_projects_with_unique_names(
             provider_id=provider_id_value,
             unique_name_applied=False,
         )
+        pending_name = _build_pending_unique_project_name(item)
+        project_row.name = pending_name
+        project_row.tag = pending_name
         db_sess.add(project_row)
-        db_sess.flush()
+        try:
+            db_sess.flush()
+        except IntegrityError as exc:
+            db_sess.rollback()
+            if _is_project_name_unique_violation(exc):
+                if provider_id_value:
+                    try:
+                        prostats.delete_project(str(provider_id_value), project_row)
+                    except prostats.ProstatsError:
+                        logger.warning(
+                            "Failed to cleanup provider project after local name conflict: provider_project_id=%s",
+                            provider_id_value,
+                            exc_info=True,
+                        )
+                _record_failed_project_operation(
+                    user_id=current_user.id,
+                    actor_user_id=actor_user_id,
+                    operation="create",
+                    project_name=item.name,
+                    request_payload=_project_payload_for_history(item),
+                    error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                    error_code="PROJECT_NAME_UNAVAILABLE",
+                    via_impersonation=via_impersonation,
+                )
+                notices.append(f'Проект "{item.name}" не создан: {crud.PROJECT_NAME_UNAVAILABLE_MESSAGE}')
+                continue
+            raise
 
         final_name = _build_unique_project_name(item.dataSourceCode, int(project_row.id), item.name)
+        if crud.active_project_name_exists(db_sess, final_name, exclude_project_id=int(project_row.id)):
+            if provider_id_value:
+                try:
+                    prostats.delete_project(str(provider_id_value), project_row)
+                except prostats.ProstatsError:
+                    logger.warning(
+                        "Failed to cleanup provider project after final name conflict: provider_project_id=%s",
+                        provider_id_value,
+                        exc_info=True,
+                    )
+            db_sess.rollback()
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation="create",
+                project_name=item.name,
+                request_payload=_project_payload_for_history(item),
+                error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                error_code="PROJECT_NAME_UNAVAILABLE",
+                via_impersonation=via_impersonation,
+            )
+            notices.append(f'Проект "{item.name}" не создан: {crud.PROJECT_NAME_UNAVAILABLE_MESSAGE}')
+            continue
         rename_payload = _build_project_update_from_create_item(item, name=final_name, tag=final_name)
 
         try:
@@ -1527,7 +1687,24 @@ def _create_projects_with_unique_names(
             changed_fields=list(after.keys()),
             via_impersonation=via_impersonation,
         )
-        db_sess.commit()
+        try:
+            db_sess.commit()
+        except IntegrityError as exc:
+            db_sess.rollback()
+            if _is_project_name_unique_violation(exc):
+                _record_failed_project_operation(
+                    user_id=current_user.id,
+                    actor_user_id=actor_user_id,
+                    operation="create",
+                    project_name=item.name,
+                    request_payload=_project_payload_for_history(item),
+                    error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                    error_code="PROJECT_NAME_UNAVAILABLE",
+                    via_impersonation=via_impersonation,
+                )
+                notices.append(f'Проект "{item.name}" не создан: {crud.PROJECT_NAME_UNAVAILABLE_MESSAGE}')
+                continue
+            raise
         db_sess.refresh(project_row)
         created.append(crud._project_to_out(project_row))
         if success_notice:
@@ -1586,6 +1763,14 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="projects_create")
         crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
         return schemas.CreateProjectsOut(items=created, warning=warning_text)
+
+    _ensure_create_project_names_available(
+        db_sess,
+        payload.items,
+        user_id=current_user.id,
+        actor_user_id=actor_user_id,
+        via_impersonation=via_impersonation,
+    )
 
     # 1) Создаём проекты у поставщика (частичный успех допустим)
     notices: List[str] = []
@@ -1646,14 +1831,20 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         raise HTTPException(status_code=422, detail={"message": warning_text})
 
     with SessionLocal() as write_sess:  # type: Session
-        created = crud.create_projects(
-            write_sess,
-            adjusted_items,
-            user_id=current_user.id,
-            provider_ids=provider_ids,
-            actor_user_id=actor_user_id,
-            via_impersonation=via_impersonation,
-        )
+        try:
+            created = crud.create_projects(
+                write_sess,
+                adjusted_items,
+                user_id=current_user.id,
+                provider_ids=provider_ids,
+                actor_user_id=actor_user_id,
+                via_impersonation=via_impersonation,
+            )
+        except IntegrityError as exc:
+            write_sess.rollback()
+            if _is_project_name_unique_violation(exc):
+                raise HTTPException(status_code=409, detail=_project_name_unavailable_detail())
+            raise
     _run_limit_control_for_client_in_new_session(current_user.id, trigger="projects_create")
     _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
     warning_text = "\n\n".join(notices) if notices else None
@@ -1732,6 +1923,22 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
             via_impersonation=via_impersonation,
         )
         raise
+    if payload.status != "Удалён":
+        try:
+            _ensure_project_name_available(db_sess, payload.name, exclude_project_id=project_id)
+        except HTTPException:
+            _record_failed_project_operation(
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                operation=operation,
+                project_id=project_id,
+                project_name=project_row.name,
+                request_payload=_project_payload_for_history(payload),
+                error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                error_code="PROJECT_NAME_UNAVAILABLE",
+                via_impersonation=via_impersonation,
+            )
+            raise
     if bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
@@ -1864,14 +2071,20 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 raise HTTPException(status_code=404, detail="Project not found")
     else:
         with SessionLocal() as write_sess:  # type: Session
-            updated = crud.update_project(
-                write_sess,
-                project_id,
-                payload,
-                user_id=current_user.id,
-                actor_user_id=actor_user_id,
-                via_impersonation=via_impersonation,
-            )
+            try:
+                updated = crud.update_project(
+                    write_sess,
+                    project_id,
+                    payload,
+                    user_id=current_user.id,
+                    actor_user_id=actor_user_id,
+                    via_impersonation=via_impersonation,
+                )
+            except IntegrityError as exc:
+                write_sess.rollback()
+                if _is_project_name_unique_violation(exc):
+                    raise HTTPException(status_code=409, detail=_project_name_unavailable_detail())
+                raise
             if not updated:
                 raise HTTPException(status_code=404, detail="Project not found")
         _run_limit_control_for_client_in_new_session(current_user.id, trigger="project_update")
@@ -3257,6 +3470,23 @@ def admin_update_project(
                 via_impersonation=False,
             )
         raise
+    if payload.status != "Удалён":
+        try:
+            _ensure_project_name_available(db_sess, payload.name, exclude_project_id=project_id)
+        except HTTPException:
+            if owner_user_id:
+                _record_failed_project_operation(
+                    user_id=owner_user_id,
+                    actor_user_id=current_manager.id,
+                    operation=operation,
+                    project_id=project_id,
+                    project_name=project_row.name,
+                    request_payload=_project_payload_for_history(payload),
+                    error_message=crud.PROJECT_NAME_UNAVAILABLE_MESSAGE,
+                    error_code="PROJECT_NAME_UNAVAILABLE",
+                    via_impersonation=False,
+                )
+            raise
     if bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
@@ -3387,7 +3617,13 @@ def admin_update_project(
                 raise HTTPException(status_code=404, detail="Project not found")
     else:
         with SessionLocal() as write_sess:  # type: Session
-            updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_manager.id)
+            try:
+                updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_manager.id)
+            except IntegrityError as exc:
+                write_sess.rollback()
+                if _is_project_name_unique_violation(exc):
+                    raise HTTPException(status_code=409, detail=_project_name_unavailable_detail())
+                raise
             if not updated:
                 raise HTTPException(status_code=404, detail="Project not found")
         if owner_user_id:

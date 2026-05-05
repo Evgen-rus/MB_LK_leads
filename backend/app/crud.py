@@ -20,6 +20,7 @@ from . import models, schemas, auth
 
 
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
+PROJECT_NAME_UNAVAILABLE_MESSAGE = "Название проекта не доступно. Выберите другое название."
 POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
@@ -1547,6 +1548,24 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
     if not p or p.user_id != user_id:
         return None
     return _project_to_out(p) if p else None
+
+
+def active_project_name_exists(
+    db: Session,
+    project_name: str,
+    *,
+    exclude_project_id: Optional[int] = None,
+) -> bool:
+    name = str(project_name or "").strip()
+    if not name:
+        return False
+    stmt = select(models.Project.id).where(
+        models.Project.name == name,
+        models.Project.status != "Удалён",
+    )
+    if exclude_project_id is not None:
+        stmt = stmt.where(models.Project.id != int(exclude_project_id))
+    return db.execute(stmt.limit(1)).scalar_one_or_none() is not None
 
 
 def build_project_model_from_create_item(
