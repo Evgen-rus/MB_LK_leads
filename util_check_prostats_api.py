@@ -29,7 +29,10 @@ def parse_args() -> argparse.Namespace:
         default=10.0,
         help="Таймаут запроса в секундах. По умолчанию: 10",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.timeout <= 0:
+        parser.error("--timeout должен быть больше 0")
+    return args
 
 
 def get_api_url() -> str:
@@ -77,9 +80,15 @@ def main() -> None:
     except requests.exceptions.ReadTimeout:
         elapsed = time.monotonic() - started_at
         raise SystemExit(f"ERROR: API не ответило за {elapsed:.2f} sec.")
+    except requests.exceptions.Timeout:
+        elapsed = time.monotonic() - started_at
+        raise SystemExit(f"ERROR: истёк таймаут запроса за {elapsed:.2f} sec.")
     except requests.exceptions.SSLError as exc:
         raise SystemExit(f"ERROR: SSL ошибка: {exc}")
     except requests.exceptions.ConnectionError as exc:
+        if "Read timed out" in str(exc):
+            elapsed = time.monotonic() - started_at
+            raise SystemExit(f"ERROR: API не ответило за {elapsed:.2f} sec.")
         raise SystemExit(f"ERROR: ошибка соединения: {exc}")
     except requests.exceptions.RequestException as exc:
         raise SystemExit(f"ERROR: ошибка запроса: {exc}")
