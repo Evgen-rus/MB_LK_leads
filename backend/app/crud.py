@@ -13,7 +13,7 @@ import re
 import secrets
 import string
 
-from sqlalchemy import String, cast, select, func, or_, and_
+from sqlalchemy import String, cast, select, func, or_, and_, case
 from sqlalchemy.orm import Session
 
 from . import models, schemas, auth
@@ -2906,7 +2906,7 @@ def admin_clients_summary(
     proj_rows = db.execute(
         select(
             models.Project.user_id,
-            func.count(models.Project.id),
+            func.coalesce(func.sum(case((models.Project.status != "Удалён", 1), else_=0)), 0),
             func.coalesce(func.sum(models.Project.data_limit), 0),
         ).group_by(models.Project.user_id)
     ).all()
