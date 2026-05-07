@@ -29,7 +29,7 @@ function Integrations() {
       setError(null);
       setSuccess(null);
       await sendSupportMessage({ phone: trimmedPhone, text: trimmedText });
-      setSuccess('Сообщение отправлено. Мы свяжемся с вами по указанному телефону.');
+      setSuccess('Сообщение принято и поставлено в очередь отправки. Мы свяжемся с вами по указанному телефону.');
       setPhone('');
       setText('');
       setFormOpen(false);

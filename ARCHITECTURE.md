@@ -96,18 +96,18 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 ### C) Notifications Worker
 На старте backend запускает `notify_worker` -> воркер закрывает debounce-очередь по `audit_events` и помечает события как обработанные для отправки.
 Важно: с 2026-03-10 батч-уведомления по изменениям проектов и чёрного списка в Telegram отключены.
-В Telegram остаются только отдельные сообщения из логики автопаузы по лимитам и из формы поддержки.
+Backend не отправляет Telegram напрямую: отдельные сообщения из логики автопаузы, тарифных сигналов, технических alert-ов и формы поддержки пишутся в `telegram_notifications`, а внешний `telegram_worker.py` забирает их через защищённый HTTPS API и отправляет через Telegram Bot API с NL-сервера.
 
 ### D) Periodic Limit Control
-На старте backend запускает отдельный поток лимит-контроля -> раз в `AUTO_LIMIT_CHECK_SECONDS` секунд после завершения предыдущего прохода выбираются клиенты с `auto_limit_control_enabled=true` -> для каждого клиента пересчитывается остаток и сумма лимитов активных проектов -> при превышении лимитов проекты ставятся на паузу через Prostats и локальную БД -> при необходимости отправляются точечные Telegram-уведомления.
+На старте backend запускает отдельный поток лимит-контроля -> раз в `AUTO_LIMIT_CHECK_SECONDS` секунд после завершения предыдущего прохода выбираются клиенты с `auto_limit_control_enabled=true` -> для каждого клиента пересчитывается остаток и сумма лимитов активных проектов -> при превышении лимитов проекты ставятся на паузу через Prostats и локальную БД -> при необходимости создаются точечные Telegram outbox-уведомления.
 
 В этом же фоне теперь живёт и проверка тарифных сигналов:
 - берётся текущий `remaining` клиента;
 - выбирается последний созданный тариф клиента;
-- если остаток впервые пересёк `signal1` / `signal2` / `signal3`, отправляется Telegram-сообщение;
+- если остаток впервые пересёк `signal1` / `signal2` / `signal3`, создаётся Telegram outbox-сообщение;
 - если за один проход остаток пересёк несколько порогов сразу, уходит **одно** сообщение только по самому нижнему достигнутому сигналу;
 - после пополнения выше порога сигнал может сработать повторно при следующем пересечении вниз;
-- ошибка отправки в Telegram не ломает цикл и не фиксирует сигнал как доставленный: будет повторная попытка на следующем проходе.
+- ошибка постановки в Telegram outbox не ломает цикл и не фиксирует сигнал как доставленный: будет повторная попытка на следующем проходе.
 
 Текущая модель специально упрощена:
 - webhook не ставит задачи лимит-контроля;
@@ -191,8 +191,8 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
 - Интеграция Prostats: `backend/app/providers/prostats.py`
 - Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
-- Notification routing / Telegram gate: `backend/app/notifications.py`
-- Telegram-отправка: `backend/app/telegram.py`
+- Notification routing / Telegram outbox: `backend/app/notifications.py` + `backend/app/crud.py` + internal endpoints в `backend/app/main.py`
+- Telegram-отправка: внешний `telegram_worker.py`
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
 - История успешных и неуспешных операций проектов и карточка изменения по `eventId`: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/ProjectHistoryModal.tsx` + `my-app-vite/src/components/AdminProjectHistoryModal.tsx` + `my-app-vite/src/components/ClientActivityHistory.tsx` + `my-app-vite/src/components/NotificationBell.tsx` + `my-app-vite/src/components/HistoryEventCardButton.tsx` + `my-app-vite/src/components/ChangeProjectDiffModal.tsx`
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
@@ -220,8 +220,9 @@ Webhook и провайдер:
 
 Telegram:
 - `NOTIFICATIONS_TELEGRAM_ENABLED` (глобальный флаг для всех Telegram-уведомлений backend)
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_CHAT_ID`
+- `TELEGRAM_CHAT_ID` (общий chat id для outbox)
+- `TELEGRAM_WORKER_API_TOKEN` (Bearer-токен для внешнего worker)
+- `TELEGRAM_BOT_TOKEN` нужен внешнему worker, не backend
 
 Google Sheets export:
 - `GOOGLE_CREDENTIALS_FILE`

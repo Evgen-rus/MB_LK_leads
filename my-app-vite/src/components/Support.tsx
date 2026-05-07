@@ -18,7 +18,7 @@ function Support() {
       setError(null);
       setSuccess(null);
       await sendSupportMessage({ phone: trimmedPhone, text: trimmedText });
-      setSuccess('Заявка отправлена. Мы свяжемся с вами по указанному телефону.');
+      setSuccess('Заявка принята и поставлена в очередь отправки. Мы свяжемся с вами по указанному телефону.');
       setPhone('');
       setText('');
     } catch (err: unknown) {

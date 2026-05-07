@@ -3,7 +3,7 @@
 Назначение: Pydantic-схемы ввода/вывода для API.
 """
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -175,6 +175,8 @@ class AdminClientUpdateOut(BaseModel):
     profile: ClientProfileOut
     login: str
     password: Optional[str] = None
+    telegramTestStatus: Optional[Literal['queued', 'failed']] = None
+    telegramTestNotificationId: Optional[int] = None
 
 
 class AdminProjectOut(ProjectOut):
@@ -719,3 +721,42 @@ class ClientCreateReportIn(BaseModel):
 class SupportMessageIn(BaseModel):
     phone: str
     text: str
+
+
+TelegramNotificationStatus = Literal['pending', 'processing', 'sent', 'failed']
+
+
+class TelegramNotificationClaimIn(BaseModel):
+    workerId: str
+    limit: int = Field(50, ge=1, le=100)
+
+
+class TelegramNotificationClaimItemOut(BaseModel):
+    id: int
+    kind: str
+    chatId: str
+    text: str
+    parseMode: Optional[str] = "HTML"
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class TelegramNotificationClaimOut(BaseModel):
+    items: List[TelegramNotificationClaimItemOut]
+
+
+class TelegramNotificationResultIn(BaseModel):
+    status: Literal['sent', 'failed']
+    telegramMessageId: Optional[str] = None
+    error: Optional[str] = None
+
+
+class TelegramNotificationResultOut(BaseModel):
+    ok: bool
+    id: int
+    status: TelegramNotificationStatus
+
+
+class QueuedNotificationOut(BaseModel):
+    ok: bool = True
+    status: Literal['queued'] = 'queued'
+    notificationId: Optional[int] = None

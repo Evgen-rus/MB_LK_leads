@@ -121,7 +121,8 @@ uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 | `EXPORT_MAX_ROWS` | опционально | Лимит строк при `/leads/export` |
 | `PROSTATS_TOKEN` | обязательно для CRUD проектов | Токен API Prostats |
 | `PROSTATS_API_URL` | опционально | URL API Prostats (есть дефолт) |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | обязательно для Telegram-функций | Уведомления и `/support-message` |
+| `TELEGRAM_CHAT_ID` | обязательно для Telegram-функций | Общий chat id для outbox-уведомлений и `/support-message` |
+| `TELEGRAM_WORKER_API_TOKEN` | обязательно для внешнего Telegram worker | Bearer-токен для `/internal/telegram-notifications/*` |
 | `GOOGLE_CREDENTIALS_FILE`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_NAME` | обязательно для экспорта в Sheets | Используются `tool_export_provider_leads.py` |
 | `LEADS_EXPORT_LOOKBACK_DAYS` | опционально | Глубина выгрузки в днях (для `tool_export_provider_leads.py`) |
 
@@ -327,6 +328,8 @@ MB_LK_leads/
 - Админ определяется как пользователь с `id=1` (логика в `backend/app/main.py`).
 - Для роли `agent` доступ ограничивается server-side, а не только UI.
 - Таблицы создаются автоматически через `models.Base.metadata.create_all(...)` при старте.
+- Backend не отправляет Telegram-сообщения напрямую: он пишет их в `telegram_notifications`, а внешний worker (`telegram_worker.py`) забирает очередь через HTTPS API и отправляет через Telegram Bot API.
+- Для worker есть пример окружения `env.exampletg`; на NL-сервере его можно скопировать в `.env`.
 - `TELEGRAM_CHAT_ID` используется не только для обычных уведомлений, но и для технических alert-ов:
   - неоднозначная привязка лида к проекту по имени;
   - сбой финализации уникального имени проекта.

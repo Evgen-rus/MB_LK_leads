@@ -38,6 +38,191 @@ PROJECT_SORT_FIELDS = {
     "numbersTotal",
 }
 PROJECT_SORT_DIRECTIONS = {"asc", "desc"}
+TELEGRAM_NOTIFICATION_STATUS_PENDING = "pending"
+TELEGRAM_NOTIFICATION_STATUS_PROCESSING = "processing"
+TELEGRAM_NOTIFICATION_STATUS_SENT = "sent"
+TELEGRAM_NOTIFICATION_STATUS_FAILED = "failed"
+TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS = 5
+TELEGRAM_NOTIFICATION_LOCK_SECONDS = 120
+TELEGRAM_NOTIFICATION_SENT_RETENTION_DAYS = 30
+TELEGRAM_NOTIFICATION_FAILED_RETENTION_DAYS = 60
+
+
+def _telegram_retry_delay_seconds(attempt_count: int) -> int:
+    delays = [60, 300, 900, 3600]
+    index = max(0, min(len(delays) - 1, int(attempt_count) - 1))
+    return delays[index]
+
+
+def create_telegram_notification(
+    db: Session,
+    *,
+    kind: str,
+    chat_id: str,
+    text: str,
+    parse_mode: Optional[str] = "HTML",
+    metadata: Optional[Dict[str, Any]] = None,
+    max_attempts: int = TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS,
+) -> models.TelegramNotification:
+    now = now_msk_naive()
+    row = models.TelegramNotification(
+        kind=(str(kind or "").strip() or "system"),
+        chat_id=str(chat_id or "").strip(),
+        text=str(text or ""),
+        parse_mode=(str(parse_mode).strip() if parse_mode is not None else None),
+        status=TELEGRAM_NOTIFICATION_STATUS_PENDING,
+        attempt_count=0,
+        max_attempts=max(1, int(max_attempts or TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS)),
+        next_attempt_at=now,
+        locked_until=None,
+        locked_by=None,
+        created_at=now,
+        updated_at=now,
+        payload_metadata=metadata or None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def _telegram_notification_to_claim_item(row: models.TelegramNotification) -> schemas.TelegramNotificationClaimItemOut:
+    return schemas.TelegramNotificationClaimItemOut(
+        id=int(row.id),
+        kind=str(row.kind or "system"),
+        chatId=str(row.chat_id or ""),
+        text=str(row.text or ""),
+        parseMode=row.parse_mode,
+        metadata=row.payload_metadata or None,
+    )
+
+
+def claim_telegram_notifications(
+    db: Session,
+    *,
+    worker_id: str,
+    limit: int = 50,
+    lock_seconds: int = TELEGRAM_NOTIFICATION_LOCK_SECONDS,
+) -> List[schemas.TelegramNotificationClaimItemOut]:
+    now = now_msk_naive()
+    worker = str(worker_id or "").strip() or "telegram-worker"
+    limit_value = max(1, min(100, int(limit or 50)))
+    lock_until = now + timedelta(seconds=max(30, int(lock_seconds or TELEGRAM_NOTIFICATION_LOCK_SECONDS)))
+    stmt = (
+        select(models.TelegramNotification)
+        .where(
+            or_(
+                and_(
+                    models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_PENDING,
+                    or_(
+                        models.TelegramNotification.next_attempt_at.is_(None),
+                        models.TelegramNotification.next_attempt_at <= now,
+                    ),
+                ),
+                and_(
+                    models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_FAILED,
+                    models.TelegramNotification.attempt_count < models.TelegramNotification.max_attempts,
+                    or_(
+                        models.TelegramNotification.next_attempt_at.is_(None),
+                        models.TelegramNotification.next_attempt_at <= now,
+                    ),
+                ),
+                and_(
+                    models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_PROCESSING,
+                    models.TelegramNotification.locked_until.is_not(None),
+                    models.TelegramNotification.locked_until <= now,
+                ),
+            )
+        )
+        .order_by(models.TelegramNotification.created_at.asc(), models.TelegramNotification.id.asc())
+        .limit(limit_value)
+        .with_for_update(skip_locked=True)
+    )
+    rows = db.execute(stmt).scalars().all()
+    for row in rows:
+        row.status = TELEGRAM_NOTIFICATION_STATUS_PROCESSING
+        row.locked_by = worker
+        row.locked_until = lock_until
+        row.updated_at = now
+        db.add(row)
+    db.commit()
+    return [_telegram_notification_to_claim_item(row) for row in rows]
+
+
+def mark_telegram_notification_sent(
+    db: Session,
+    *,
+    notification_id: int,
+    telegram_message_id: Optional[str] = None,
+) -> Optional[models.TelegramNotification]:
+    row = db.get(models.TelegramNotification, int(notification_id))
+    if not row:
+        return None
+    now = now_msk_naive()
+    row.status = TELEGRAM_NOTIFICATION_STATUS_SENT
+    row.telegram_message_id = str(telegram_message_id).strip() if telegram_message_id is not None else None
+    row.sent_at = now
+    row.locked_until = None
+    row.locked_by = None
+    row.last_error = None
+    row.updated_at = now
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def mark_telegram_notification_failed(
+    db: Session,
+    *,
+    notification_id: int,
+    error: Optional[str] = None,
+) -> Optional[models.TelegramNotification]:
+    row = db.get(models.TelegramNotification, int(notification_id))
+    if not row:
+        return None
+    now = now_msk_naive()
+    next_attempt = int(row.attempt_count or 0) + 1
+    row.status = TELEGRAM_NOTIFICATION_STATUS_FAILED
+    row.attempt_count = next_attempt
+    row.last_error = (str(error or "").strip() or "send_failed")[:2000]
+    row.locked_until = None
+    row.locked_by = None
+    row.updated_at = now
+    if next_attempt < int(row.max_attempts or TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS):
+        row.next_attempt_at = now + timedelta(seconds=_telegram_retry_delay_seconds(next_attempt))
+    else:
+        row.next_attempt_at = None
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def cleanup_old_telegram_notifications(db: Session) -> int:
+    now = now_msk_naive()
+    sent_threshold = now - timedelta(days=TELEGRAM_NOTIFICATION_SENT_RETENTION_DAYS)
+    failed_threshold = now - timedelta(days=TELEGRAM_NOTIFICATION_FAILED_RETENTION_DAYS)
+    rows = db.execute(
+        select(models.TelegramNotification).where(
+            or_(
+                and_(
+                    models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_SENT,
+                    models.TelegramNotification.sent_at.is_not(None),
+                    models.TelegramNotification.sent_at < sent_threshold,
+                ),
+                and_(
+                    models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_FAILED,
+                    models.TelegramNotification.updated_at < failed_threshold,
+                ),
+            )
+        )
+    ).scalars().all()
+    count = len(rows)
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return count
 
 
 def get_user_role(user: Optional[models.User]) -> str:

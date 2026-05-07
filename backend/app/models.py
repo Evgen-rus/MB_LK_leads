@@ -6,7 +6,7 @@ from datetime import datetime
 from .time_utils import now_msk
 from typing import Optional
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey, Index
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
 
@@ -180,6 +180,31 @@ class NotifyState(Base):
     next_send_at = Column(DateTime, nullable=True)
     window_minutes = Column(Integer, nullable=False, default=30)
 
+
+class TelegramNotification(Base):
+    __tablename__ = "telegram_notifications"
+    __table_args__ = (
+        Index("ix_telegram_notifications_claim", "status", "next_attempt_at", "created_at"),
+        Index("ix_telegram_notifications_locked_until", "locked_until"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String, nullable=False, default="system", index=True)
+    chat_id = Column(String, nullable=False, index=True)
+    text = Column(String, nullable=False)
+    parse_mode = Column(String, nullable=True, default="HTML")
+    status = Column(String, nullable=False, default="pending", index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    last_error = Column(String, nullable=True)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
+    locked_until = Column(DateTime, nullable=True)
+    locked_by = Column(String, nullable=True)
+    telegram_message_id = Column(String, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False, index=True)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
+    payload_metadata = Column("metadata", JSON, nullable=True)
 
 
 class ProviderLead(Base):

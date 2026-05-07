@@ -53,6 +53,7 @@ function AdminClientCardModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
@@ -97,6 +98,7 @@ function AdminClientCardModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSaveNotice(null);
     setLoading(true);
     try {
       const resp = await updateAdminClient(clientId, {
@@ -111,6 +113,11 @@ function AdminClientCardModal({
         password: password.trim() || undefined,
       });
       setNewPassword(resp.password ?? null);
+      setSaveNotice(
+        resp.telegramTestStatus === 'queued'
+          ? 'Клиент сохранён. Тестовое Telegram-сообщение поставлено в очередь отправки.'
+          : 'Клиент сохранён.'
+      );
       onUpdated?.(resp);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось сохранить'));
@@ -283,6 +290,12 @@ function AdminClientCardModal({
           {error && (
             <div className="sub" style={{ color: '#d00' }}>
               {error}
+            </div>
+          )}
+
+          {saveNotice && (
+            <div className="sub" style={{ color: '#1d7a45', fontWeight: 500 }}>
+              {saveNotice}
             </div>
           )}
 

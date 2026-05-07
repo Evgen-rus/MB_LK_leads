@@ -1134,6 +1134,8 @@ export type AdminClientUpdateResp = {
   profile: ClientProfile;
   login: string;
   password?: string | null;
+  telegramTestStatus?: 'queued' | 'failed' | null;
+  telegramTestNotificationId?: number | null;
 };
 
 export async function fetchAdminClientsSummary(params: { fromDate: string; toDate: string }): Promise<AdminClientsSummaryOut> {

@@ -36,7 +36,7 @@ from sqlalchemy import inspect, or_, select, text
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
-from . import db, models, schemas, crud, telegram, notify_worker, logging_setup, auth, notifications
+from . import db, models, schemas, crud, notify_worker, logging_setup, auth, notifications
 from . import provider_leads_xlsx_import as provider_leads_import
 from .time_utils import now_msk
 from .providers import prostats
@@ -86,8 +86,8 @@ def get_settings():
         "DB_MAX_OVERFLOW": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "DB_POOL_TIMEOUT": int(os.getenv("DB_POOL_TIMEOUT", "30")),
         "DB_POOL_RECYCLE": int(os.getenv("DB_POOL_RECYCLE", "1800")),
-        "TELEGRAM_BOT_TOKEN": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
+        "TELEGRAM_WORKER_API_TOKEN": os.getenv("TELEGRAM_WORKER_API_TOKEN", ""),
         "SHEETS_TZ": os.getenv("SHEETS_TZ", "Europe/Moscow"),
     }
 
@@ -170,6 +170,59 @@ def _ensure_project_operation_event_columns() -> None:
 
 
 _ensure_project_operation_event_columns()
+
+
+def _ensure_telegram_notification_columns() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "telegram_notifications" not in tables:
+        models.TelegramNotification.__table__.create(bind=engine, checkfirst=True)
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("telegram_notifications")}
+    with engine.begin() as conn:
+        if "kind" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN kind VARCHAR DEFAULT 'system'"))
+        if "chat_id" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN chat_id VARCHAR"))
+        if "text" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN text VARCHAR"))
+        if "parse_mode" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN parse_mode VARCHAR DEFAULT 'HTML'"))
+        if "status" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN status VARCHAR DEFAULT 'pending'"))
+        if "attempt_count" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN attempt_count INTEGER DEFAULT 0"))
+        if "max_attempts" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN max_attempts INTEGER DEFAULT 5"))
+        if "last_error" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN last_error VARCHAR"))
+        if "next_attempt_at" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN next_attempt_at TIMESTAMP"))
+        if "locked_until" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN locked_until TIMESTAMP"))
+        if "locked_by" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN locked_by VARCHAR"))
+        if "telegram_message_id" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN telegram_message_id VARCHAR"))
+        if "sent_at" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN sent_at TIMESTAMP"))
+        if "created_at" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN created_at TIMESTAMP"))
+        if "updated_at" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN updated_at TIMESTAMP"))
+        if "metadata" not in columns:
+            conn.execute(text("ALTER TABLE telegram_notifications ADD COLUMN metadata JSON"))
+        conn.execute(text("UPDATE telegram_notifications SET kind = 'system' WHERE kind IS NULL OR kind = ''"))
+        conn.execute(text("UPDATE telegram_notifications SET status = 'pending' WHERE status IS NULL OR status = ''"))
+        conn.execute(text("UPDATE telegram_notifications SET attempt_count = 0 WHERE attempt_count IS NULL"))
+        conn.execute(text("UPDATE telegram_notifications SET max_attempts = 5 WHERE max_attempts IS NULL"))
+        conn.execute(text("UPDATE telegram_notifications SET next_attempt_at = created_at WHERE next_attempt_at IS NULL AND status IN ('pending', 'failed')"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_telegram_notifications_claim ON telegram_notifications (status, next_attempt_at, created_at)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_telegram_notifications_locked_until ON telegram_notifications (locked_until)"))
+
+
+_ensure_telegram_notification_columns()
 
 
 def _ensure_user_projects_lock_columns() -> None:
@@ -661,7 +714,7 @@ def startup_event():
         kwargs={
             "SessionLocal": SessionLocal,
             "window_minutes": settings["DEBOUNCE_WINDOW_MINUTES"],
-            "bot_token": settings["TELEGRAM_BOT_TOKEN"],
+            "bot_token": "",
             "chat_id": settings["TELEGRAM_CHAT_ID"],
             "sleep_seconds": 60,
         },
@@ -682,6 +735,17 @@ def startup_event():
     )
     limit_worker.start()
 
+    telegram_cleanup_worker = threading.Thread(
+        target=run_telegram_notifications_cleanup_loop,
+        kwargs={
+            "SessionLocal": SessionLocal,
+            "sleep_seconds": 24 * 60 * 60,
+        },
+        daemon=True,
+        name="telegram-notifications-cleanup-thread",
+    )
+    telegram_cleanup_worker.start()
+
 
 def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
     while True:
@@ -693,6 +757,18 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
         except Exception:
             logging.getLogger("app").warning("limit-control loop failed", exc_info=True)
         time.sleep(max(30, int(sleep_seconds)))
+
+
+def run_telegram_notifications_cleanup_loop(SessionLocal, sleep_seconds: int = 86400) -> None:
+    while True:
+        try:
+            with SessionLocal() as s:  # type: Session
+                deleted = crud.cleanup_old_telegram_notifications(s)
+                if deleted:
+                    logging.getLogger("app").info("Cleaned up old Telegram notifications: deleted=%s", deleted)
+        except Exception:
+            logging.getLogger("app").warning("telegram notifications cleanup loop failed", exc_info=True)
+        time.sleep(max(3600, int(sleep_seconds)))
 
 
 def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
@@ -938,9 +1014,8 @@ def _sync_client_tariff_signal_alert(
         _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
         return next_level
 
-    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
-    if not bot_token or not chat_id or not latest_tariff:
+    if not chat_id or not latest_tariff:
         return None
 
     text = _build_client_tariff_signal_message(
@@ -950,10 +1025,11 @@ def _sync_client_tariff_signal_alert(
         signal_level=next_level,
     )
     result = notifications.send_system_notification(
-        bot_token=bot_token,
+        db_sess=db_sess,
         chat_id=chat_id,
         text=text,
         parse_mode="HTML",
+        metadata={"client_id": int(user_snapshot["id"]), "signal_level": next_level},
     )
     if not result.delivered:
         if result.reason != "telegram_disabled":
@@ -976,9 +1052,8 @@ def _notify_auto_limit_pause(
     trigger: str,
     errors: List[str],
 ) -> None:
-    bot_token = settings.get("TELEGRAM_BOT_TOKEN") or ""
     chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
-    if not bot_token or not chat_id:
+    if not chat_id:
         return
     paused_lines = [
         f'- {p["name"]} (id: {p["id"]}, лимит: {int(p["data_limit"] or 0)})'
@@ -998,12 +1073,14 @@ def _notify_auto_limit_pause(
     )
     if errors:
         text += "\n\nОшибки:\n" + "\n".join(errors[:5])
-    result = notifications.send_system_notification(
-        bot_token=bot_token,
-        chat_id=chat_id,
-        text=text,
-        parse_mode="HTML",
-    )
+    with SessionLocal() as notify_sess:  # type: Session
+        result = notifications.send_system_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            metadata={"client_id": int(user_snapshot["id"]), "trigger": trigger},
+        )
     if not result.delivered and result.reason != "telegram_disabled":
         logging.getLogger("app").warning(
             "Failed to send auto limit pause notification for client_id=%s reason=%s",
@@ -1076,9 +1153,8 @@ def _notify_provider_lead_project_ambiguity(
     prov_source: Optional[str],
     subdomain: Optional[str],
 ) -> None:
-    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
-    if not bot_token or not chat_id:
+    if not chat_id:
         return
 
     candidate_lines = [
@@ -1104,12 +1180,14 @@ def _notify_provider_lead_project_ambiguity(
         + "\n".join(candidate_lines)
     )
 
-    result = notifications.send_system_notification(
-        bot_token=bot_token,
-        chat_id=chat_id,
-        text=text,
-        parse_mode="HTML",
-    )
+    with SessionLocal() as notify_sess:  # type: Session
+        result = notifications.send_system_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            metadata={"vid": vid, "project_name": project_name},
+        )
     if not result.delivered:
         if result.reason != "telegram_disabled":
             logging.getLogger("app").warning(
@@ -1127,9 +1205,8 @@ def _notify_unique_project_name_failure(
     provider_project_id: Optional[str],
     message: str,
 ) -> None:
-    bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
-    if not bot_token or not chat_id:
+    if not chat_id:
         return
     text = (
         "<b>[ЛК | Ошибка финализации уникального имени проекта]</b>\n"
@@ -1138,12 +1215,14 @@ def _notify_unique_project_name_failure(
         f"provider_project_id: <code>{html.escape(str(provider_project_id or ''))}</code>\n"
         f"details: {html.escape(message)}"
     )
-    result = notifications.send_system_notification(
-        bot_token=bot_token,
-        chat_id=chat_id,
-        text=text,
-        parse_mode="HTML",
-    )
+    with SessionLocal() as notify_sess:  # type: Session
+        result = notifications.send_system_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            metadata={"client_id": client_id, "provider_project_id": provider_project_id},
+        )
     if not result.delivered:
         if result.reason != "telegram_disabled":
             logging.getLogger("app").warning(
@@ -1157,6 +1236,56 @@ def _notify_unique_project_name_failure(
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
+
+
+def require_telegram_worker(request: Request) -> None:
+    expected = str(settings.get("TELEGRAM_WORKER_API_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="TELEGRAM_WORKER_API_TOKEN is not configured")
+    auth_header = request.headers.get("Authorization") or ""
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.post("/internal/telegram-notifications/claim", response_model=schemas.TelegramNotificationClaimOut)
+def claim_telegram_notifications(
+    payload: schemas.TelegramNotificationClaimIn,
+    _worker_auth: None = Depends(require_telegram_worker),
+    db_sess: Session = Depends(get_db),
+):
+    items = crud.claim_telegram_notifications(
+        db_sess,
+        worker_id=payload.workerId,
+        limit=payload.limit,
+    )
+    return {"items": items}
+
+
+@app.post("/internal/telegram-notifications/{notification_id}/result", response_model=schemas.TelegramNotificationResultOut)
+def set_telegram_notification_result(
+    notification_id: int,
+    payload: schemas.TelegramNotificationResultIn,
+    _worker_auth: None = Depends(require_telegram_worker),
+    db_sess: Session = Depends(get_db),
+):
+    if payload.status == "sent":
+        row = crud.mark_telegram_notification_sent(
+            db_sess,
+            notification_id=notification_id,
+            telegram_message_id=payload.telegramMessageId,
+        )
+    else:
+        row = crud.mark_telegram_notification_failed(
+            db_sess,
+            notification_id=notification_id,
+            error=payload.error,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Telegram notification not found")
+    return {"ok": True, "id": int(row.id), "status": row.status}
 
 
 @app.post("/api/provider-test/{secret}")
@@ -2202,40 +2331,40 @@ def logout():
     return {"ok": True}
 
 
-@app.post("/support-message")
+@app.post("/support-message", response_model=schemas.QueuedNotificationOut)
 def support_message(
     payload: schemas.SupportMessageIn,
     current_user: models.User = Depends(require_auth),
     db_sess: Session = Depends(get_db),
 ):
     """
-    Сообщение в поддержку из ЛК. Сейчас просто пересылаем текст в тот же Telegram-чат,
-    куда приходят уведомления об изменениях проектов.
+    Сообщение в поддержку из ЛК. Backend ставит его в Telegram outbox,
+    а внешний worker доставляет его в Telegram.
     """
-    bot_token = settings["TELEGRAM_BOT_TOKEN"]
     chat_id = settings["TELEGRAM_CHAT_ID"]
 
     # Форматируем сообщение для оператора
     text = (
         "<b>[ЛК | Сообщение от клиента]</b>\n"
-        f"Пользователь: <code>{current_user.login}</code> (id={current_user.id})\n"
-        f"Телефон: <code>{payload.phone}</code>\n\n"
-        f"{payload.text}"
+        f"Пользователь: <code>{html.escape(str(current_user.login))}</code> (id={current_user.id})\n"
+        f"Телефон: <code>{html.escape(str(payload.phone))}</code>\n\n"
+        f"{html.escape(str(payload.text))}"
     )
 
     db_sess.rollback()
     result = notifications.send_telegram_notification(
-        bot_token=bot_token,
+        db_sess=db_sess,
         chat_id=chat_id,
         text=text,
         parse_mode="HTML",
         kind="support",
+        metadata={"user_id": int(current_user.id), "phone": payload.phone},
     )
     if not result.delivered:
         if result.reason == "telegram_disabled":
             raise HTTPException(status_code=503, detail="Telegram уведомления глобально отключены")
-        raise HTTPException(status_code=500, detail="Не удалось отправить сообщение в Telegram")
-    return {"ok": True}
+        raise HTTPException(status_code=500, detail="Не удалось поставить сообщение в очередь Telegram")
+    return {"ok": True, "status": "queued", "notificationId": result.notification_id}
 
 
 # ----------------------- Лиды -----------------------
@@ -3052,42 +3181,31 @@ def admin_update_client(
         test_message = _build_auto_pause_test_message(existing_user)
         db_sess.rollback()
 
-        if should_send_test and crud.is_admin_user(current_manager):
-            with SessionLocal() as validate_sess:  # type: Session
-                crud.admin_update_client(
-                    validate_sess,
-                    **update_kwargs,
-                    commit=False,
-                )
-                validate_sess.rollback()
-            bot_token = str(settings.get("TELEGRAM_BOT_TOKEN") or "").strip()
-            test_result = notifications.send_telegram_notification(
-                bot_token=bot_token,
-                chat_id=next_chat_id,
-                text=test_message,
-                parse_mode="HTML",
-                kind="route_test",
-            )
-            if not test_result.delivered:
-                if test_result.reason == "telegram_disabled":
-                    raise HTTPException(
-                        status_code=503,
-                        detail="Глобальная отправка Telegram уведомлений отключена. Тест Telegram-маршрута недоступен.",
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Не удалось отправить тестовое сообщение в Telegram. "
-                        "Проверьте chat id и убедитесь, что бот добавлен в группу."
-                    ),
-                )
-
         with SessionLocal() as write_sess:  # type: Session
             result = crud.admin_update_client(
                 write_sess,
                 **update_kwargs,
                 commit=True,
             )
+            if should_send_test and crud.is_admin_user(current_manager):
+                test_result = notifications.send_telegram_notification(
+                    db_sess=write_sess,
+                    chat_id=next_chat_id,
+                    text=test_message,
+                    parse_mode="HTML",
+                    kind="route_test",
+                    metadata={"client_id": client_id},
+                )
+                if test_result.delivered:
+                    result.telegramTestStatus = "queued"
+                    result.telegramTestNotificationId = test_result.notification_id
+                else:
+                    result.telegramTestStatus = "failed"
+                    logging.getLogger("app").warning(
+                        "Failed to queue Telegram route test for client_id=%s reason=%s",
+                        client_id,
+                        test_result.reason,
+                    )
         if payload.autoLimitControlEnabled is True and crud.is_admin_user(current_manager):
             _run_limit_control_for_client_in_new_session(client_id=client_id, trigger="admin_toggle_on")
         return result
