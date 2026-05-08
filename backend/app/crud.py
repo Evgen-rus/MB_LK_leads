@@ -2132,6 +2132,7 @@ def _provider_lead_to_export_row(
     display_dt = lead.prov_created_at or lead.imported_at
     return {
         "ext_id": lead.vid,
+        "lk_id": format_provider_lead_lk_id(lead.id),
         "project_id": lead.project_id,
         "project_name": lead.project_name or "",
         "source": lead.prov_chanel,

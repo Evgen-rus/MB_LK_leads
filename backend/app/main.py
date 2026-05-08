@@ -2610,7 +2610,7 @@ def export_leads(
         def gen():
             rows_count = 0
             try:
-                headers = ["Дата", "Телефон", "Канал", "Источники", "Проект"]
+                headers = ["Дата", "Телефон", "Канал", "Источники", "Проект", "lk id"]
                 if include_client_column:
                     headers.extend(["ext_id", "Клиент"])
                 yield _csv_export_line(headers).encode('utf-8-sig')
@@ -2621,6 +2621,7 @@ def export_leads(
                         _source_code_for_display(r["source"]),
                         _source_text_for_display(r["utm_campaign"]),
                         _project_name_for_display(r["project_name"]),
+                        r["lk_id"],
                     ]
                     if include_client_column:
                         row.extend([r["ext_id"], r["user_name"]])
@@ -2651,7 +2652,7 @@ def export_leads(
         try:
             wb = Workbook(write_only=True)
             ws = wb.create_sheet(title="leads")
-            headers = ["Дата", "Телефон", "Канал", "Источники", "Проект"]
+            headers = ["Дата", "Телефон", "Канал", "Источники", "Проект", "lk id"]
             if include_client_column:
                 headers.extend(["ext_id", "Клиент"])
             ws.append(headers)
@@ -2663,6 +2664,7 @@ def export_leads(
                     _source_code_for_display(r["source"]),
                     _source_text_for_display(r["utm_campaign"]),
                     _project_name_for_display(r["project_name"]),
+                    r["lk_id"],
                 ]
                 if include_client_column:
                     row.extend([r["ext_id"], r["user_name"]])

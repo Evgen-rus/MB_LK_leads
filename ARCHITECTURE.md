@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-04-30
+Last updated: 2026-05-08
 
 ## 1) System At A Glance
 
@@ -48,6 +48,7 @@ Last updated: 2026-04-30
 17. У каждого клиентского тарифа теперь есть три обязательных Telegram-сигнала остатка: `signal1 > signal2 > signal3 > 0`, при этом `signal1 < текущий размер тарифа`. Сигналы задаются и при создании тарифа, и при его редактировании.
 18. Проекты с `collectionSource = "СМС"` редактируются и меняют статус только локально в нашей БД и истории изменений: для `update`, ручного `Активен ↔ На паузе`, автопаузы по лимитам, admin collection `pause/resume` и связанных фоновых сценариев backend не отправляет запросы в Prostats и не ждёт ответ провайдера. Удаление таких проектов по-прежнему идёт через провайдера.
 19. Новые audit-события `create` / `update` / `delete` по не-`СМС` проектам автоматически стартуют в статусе `done` и не попадают в pending-бейджи админского ЛК; ручной admin-review остаётся только для `СМС` проектов. События чёрного списка и неуспешные проектные операции живут по своим прежним правилам.
+20. `provider_leads.lk_id` — вычисляемый публичный ID для ЛК/отчётов/Google Sheets: `30100000 + provider_leads.id`; отдельной колонкой в БД не хранится. Provider `vid` / API `ext_id` остаётся идентификатором провайдера.
 
 ## 4) Key Domain Objects
 
@@ -198,7 +199,7 @@ UI отправляет обычное имя вида `B1_Магнум` -> back
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
 - Агентский уровень доступа и владение клиентами: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/App.tsx` + `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/Sidebar.tsx`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
-- Экспорт provider leads: `tool_export_provider_leads.py`
+- Экспорт provider leads и `lk_id`: `backend/app/provider_lead_ids.py` + `tool_export_provider_leads.py` + `/leads/export` в `backend/app/main.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
 - Display-mapping кодов источника и имён проектов только во frontend: `my-app-vite/src/utils/sourceCodeDisplay.ts` + все UI-места, где показываются `dataSourceCode`, `source`, `project.name` и ошибки; backend/raw-коды не менять, если задача только про UI
 
