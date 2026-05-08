@@ -458,6 +458,7 @@ export async function impersonateAgent(agentId: number): Promise<{ access_token:
 // -------- Лиды --------
 export type Lead = {
   ext_id: string;
+  lk_id: string;
   project_id?: number | null;
   created_at: string; // ISO string (время из источника)
   imported_at: string; // ISO string (время попадания в БД)
@@ -846,6 +847,7 @@ export async function resumeAdminClientProjects(clientId: number): Promise<Admin
 // -------- Админские лиды --------
 export type AdminLead = {
   ext_id: string;
+  lk_id: string;
   project_id?: number | null;
   created_at: string;
   imported_at: string;

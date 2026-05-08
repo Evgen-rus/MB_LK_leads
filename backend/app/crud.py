@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from .time_utils import as_local_naive, now_msk, now_msk_naive
+from .provider_lead_ids import format_provider_lead_lk_id
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import html
 import os
@@ -2309,6 +2310,7 @@ def list_provider_leads_paginated(
         created_at = r.prov_created_at or r.imported_at
         items.append(schemas.LeadOut(
             ext_id=str(r.vid),
+            lk_id=format_provider_lead_lk_id(r.id),
             project_id=r.project_id,
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
@@ -4685,6 +4687,7 @@ def admin_list_provider_leads(
         imported_at = r.imported_at
         items.append(schemas.AdminLeadOut(
             ext_id=str(r.vid),
+            lk_id=format_provider_lead_lk_id(r.id),
             project_id=r.project_id,
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=imported_at.strftime('%Y-%m-%d %H:%M:%S') if imported_at else "",

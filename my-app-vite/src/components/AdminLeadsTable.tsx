@@ -271,6 +271,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
               <th>Канал</th>
               <th>Источники</th>
               <th>Проект</th>
+              <th>lk id</th>
               <th>ext_id</th>
               <th>Клиент</th>
             </tr>
@@ -278,14 +279,14 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           <tbody>
             {!userIdFilter && !loading && (
               <tr>
-                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={8} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Выберите клиента, чтобы увидеть идентификации.
                 </td>
               </tr>
             )}
             {userIdFilter && !loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={8} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Данных за выбранный период нет.
                 </td>
               </tr>
@@ -306,6 +307,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
                     ) : null}
                   </div>
                 </td>
+                <td className="muted">{r.lk_id}</td>
                 <td className="muted">{r.ext_id}</td>
                 <td>
                   <div className="name">{r.user.name || r.user.login}</div>

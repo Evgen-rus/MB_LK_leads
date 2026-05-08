@@ -226,12 +226,13 @@ function LeadsTable({ projects, initialFilter }: Props) {
             <th>Канал</th>
             <th>Источники</th>
             <th>Проект</th>
+            <th>lk id</th>
           </tr>
         </thead>
         <tbody>
           {!loading && rows.length === 0 && (
             <tr>
-              <td colSpan={5} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+              <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                 По выбранным фильтрам идентификаций не найдено.
               </td>
             </tr>
@@ -252,6 +253,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
                   ) : null}
                 </div>
               </td>
+              <td className="muted">{r.lk_id}</td>
             </tr>
           ))}
         </tbody>

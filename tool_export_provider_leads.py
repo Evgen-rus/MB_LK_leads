@@ -2,7 +2,7 @@
 Экспорт лидов провайдера из БД в Google Sheets.
 
 Берём только записи за последние N дней (LEADS_EXPORT_LOOKBACK_DAYS).
-Заполняем по позициям A..G:
+Заполняем по позициям A..H:
  A Created At   -> prov_created_at
  B id           -> vid
  C Phone        -> первый телефон
@@ -11,6 +11,7 @@
  F GCK Tag      -> "ГЦК " + project_name без префикса B1_/B2_/B3_/B4_
                    (+ "_first_subdomain", если он есть)
  G Check_mark   -> subdomain
+ H lk id        -> 30100000 + id
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from googleapiclient.errors import HttpError
 from sqlalchemy import select
 
 from backend.app import db, models, logging_setup
+from backend.app.provider_lead_ids import format_provider_lead_lk_id
 from backend.app.time_utils import now_msk
 
 
@@ -223,6 +225,7 @@ def export_provider_leads():
                 project_tag,
                 gck_tag,
                 r.subdomain or "",
+                format_provider_lead_lk_id(r.id),
             ]
         )
 
@@ -243,7 +246,7 @@ def export_provider_leads():
         _safe_google_call(
             lambda: service.spreadsheets().values().append(
                 spreadsheetId=sheet_id,
-                range=f"{sheet_name}!A:G",
+                range=f"{sheet_name}!A:H",
                 valueInputOption="RAW",
                 insertDataOption="INSERT_ROWS",
                 body=body,
