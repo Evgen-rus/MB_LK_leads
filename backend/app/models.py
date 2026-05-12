@@ -43,7 +43,7 @@ class User(Base):
     # Если True, автопауза по лимитам старается уйти в клиентский чат.
     # Если chat id не задан, используем глобальный TELEGRAM_CHAT_ID как fallback.
     telegram_auto_pause_enabled = Column(Boolean, nullable=False, default=False)
-    # Если True, новым проектам клиента присваивается уникальное имя с маркером [MB{id}].
+    # Если True, новым проектам клиента добавляется внутренний идентификатор из карточки клиента.
     unique_project_names_enabled = Column(Boolean, nullable=False, default=False)
     # Последний отправленный порог уведомления по остатку: 3 / 2 / 1 / 0.
     # Нужен, чтобы не слать одно и то же сообщение повторно на каждом пересчёте.
@@ -67,8 +67,18 @@ class ClientProfile(Base):
     inn = Column(String, nullable=False, index=True)
     phone = Column(String, nullable=False)
     contact = Column(String, nullable=True)
+    internal_client_id = Column(String, nullable=True)
+    table_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
     updated_at = Column(DateTime, default=now_msk, nullable=False)
+
+    @property
+    def internalClientId(self) -> Optional[str]:
+        return self.internal_client_id
+
+    @property
+    def tableUrl(self) -> Optional[str]:
+        return self.table_url
 
 
 class Project(Base):
@@ -79,7 +89,8 @@ class Project(Base):
     provider_project_id = Column(String, nullable=True, index=True)  # id проекта у поставщика
     name = Column(String, nullable=False)
     tag = Column(String, nullable=False)
-    # True, если проект был создан по схеме с неизменяемым маркером [MB{id}] в имени.
+    client_internal_prefix = Column(String, nullable=True)
+    # Legacy: True, если проект был создан по старой схеме с неизменяемым маркером [MB{id}] в имени.
     unique_name_applied = Column(Boolean, nullable=False, default=False)
     # Момент мягкого удаления проекта у нас.
     deleted_at = Column(DateTime, nullable=True, index=True)

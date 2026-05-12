@@ -242,10 +242,10 @@ function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: A
                   checked={uniqueProjectNamesEnabled}
                   onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
                 />
-                <span>Уникальные имена новых проектов</span>
+                <span>Добавлять внутренний идентификатор клиента в новые проекты</span>
               </label>
               <span className="sub" style={{ color: '#666' }}>
-                Если включено, новые проекты клиента будут создаваться с маркером вида `A_[MB54] Магнум`.
+                Идентификатор задаётся в карточке клиента. Если он пустой, новые проекты создаются с обычным названием.
               </span>
             </div>
           )}

@@ -724,6 +724,8 @@ export type ClientProfile = {
   inn: string;
   phone: string;
   contact?: string | null;
+  internalClientId?: string | null;
+  tableUrl?: string | null;
 };
 
 export type AdminProject = Project & {
@@ -1107,6 +1109,8 @@ export type AdminClientCreatePayload = {
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
   uniqueProjectNamesEnabled?: boolean;
+  internalClientId?: string;
+  tableUrl?: string;
   ownerAgentId?: number | null;
 };
 
@@ -1128,6 +1132,8 @@ export type AdminClientUpdatePayload = {
   telegramNotificationsChatId?: string;
   telegramAutoPauseEnabled?: boolean;
   uniqueProjectNamesEnabled?: boolean;
+  internalClientId?: string;
+  tableUrl?: string;
   ownerAgentId?: number | null;
 };
 

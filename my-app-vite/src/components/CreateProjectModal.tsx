@@ -6,7 +6,6 @@ import { normalizePhonesMultiline } from '../utils/phones';
 import {
   RAW_SOURCE_CODES,
   formatSourceTextForDisplay,
-  getDisplayProjectPrefix,
   toDisplaySourceCode,
   type RawSourceCode,
 } from '../utils/sourceCodeDisplay';
@@ -358,7 +357,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
               )}
               {hasName && uniqueProjectNamesEnabled && (
                 <span className="hint" style={{ color: '#666' }}>
-                  Для этого клиента уникальное имя будет добавлено автоматически после создания. Пример: <code>{getDisplayProjectPrefix('B1', { projectId: 54, uniqueNameApplied: true })}Магнум</code>.
+                  Внутренний идентификатор клиента будет добавлен автоматически. В ЛК проект останется виден с обычным названием.
                 </span>
               )}
             </label>

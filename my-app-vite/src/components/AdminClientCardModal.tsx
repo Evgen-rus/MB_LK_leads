@@ -11,6 +11,8 @@ type AdminClientCardModalProps = {
   initialTelegramNotificationsChatId?: string;
   initialTelegramAutoPauseEnabled?: boolean;
   initialUniqueProjectNamesEnabled?: boolean;
+  initialInternalClientId?: string;
+  initialTableUrl?: string;
   initialLogin: string;
   onClose: () => void;
   onUpdated?: (resp: AdminClientUpdateResp) => void;
@@ -36,6 +38,8 @@ function AdminClientCardModal({
   initialTelegramNotificationsChatId,
   initialTelegramAutoPauseEnabled,
   initialUniqueProjectNamesEnabled,
+  initialInternalClientId,
+  initialTableUrl,
   initialLogin,
   onClose,
   onUpdated,
@@ -48,6 +52,8 @@ function AdminClientCardModal({
   const [telegramNotificationsChatId, setTelegramNotificationsChatId] = useState(initialTelegramNotificationsChatId || '');
   const [telegramAutoPauseEnabled, setTelegramAutoPauseEnabled] = useState(Boolean(initialTelegramAutoPauseEnabled));
   const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(Boolean(initialUniqueProjectNamesEnabled));
+  const [internalClientId, setInternalClientId] = useState(initialInternalClientId || '');
+  const [tableUrl, setTableUrl] = useState(initialTableUrl || '');
   const [login, setLogin] = useState(initialLogin);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -109,6 +115,8 @@ function AdminClientCardModal({
         telegramNotificationsChatId: telegramNotificationsChatId.trim(),
         telegramAutoPauseEnabled,
         uniqueProjectNamesEnabled,
+        internalClientId: internalClientId.trim(),
+        tableUrl: tableUrl.trim(),
         login: login.trim(),
         password: password.trim() || undefined,
       });
@@ -197,6 +205,18 @@ function AdminClientCardModal({
             />
           </label>
           {!isAgentManager && (
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span className="section-title">Ссылка на таблицу</span>
+              <input
+                type="text"
+                placeholder="https://..."
+                value={tableUrl}
+                onChange={(e) => setTableUrl(e.target.value)}
+              />
+              <span className="hint">Ссылка на таблицу контроля идентификаций клиента</span>
+            </label>
+          )}
+          {!isAgentManager && (
             <div
               style={{
                 display: 'grid',
@@ -247,17 +267,28 @@ function AdminClientCardModal({
               }}
             >
               <div style={{ fontWeight: 600 }}>Имена новых проектов</div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Внутренний идентификатор клиента</span>
+                <input
+                  type="text"
+                  placeholder="[LR135] Название клиента"
+                  value={internalClientId}
+                  onChange={(e) => setInternalClientId(e.target.value)}
+                />
+              </label>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="checkbox"
                   checked={uniqueProjectNamesEnabled}
                   onChange={(e) => setUniqueProjectNamesEnabled(e.target.checked)}
                 />
-                <span>Добавлять уникальный маркер `[MBid]`</span>
+                <span>Добавлять внутренний идентификатор клиента в новые проекты</span>
               </label>
               <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
-                Если включено, новые проекты будут называться, например: `A_[MB54] Магнум`.
-                Маркер нужен для однозначной привязки идентификаций и не удаляется при редактировании.
+                Если включено и идентификатор заполнен, новые проекты будут называться, например:
+                {' '}
+                <code>A_[LR135] Название клиента_Магнум</code>.
+                Клиент в ЛК будет видеть обычное имя без внутреннего идентификатора.
               </span>
             </div>
           )}

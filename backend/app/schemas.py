@@ -130,6 +130,8 @@ class ClientProfileOut(BaseModel):
     inn: str
     phone: str
     contact: Optional[str] = None
+    internalClientId: Optional[str] = None
+    tableUrl: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -146,6 +148,8 @@ class AdminClientCreateIn(BaseModel):
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: bool = False
     uniqueProjectNamesEnabled: bool = False
+    internalClientId: Optional[str] = None
+    tableUrl: Optional[str] = None
     ownerAgentId: Optional[int] = None
 
 
@@ -167,6 +171,8 @@ class AdminClientUpdateIn(BaseModel):
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: Optional[bool] = None
     uniqueProjectNamesEnabled: Optional[bool] = None
+    internalClientId: Optional[str] = None
+    tableUrl: Optional[str] = None
     ownerAgentId: Optional[int] = None
 
 

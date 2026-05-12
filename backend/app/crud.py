@@ -543,13 +543,79 @@ def find_duplicates_in_projects(
     return duplicates
 
 
-def _project_to_out(p: models.Project, numbers_period: int = 0, numbers_total: Optional[int] = None) -> schemas.ProjectOut:
+def normalize_client_internal_prefix(value: Optional[str]) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    return raw if raw.endswith("_") else f"{raw}_"
+
+
+def _clean_client_internal_prefix_from_name(
+    name: Optional[str],
+    *,
+    data_source_code: Optional[str],
+    client_internal_prefix: Optional[str],
+) -> str:
+    raw = str(name or "").strip()
+    prefix = normalize_client_internal_prefix(client_internal_prefix)
+    if not raw or not prefix:
+        return raw
+    provider_prefix = f"{str(data_source_code or '').strip()}_"
+    full_prefix = f"{provider_prefix}{prefix}"
+    if provider_prefix.strip("_") and raw.startswith(full_prefix):
+        return f"{provider_prefix}{raw[len(full_prefix):].strip()}"
+    if raw.startswith(prefix):
+        return raw[len(prefix):].strip()
+    return raw
+
+
+def _project_name_for_view(p: models.Project, *, expose_internal_name: bool) -> str:
+    if expose_internal_name:
+        return p.name
+    return _clean_client_internal_prefix_from_name(
+        p.name,
+        data_source_code=p.data_source_code,
+        client_internal_prefix=getattr(p, "client_internal_prefix", None),
+    )
+
+
+def _project_tag_for_view(p: models.Project, *, expose_internal_name: bool) -> str:
+    if expose_internal_name:
+        return p.tag
+    return _clean_client_internal_prefix_from_name(
+        p.tag,
+        data_source_code=p.data_source_code,
+        client_internal_prefix=getattr(p, "client_internal_prefix", None),
+    )
+
+
+def _clean_project_snapshot_for_client(snapshot: Any, project: Optional[models.Project]) -> Any:
+    if not isinstance(snapshot, dict) or project is None:
+        return snapshot
+    cleaned = dict(snapshot)
+    for key in ("name", "tag"):
+        if isinstance(cleaned.get(key), str):
+            cleaned[key] = _clean_client_internal_prefix_from_name(
+                cleaned.get(key),
+                data_source_code=getattr(project, "data_source_code", None),
+                client_internal_prefix=getattr(project, "client_internal_prefix", None),
+            )
+    return cleaned
+
+
+def _project_to_out(
+    p: models.Project,
+    numbers_period: int = 0,
+    numbers_total: Optional[int] = None,
+    *,
+    expose_internal_name: bool = True,
+) -> schemas.ProjectOut:
     return schemas.ProjectOut(
         id=p.id,
         status=p.status,  # type: ignore
         deliveryStatus=p.delivery_status,  # type: ignore
-        name=p.name,
-        tag=p.tag,
+        name=_project_name_for_view(p, expose_internal_name=expose_internal_name),
+        tag=_project_tag_for_view(p, expose_internal_name=expose_internal_name),
         collectionSource=p.collection_source,  # type: ignore
         dataSourceCode=p.data_source_code,  # type: ignore
         regionMode=p.region_mode,  # type: ignore
@@ -704,7 +770,14 @@ def list_projects_paginated(
         q = q.strip()
         if q:
             # Поиск проектов выполняется строго по названию.
-            stmt = stmt.where(models.Project.name.ilike(f"%{q}%"))
+            search_conditions = [models.Project.name.ilike(f"%{q}%")]
+            m = re.match(r"^(B1|B2|B3|B4)_(.+)$", q, flags=re.IGNORECASE)
+            if m:
+                code = m.group(1).upper()
+                suffix = m.group(2).strip()
+                if suffix:
+                    search_conditions.append(models.Project.name.ilike(f"%{code}\\_%{suffix}%", escape="\\"))
+            stmt = stmt.where(or_(*search_conditions))
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(
         stmt,
@@ -747,13 +820,19 @@ def list_projects_paginated(
             p,
             numbers_period=counts_period_map.get(p.id, 0),
             numbers_total=counts_total_map.get(p.id),
+            expose_internal_name=False,
         )
         for p in rows
     ]
     return schemas.ProjectListOut(items=items, total=total)
 
 
-def _audit_event_compact_description(ev: models.AuditEvent) -> str:
+def _audit_event_compact_description(
+    ev: models.AuditEvent,
+    *,
+    project: Optional[models.Project] = None,
+    expose_internal_name: bool = True,
+) -> str:
     """
     Человекочитаемое описание события аудита для фронтенда.
 
@@ -766,7 +845,8 @@ def _audit_event_compact_description(ev: models.AuditEvent) -> str:
         name = None
         try:
             if isinstance(ev.after, dict):
-                name = ev.after.get("name")
+                after = ev.after if expose_internal_name else _clean_project_snapshot_for_client(ev.after, project)
+                name = after.get("name") if isinstance(after, dict) else None
         except Exception:
             name = None
         if name:
@@ -776,6 +856,9 @@ def _audit_event_compact_description(ev: models.AuditEvent) -> str:
     if action == "update":
         before = ev.before or {}
         after = ev.after or {}
+        if not expose_internal_name:
+            before = _clean_project_snapshot_for_client(before, project)
+            after = _clean_project_snapshot_for_client(after, project)
         if isinstance(before, dict) and isinstance(after, dict):
             diff = _diff_dict(before, after)
             return _format_changes_compact(diff)
@@ -863,6 +946,8 @@ def _audit_event_to_history_item(
     ev: models.AuditEvent,
     actor: Optional[schemas.UserInfo] = None,
     actor_mode: Optional[str] = None,
+    project: Optional[models.Project] = None,
+    expose_internal_name: bool = True,
 ) -> schemas.ProjectHistoryItem:
     """
     Преобразует AuditEvent в компактный элемент истории для фронтенда.
@@ -872,7 +957,11 @@ def _audit_event_to_history_item(
     action_raw = ev.action or "update"
     # История проекта на фронте ожидает только create/update/delete.
     action = action_raw if action_raw in ("create", "update", "delete") else "update"
-    desc = _audit_event_compact_description(ev)
+    desc = _audit_event_compact_description(
+        ev,
+        project=project,
+        expose_internal_name=expose_internal_name,
+    )
 
     return schemas.ProjectHistoryItem(
         id=ev.id,
@@ -919,7 +1008,12 @@ def _clean_project_operation_error_message(value: Any) -> str:
     return text
 
 
-def _project_operation_description(ev: models.ProjectOperationEvent) -> str:
+def _project_operation_description(
+    ev: models.ProjectOperationEvent,
+    *,
+    project: Optional[models.Project] = None,
+    expose_internal_name: bool = True,
+) -> str:
     operation = _normalize_project_operation(getattr(ev, "operation", None))
     if operation == "create":
         base = "Не удалось создать проект"
@@ -929,6 +1023,12 @@ def _project_operation_description(ev: models.ProjectOperationEvent) -> str:
         base = "Не удалось изменить проект"
 
     project_name = str(getattr(ev, "project_name", "") or "").strip()
+    if project_name and not expose_internal_name and project is not None:
+        project_name = _clean_client_internal_prefix_from_name(
+            project_name,
+            data_source_code=getattr(project, "data_source_code", None),
+            client_internal_prefix=getattr(project, "client_internal_prefix", None),
+        )
     if project_name:
         base += f' "{project_name}"'
 
@@ -940,6 +1040,8 @@ def _project_operation_to_history_item(
     ev: models.ProjectOperationEvent,
     actor: Optional[schemas.UserInfo] = None,
     actor_mode: Optional[str] = None,
+    project: Optional[models.Project] = None,
+    expose_internal_name: bool = True,
 ) -> schemas.ProjectHistoryItem:
     created_at_str = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
     operation = _normalize_project_operation(getattr(ev, "operation", None))
@@ -949,7 +1051,11 @@ def _project_operation_to_history_item(
         eventId=f"POE-{ev.id}",
         action=operation,  # type: ignore[arg-type]
         createdAt=created_at_str,
-        description=_project_operation_description(ev),
+        description=_project_operation_description(
+            ev,
+            project=project,
+            expose_internal_name=expose_internal_name,
+        ),
         outcome="failed",
         errorMessage=error_message,
         actor=actor,
@@ -1089,15 +1195,25 @@ def get_history_event_detail(
         if not _history_viewer_can_access_owner(db, viewer, owner_id):
             return None
 
+        expose_internal_name = not (is_client_user(viewer) and owner_id is not None and int(viewer.id) == int(owner_id))
         actor_id = _audit_event_actor_user_id(ev)
         actor_mode = _audit_event_actor_mode(ev, actor_id)
         after = ev.after if isinstance(ev.after, dict) else None
         before = ev.before if isinstance(ev.before, dict) else None
+        if not expose_internal_name:
+            after = _clean_project_snapshot_for_client(after, project)
+            before = _clean_project_snapshot_for_client(before, project)
         project_name = (
             (str(project.name).strip() if project and project.name else None)
             or _project_name_from_snapshot(after)
             or _project_name_from_snapshot(before)
         )
+        if not expose_internal_name and project_name and project is not None:
+            project_name = _clean_client_internal_prefix_from_name(
+                project_name,
+                data_source_code=getattr(project, "data_source_code", None),
+                client_internal_prefix=getattr(project, "client_internal_prefix", None),
+            )
         changed_fields = ev.changed_fields if isinstance(ev.changed_fields, list) else None
         return schemas.HistoryEventDetailOut(
             eventId=f"AE-{ev.id}",
@@ -1105,7 +1221,11 @@ def get_history_event_detail(
             sourceId=ev.id,
             action=ev.action,  # type: ignore[arg-type]
             createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            description=_audit_event_compact_description(ev),
+            description=_audit_event_compact_description(
+                ev,
+                project=project,
+                expose_internal_name=expose_internal_name,
+            ),
             outcome="success",
             errorMessage=None,
             projectId=ev.project_id,
@@ -1128,6 +1248,8 @@ def get_history_event_detail(
         if not _history_viewer_can_access_owner(db, viewer, int(ev.user_id)):
             return None
 
+        project = db.get(models.Project, int(ev.project_id)) if ev.project_id else None
+        expose_internal_name = not (is_client_user(viewer) and int(viewer.id) == int(ev.user_id))
         actor_id = _operation_event_actor_user_id(ev)
         actor_mode = _operation_event_actor_mode(ev, actor_id)
         snapshot = dict(ev.request_payload) if isinstance(ev.request_payload, dict) else None
@@ -1140,6 +1262,14 @@ def get_history_event_detail(
             if ev.project_name
             else _project_name_from_snapshot(snapshot)
         )
+        if not expose_internal_name:
+            snapshot = _clean_project_snapshot_for_client(snapshot, project)
+            if project_name and project is not None:
+                project_name = _clean_client_internal_prefix_from_name(
+                    project_name,
+                    data_source_code=getattr(project, "data_source_code", None),
+                    client_internal_prefix=getattr(project, "client_internal_prefix", None),
+                )
         changed_fields = list(snapshot.keys()) if snapshot else None
         error_message = _clean_project_operation_error_message(ev.error_message)
         return schemas.HistoryEventDetailOut(
@@ -1148,7 +1278,11 @@ def get_history_event_detail(
             sourceId=ev.id,
             action=_normalize_project_operation(ev.operation),  # type: ignore[arg-type]
             createdAt=ev.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            description=_project_operation_description(ev),
+            description=_project_operation_description(
+                ev,
+                project=project,
+                expose_internal_name=expose_internal_name,
+            ),
             outcome="failed",
             errorMessage=error_message,
             projectId=ev.project_id,
@@ -1231,6 +1365,7 @@ def list_activity_events_for_clients(
     q: Optional[str] = None,
     status: Optional[str] = None,
     include_client: bool = False,
+    expose_internal_names: bool = True,
 ) -> schemas.ActivityEventListOut:
     """
     Единая лента активности по одному или нескольким клиентским аккаунтам.
@@ -1284,7 +1419,7 @@ def list_activity_events_for_clients(
             audit_actions.extend(["blacklist_add", "blacklist_delete"])
 
         audit_stmt = (
-            select(models.AuditEvent, models.Project.name, models.Project.user_id)
+            select(models.AuditEvent, models.Project)
             .outerjoin(models.Project, models.Project.id == models.AuditEvent.project_id)
             .where(models.AuditEvent.action.in_(audit_actions))
         )
@@ -1312,12 +1447,24 @@ def list_activity_events_for_clients(
             audit_stmt = audit_stmt.where(models.AuditEvent.admin_processed_at.is_not(None))
 
         audit_rows = db.execute(audit_stmt).all()
-        for ev, project_name, project_owner_id in audit_rows:
+        for ev, project in audit_rows:
             entity = "blacklist" if ev.action in ("blacklist_add", "blacklist_delete") else "project"
+            project_name = getattr(project, "name", None) if project is not None else None
+            project_owner_id = getattr(project, "user_id", None) if project is not None else None
+            if not expose_internal_names and project_name and project is not None:
+                project_name = _clean_client_internal_prefix_from_name(
+                    project_name,
+                    data_source_code=getattr(project, "data_source_code", None),
+                    client_internal_prefix=getattr(project, "client_internal_prefix", None),
+                )
             client_id = int(project_owner_id or ev.user_id or 0)
             actor_id = _audit_event_actor_user_id(ev)
             actor = get_user_info(actor_id)
-            description = _audit_event_compact_description(ev)
+            description = _audit_event_compact_description(
+                ev,
+                project=project,
+                expose_internal_name=expose_internal_names,
+            )
             event_id = f"AE-{ev.id}"
             actor_login = actor.login if actor else ""
             client = get_client_info(client_id)
@@ -1368,13 +1515,32 @@ def list_activity_events_for_clients(
             failed_stmt = failed_stmt.where(models.ProjectOperationEvent.created_at <= end_local)
 
         failed_rows = db.execute(failed_stmt).scalars().all()
+        failed_project_ids = sorted({int(ev.project_id) for ev in failed_rows if ev.project_id is not None})
+        failed_projects_map = {
+            int(project.id): project
+            for project in (
+                db.execute(select(models.Project).where(models.Project.id.in_(failed_project_ids))).scalars().all()
+                if failed_project_ids else []
+            )
+        }
         for ev in failed_rows:
+            project = failed_projects_map.get(int(ev.project_id)) if ev.project_id is not None else None
             actor_id = _operation_event_actor_user_id(ev)
             actor = get_user_info(actor_id)
-            description = _project_operation_description(ev)
+            description = _project_operation_description(
+                ev,
+                project=project,
+                expose_internal_name=expose_internal_names,
+            )
             event_id = f"POE-{ev.id}"
             actor_login = actor.login if actor else ""
             project_name = str(getattr(ev, "project_name", "") or "").strip() or None
+            if not expose_internal_names and project_name and project is not None:
+                project_name = _clean_client_internal_prefix_from_name(
+                    project_name,
+                    data_source_code=getattr(project, "data_source_code", None),
+                    client_internal_prefix=getattr(project, "client_internal_prefix", None),
+                )
             client_id = int(ev.user_id)
             client = get_client_info(client_id)
             client_label = f"{client.name or client.login} {client.id}" if client else ""
@@ -1546,6 +1712,7 @@ def list_client_activity_events(
         entities=entities,
         q=q,
         include_client=False,
+        expose_internal_names=False,
     )
 
 
@@ -1556,6 +1723,7 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
     Важно: клиент видит только свои изменения, поэтому фильтруем по user_id.
     """
     limit = max(1, min(500, limit))
+    project = db.get(models.Project, project_id)
     stmt = (
         select(models.AuditEvent)
         .where(models.AuditEvent.project_id == project_id)
@@ -1593,12 +1761,24 @@ def list_project_history(db: Session, project_id: int, user_id: int, limit: int 
         actor_id = _audit_event_actor_user_id(ev)
         actor = users_map.get(actor_id) if actor_id else None
         actor_mode = _audit_event_actor_mode(ev, actor_id)
-        items.append(_audit_event_to_history_item(ev, actor=actor, actor_mode=actor_mode))
+        items.append(_audit_event_to_history_item(
+            ev,
+            actor=actor,
+            actor_mode=actor_mode,
+            project=project,
+            expose_internal_name=False,
+        ))
     for ev in failed_rows:
         actor_id = _operation_event_actor_user_id(ev)
         actor = users_map.get(actor_id) if actor_id else None
         actor_mode = _operation_event_actor_mode(ev, actor_id)
-        items.append(_project_operation_to_history_item(ev, actor=actor, actor_mode=actor_mode))
+        items.append(_project_operation_to_history_item(
+            ev,
+            actor=actor,
+            actor_mode=actor_mode,
+            project=project,
+            expose_internal_name=False,
+        ))
     items.sort(key=lambda item: item.createdAt, reverse=True)
     return items[:limit]
 
@@ -1733,7 +1913,7 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
     p = db.get(models.Project, project_id)
     if not p or p.user_id != user_id:
         return None
-    return _project_to_out(p) if p else None
+    return _project_to_out(p, expose_internal_name=False) if p else None
 
 
 def active_project_name_exists(
@@ -1761,6 +1941,7 @@ def build_project_model_from_create_item(
     provider_id: Optional[str],
     created_at: Optional[datetime] = None,
     unique_name_applied: bool = False,
+    client_internal_prefix: Optional[str] = None,
 ) -> models.Project:
     now = created_at or now_msk()
     sites = item.sites or None
@@ -1771,6 +1952,7 @@ def build_project_model_from_create_item(
         provider_project_id=(str(provider_id).strip() if provider_id is not None and str(provider_id).strip() else None),
         name=item.name,
         tag=item.tag or item.name,
+        client_internal_prefix=normalize_client_internal_prefix(client_internal_prefix),
         unique_name_applied=bool(unique_name_applied),
         collection_source=item.collectionSource,
         data_source_code=item.dataSourceCode,
@@ -1798,6 +1980,7 @@ def create_projects(
     provider_ids: Optional[List[Optional[str]]] = None,
     actor_user_id: Optional[int] = None,
     via_impersonation: bool = False,
+    client_internal_prefix: Optional[str] = None,
 ) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = now_msk()
@@ -1813,6 +1996,7 @@ def create_projects(
             provider_id=provider_id,
             created_at=now,
             unique_name_applied=False,
+            client_internal_prefix=client_internal_prefix,
         )
         db.add(p)
         db.flush()
@@ -1830,7 +2014,7 @@ def create_projects(
             changed_fields=list(after.keys()),
             via_impersonation=via_impersonation,
         )
-        created.append(_project_to_out(p))
+        created.append(_project_to_out(p, expose_internal_name=False))
 
     db.commit()
     return created
@@ -1953,7 +2137,7 @@ def update_project(
     )
     db.commit()
     db.refresh(p)
-    return _project_to_out(p)
+    return _project_to_out(p, expose_internal_name=False)
 
 
 def delete_project(
@@ -2122,6 +2306,8 @@ def _build_utm_campaign(prov_source: Optional[str], subdomain: Optional[str]) ->
 def _provider_lead_to_export_row(
     lead: models.ProviderLead,
     user_info: Optional[schemas.UserInfo] = None,
+    project: Optional[models.Project] = None,
+    expose_internal_name: bool = True,
 ) -> dict:
     phone_value = lead.phone
     if not phone_value and lead.phones_raw:
@@ -2130,11 +2316,18 @@ def _provider_lead_to_export_row(
         except Exception:
             phone_value = None
     display_dt = lead.prov_created_at or lead.imported_at
+    project_name = lead.project_name or ""
+    if not expose_internal_name and project is not None:
+        project_name = _clean_client_internal_prefix_from_name(
+            project_name,
+            data_source_code=getattr(project, "data_source_code", None),
+            client_internal_prefix=getattr(project, "client_internal_prefix", None),
+        )
     return {
         "ext_id": lead.vid,
         "lk_id": format_provider_lead_lk_id(lead.id),
         "project_id": lead.project_id,
-        "project_name": lead.project_name or "",
+        "project_name": project_name,
         "source": lead.prov_chanel,
         "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
         "phone": phone_value or "",
@@ -2153,6 +2346,7 @@ def iter_provider_leads_for_export(
     project_ids: Optional[List[int]] = None,
     sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
+    expose_internal_names: bool = True,
 ) -> Iterator[dict]:
     remaining = max(0, int(max_rows))
     if remaining == 0:
@@ -2189,14 +2383,16 @@ def iter_provider_leads_for_export(
             break
 
         user_info_by_project_id: Dict[int, schemas.UserInfo] = {}
-        if user_info is None:
-            batch_project_ids = sorted({int(lead.project_id) for lead in batch if lead.project_id is not None})
-            if batch_project_ids:
-                projects = (
-                    db.execute(select(models.Project).where(models.Project.id.in_(batch_project_ids)))
-                    .scalars()
-                    .all()
-                )
+        project_by_id: Dict[int, models.Project] = {}
+        batch_project_ids = sorted({int(lead.project_id) for lead in batch if lead.project_id is not None})
+        if batch_project_ids:
+            projects = (
+                db.execute(select(models.Project).where(models.Project.id.in_(batch_project_ids)))
+                .scalars()
+                .all()
+            )
+            project_by_id = {int(p.id): p for p in projects}
+            if user_info is None:
                 user_ids = sorted({int(p.user_id) for p in projects if p.user_id is not None})
                 user_info_by_id = {
                     uid: info
@@ -2213,7 +2409,13 @@ def iter_provider_leads_for_export(
             row_user_info = user_info
             if row_user_info is None and lead.project_id is not None:
                 row_user_info = user_info_by_project_id.get(int(lead.project_id))
-            yield _provider_lead_to_export_row(lead, user_info=row_user_info)
+            project = project_by_id.get(int(lead.project_id)) if lead.project_id is not None else None
+            yield _provider_lead_to_export_row(
+                lead,
+                user_info=row_user_info,
+                project=project,
+                expose_internal_name=expose_internal_names,
+            )
 
         remaining -= len(batch)
         tail = batch[-1]
@@ -2229,6 +2431,7 @@ def fetch_provider_leads_for_export(
     project_ids: Optional[List[int]] = None,
     sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
+    expose_internal_names: bool = True,
 ) -> List[dict]:
     # Совместимость со старым интерфейсом (возврат списка).
     return list(
@@ -2240,6 +2443,7 @@ def fetch_provider_leads_for_export(
             project_ids=project_ids,
             sources=sources,
             user_info=user_info,
+            expose_internal_names=expose_internal_names,
         ),
     )
 
@@ -2574,6 +2778,8 @@ def admin_create_client(
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: bool = False,
     unique_project_names_enabled: bool = False,
+    internal_client_id: Optional[str] = None,
+    table_url: Optional[str] = None,
     owner_agent_id: Optional[int] = None,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
@@ -2625,6 +2831,8 @@ def admin_create_client(
         inn=inn_digits,
         phone=phone_clean,
         contact=(contact or "").strip() or None,
+        internal_client_id=(internal_client_id or "").strip() or None,
+        table_url=(table_url or "").strip() or None,
         created_at=now,
         updated_at=now,
     )
@@ -2654,6 +2862,8 @@ def admin_update_client(
     telegram_notifications_chat_id: Optional[str] = None,
     telegram_auto_pause_enabled: Optional[bool] = None,
     unique_project_names_enabled: Optional[bool] = None,
+    internal_client_id: Optional[str] = None,
+    table_url: Optional[str] = None,
     owner_agent_id: Optional[int] = None,
     commit: bool = True,
 ) -> schemas.AdminClientUpdateOut:
@@ -2724,6 +2934,8 @@ def admin_update_client(
             inn=inn_digits or "",
             phone=phone_clean or "",
             contact=(contact or "").strip() or None,
+            internal_client_id=(internal_client_id or "").strip() or None,
+            table_url=(table_url or "").strip() or None,
             created_at=now,
             updated_at=now,
         )
@@ -2737,6 +2949,10 @@ def admin_update_client(
             profile.phone = phone_clean
         if contact is not None:
             profile.contact = (contact or "").strip() or None
+        if internal_client_id is not None:
+            profile.internal_client_id = (internal_client_id or "").strip() or None
+        if table_url is not None:
+            profile.table_url = (table_url or "").strip() or None
         profile.updated_at = now
 
     if name_clean is not None:

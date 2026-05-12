@@ -56,6 +56,8 @@ type AgentClientRow = {
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled: boolean;
   uniqueProjectNamesEnabled: boolean;
+  internalClientId?: string | null;
+  tableUrl?: string | null;
   inn?: string | null;
   phone?: string | null;
   contact?: string | null;
@@ -123,6 +125,8 @@ function mapSummaryItemToClientRow(it: AdminClientSummaryItem): AgentClientRow {
     telegramNotificationsChatId: it.user.telegramNotificationsChatId ?? null,
     telegramAutoPauseEnabled: Boolean(it.user.telegramAutoPauseEnabled),
     uniqueProjectNamesEnabled: Boolean(it.user.uniqueProjectNamesEnabled),
+    internalClientId: profile?.internalClientId ?? null,
+    tableUrl: profile?.tableUrl ?? null,
     inn: profile?.inn,
     phone: profile?.phone,
     contact: profile?.contact,
@@ -167,6 +171,8 @@ function AdminAgentsScreen({
     telegramNotificationsChatId?: string | null;
     telegramAutoPauseEnabled: boolean;
     uniqueProjectNamesEnabled: boolean;
+    internalClientId?: string | null;
+    tableUrl?: string | null;
     login: string;
   } | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
@@ -692,6 +698,8 @@ function AdminAgentsScreen({
                                 telegramNotificationsChatId: client.telegramNotificationsChatId,
                                 telegramAutoPauseEnabled: client.telegramAutoPauseEnabled,
                                 uniqueProjectNamesEnabled: client.uniqueProjectNamesEnabled,
+                                internalClientId: client.internalClientId,
+                                tableUrl: client.tableUrl,
                                 login: client.login,
                               });
                             }}
@@ -1421,6 +1429,8 @@ function AdminAgentsScreen({
                                                       telegramNotificationsChatId: client.telegramNotificationsChatId,
                                                       telegramAutoPauseEnabled: client.telegramAutoPauseEnabled,
                                                       uniqueProjectNamesEnabled: client.uniqueProjectNamesEnabled,
+                                                      internalClientId: client.internalClientId,
+                                                      tableUrl: client.tableUrl,
                                                       login: client.login,
                                                     });
                                                   }}
@@ -1887,6 +1897,8 @@ function AdminAgentsScreen({
           initialTelegramNotificationsChatId={cardClientData.telegramNotificationsChatId || undefined}
           initialTelegramAutoPauseEnabled={cardClientData.telegramAutoPauseEnabled}
           initialUniqueProjectNamesEnabled={cardClientData.uniqueProjectNamesEnabled}
+          initialInternalClientId={cardClientData.internalClientId || undefined}
+          initialTableUrl={cardClientData.tableUrl || undefined}
           initialLogin={cardClientData.login}
           onClose={() => setCardClientId(null)}
           onUpdated={() => {

@@ -292,6 +292,23 @@ def _ensure_user_projects_lock_columns() -> None:
 _ensure_user_projects_lock_columns()
 
 
+def _ensure_client_profile_extra_columns() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "client_profiles" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("client_profiles")}
+    with engine.begin() as conn:
+        if "internal_client_id" not in columns:
+            conn.execute(text("ALTER TABLE client_profiles ADD COLUMN internal_client_id VARCHAR"))
+        if "table_url" not in columns:
+            conn.execute(text("ALTER TABLE client_profiles ADD COLUMN table_url VARCHAR"))
+
+
+_ensure_client_profile_extra_columns()
+
+
 def _ensure_project_unique_name_columns() -> None:
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -300,6 +317,8 @@ def _ensure_project_unique_name_columns() -> None:
 
     columns = {col.get("name") for col in inspector.get_columns("projects")}
     with engine.begin() as conn:
+        if "client_internal_prefix" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN client_internal_prefix VARCHAR"))
         if "unique_name_applied" not in columns:
             conn.execute(text("ALTER TABLE projects ADD COLUMN unique_name_applied BOOLEAN DEFAULT FALSE"))
         conn.execute(text("UPDATE projects SET unique_name_applied = FALSE WHERE unique_name_applied IS NULL"))
@@ -492,6 +511,51 @@ def _extract_project_display_name(name: Optional[str]) -> str:
     return _strip_mb_marker(_strip_provider_prefix_from_name(name))
 
 
+def _project_client_internal_prefix(project: models.Project) -> Optional[str]:
+    return crud.normalize_client_internal_prefix(getattr(project, "client_internal_prefix", None))
+
+
+def _build_project_name_with_client_internal_prefix(
+    data_source_code: str,
+    raw_name: str,
+    client_internal_prefix: Optional[str],
+) -> str:
+    prefix = crud.normalize_client_internal_prefix(client_internal_prefix)
+    base_name = _extract_project_display_name(raw_name)
+    if prefix and base_name.startswith(prefix):
+        base_name = base_name[len(prefix):].strip()
+    if not base_name:
+        raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+    if not prefix:
+        return f"{_provider_prefix_for_code(data_source_code)}{base_name}"
+    return f"{_provider_prefix_for_code(data_source_code)}{prefix}{base_name}"
+
+
+def _project_name_for_client_message(
+    name: str,
+    data_source_code: str,
+    client_internal_prefix: Optional[str],
+) -> str:
+    prefix = crud.normalize_client_internal_prefix(client_internal_prefix)
+    raw_name = str(name or "").strip()
+    if not prefix:
+        return raw_name
+    provider_prefix = _provider_prefix_for_code(data_source_code)
+    full_prefix = f"{provider_prefix}{prefix}"
+    if raw_name.startswith(full_prefix):
+        return f"{provider_prefix}{raw_name[len(full_prefix):].strip()}"
+    return raw_name
+
+
+def _client_internal_prefix_for_user(db_sess: Session, user_id: int) -> Optional[str]:
+    profile = db_sess.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == int(user_id))
+    ).scalar_one_or_none()
+    if not profile:
+        return None
+    return crud.normalize_client_internal_prefix(getattr(profile, "internal_client_id", None))
+
+
 def _project_name_unavailable_detail() -> dict:
     return {
         "code": "PROJECT_NAME_UNAVAILABLE",
@@ -524,6 +588,9 @@ def _ensure_project_name_available(
 
 def _required_project_name_prefix(project: models.Project) -> str:
     prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
+    internal_prefix = _project_client_internal_prefix(project)
+    if internal_prefix:
+        return f"{prefix}{internal_prefix}"
     if bool(getattr(project, "unique_name_applied", False)):
         return f"{prefix}[MB{int(project.id)}] "
     return prefix
@@ -542,11 +609,27 @@ def _validate_create_project_item_name(item: schemas.CreateProjectItem) -> None:
     item.name = raw_name
 
 
-def _validate_project_name_update(project: models.Project, proposed_name: str) -> str:
+def _validate_project_name_update(
+    project: models.Project,
+    proposed_name: str,
+    *,
+    allow_client_internal_prefix_restore: bool = False,
+) -> str:
     raw_name = str(proposed_name or "").strip()
     required_prefix = _required_project_name_prefix(project)
+    provider_prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
+    internal_prefix = _project_client_internal_prefix(project)
+    if (
+        allow_client_internal_prefix_restore
+        and internal_prefix
+        and raw_name.startswith(provider_prefix)
+        and not raw_name.startswith(required_prefix)
+    ):
+        suffix = raw_name[len(provider_prefix):].strip()
+        if suffix and not suffix.startswith(internal_prefix):
+            raw_name = f"{required_prefix}{suffix}"
     if not raw_name.startswith(required_prefix):
-        if bool(getattr(project, "unique_name_applied", False)):
+        if internal_prefix or bool(getattr(project, "unique_name_applied", False)):
             raise HTTPException(
                 status_code=422,
                 detail={"message": f'Нельзя удалять технический префикс "{required_prefix}" из названия проекта.'},
@@ -1879,19 +1962,17 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             )
             raise
 
+    client_internal_prefix: Optional[str] = None
     if bool(getattr(current_user, "unique_project_names_enabled", False)):
-        created, warning_text = _create_projects_with_unique_names(
-            db_sess=db_sess,
-            items=payload.items,
-            current_user=current_user,
-            actor_user_id=actor_user_id,
-            via_impersonation=via_impersonation,
-        )
-        if not created:
-            raise HTTPException(status_code=422, detail={"message": warning_text or "Не удалось создать проекты."})
-        _run_limit_control_for_client(db_sess, client_id=current_user.id, trigger="projects_create")
-        crud.schedule_debounce(db_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-        return schemas.CreateProjectsOut(items=created, warning=warning_text)
+        client_internal_prefix = _client_internal_prefix_for_user(db_sess, int(current_user.id))
+        if client_internal_prefix:
+            for item in payload.items:
+                item.name = _build_project_name_with_client_internal_prefix(
+                    item.dataSourceCode,
+                    item.name,
+                    client_internal_prefix,
+                )
+                item.tag = item.name
 
     _ensure_create_project_names_available(
         db_sess,
@@ -1907,6 +1988,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     provider_ids: List[Optional[str]] = []
     db_sess.rollback()
     for item in payload.items:
+        notice_name = _project_name_for_client_message(item.name, item.dataSourceCode, client_internal_prefix)
         try:
             result = prostats.create_project(item)
             provider_id_value = str(result.get("provider_id") or "").strip() or None
@@ -1924,7 +2006,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 )
                 notices.append(
                     prostats._build_partial_warning(
-                        item.name,
+                        notice_name,
                         target_type,
                         missing_items,
                         duplicates,
@@ -1936,7 +2018,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 else:
                     item.phones = [p for p in (item.phones or []) if p not in missing_items]
             else:
-                notices.append(f'Проект "{item.name}" создан.')
+                notices.append(f'Проект "{notice_name}" создан.')
         except prostats.ProstatsError as exc:
             target_type = prostats._type_from_collection(item.collectionSource)
             message = exc.message
@@ -1952,7 +2034,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 error_code=str(exc.status_code) if exc.status_code else None,
                 via_impersonation=via_impersonation,
             )
-            notices.append(f'Проект "{item.name}" не создан: {message}')
+            notices.append(f'Проект "{notice_name}" не создан: {message}')
 
     # 2) Если все успешны — сохраняем у нас
     if not adjusted_items:
@@ -1968,6 +2050,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 provider_ids=provider_ids,
                 actor_user_id=actor_user_id,
                 via_impersonation=via_impersonation,
+                client_internal_prefix=client_internal_prefix,
             )
         except IntegrityError as exc:
             write_sess.rollback()
@@ -2038,7 +2121,11 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
         )
         raise HTTPException(status_code=409, detail="Project is not linked to provider")
     try:
-        payload.name = _validate_project_name_update(project_row, payload.name)
+        payload.name = _validate_project_name_update(
+            project_row,
+            payload.name,
+            allow_client_internal_prefix_restore=True,
+        )
     except HTTPException as exc:
         _record_failed_project_operation(
             user_id=current_user.id,
@@ -2068,7 +2155,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 via_impersonation=via_impersonation,
             )
             raise
-    if bool(getattr(project_row, "unique_name_applied", False)):
+    if _project_client_internal_prefix(project_row) or bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
         can_activate, reason = crud.can_activate_project_under_limit_control(
@@ -2604,6 +2691,7 @@ def export_leads(
             max_rows=max_rows,
             sources=src_list,
             user_info=export_user_info,
+            expose_internal_names=(is_admin or is_agent),
         )
 
     if (format or "csv").lower() == "csv":
@@ -3079,6 +3167,8 @@ def admin_create_client(
             telegram_notifications_chat_id=(payload.telegramNotificationsChatId if crud.is_admin_user(current_manager) else None),
             telegram_auto_pause_enabled=bool(payload.telegramAutoPauseEnabled or False) if crud.is_admin_user(current_manager) else False,
             unique_project_names_enabled=bool(payload.uniqueProjectNamesEnabled or False) if crud.is_admin_user(current_manager) else False,
+            internal_client_id=(payload.internalClientId if crud.is_admin_user(current_manager) else None),
+            table_url=(payload.tableUrl if crud.is_admin_user(current_manager) else None),
             owner_agent_id=(payload.ownerAgentId if crud.is_admin_user(current_manager) else int(current_manager.id)),
         )
     except ValueError as exc:
@@ -3178,6 +3268,8 @@ def admin_update_client(
             telegram_notifications_chat_id=(payload.telegramNotificationsChatId if crud.is_admin_user(current_manager) else None),
             telegram_auto_pause_enabled=(payload.telegramAutoPauseEnabled if crud.is_admin_user(current_manager) else None),
             unique_project_names_enabled=(payload.uniqueProjectNamesEnabled if crud.is_admin_user(current_manager) else None),
+            internal_client_id=(payload.internalClientId if crud.is_admin_user(current_manager) else None),
+            table_url=(payload.tableUrl if crud.is_admin_user(current_manager) else None),
             owner_agent_id=None,
         )
         test_message = _build_auto_pause_test_message(existing_user)
@@ -3607,7 +3699,7 @@ def admin_update_project(
                     via_impersonation=False,
                 )
             raise
-    if bool(getattr(project_row, "unique_name_applied", False)):
+    if _project_client_internal_prefix(project_row) or bool(getattr(project_row, "unique_name_applied", False)):
         payload.tag = payload.name
     if payload.status == "Активен" and project_row.status != "Активен":
         can_activate, reason = crud.can_activate_project_under_limit_control(
