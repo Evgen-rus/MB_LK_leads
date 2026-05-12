@@ -1363,6 +1363,85 @@ def _notify_unique_project_name_failure(
             )
 
 
+def _client_name_for_notification(db_sess: Session, client_id: Optional[int]) -> str:
+    if not client_id:
+        return "-"
+    profile = db_sess.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == int(client_id))
+    ).scalar_one_or_none()
+    if profile and str(getattr(profile, "name", "") or "").strip():
+        return str(profile.name).strip()
+    user = db_sess.get(models.User, int(client_id))
+    if not user:
+        return str(client_id)
+    return (
+        str(getattr(user, "display_name", "") or "").strip()
+        or str(getattr(user, "login", "") or "").strip()
+        or str(client_id)
+    )
+
+
+def _actor_name_for_notification(db_sess: Session, actor_user_id: Optional[int]) -> str:
+    if not actor_user_id:
+        return "Система"
+    user = db_sess.get(models.User, int(actor_user_id))
+    if not user:
+        return f"id={int(actor_user_id)}"
+    label = str(getattr(user, "display_name", "") or "").strip() or str(getattr(user, "login", "") or "").strip()
+    return f"{label} (id={int(actor_user_id)})" if label else f"id={int(actor_user_id)}"
+
+
+def _queue_sms_project_notification(
+    *,
+    project_id: int,
+    action: str,
+    actor_user_id: Optional[int],
+) -> None:
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not chat_id:
+        return
+
+    with SessionLocal() as notify_sess:  # type: Session
+        project = notify_sess.get(models.Project, int(project_id))
+        if not project or str(getattr(project, "collection_source", "") or "").strip() != "СМС":
+            return
+
+        action_label = "создан" if action == "create" else "изменён"
+        client_name = _client_name_for_notification(notify_sess, getattr(project, "user_id", None))
+        actor_name = _actor_name_for_notification(notify_sess, actor_user_id)
+        text = (
+            f"<b>[ЛК | SMS-проект {action_label}]</b>\n"
+            f"Клиент: <code>{html.escape(client_name)}</code>\n"
+            f"Проект: <code>{html.escape(str(project.name or ''))}</code> (id={int(project.id)})\n"
+            f"Статус: <b>{html.escape(str(project.status or ''))}</b>\n"
+            f"Источник: <b>{html.escape(_source_code_for_display(str(project.data_source_code or '')))}</b>\n"
+            f"Лимит: <b>{html.escape(str(int(project.data_limit or 0)))}</b>\n"
+            f"SMS sender: <code>{html.escape(str(project.sms_sender_name or ''))}</code>\n"
+            f"Дни: <code>{html.escape(str(project.days_received or ''))}</code>\n"
+            f"Инициатор: <code>{html.escape(actor_name)}</code>"
+        )
+        result = notifications.send_telegram_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            kind="sms_project",
+            metadata={
+                "project_id": int(project.id),
+                "client_id": int(project.user_id) if getattr(project, "user_id", None) else None,
+                "action": action,
+                "actor_user_id": int(actor_user_id) if actor_user_id else None,
+            },
+        )
+    if not result.delivered and result.reason != "telegram_disabled":
+        logging.getLogger("app").warning(
+            "Failed to queue SMS project notification: project_id=%s action=%s reason=%s",
+            project_id,
+            action,
+            result.reason,
+        )
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
@@ -2106,6 +2185,13 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             raise
     _run_limit_control_for_client_in_new_session(current_user.id, trigger="projects_create")
     _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+    for project in created:
+        if project.collectionSource == "СМС":
+            _queue_sms_project_notification(
+                project_id=int(project.id),
+                action="create",
+                actor_user_id=actor_user_id,
+            )
     warning_text = "\n\n".join(notices) if notices else None
     return schemas.CreateProjectsOut(items=created, warning=warning_text)
 
@@ -2352,6 +2438,12 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 raise HTTPException(status_code=404, detail="Project not found")
         _run_limit_control_for_client_in_new_session(current_user.id, trigger="project_update")
     _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+    if payload.status != "Удалён" and updated.collectionSource == "СМС":
+        _queue_sms_project_notification(
+            project_id=int(updated.id),
+            action="update",
+            actor_user_id=actor_user_id,
+        )
     return schemas.UpdateProjectOut(project=updated, warning=warning_text)
 
 
@@ -3888,6 +3980,12 @@ def admin_update_project(
         if owner_user_id:
             _run_limit_control_for_client_in_new_session(client_id=owner_user_id, trigger="admin_project_update")
     _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+    if payload.status != "Удалён" and updated.collectionSource == "СМС":
+        _queue_sms_project_notification(
+            project_id=int(updated.id),
+            action="update",
+            actor_user_id=current_manager.id,
+        )
     return schemas.AdminUpdateProjectOut(project=updated, warning=warning_text)
 
 
