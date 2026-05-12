@@ -869,7 +869,7 @@ def _run_tariff_signal_check_for_client(db_sess: Session, client_id: int) -> Opt
     if not user:
         return None
 
-    user_snapshot = _snapshot_limit_control_user(user)
+    user_snapshot = _snapshot_limit_control_user(user, db_sess=db_sess)
     remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
 
     # Закрываем текущую транзакцию перед постановкой Telegram-сообщения в outbox,
@@ -894,7 +894,7 @@ def _run_limit_control_for_client(
     if not user:
         return {"paused": 0, "errors": [], "skipped": 0}
 
-    user_snapshot = _snapshot_limit_control_user(user)
+    user_snapshot = _snapshot_limit_control_user(user, db_sess=db_sess)
     remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
     active_projects = db_sess.execute(
         select(models.Project).where(
@@ -976,10 +976,22 @@ def _run_limit_control_for_client(
     return {"paused": len(paused_projects), "errors": errors, "skipped": skipped}
 
 
-def _snapshot_limit_control_user(user: models.User) -> dict:
+def _snapshot_limit_control_user(user: models.User, db_sess: Optional[Session] = None) -> dict:
+    client_name = ""
+    if db_sess is not None and getattr(user, "id", None):
+        profile = db_sess.execute(
+            select(models.ClientProfile).where(models.ClientProfile.user_id == int(user.id))
+        ).scalar_one_or_none()
+        if profile:
+            client_name = str(getattr(profile, "name", "") or "").strip()
+    if not client_name:
+        client_name = str(getattr(user, "display_name", "") or "").strip()
+    if not client_name:
+        client_name = str(getattr(user, "login", "") or "").strip()
     return {
         "id": int(getattr(user, "id", 0) or 0),
         "login": str(getattr(user, "login", "") or ""),
+        "client_name": client_name,
         "auto_limit_control_enabled": bool(getattr(user, "auto_limit_control_enabled", False)),
         "telegram_notifications_chat_id": str(getattr(user, "telegram_notifications_chat_id", "") or "").strip(),
         "telegram_auto_pause_enabled": bool(getattr(user, "telegram_auto_pause_enabled", False)),
@@ -1103,8 +1115,7 @@ def _build_client_tariff_signal_message(
     signal_value = signal_value_map.get(signal_level, 0)
     return (
         f"<b>[ЛК | Сигнал остатка тарифа {signal_level}]</b>\n"
-        f'Клиент: <code>{html.escape(str(user_snapshot.get("login", "") or ""))}</code> '
-        f'(id={html.escape(str(user_snapshot.get("id", "") or ""))})\n'
+        f'Клиент: <code>{html.escape(str(user_snapshot.get("client_name", "") or ""))}</code>\n'
         f"Текущий остаток: <b>{html.escape(str(int(remaining)))}</b>\n"
         f"Достигнут порог: <b>{html.escape(str(signal_value))}</b>\n"
         f"Текущий тариф: <b>{html.escape(str(int(tariff.currentAmount)))}</b>\n"
