@@ -3840,6 +3840,15 @@ def list_clients_with_auto_limit_control(db: Session) -> List[int]:
     return [int(uid) for (uid,) in rows if uid is not None]
 
 
+def list_client_ids_for_tariff_signal_checks(db: Session) -> List[int]:
+    rows = db.execute(
+        select(models.User.id).where(
+            models.User.role == ROLE_CLIENT,
+        )
+    ).all()
+    return [int(uid) for (uid,) in rows if uid is not None]
+
+
 def get_client_balance_summary(
     db: Session,
     client_id: int,

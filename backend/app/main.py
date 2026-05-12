@@ -806,7 +806,8 @@ def startup_event():
     )
     worker.start()
 
-    # Периодический контроль лимитов клиентов (пер-клиентный флаг в users.auto_limit_control_enabled).
+    # Периодический контроль: тарифные сигналы для всех клиентов,
+    # автопауза лимитов только при users.auto_limit_control_enabled.
     limit_worker = threading.Thread(
         target=run_limit_control_loop,
         kwargs={
@@ -834,9 +835,18 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
     while True:
         try:
             with SessionLocal() as s:  # type: Session
+                tariff_signal_client_ids = crud.list_client_ids_for_tariff_signal_checks(s)
+                for client_id in tariff_signal_client_ids:
+                    _run_tariff_signal_check_for_client(s, client_id=int(client_id))
+
                 client_ids = crud.list_clients_with_auto_limit_control(s)
                 for client_id in client_ids:
-                    _run_limit_control_for_client(s, client_id=int(client_id), trigger="schedule")
+                    _run_limit_control_for_client(
+                        s,
+                        client_id=int(client_id),
+                        trigger="schedule",
+                        check_tariff_signal=False,
+                    )
         except Exception:
             logging.getLogger("app").warning("limit-control loop failed", exc_info=True)
         time.sleep(max(30, int(sleep_seconds)))
@@ -854,7 +864,32 @@ def run_telegram_notifications_cleanup_loop(SessionLocal, sleep_seconds: int = 8
         time.sleep(max(3600, int(sleep_seconds)))
 
 
-def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str) -> dict:
+def _run_tariff_signal_check_for_client(db_sess: Session, client_id: int) -> Optional[int]:
+    user = db_sess.get(models.User, int(client_id))
+    if not user:
+        return None
+
+    user_snapshot = _snapshot_limit_control_user(user)
+    remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
+
+    # Закрываем текущую транзакцию перед постановкой Telegram-сообщения в outbox,
+    # чтобы не держать соединение из пула БД во время возможных побочных операций.
+    db_sess.rollback()
+
+    return _sync_client_tariff_signal_alert(
+        db_sess,
+        user_snapshot=user_snapshot,
+        remaining=remaining,
+    )
+
+
+def _run_limit_control_for_client(
+    db_sess: Session,
+    client_id: int,
+    trigger: str,
+    *,
+    check_tariff_signal: bool = True,
+) -> dict:
     user = db_sess.get(models.User, int(client_id))
     if not user:
         return {"paused": 0, "errors": [], "skipped": 0}
@@ -878,11 +913,12 @@ def _run_limit_control_for_client(db_sess: Session, client_id: int, trigger: str
     # соединение из пула БД во время ожидания Telegram/Prostats.
     db_sess.rollback()
 
-    _sync_client_tariff_signal_alert(
-        db_sess,
-        user_snapshot=user_snapshot,
-        remaining=remaining,
-    )
+    if check_tariff_signal:
+        _sync_client_tariff_signal_alert(
+            db_sess,
+            user_snapshot=user_snapshot,
+            remaining=remaining,
+        )
 
     if not bool(user_snapshot["auto_limit_control_enabled"]):
         return {"paused": 0, "errors": [], "skipped": 0}
