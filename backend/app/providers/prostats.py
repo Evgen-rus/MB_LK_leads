@@ -357,7 +357,7 @@ def _days_from_days_received(days_received: Optional[str]) -> List[schemas.Day]:
     return ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
-def build_status_only_payload(provider_id: str, project: models.Project, status: schemas.ProjectStatus) -> dict:
+def build_status_only_payload(provider_id: str, project: models.Project, status: schemas.ProjectMutableStatus) -> dict:
     # Передаём в Prostats полный update-payload, но все поля берём из текущего проекта,
     # меняем только status.
     update_like = type(
@@ -449,6 +449,10 @@ def _get_project(provider_id: str) -> Optional[dict]:
     if status >= 400:
         return None
     return (parsed or {}).get("result") or None
+
+
+def get_project(provider_id: str) -> Optional[dict]:
+    return _get_project(provider_id)
 
 
 def _build_partial_warning(
@@ -554,7 +558,7 @@ def delete_project(provider_id: str, project: models.Project) -> dict:
     return {"raw": parsed}
 
 
-def update_project_status(provider_id: str, project: models.Project, status: schemas.ProjectStatus) -> dict:
+def update_project_status(provider_id: str, project: models.Project, status: schemas.ProjectMutableStatus) -> dict:
     payload = build_status_only_payload(provider_id, project, status)
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":

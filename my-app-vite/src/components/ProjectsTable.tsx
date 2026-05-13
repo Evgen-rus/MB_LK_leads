@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
 import type { Day, ProjectSortBy, ProjectUpdatePayload, SortDir } from '../api';
 import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
-import type { Project, ProjectStatus } from '../types/project';
+import type { Project, ProjectMutableStatus } from '../types/project';
 import DateRangeFilter from './DateRangeFilter';
 import BulkEditDaysModal from './BulkEditDaysModal';
 import BulkEditLimitModal from './BulkEditLimitModal';
@@ -37,10 +37,13 @@ function formatDateInput(d: Date) {
 }
 
 type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'delete';
+type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора';
 
 const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
 const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
 const SEARCH_DEBOUNCE_MS = 400;
+const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
+const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 
 type ApiError = Error & {
   status?: number;
@@ -67,7 +70,7 @@ function ProjectsTable({
   const [rows, setRows] = useState<Project[]>([]);
   const [search, setSearch] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>('Все');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
@@ -147,7 +150,7 @@ function ProjectsTable({
   }, [openProjectMenuId]);
 
   const selectableRows = useMemo(
-    () => rows.filter((row) => row.status !== 'Удалён'),
+    () => rows.filter((row) => row.status !== 'Удалён' && row.status !== OPERATOR_BLOCK_STATUS),
     [rows],
   );
   const selectedRows = useMemo(
@@ -466,7 +469,7 @@ function ProjectsTable({
     });
   }
 
-  async function handleBulkStatusSubmit(status: Exclude<ProjectStatus, 'Удалён'>) {
+  async function handleBulkStatusSubmit(status: Exclude<ProjectMutableStatus, 'Удалён'>) {
     await runBulkAction(() => ({ status }));
   }
 
@@ -522,7 +525,7 @@ function ProjectsTable({
           <select
             value={statusFilter}
             onChange={(e) => {
-              const nextStatus = e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён';
+              const nextStatus = e.target.value as ProjectStatusFilter;
               setStatusFilter(nextStatus);
               setPage(1);
               load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
@@ -532,6 +535,7 @@ function ProjectsTable({
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
             <option value="Удалён">Удалён</option>
+            <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
@@ -671,12 +675,14 @@ function ProjectsTable({
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(row.id)}
-                  disabled={row.status === 'Удалён' || bulkSaving || projectsMutationLocked}
+                  disabled={row.status === 'Удалён' || row.status === OPERATOR_BLOCK_STATUS || bulkSaving || projectsMutationLocked}
                   title={
                     projectsMutationLocked
                       ? projectsMutationLockMessage
                       : row.status === 'Удалён'
                       ? 'Удалённые проекты нельзя редактировать'
+                      : row.status === OPERATOR_BLOCK_STATUS
+                      ? 'Проекты с блокировкой оператора не участвуют в массовых действиях'
                       : 'Выбрать проект'
                   }
                   onChange={() => toggleRowSelection(row.id)}
@@ -763,14 +769,16 @@ function ProjectsTable({
                   className={
                     row.status === 'Активен'
                       ? 'badge badge--green'
-                      : row.status === 'На паузе'
+                        : row.status === 'На паузе'
                         ? 'badge badge--orange'
+                        : row.status === OPERATOR_BLOCK_STATUS
+                        ? 'badge badge--red'
                         : 'badge badge--gray'
                   }
                   style={{
                     whiteSpace: 'nowrap',
                     cursor:
-                      projectsMutationLocked || row.status === 'Удалён'
+                    projectsMutationLocked || row.status === 'Удалён'
                         ? 'default'
                         : 'pointer',
                   }}
@@ -779,6 +787,8 @@ function ProjectsTable({
                       ? projectsMutationLockMessage
                       : row.status === 'Удалён'
                       ? 'Проект помечен как удалённый'
+                      : row.status === OPERATOR_BLOCK_STATUS
+                      ? 'Нажмите, чтобы перезапустить проект'
                       : 'Нажмите, чтобы переключить статус проекта'
                   }
                   onClick={() => {
@@ -792,6 +802,15 @@ function ProjectsTable({
                 >
                   {row.status}
                 </span>
+                {row.status === OPERATOR_BLOCK_STATUS && (
+                  <span
+                    className="operator-block-info"
+                    title={OPERATOR_BLOCK_TOOLTIP}
+                    aria-label="Пояснение к блокировке оператора"
+                  >
+                    i
+                  </span>
+                )}
               </td>
               <td>{row.dataLimit}</td>
               <td

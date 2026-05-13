@@ -1,6 +1,6 @@
 // Файл: src/api.ts
 // Назначение: HTTP-клиент фронтенда для работы с бэкендом (projects, client-errors).
-import type { Project, ProjectStatus } from './types/project';
+import type { Project, ProjectMutableStatus, ProjectStatus } from './types/project';
 
 // Базовый URL для API:
 // - в проде берётся из Vite-переменной окружения VITE_API_BASE (например, "/api")
@@ -70,7 +70,7 @@ export type CreateProjectItem = {
   collectionSource: CollectionSource;
   dataSourceCode: 'B1'|'B2'|'B3'|'B4';
   dataLimit: number;
-  status: 'Активен'|'На паузе'|'Удалён';
+  status: ProjectMutableStatus;
   regionMode: 'include'|'exclude';
   regions: string[];
   sites?: string[];
@@ -82,7 +82,7 @@ export type CreateProjectItem = {
 export type ProjectUpdatePayload = {
   name: string;
   tag: string;
-  status: 'Активен'|'На паузе'|'Удалён';
+  status: ProjectMutableStatus;
   dataLimit: number;
   regionMode: 'include'|'exclude';
   regions: string[];
@@ -740,7 +740,7 @@ export type AdminProjectListResp = {
 export type AdminProjectUpdate = {
   name: string;
   tag: string;
-  status: 'Активен' | 'На паузе' | 'Удалён';
+  status: ProjectMutableStatus;
   deliveryStatus: 'Активна' | 'На модерации' | 'Отключена';
   dataLimit: number;
   regionMode: 'include' | 'exclude';
@@ -754,7 +754,7 @@ export type AdminProjectUpdate = {
 export type AdminCollectionProjectItem = {
   id: number;
   name: string;
-  status: 'Активен' | 'На паузе' | 'Удалён';
+  status: ProjectStatus;
 };
 
 export type AdminClientCollectionState = {
@@ -780,6 +780,13 @@ export type AdminClientCollectionActionResp = {
   resumedCount: number;
   skippedCount: number;
   failedCount: number;
+  errors: string[];
+};
+
+export type OperatorBlockCheckResp = {
+  checked: number;
+  blocked: number;
+  skipped: number;
   errors: string[];
 };
 
@@ -828,6 +835,10 @@ export async function updateAdminProject(id: number, payload: AdminProjectUpdate
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+}
+
+export async function runAdminOperatorBlockCheck(): Promise<OperatorBlockCheckResp> {
+  return http<OperatorBlockCheckResp>('/admin/operator-block-check/run', { method: 'POST' });
 }
 
 export async function fetchAdminClientCollectionState(clientId: number): Promise<AdminClientCollectionState> {

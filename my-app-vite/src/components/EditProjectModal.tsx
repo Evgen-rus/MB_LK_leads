@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
-import type { Project, ProjectStatus, CollectionSource } from '../types/project';
+import type { Project, ProjectMutableStatus, ProjectStatus, CollectionSource } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
 import {
@@ -19,7 +19,7 @@ type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 type SubmitUpdate = {
   name: string;
   tag: string;
-  status: ProjectStatus;
+  status: ProjectMutableStatus;
   dataLimit: number;
   regionMode: 'include' | 'exclude';
   regions: string[];
@@ -297,6 +297,10 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
       phones = res.normalized;
     }
     const rawName = formatProjectNameForSubmit(normalizedName);
+    if (status === 'Блокировка оператора') {
+      setError('Чтобы сохранить изменения, выберите статус «Активен» или «На паузе».');
+      return;
+    }
     const update: SubmitUpdate = {
       name: rawName,
       // tag пользователь не редактирует в модалке — сохраняем текущий tag проекта.
@@ -482,6 +486,9 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 </div>
               ) : (
                 <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+                  {status === 'Блокировка оператора' && (
+                    <option value="Блокировка оператора" disabled>Блокировка оператора</option>
+                  )}
                   <option value="Активен">Активен</option>
                   <option value="На паузе">На паузе</option>
                   <option value="Удалён">Удалён</option>

@@ -22,6 +22,7 @@ from . import models, schemas, auth
 
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
 PROJECT_NAME_UNAVAILABLE_MESSAGE = "Название проекта не доступно. Выберите другое название."
+PROJECT_STATUS_OPERATOR_BLOCK = "Блокировка оператора"
 POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
@@ -417,7 +418,7 @@ def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]],
 
 
 def _normalize_project_status(value: Any) -> schemas.ProjectStatus:
-    if value in ("Активен", "На паузе", "Удалён"):
+    if value in ("Активен", "На паузе", "Удалён", PROJECT_STATUS_OPERATOR_BLOCK):
         return value  # type: ignore[return-value]
     return "Удалён"
 
@@ -671,6 +672,7 @@ def _format_changes_compact(diff: Dict[str, Tuple[Any, Any]]) -> str:
         "dataSourceCode": "Код источника",
         "sourcesCount": "Источники",
         "limitControlReason": "Причина автопаузы",
+        "operatorBlockReason": "Причина блокировки оператора",
     }
 
     def _human_region_mode(v: Any) -> str:
@@ -4813,6 +4815,95 @@ def update_project_status_with_audit(
     )
     db.commit()
     return True
+
+
+def list_operator_block_check_project_snapshots(db: Session) -> List[dict]:
+    rows = db.execute(
+        select(models.Project, models.User, models.ClientProfile)
+        .join(models.User, models.User.id == models.Project.user_id)
+        .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.User.id)
+        .where(
+            models.Project.status == "Активен",
+            models.Project.data_source_code == "B4",
+            models.Project.provider_project_id.is_not(None),
+            models.Project.deleted_at.is_(None),
+        )
+        .order_by(models.Project.id.asc())
+    ).all()
+
+    snapshots: List[dict] = []
+    for project, user, profile in rows:
+        client_name = str(getattr(profile, "name", "") or "").strip()
+        if not client_name:
+            client_name = str(getattr(user, "display_name", "") or "").strip()
+        if not client_name:
+            client_name = str(getattr(user, "login", "") or "").strip()
+        snapshots.append(
+            {
+                "id": int(project.id),
+                "user_id": int(project.user_id) if project.user_id is not None else None,
+                "name": str(project.name or ""),
+                "provider_project_id": str(project.provider_project_id or "").strip(),
+                "client_login": str(user.login or ""),
+                "client_name": client_name,
+                "telegram_notifications_chat_id": str(getattr(user, "telegram_notifications_chat_id", "") or "").strip(),
+                "telegram_auto_pause_enabled": bool(getattr(user, "telegram_auto_pause_enabled", False)),
+            }
+        )
+    return snapshots
+
+
+def mark_project_operator_blocked_if_active(db: Session, project_id: int) -> Optional[dict]:
+    p = db.get(models.Project, int(project_id))
+    if not p or p.status != "Активен" or p.user_id is None:
+        return None
+
+    client = db.get(models.User, int(p.user_id)) if p.user_id is not None else None
+    profile = None
+    if client is not None:
+        profile = db.execute(
+            select(models.ClientProfile).where(models.ClientProfile.user_id == int(client.id))
+        ).scalar_one_or_none()
+
+    before = _snapshot_project(p)
+    changed_at = now_msk()
+    p.status = PROJECT_STATUS_OPERATOR_BLOCK
+    _apply_project_deleted_state(p, deleted=False, now=changed_at)
+    p.updated_at = changed_at
+    after = _snapshot_project(p)
+    after["operatorBlockReason"] = (
+        "Система изменила статус: поставщик отключил проект при проверке B4."
+    )
+
+    add_project_audit_event(
+        db,
+        project=p,
+        user_id=int(p.user_id),
+        actor_user_id=None,
+        action="update",
+        before=before,
+        after=after,
+        changed_fields=["status", "operatorBlockReason"],
+        via_impersonation=False,
+    )
+    db.commit()
+    db.refresh(p)
+
+    client_name = str(getattr(profile, "name", "") or "").strip()
+    if not client_name and client is not None:
+        client_name = str(getattr(client, "display_name", "") or "").strip()
+    if not client_name and client is not None:
+        client_name = str(getattr(client, "login", "") or "").strip()
+    return {
+        "id": int(p.id),
+        "user_id": int(p.user_id) if p.user_id is not None else None,
+        "name": str(p.name or ""),
+        "provider_project_id": str(p.provider_project_id or "").strip(),
+        "client_login": str(getattr(client, "login", "") or ""),
+        "client_name": client_name,
+        "telegram_notifications_chat_id": str(getattr(client, "telegram_notifications_chat_id", "") or "").strip(),
+        "telegram_auto_pause_enabled": bool(getattr(client, "telegram_auto_pause_enabled", False)),
+    }
 
 
 def admin_update_project_status_only(

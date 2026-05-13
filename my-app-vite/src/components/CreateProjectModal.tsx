@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
-import type { CollectionSource, ProjectStatus } from '../types/project';
+import type { CollectionSource, ProjectMutableStatus } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
 import {
@@ -16,7 +16,7 @@ type SubmitItem = {
   collectionSource: CollectionSource;
   dataSourceCode: RawSourceCode;
   dataLimit: number;
-  status: ProjectStatus;
+  status: ProjectMutableStatus;
   regionMode: 'include' | 'exclude';
   regions: string[];
   sites?: string[];
@@ -55,7 +55,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
   const [name, setName] = useState('');
   const [collectionSource, setCollectionSource] = useState<CollectionSource>('Звонки');
   const [dataLimit, setDataLimit] = useState<number>(100);
-  const [status, setStatus] = useState<ProjectStatus>('Активен');
+  const [status, setStatus] = useState<ProjectMutableStatus>('Активен');
 
   const [b1, setB1] = useState(true);
   const [b2, setB2] = useState(true);
@@ -540,7 +540,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
 
               <label style={{ display: 'grid', gap: 6 }}>
               <span style={{ fontSize: '0.75rem', color: '#666' }}>Статус проекта</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectMutableStatus)}>
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
               </select>

@@ -33,10 +33,11 @@ export function buildUpdatePayloadFromProject(
   row: Project,
   patch: Partial<ProjectUpdatePayload>,
 ): ProjectUpdatePayload {
+  const status = patch.status ?? (row.status === 'Блокировка оператора' ? 'Активен' : row.status);
   return {
     name: row.name,
     tag: row.tag || row.name,
-    status: row.status,
+    status,
     dataLimit: row.dataLimit,
     regionMode: row.regionMode || 'include',
     regions: row.regions || [],

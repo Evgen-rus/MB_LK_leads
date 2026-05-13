@@ -507,6 +507,22 @@
 .badge--green { background: #e6f7ed; color: #1d7a45; border-color: #b6e3cb; }
 .badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
 .badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
+.badge--red { background: #ffecec; color: #9f1d2a; border-color: #f4b8bf; }
+.operator-block-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  border: 1px solid #d5d9e3;
+  border-radius: 50%;
+  color: #5f616b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
 .badge--info { background: #e7f0ff; color: #2f6fe4; border-color: #c7d9ff; }
 .icon-btn {
   background: transparent;

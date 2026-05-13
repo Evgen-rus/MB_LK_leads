@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import type { ProjectStatus } from '../types/project';
+import type { ProjectMutableStatus } from '../types/project';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
 import BulkEditModalFrame from './BulkEditModalFrame';
 
-type AllowedStatus = Exclude<ProjectStatus, 'Удалён'>;
+type AllowedStatus = Exclude<ProjectMutableStatus, 'Удалён'>;
 
 type BulkEditStatusModalProps = {
   selectedCount: number;

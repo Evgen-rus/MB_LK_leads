@@ -33,12 +33,15 @@ type AdminClientProjectsProps = {
     toDate: string;
   }) => void;
 };
+type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора';
 
 // Для режима "за всё время" нам всё равно нужен диапазон,
 // потому что /admin/leads и /leads требуют fromDate/toDate. Даем максимально широкий интервал.
 const ALL_TIME_FROM_DATE = '1970-01-01';
 const ALL_TIME_TO_DATE = '2099-12-31';
 const SEARCH_DEBOUNCE_MS = 400;
+const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
+const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -54,7 +57,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'Все' | 'Активен' | 'На паузе' | 'Удалён'>('Все');
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>('Все');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [total, setTotal] = useState(0);
@@ -119,6 +122,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
 
+  useEffect(() => {
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
+    window.addEventListener('projects-refresh', h);
+    return () => window.removeEventListener('projects-refresh', h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const canEditProject = (project: AdminProject) => {
@@ -151,7 +161,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
       const payload: AdminProjectUpdate = {
         name: project.name,
         tag: project.tag,
-        status: project.status,
+        status: patch.status ?? (project.status === OPERATOR_BLOCK_STATUS ? 'Активен' : project.status),
         deliveryStatus: project.deliveryStatus,
         dataLimit: project.dataLimit,
         regionMode: project.regionMode || 'include',
@@ -219,7 +229,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
           <select
             value={statusFilter}
             onChange={(e) => {
-              const nextStatus = e.target.value as 'Все' | 'Активен' | 'На паузе' | 'Удалён';
+              const nextStatus = e.target.value as ProjectStatusFilter;
               setStatusFilter(nextStatus);
               setPage(1);
               load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
@@ -229,6 +239,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
             <option value="Удалён">Удалён</option>
+            <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
@@ -409,12 +420,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           ? 'badge badge--green'
                           : row.status === 'На паузе'
                             ? 'badge badge--orange'
-                            : 'badge badge--gray'
+                            : row.status === OPERATOR_BLOCK_STATUS
+                              ? 'badge badge--red'
+                              : 'badge badge--gray'
                       }
                       style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
                       title={
                         row.status === 'Удалён'
                           ? 'Проект помечен как удалённый'
+                          : row.status === OPERATOR_BLOCK_STATUS
+                            ? 'Нажмите, чтобы перезапустить проект'
                           : 'Нажмите, чтобы переключить статус проекта'
                       }
                       onClick={() => {
@@ -424,6 +439,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                     >
                       {row.status}
                     </span>
+                    {row.status === OPERATOR_BLOCK_STATUS && (
+                      <span
+                        className="operator-block-info"
+                        title={OPERATOR_BLOCK_TOOLTIP}
+                        aria-label="Пояснение к блокировке оператора"
+                      >
+                        i
+                      </span>
+                    )}
                   </td>
                   <td>{row.dataLimit}</td>
                   <td

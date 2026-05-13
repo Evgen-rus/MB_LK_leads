@@ -283,6 +283,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       phones = res.normalized;
     }
 
+    if (status === 'Блокировка оператора') {
+      setError('Чтобы сохранить изменения, выберите статус «Активен» или «На паузе».');
+      return;
+    }
+
     const payload: AdminProjectUpdate = {
       name: formatProjectNameForSubmit(normalizedName),
       tag: project.tag,
@@ -468,6 +473,9 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Статус проекта</span>
               <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} disabled={readOnly}>
+                {status === 'Блокировка оператора' && (
+                  <option value="Блокировка оператора" disabled>Блокировка оператора</option>
+                )}
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
                 <option value="Удалён">Удалён</option>

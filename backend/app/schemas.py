@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 
 
 Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
-ProjectStatus = Literal['Активен', 'На паузе', 'Удалён']
+ProjectMutableStatus = Literal['Активен', 'На паузе', 'Удалён']
+ProjectStatus = Literal['Активен', 'На паузе', 'Удалён', 'Блокировка оператора']
 DeliveryStatus = Literal['Активна', 'На модерации', 'Отключена']
 CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение']
 DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
@@ -22,7 +23,7 @@ class CreateProjectItem(BaseModel):
     collectionSource: CollectionSource
     dataSourceCode: DataSourceCode
     dataLimit: int
-    status: ProjectStatus
+    status: ProjectMutableStatus
     regionMode: Optional[Literal['include','exclude']] = None
     regions: List[str] = []
     sites: Optional[List[str]] = None
@@ -38,7 +39,7 @@ class CreateProjectsPayload(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str
     tag: str
-    status: ProjectStatus
+    status: ProjectMutableStatus
     dataLimit: int
     regionMode: Optional[Literal['include','exclude']] = None
     regions: List[str] = []
@@ -204,7 +205,7 @@ class AdminProjectUpdate(BaseModel):
     """Обновление проекта админом (включая delivery_status)."""
     name: str
     tag: str
-    status: ProjectStatus
+    status: ProjectMutableStatus
     deliveryStatus: DeliveryStatus
     dataLimit: int
     regionMode: Optional[Literal['include','exclude']] = None
@@ -577,6 +578,13 @@ class AdminClientCollectionActionOut(BaseModel):
     resumedCount: int = 0
     skippedCount: int = 0
     failedCount: int = 0
+    errors: List[str] = Field(default_factory=list)
+
+
+class OperatorBlockCheckOut(BaseModel):
+    checked: int
+    blocked: int
+    skipped: int = 0
     errors: List[str] = Field(default_factory=list)
 
 

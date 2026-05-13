@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminUsers,
   fetchAdminClientChanges,
+  runAdminOperatorBlockCheck,
   type UserInfo,
   type AdminChange,
   type AdminChangeStatus,
@@ -75,6 +76,7 @@ function AdminProjectsScreen({
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientsError, setClientsError] = useState<string | null>(null);
+  const [operatorCheckRunning, setOperatorCheckRunning] = useState(false);
   const [projectChanges, setProjectChanges] = useState<Record<number, number>>({});
   const [projectCreates, setProjectCreates] = useState<Record<number, number>>({});
   const [clientPendingSummary, setClientPendingSummary] = useState<{ updates: number; creates: number; total: number }>({ updates: 0, creates: 0, total: 0 });
@@ -130,6 +132,29 @@ function AdminProjectsScreen({
     if (!found) return `id: ${selectedClientId}`;
     return `${found.name} (id: ${found.id})`;
   }, [hasSelectedClient, selectedClientId, selectedClientName, clients]);
+
+  async function handleRunOperatorBlockCheck() {
+    try {
+      setOperatorCheckRunning(true);
+      const result = await runAdminOperatorBlockCheck();
+      const lines = [
+        `Проверено B4-проектов: ${result.checked}.`,
+        `Переведено в статус «Блокировка оператора»: ${result.blocked}.`,
+        `Пропущено: ${result.skipped}.`,
+      ];
+      if (result.errors.length > 0) {
+        lines.push(`Ошибок: ${result.errors.length}.`);
+        lines.push(result.errors.slice(0, 3).join('\n'));
+      }
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+    } catch (err: unknown) {
+      console.error(err);
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось запустить проверку B4') }));
+    } finally {
+      setOperatorCheckRunning(false);
+    }
+  }
 
   // Загрузка изменений клиента для подсветки проектов с изменениями
   useEffect(() => {
@@ -224,6 +249,14 @@ function AdminProjectsScreen({
             />
           </div>
           <div className="actions">
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={handleRunOperatorBlockCheck}
+              disabled={operatorCheckRunning}
+            >
+              {operatorCheckRunning ? 'Проверка B4…' : 'Проверить блокировки B4'}
+            </button>
             {clientsError && (
               <span className="sub" style={{ color: '#d00' }}>
                 {clientsError}

@@ -830,6 +830,13 @@ def startup_event():
     )
     telegram_cleanup_worker.start()
 
+    operator_block_worker = threading.Thread(
+        target=run_operator_block_check_daily_loop,
+        daemon=True,
+        name="operator-block-check-thread",
+    )
+    operator_block_worker.start()
+
 
 def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
     while True:
@@ -862,6 +869,37 @@ def run_telegram_notifications_cleanup_loop(SessionLocal, sleep_seconds: int = 8
         except Exception:
             logging.getLogger("app").warning("telegram notifications cleanup loop failed", exc_info=True)
         time.sleep(max(3600, int(sleep_seconds)))
+
+
+def _seconds_until_next_operator_block_check() -> int:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo("Europe/Moscow")
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+    now = datetime.now(tz)
+    target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return max(60, int((target - now).total_seconds()))
+
+
+def run_operator_block_check_daily_loop() -> None:
+    logger = logging.getLogger("app")
+    while True:
+        time.sleep(_seconds_until_next_operator_block_check())
+        try:
+            result = _run_operator_block_check(trigger="schedule")
+            logger.info(
+                "operator block check completed: checked=%s blocked=%s skipped=%s errors=%s",
+                result.checked,
+                result.blocked,
+                result.skipped,
+                len(result.errors),
+            )
+        except Exception:
+            logger.warning("operator block check loop failed", exc_info=True)
 
 
 def _run_tariff_signal_check_for_client(db_sess: Session, client_id: int) -> Optional[int]:
@@ -1241,6 +1279,102 @@ def _resolve_notification_chat_id(use_client_route: bool, client_chat_id: str) -
     if use_client_route and client_chat_id:
         return client_chat_id
     return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _provider_project_is_disabled(detail: dict) -> bool:
+    try:
+        return int(str(detail.get("status", "")).strip()) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_operator_block_notification(project: dict, trigger: str) -> str:
+    return (
+        "<b>[ЛК | Блокировка оператора]</b>\n"
+        f'Клиент: <code>{html.escape(str(project.get("client_name", "") or ""))}</code> '
+        f'(id={html.escape(str(project.get("user_id", "") or ""))})\n'
+        f'Проект: <code>{html.escape(str(project.get("name", "") or ""))}</code> '
+        f'(id={html.escape(str(project.get("id", "") or ""))})\n'
+        f"Триггер: <code>{html.escape(trigger)}</code>\n\n"
+        "Поставщик отключил проект. В ЛК установлен статус "
+        f"<b>{html.escape(crud.PROJECT_STATUS_OPERATOR_BLOCK)}</b>.\n"
+        "Проект можно перезапустить вручную после расширения номеров или трафика."
+    )
+
+
+def _notify_operator_block(project: dict, trigger: str) -> None:
+    chat_id = _get_client_telegram_chat_id_for_notifications(project)
+    if not chat_id:
+        return
+    with SessionLocal() as notify_sess:  # type: Session
+        result = notifications.send_system_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=_build_operator_block_notification(project, trigger),
+            parse_mode="HTML",
+            metadata={
+                "client_id": project.get("user_id"),
+                "project_id": project.get("id"),
+                "provider_project_id": project.get("provider_project_id"),
+                "trigger": trigger,
+                "kind": "operator_block",
+            },
+        )
+    if not result.delivered and result.reason != "telegram_disabled":
+        logging.getLogger("app").warning(
+            "Failed to send operator block notification for project_id=%s reason=%s",
+            project.get("id"),
+            result.reason,
+        )
+
+
+def _run_operator_block_check(trigger: str = "manual") -> schemas.OperatorBlockCheckOut:
+    with SessionLocal() as s:  # type: Session
+        projects = crud.list_operator_block_check_project_snapshots(s)
+        s.rollback()
+
+    checked = 0
+    blocked = 0
+    skipped = 0
+    errors: List[str] = []
+
+    for project in projects:
+        checked += 1
+        provider_project_id = str(project.get("provider_project_id") or "").strip()
+        if not provider_project_id:
+            skipped += 1
+            continue
+        try:
+            detail = prostats.get_project(provider_project_id)
+        except prostats.ProstatsError as exc:
+            errors.append(f'Проект {project["id"]} "{project["name"]}": {exc.message}')
+            continue
+        if not detail:
+            errors.append(f'Проект {project["id"]} "{project["name"]}": пустой ответ gck_project')
+            continue
+        if not _provider_project_is_disabled(detail):
+            skipped += 1
+            continue
+
+        with SessionLocal() as write_sess:  # type: Session
+            changed_project = crud.mark_project_operator_blocked_if_active(
+                write_sess,
+                project_id=int(project["id"]),
+            )
+        if changed_project:
+            blocked += 1
+            _notify_operator_block(changed_project, trigger=trigger)
+        else:
+            skipped += 1
+
+    if blocked:
+        _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+    return schemas.OperatorBlockCheckOut(
+        checked=checked,
+        blocked=blocked,
+        skipped=skipped,
+        errors=errors,
+    )
 
 
 def _should_send_auto_pause_test_message(
@@ -3224,6 +3358,13 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return user
+
+
+@app.post("/admin/operator-block-check/run", response_model=schemas.OperatorBlockCheckOut)
+def admin_run_operator_block_check(
+    current_admin: models.User = Depends(require_admin),
+):
+    return _run_operator_block_check(trigger=f"manual:{current_admin.id}")
 
 
 @app.post("/admin/provider-leads-import/preview", response_model=schemas.AdminProviderLeadsImportPreviewOut)

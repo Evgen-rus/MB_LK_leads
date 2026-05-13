@@ -105,7 +105,7 @@ class Project(Base):
     phones = Column(JSON, nullable=True)
     sms_sender_name = Column(String, nullable=True)
 
-    status = Column(String, nullable=False)  # 'Активен' | 'На паузе'
+    status = Column(String, nullable=False)  # 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора'
     delivery_status = Column(String, nullable=False, default='На модерации')  # 'Активна' | 'На модерации' | 'Отключена'
 
     data_limit = Column(Integer, nullable=False, default=0)
