@@ -40,10 +40,23 @@ def main() -> None:
     payload = {"token": token, "command": "gck_project", "id": project_id}
 
     response = requests.post(api_url, json=payload, timeout=60)
-    response.raise_for_status()
 
     # сохраняем и raw текст (на всякий)
     raw_text = response.text
+
+    if not response.ok:
+        print(f"HTTP error: {response.status_code} for url: {response.url}")
+        print("API response (first 2000 chars):")
+        print(raw_text[:2000] if raw_text else "<empty response body>")
+
+        try:
+            error_data = response.json()
+            print("Parsed API error JSON:")
+            print(json.dumps(error_data, ensure_ascii=False, indent=2)[:4000])
+        except Exception:
+            print("Response is not valid JSON.")
+        return
+
     try:
         data = response.json()
     except Exception:
@@ -73,6 +86,7 @@ def main() -> None:
     if result:
         print("Project id:", result.get("id"))
         print("Project name:", result.get("name"))
+        print("Project status:", result.get("status"))
 
 
 if __name__ == "__main__":
