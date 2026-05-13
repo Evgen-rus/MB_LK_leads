@@ -1336,6 +1336,7 @@ def _run_operator_block_check(trigger: str = "manual") -> schemas.OperatorBlockC
     checked = 0
     blocked = 0
     skipped = 0
+    blocked_projects: List[schemas.OperatorBlockProjectOut] = []
     errors: List[str] = []
 
     for project in projects:
@@ -1363,6 +1364,14 @@ def _run_operator_block_check(trigger: str = "manual") -> schemas.OperatorBlockC
             )
         if changed_project:
             blocked += 1
+            blocked_projects.append(
+                schemas.OperatorBlockProjectOut(
+                    id=int(changed_project["id"]),
+                    name=str(changed_project.get("name") or ""),
+                    clientName=(str(changed_project.get("client_name") or "").strip() or None),
+                    providerProjectId=(str(changed_project.get("provider_project_id") or "").strip() or None),
+                )
+            )
             _notify_operator_block(changed_project, trigger=trigger)
         else:
             skipped += 1
@@ -1373,6 +1382,7 @@ def _run_operator_block_check(trigger: str = "manual") -> schemas.OperatorBlockC
         checked=checked,
         blocked=blocked,
         skipped=skipped,
+        blockedProjects=blocked_projects,
         errors=errors,
     )
 

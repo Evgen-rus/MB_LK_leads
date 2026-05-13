@@ -24,6 +24,7 @@ import AdminClientProjects from './AdminClientProjects';
 import AdminClientChanges from './AdminClientChanges';
 import AdminClientBlacklistChanges from './AdminClientBlacklistChanges';
 import DateRangeFilter from './DateRangeFilter';
+import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
 export type AdminProjectsFocus = 'projects' | 'changes' | 'blacklist-changes' | null;
 
@@ -142,6 +143,19 @@ function AdminProjectsScreen({
         `Переведено в статус «Блокировка оператора»: ${result.blocked}.`,
         `Пропущено: ${result.skipped}.`,
       ];
+      if (result.blockedProjects.length > 0) {
+        const projectLines = result.blockedProjects
+          .slice(0, 10)
+          .map((project) => {
+            const client = project.clientName ? `, клиент: ${project.clientName}` : '';
+            return `- ${formatProjectNameForDisplay(project.name)} (id: ${project.id}${client})`;
+          });
+        lines.push('Проекты:');
+        lines.push(projectLines.join('\n'));
+        if (result.blockedProjects.length > 10) {
+          lines.push(`... и ещё ${result.blockedProjects.length - 10}`);
+        }
+      }
       if (result.errors.length > 0) {
         lines.push(`Ошибок: ${result.errors.length}.`);
         lines.push(result.errors.slice(0, 3).join('\n'));

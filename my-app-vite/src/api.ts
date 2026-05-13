@@ -787,6 +787,12 @@ export type OperatorBlockCheckResp = {
   checked: number;
   blocked: number;
   skipped: number;
+  blockedProjects: Array<{
+    id: number;
+    name: string;
+    clientName?: string | null;
+    providerProjectId?: string | null;
+  }>;
   errors: string[];
 };
 

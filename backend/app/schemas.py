@@ -581,10 +581,18 @@ class AdminClientCollectionActionOut(BaseModel):
     errors: List[str] = Field(default_factory=list)
 
 
+class OperatorBlockProjectOut(BaseModel):
+    id: int
+    name: str
+    clientName: Optional[str] = None
+    providerProjectId: Optional[str] = None
+
+
 class OperatorBlockCheckOut(BaseModel):
     checked: int
     blocked: int
     skipped: int = 0
+    blockedProjects: List[OperatorBlockProjectOut] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
 
 
