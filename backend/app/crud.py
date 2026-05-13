@@ -759,6 +759,7 @@ def list_projects_paginated(
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
     project_status: Optional[schemas.ProjectStatus] = None,
+    daily_limit_reached: bool = False,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = None,
 ) -> schemas.ProjectListOut:
@@ -780,6 +781,11 @@ def list_projects_paginated(
                 if suffix:
                     search_conditions.append(models.Project.name.ilike(f"%{code}\\_%{suffix}%", escape="\\"))
             stmt = stmt.where(or_(*search_conditions))
+    if daily_limit_reached:
+        stmt = stmt.where(
+            models.Project.data_limit > 0,
+            models.Project.numbers_today >= models.Project.data_limit,
+        )
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(
         stmt,
@@ -4635,6 +4641,7 @@ def admin_list_all_projects(
     end_local: Optional[datetime] = None,
     include_deleted: bool = True,
     project_status: Optional[schemas.ProjectStatus] = None,
+    daily_limit_reached: bool = False,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = None,
 ) -> schemas.AdminProjectListOut:
@@ -4661,6 +4668,12 @@ def admin_list_all_projects(
         if q:
             # Поиск проектов выполняется строго по названию.
             stmt = stmt.where(models.Project.name.ilike(f"%{q}%"))
+
+    if daily_limit_reached:
+        stmt = stmt.where(
+            models.Project.data_limit > 0,
+            models.Project.numbers_today >= models.Project.data_limit,
+        )
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(

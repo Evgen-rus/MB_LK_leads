@@ -84,6 +84,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   const [editingReadOnly, setEditingReadOnly] = useState(false);
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
@@ -99,6 +100,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
     projectStatus = statusFilter,
     sortField = sortBy,
     direction = sortDir,
+    limitReached = dailyLimitReached,
   ) {
     try {
       setLoading(true);
@@ -113,6 +115,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         toDate: to,
         includeDeleted: withDeleted,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
+        dailyLimitReached: limitReached,
         sortBy: sortField,
         sortDir: direction,
       });
@@ -135,16 +138,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   }, [search]);
 
   useEffect(() => {
-    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
+    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
+  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
 
   useEffect(() => {
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir]);
+  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -258,6 +261,20 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
             <option value="Удалён">Удалён</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
+          <button
+            type="button"
+            className={dailyLimitReached ? 'btn btn--primary' : 'btn btn--secondary'}
+            aria-pressed={dailyLimitReached}
+            title="Показать проекты, где сегодня получено данных не меньше дневного лимита"
+            onClick={() => {
+              const nextValue = !dailyLimitReached;
+              setDailyLimitReached(nextValue);
+              setPage(1);
+              load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, nextValue);
+            }}
+          >
+            100%
+          </button>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
               type="checkbox"
