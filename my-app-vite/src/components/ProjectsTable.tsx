@@ -544,7 +544,7 @@ function ProjectsTable({
             type="button"
             className={dailyLimitReached ? 'btn btn--primary' : 'btn btn--secondary'}
             aria-pressed={dailyLimitReached}
-            title="Показать проекты, где сегодня получено данных не меньше дневного лимита"
+            title="Показать проекты, где за выбранный период получено данных не меньше дневного лимита"
             onClick={() => {
               const nextValue = !dailyLimitReached;
               setDailyLimitReached(nextValue);

@@ -498,6 +498,29 @@ def _apply_project_sort(
     return stmt.order_by(primary_order, secondary_order)
 
 
+def _apply_daily_limit_reached_filter(
+    stmt,
+    *,
+    start_local: Optional[datetime],
+    end_local: Optional[datetime],
+):
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    counts_stmt = select(
+        models.ProviderLead.project_id.label("project_id"),
+        func.count().label("period_count"),
+    ).where(models.ProviderLead.project_id.is_not(None))
+    if start_local and end_local:
+        counts_stmt = counts_stmt.where(ts_col >= start_local, ts_col <= end_local)
+    counts_subq = counts_stmt.group_by(models.ProviderLead.project_id).subquery()
+    return (
+        stmt.join(counts_subq, models.Project.id == counts_subq.c.project_id)
+        .where(
+            models.Project.data_limit > 0,
+            counts_subq.c.period_count >= models.Project.data_limit,
+        )
+    )
+
+
 def find_duplicates_in_projects(
     db: Session,
     items: List[str],
@@ -782,9 +805,10 @@ def list_projects_paginated(
                     search_conditions.append(models.Project.name.ilike(f"%{code}\\_%{suffix}%", escape="\\"))
             stmt = stmt.where(or_(*search_conditions))
     if daily_limit_reached:
-        stmt = stmt.where(
-            models.Project.data_limit > 0,
-            models.Project.numbers_today >= models.Project.data_limit,
+        stmt = _apply_daily_limit_reached_filter(
+            stmt,
+            start_local=start_local,
+            end_local=end_local,
         )
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     stmt = _apply_project_sort(
@@ -4670,9 +4694,10 @@ def admin_list_all_projects(
             stmt = stmt.where(models.Project.name.ilike(f"%{q}%"))
 
     if daily_limit_reached:
-        stmt = stmt.where(
-            models.Project.data_limit > 0,
-            models.Project.numbers_today >= models.Project.data_limit,
+        stmt = _apply_daily_limit_reached_filter(
+            stmt,
+            start_local=start_local,
+            end_local=end_local,
         )
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
