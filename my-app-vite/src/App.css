@@ -508,17 +508,25 @@
 .badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
 .badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
 .badge--red { background: #ffecec; color: #9f1d2a; border-color: #f4b8bf; }
+.project-status-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 .operator-block-info {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: 6px;
-  border: 1px solid #d5d9e3;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #f4b8bf;
   border-radius: 50%;
-  color: #5f616b;
-  font-size: 12px;
+  background: #fff8f8;
+  color: #9f1d2a;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: help;

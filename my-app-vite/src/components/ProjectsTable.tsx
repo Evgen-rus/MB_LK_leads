@@ -765,52 +765,54 @@ function ProjectsTable({
               </td>
               <td>{toDisplaySourceCode(row.dataSourceCode)}</td>
               <td>
-                <span
-                  className={
-                    row.status === 'Активен'
-                      ? 'badge badge--green'
-                        : row.status === 'На паузе'
-                        ? 'badge badge--orange'
-                        : row.status === OPERATOR_BLOCK_STATUS
-                        ? 'badge badge--red'
-                        : 'badge badge--gray'
-                  }
-                  style={{
-                    whiteSpace: 'nowrap',
-                    cursor:
-                    projectsMutationLocked || row.status === 'Удалён'
-                        ? 'default'
-                        : 'pointer',
-                  }}
-                  title={
-                    projectsMutationLocked
-                      ? projectsMutationLockMessage
-                      : row.status === 'Удалён'
-                      ? 'Проект помечен как удалённый'
-                      : row.status === OPERATOR_BLOCK_STATUS
-                      ? 'Нажмите, чтобы перезапустить проект'
-                      : 'Нажмите, чтобы переключить статус проекта'
-                  }
-                  onClick={() => {
-                    if (projectsMutationLocked) {
-                      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
-                      return;
-                    }
-                    if (row.status === 'Удалён') return;
-                    handleToggleStatus(row);
-                  }}
-                >
-                  {row.status}
-                </span>
-                {row.status === OPERATOR_BLOCK_STATUS && (
+                <span className="project-status-inline">
                   <span
-                    className="operator-block-info"
-                    title={OPERATOR_BLOCK_TOOLTIP}
-                    aria-label="Пояснение к блокировке оператора"
+                    className={
+                      row.status === 'Активен'
+                        ? 'badge badge--green'
+                        : row.status === 'На паузе'
+                          ? 'badge badge--orange'
+                          : row.status === OPERATOR_BLOCK_STATUS
+                            ? 'badge badge--red'
+                            : 'badge badge--gray'
+                    }
+                    style={{
+                      whiteSpace: 'nowrap',
+                      cursor:
+                        projectsMutationLocked || row.status === 'Удалён'
+                          ? 'default'
+                          : 'pointer',
+                    }}
+                    title={
+                      projectsMutationLocked
+                        ? projectsMutationLockMessage
+                        : row.status === 'Удалён'
+                          ? 'Проект помечен как удалённый'
+                          : row.status === OPERATOR_BLOCK_STATUS
+                            ? 'Нажмите, чтобы перезапустить проект'
+                            : 'Нажмите, чтобы переключить статус проекта'
+                    }
+                    onClick={() => {
+                      if (projectsMutationLocked) {
+                        window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+                        return;
+                      }
+                      if (row.status === 'Удалён') return;
+                      handleToggleStatus(row);
+                    }}
                   >
-                    i
+                    {row.status}
                   </span>
-                )}
+                  {row.status === OPERATOR_BLOCK_STATUS && (
+                    <span
+                      className="operator-block-info"
+                      title={OPERATOR_BLOCK_TOOLTIP}
+                      aria-label="Пояснение к блокировке оператора"
+                    >
+                      i
+                    </span>
+                  )}
+                </span>
               </td>
               <td>{row.dataLimit}</td>
               <td

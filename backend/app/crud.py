@@ -862,6 +862,12 @@ def _audit_event_compact_description(
             before = _clean_project_snapshot_for_client(before, project)
             after = _clean_project_snapshot_for_client(after, project)
         if isinstance(before, dict) and isinstance(after, dict):
+            if after.get("status") == PROJECT_STATUS_OPERATOR_BLOCK:
+                before_status = before.get("status") or "Активен"
+                return (
+                    "Поставщик отключил проект. "
+                    f"Статус изменён системой: {before_status} → {PROJECT_STATUS_OPERATOR_BLOCK}."
+                )
             diff = _diff_dict(before, after)
             return _format_changes_compact(diff)
         fields = ev.changed_fields or []
