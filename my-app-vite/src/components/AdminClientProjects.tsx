@@ -52,6 +52,23 @@ function getErrorMessage(err: unknown, fallback: string): string {
 }
 
 const ALL_DAYS: Day[] = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const DAYS_MAP: Record<string, Day> = {
+  'Пн.': 'Пн',
+  'Вт.': 'Вт',
+  'Ср.': 'Ср',
+  'Чт.': 'Чт',
+  'Пт.': 'Пт',
+  'Сб.': 'Сб',
+  'Вс.': 'Вс',
+};
+
+function parseProjectDays(project: AdminProject): Day[] {
+  const parts = (project.daysReceived || '').split(/\s+/).filter(Boolean);
+  const days = parts
+    .map((part) => DAYS_MAP[part])
+    .filter((day): day is Day => Boolean(day));
+  return days.length > 0 ? days : ALL_DAYS;
+}
 
 function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
@@ -169,7 +186,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         sites: project.sites || undefined,
         phones: project.phones || undefined,
         smsSenderName: project.smsSenderName || undefined,
-        days: ALL_DAYS,
+        days: parseProjectDays(project),
         ...patch,
       };
       const result = await updateAdminProject(project.id, payload);
