@@ -602,11 +602,11 @@ function AdminAgentsScreen({
                 <tr>
                   <th>ID</th>
                   <th>Название клиента</th>
-                  <th>Кол-во проектов</th>
+                  <th>Проектов</th>
                   <th>Статус клиента</th>
                   <th>Тариф</th>
                   <th>Остаток</th>
-                  <th>Общий объём данных за период</th>
+                  <th>Данных за период</th>
                   <th>Действия</th>
                 </tr>
               </thead>
@@ -999,7 +999,7 @@ function AdminAgentsScreen({
                 <div className="value">{selectedClient.projectCount}</div>
               </div>
               <div className="summary-card">
-                <div className="sub">Объём за период</div>
+                <div className="sub">Данных за период</div>
                 <div className="value">{selectedClient.totalVolume}</div>
               </div>
               <div className="summary-card">
@@ -1333,11 +1333,11 @@ function AdminAgentsScreen({
                                       <tr>
                                         <th>ID</th>
                                         <th>Название клиента</th>
-                                        <th>Кол-во проектов</th>
+                                        <th>Проектов</th>
                                         <th>Статус клиента</th>
                                         <th>Тариф</th>
                                         <th>Остаток</th>
-                                        <th>Общий объём данных за период</th>
+                                        <th>Данных за период</th>
                                         <th>Действия</th>
                                       </tr>
                                     </thead>
@@ -1730,7 +1730,7 @@ function AdminAgentsScreen({
                                       <div className="value">{selectedClient.projectCount}</div>
                                     </div>
                                     <div className="summary-card">
-                                      <div className="sub">Объём за период</div>
+                                      <div className="sub">Данных за период</div>
                                       <div className="value">{selectedClient.totalVolume}</div>
                                     </div>
                                     <div className="summary-card">
