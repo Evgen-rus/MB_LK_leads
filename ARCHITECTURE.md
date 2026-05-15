@@ -51,6 +51,8 @@ Last updated: 2026-05-13
 20. `provider_leads.lk_id` — вычисляемый публичный ID для ЛК/отчётов/Google Sheets: `30100000 + provider_leads.id`; отдельной колонкой в БД не хранится. Provider `vid` / API `ext_id` остаётся идентификатором провайдера.
 21. Для активных проектов `B4` backend проверяет внешний статус у поставщика: если `gck_project.result.status == 0`, локальный проект системно переводится в статус `Блокировка оператора`. Этот статус видят админ, агент и клиент, но вручную в формах создания/редактирования он не выбирается. Пользователь может перезапустить проект обычным переводом в `Активен`; если поставщик снова отключит проект, следующая проверка опять выставит `Блокировка оператора`.
 22. Проекты в статусе `Блокировка оператора` не должны участвовать в автоматических массовых операциях и автоконтроле лимитов как активные проекты. Ручное включение идёт через обычный update в Prostats.
+23. В manager-таблицах клиентов (`Клиенты`, раскрытые клиенты агента) нет единого “статуса клиента”. Статусы разделены на три независимых блока: `Сбор данных` — автоматический статус по неудалённым проектам (`Нет проектов` / `Сбор активен` / `На паузе`); `Остаток` — число и финансовый бейдж по сигналам последнего тарифа (`Дожим 1/2/3` / `Долг`, без бейджа если тарифа нет); `Работа` — ручной статус менеджера из `client_profiles.work_status`, который не меняется автоматикой.
+24. `user.id == 1` — служебный админ и не должен попадать в клиентские summary/итоги вкладки `Клиенты`, даже если в старой БД у него остался `users.role = client`.
 
 ## 4) Key Domain Objects
 
@@ -66,7 +68,7 @@ Last updated: 2026-05-13
 
 Важно:
 - `User` теперь хранит не только данные авторизации, но и роль/иерархию доступа: `display_name`, `role`, `owner_agent_id`, `is_disabled`, а также пер-клиентные флаги, в т.ч. `auto_limit_control_enabled`, Telegram-настройки и `unique_project_names_enabled`. Для Telegram-сигналов тарифа у клиента также хранится последний уже отправленный уровень сигнала, чтобы повторно слать alert только после восстановления остатка выше порога.
-- `ClientProfile` хранит карточку клиента, включая админские поля `internal_client_id` (например, `[LR193] NL`) и `table_url`.
+- `ClientProfile` хранит карточку клиента, включая админские поля `internal_client_id` (например, `[LR193] NL`) и `table_url`, а также ручной рабочий статус менеджера `work_status` (`В работе` по умолчанию).
 - `Project` содержит `provider_project_id`, `client_internal_prefix` для новых внутренних имён, legacy-флаг `unique_name_applied`, а также поля мягкого удаления `deleted_at` и `provider_leads_grace_until` для grace-привязки хвостовых webhook-лидов после удаления проекта.
 - `AuditEvent` хранит успешные изменения проектов/ЧС и участвует в админской очереди необработанных изменений; `ProjectOperationEvent` хранит только неудачные попытки `create` / `update` / `delete` проектов и не попадает в эту очередь.
 - `ClientBalanceOperation` остаётся старым контуром баланса клиента: он участвует в расчёте `remaining`, лимит-контроле и автопаузе проектов. Агентский баланс теперь не хранится отдельно, а агрегируется из текущих остатков клиентов агента.
@@ -142,6 +144,7 @@ Backend не отправляет Telegram напрямую: отдельные 
 - агент не может создавать тариф клиенту, добавлять к нему или списывать из него;
 - агент может только смотреть тарифы и историю тарифов своих клиентов;
 - тарифы агентов отключены.
+- ручной статус `Работа` может менять админ и агент для доступных ему клиентов; изменение пишется в `audit_events` как `client_work_status_update` сразу в обработанном виде и не попадает в pending-очередь.
 
 ### F) Admin Tariffs
 Админский экран `Баланс` использует popup-менеджер тарифов для работы с клиентским тарифом. Прямые кнопки `Начислить номера` / `Списать номера` для клиента больше не используются.
@@ -230,6 +233,7 @@ Backend проверяет активные проекты источника `B
 - Debounce-воркер по `audit_events`: `backend/app/notify_worker.py`
 - История успешных и неуспешных операций проектов и карточка изменения по `eventId`: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/ProjectHistoryModal.tsx` + `my-app-vite/src/components/AdminProjectHistoryModal.tsx` + `my-app-vite/src/components/ClientActivityHistory.tsx` + `my-app-vite/src/components/NotificationBell.tsx` + `my-app-vite/src/components/HistoryEventCardButton.tsx` + `my-app-vite/src/components/ChangeProjectDiffModal.tsx`
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
+- Статусы клиентов в manager-таблицах (`Сбор данных`, финансовый бейдж в `Остаток`, ручная `Работа`): backend `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminAgentsScreen.tsx` + `my-app-vite/src/App.css`
 - Агентский уровень доступа и владение клиентами: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/App.tsx` + `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/Sidebar.tsx`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
 - Экспорт provider leads и `lk_id`: `backend/app/provider_lead_ids.py` + `tool_export_provider_leads.py` + `/leads/export` в `backend/app/main.py`
