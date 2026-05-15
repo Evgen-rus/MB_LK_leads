@@ -3405,6 +3405,80 @@ def admin_run_operator_block_check(
     return _run_operator_block_check(trigger=f"manual:{current_admin.id}")
 
 
+@app.get("/admin/dashboard", response_model=schemas.AdminDashboardOut)
+def admin_dashboard(
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    clientId: Optional[int] = None,
+    sources: Optional[str] = None,
+    includeAgentClients: bool = True,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today = datetime.now(tz).date()
+    yesterday = today - timedelta(days=1)
+    if not fromDate:
+        fromDate = yesterday.isoformat()
+    if not toDate:
+        toDate = yesterday.isoformat()
+
+    try:
+        y, m, d = [int(x) for x in fromDate.split("-")]
+        y2, m2, d2 = [int(x) for x in toDate.split("-")]
+        start_date = datetime(y, m, d, 0, 0, 0, tzinfo=tz).date()
+        end_date = datetime(y2, m2, d2, 0, 0, 0, tzinfo=tz).date()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Некорректный формат дат. Используйте YYYY-MM-DD.") from exc
+
+    if end_date < start_date:
+        raise HTTPException(status_code=422, detail="Дата окончания не может быть раньше даты начала.")
+
+    def day_start(value):
+        return datetime(value.year, value.month, value.day, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+
+    selected_start = day_start(start_date)
+    selected_end = day_start(end_date + timedelta(days=1))
+    today_start = day_start(today)
+    today_end = day_start(today + timedelta(days=1))
+    yesterday_start = day_start(yesterday)
+    yesterday_end = day_start(today)
+    last7_start = day_start(today - timedelta(days=6))
+    last30_start = day_start(today - timedelta(days=29))
+    chart_start = day_start(today - timedelta(days=29))
+    chart_end = today_end
+
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip().upper() for s in sources.split(",") if s.strip()]
+        src_list = [s for s in src_list if s in {"B1", "B2", "B3", "B4"}]
+        if not src_list:
+            src_list = None
+
+    return crud.admin_dashboard(
+        db_sess,
+        start_local=selected_start,
+        end_local=selected_end,
+        today_start=today_start,
+        today_end=today_end,
+        yesterday_start=yesterday_start,
+        yesterday_end=yesterday_end,
+        last7_start=last7_start,
+        last30_start=last30_start,
+        chart_start=chart_start,
+        chart_end=chart_end,
+        client_id=clientId,
+        sources=src_list,
+        include_agent_clients=bool(includeAgentClients),
+    )
+
+
 @app.post("/admin/provider-leads-import/preview", response_model=schemas.AdminProviderLeadsImportPreviewOut)
 async def admin_preview_provider_leads_import(
     file: UploadFile = File(...),
@@ -4251,6 +4325,7 @@ def admin_list_leads(
     userId: int | None = None,
     projectIds: Optional[str] = None,
     sources: Optional[str] = None,
+    unlinked: bool = False,
     offset: int = 0,
     limit: int = 50,
     current_manager: models.User = Depends(require_manager),
@@ -4319,6 +4394,7 @@ def admin_list_leads(
         user_id_filter=userId,
         project_ids_filter=proj_ids,
         sources_filter=src_list,
+        unlinked_only=bool(unlinked),
     )
 
 

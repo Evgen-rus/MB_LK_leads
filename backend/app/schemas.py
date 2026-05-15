@@ -509,6 +509,113 @@ class AdminClientsSummaryOut(BaseModel):
     totals: AdminClientSummaryTotals
 
 
+# -------- Админский дашборд --------
+DashboardRiskLevel = Literal['warning', 'risk', 'critical', 'debt']
+
+
+class AdminDashboardMetric(BaseModel):
+    value: int
+    label: Optional[str] = None
+
+
+class AdminDashboardSummaryOut(BaseModel):
+    clients: int
+    projects: int
+    activeProjects: int
+    pausedProjects: int
+    operatorBlockedProjects: int
+    totalRemaining: int
+    leadsToday: int
+    leadsYesterday: int
+    leads7Days: int
+    leads30Days: int
+    unlinkedLeads: int
+    operationErrors: int
+
+
+class AdminDashboardAttentionClientOut(BaseModel):
+    clientId: int
+    clientName: str
+    clientLogin: str
+    ownerType: Literal['admin', 'agent'] = 'admin'
+    ownerName: Optional[str] = None
+    remaining: int
+    tariffAmount: Optional[int] = None
+    signal1: int
+    signal2: int
+    signal3: int
+    level: DashboardRiskLevel
+    activeProjects: int
+    dailySpend: int
+    lastTariffAt: Optional[str] = None
+
+
+class AdminDashboardAttentionProjectOut(BaseModel):
+    projectId: int
+    projectName: str
+    clientId: Optional[int] = None
+    clientName: Optional[str] = None
+    source: str
+
+
+class AdminDashboardUnlinkedLeadsOut(BaseModel):
+    total: int
+    ambiguous: int
+    notFound: int
+    unknown: int
+
+
+class AdminDashboardOperationErrorsOut(BaseModel):
+    total: int
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class AdminDashboardAttentionOut(BaseModel):
+    criticalClients: List[AdminDashboardAttentionClientOut]
+    riskClients: List[AdminDashboardAttentionClientOut]
+    warningClients: List[AdminDashboardAttentionClientOut]
+    operatorBlockedProjects: List[AdminDashboardAttentionProjectOut]
+    unlinkedLeads: AdminDashboardUnlinkedLeadsOut
+    operationErrors: AdminDashboardOperationErrorsOut
+
+
+class AdminDashboardSeriesPointOut(BaseModel):
+    date: str
+    value: int
+
+
+class AdminDashboardBreakdownItemOut(BaseModel):
+    key: str
+    label: str
+    value: int
+
+
+class AdminDashboardChartsOut(BaseModel):
+    leadsDaily: List[AdminDashboardSeriesPointOut]
+    sourceBreakdown: List[AdminDashboardBreakdownItemOut]
+    projectStatuses: List[AdminDashboardBreakdownItemOut]
+
+
+class AdminDashboardClientRankingItemOut(BaseModel):
+    clientId: int
+    clientName: str
+    ownerName: Optional[str] = None
+    value: int
+    activeProjects: int = 0
+
+
+class AdminDashboardRankingsOut(BaseModel):
+    topClientsByLeads: List[AdminDashboardClientRankingItemOut]
+    topClientsByActiveProjects: List[AdminDashboardClientRankingItemOut]
+
+
+class AdminDashboardOut(BaseModel):
+    summary: AdminDashboardSummaryOut
+    attention: AdminDashboardAttentionOut
+    charts: AdminDashboardChartsOut
+    rankings: AdminDashboardRankingsOut
+
+
 class AdminAgentCreateIn(BaseModel):
     name: str
     inn: str

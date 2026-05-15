@@ -3625,6 +3625,459 @@ def admin_clients_summary(
     return schemas.AdminClientsSummaryOut(items=items, totals=totals)
 
 
+def admin_dashboard(
+    db: Session,
+    *,
+    start_local: datetime,
+    end_local: datetime,
+    today_start: datetime,
+    today_end: datetime,
+    yesterday_start: datetime,
+    yesterday_end: datetime,
+    last7_start: datetime,
+    last30_start: datetime,
+    chart_start: datetime,
+    chart_end: datetime,
+    client_id: Optional[int] = None,
+    sources: Optional[List[str]] = None,
+    include_agent_clients: bool = True,
+) -> schemas.AdminDashboardOut:
+    source_filter = [str(s).strip().upper() for s in (sources or []) if str(s).strip()]
+    source_filter = [s for s in source_filter if s in {"B1", "B2", "B3", "B4"}]
+
+    users_stmt = (
+        select(models.User)
+        .where(models.User.role == ROLE_CLIENT)
+        .where(models.User.id != 1)
+    )
+    if client_id is not None:
+        users_stmt = users_stmt.where(models.User.id == int(client_id))
+    elif not include_agent_clients:
+        users_stmt = users_stmt.where(models.User.owner_agent_id.is_(None))
+    users = db.execute(users_stmt.order_by(models.User.id.asc())).scalars().all()
+    client_ids = [int(user.id) for user in users]
+
+    if not client_ids:
+        empty_unlinked = schemas.AdminDashboardUnlinkedLeadsOut(total=0, ambiguous=0, notFound=0, unknown=0)
+        return schemas.AdminDashboardOut(
+            summary=schemas.AdminDashboardSummaryOut(
+                clients=0,
+                projects=0,
+                activeProjects=0,
+                pausedProjects=0,
+                operatorBlockedProjects=0,
+                totalRemaining=0,
+                leadsToday=0,
+                leadsYesterday=0,
+                leads7Days=0,
+                leads30Days=0,
+                unlinkedLeads=0,
+                operationErrors=0,
+            ),
+            attention=schemas.AdminDashboardAttentionOut(
+                criticalClients=[],
+                riskClients=[],
+                warningClients=[],
+                operatorBlockedProjects=[],
+                unlinkedLeads=empty_unlinked,
+                operationErrors=schemas.AdminDashboardOperationErrorsOut(total=0, items=[]),
+            ),
+            charts=schemas.AdminDashboardChartsOut(leadsDaily=[], sourceBreakdown=[], projectStatuses=[]),
+            rankings=schemas.AdminDashboardRankingsOut(topClientsByLeads=[], topClientsByActiveProjects=[]),
+        )
+
+    profiles = db.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id.in_(client_ids))
+    ).scalars().all()
+    profile_by_client = {int(profile.user_id): profile for profile in profiles}
+    user_by_id = {int(user.id): user for user in users}
+
+    owner_agent_ids = sorted({
+        int(user.owner_agent_id)
+        for user in users
+        if getattr(user, "owner_agent_id", None) is not None
+    })
+    owner_name_by_id: Dict[int, str] = {}
+    if owner_agent_ids:
+        owner_users = db.execute(select(models.User).where(models.User.id.in_(owner_agent_ids))).scalars().all()
+        for owner_user in owner_users:
+            owner_name_by_id[int(owner_user.id)] = (
+                str(getattr(owner_user, "display_name", "") or "").strip()
+                or str(getattr(owner_user, "login", "") or "").strip()
+            )
+
+    def client_name(uid: int) -> str:
+        profile = profile_by_client.get(int(uid))
+        user = user_by_id.get(int(uid))
+        return (
+            str(getattr(profile, "name", "") or "").strip()
+            or str(getattr(user, "display_name", "") or "").strip()
+            or str(getattr(user, "login", "") or "").strip()
+            or f"Клиент {int(uid)}"
+        )
+
+    def owner_name(uid: int) -> Optional[str]:
+        user = user_by_id.get(int(uid))
+        owner_id = getattr(user, "owner_agent_id", None) if user is not None else None
+        if owner_id is None:
+            return None
+        return owner_name_by_id.get(int(owner_id))
+
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+
+    def scoped_project_stmt(include_deleted: bool = False):
+        stmt = select(models.Project).where(models.Project.user_id.in_(client_ids))
+        if not include_deleted:
+            stmt = stmt.where(models.Project.deleted_at.is_(None)).where(models.Project.status != "Удалён")
+        if source_filter:
+            stmt = stmt.where(models.Project.data_source_code.in_(source_filter))
+        return stmt
+
+    project_rows = db.execute(scoped_project_stmt(include_deleted=False)).scalars().all()
+    projects_count = len(project_rows)
+    active_projects = sum(1 for p in project_rows if p.status == "Активен")
+    paused_projects = sum(1 for p in project_rows if p.status == "На паузе")
+    blocked_projects = sum(1 for p in project_rows if p.status == PROJECT_STATUS_OPERATOR_BLOCK)
+
+    status_order = ["Активен", "На паузе", PROJECT_STATUS_OPERATOR_BLOCK, "Удалён"]
+    status_counts: Dict[str, int] = {status: 0 for status in status_order}
+    status_stmt = (
+        select(models.Project.status, func.count())
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .group_by(models.Project.status)
+    )
+    if source_filter:
+        status_stmt = status_stmt.where(models.Project.data_source_code.in_(source_filter))
+    all_project_status_rows = db.execute(status_stmt).all()
+    for status, count_value in all_project_status_rows:
+        status_counts[str(status or "")] = int(count_value or 0)
+    status_breakdown = [
+        schemas.AdminDashboardBreakdownItemOut(key=key, label=key, value=int(status_counts.get(key, 0)))
+        for key in status_order
+        if key != "Удалён" or int(status_counts.get(key, 0)) > 0
+    ]
+
+    operator_projects: List[schemas.AdminDashboardAttentionProjectOut] = []
+    for project in project_rows:
+        if project.status != PROJECT_STATUS_OPERATOR_BLOCK:
+            continue
+        uid = int(project.user_id) if project.user_id is not None else None
+        operator_projects.append(
+            schemas.AdminDashboardAttentionProjectOut(
+                projectId=int(project.id),
+                projectName=str(project.name or ""),
+                clientId=uid,
+                clientName=(client_name(uid) if uid is not None else None),
+                source=str(project.data_source_code or ""),
+            )
+        )
+    operator_projects = operator_projects[:10]
+
+    def leads_count(start: datetime, end: datetime) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(models.ProviderLead)
+            .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+            .where(models.Project.user_id.in_(client_ids))
+            .where(models.ProviderLead.project_id.is_not(None))
+            .where(ts_col >= start)
+            .where(ts_col < end)
+        )
+        if source_filter:
+            stmt = stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+        return int(db.execute(stmt).scalar_one() or 0)
+
+    leads_today = leads_count(today_start, today_end)
+    leads_yesterday = leads_count(yesterday_start, yesterday_end)
+    leads_7 = leads_count(last7_start, today_end)
+    leads_30 = leads_count(last30_start, today_end)
+
+    period_lead_stmt = (
+        select(models.Project.user_id, func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.ProviderLead.project_id.is_not(None))
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(models.Project.user_id)
+    )
+    if source_filter:
+        period_lead_stmt = period_lead_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+    period_lead_rows = db.execute(period_lead_stmt).all()
+    period_leads_by_client = {int(uid): int(cnt or 0) for uid, cnt in period_lead_rows if uid is not None}
+
+    last7_lead_rows = db.execute(
+        (
+            select(models.Project.user_id, func.count())
+            .select_from(models.ProviderLead)
+            .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+            .where(models.Project.user_id.in_(client_ids))
+            .where(models.ProviderLead.project_id.is_not(None))
+            .where(ts_col >= last7_start)
+            .where(ts_col < today_end)
+            .group_by(models.Project.user_id)
+        )
+    ).all()
+    last7_leads_by_client = {int(uid): int(cnt or 0) for uid, cnt in last7_lead_rows if uid is not None}
+
+    active_stmt = (
+        select(models.Project.user_id, func.count())
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status == "Активен")
+        .group_by(models.Project.user_id)
+    )
+    if source_filter:
+        active_stmt = active_stmt.where(models.Project.data_source_code.in_(source_filter))
+    active_rows = db.execute(active_stmt).all()
+    active_by_client = {int(uid): int(cnt or 0) for uid, cnt in active_rows if uid is not None}
+
+    used_total_rows = db.execute(
+        select(models.Project.user_id, func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.ProviderLead.project_id.is_not(None))
+        .group_by(models.Project.user_id)
+    ).all()
+    used_total_by_client = {int(uid): int(cnt or 0) for uid, cnt in used_total_rows if uid is not None}
+
+    balance_rows = db.execute(
+        select(
+            models.ClientBalanceOperation.client_id,
+            models.ClientBalanceOperation.op_type,
+            func.coalesce(func.sum(models.ClientBalanceOperation.amount), 0),
+        )
+        .where(models.ClientBalanceOperation.client_id.in_(client_ids))
+        .group_by(models.ClientBalanceOperation.client_id, models.ClientBalanceOperation.op_type)
+    ).all()
+    balance_map: Dict[int, Dict[str, int]] = {}
+    for cid, op_type, amount in balance_rows:
+        balance_map.setdefault(int(cid), {"credit": 0, "debit": 0})
+        balance_map[int(cid)][str(op_type)] = int(amount or 0)
+
+    last_tariffs = db.execute(
+        select(models.ClientTariff)
+        .where(models.ClientTariff.client_id.in_(client_ids))
+        .order_by(models.ClientTariff.client_id.asc(), models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+    ).scalars().all()
+    last_tariff_by_client: Dict[int, models.ClientTariff] = {}
+    for tariff in last_tariffs:
+        cid = int(tariff.client_id)
+        if cid not in last_tariff_by_client:
+            last_tariff_by_client[cid] = tariff
+
+    total_remaining = 0
+    critical_clients: List[schemas.AdminDashboardAttentionClientOut] = []
+    risk_clients: List[schemas.AdminDashboardAttentionClientOut] = []
+    warning_clients: List[schemas.AdminDashboardAttentionClientOut] = []
+    for uid in client_ids:
+        manual_balance = balance_map.get(uid, {}).get("credit", 0) - balance_map.get(uid, {}).get("debit", 0)
+        remaining = int(manual_balance) - int(used_total_by_client.get(uid, 0))
+        total_remaining += remaining
+        tariff = last_tariff_by_client.get(uid)
+        if tariff is None or tariff.signal1 is None or tariff.signal2 is None or tariff.signal3 is None:
+            continue
+        signal1 = int(tariff.signal1)
+        signal2 = int(tariff.signal2)
+        signal3 = int(tariff.signal3)
+        level: Optional[schemas.DashboardRiskLevel] = None
+        if remaining <= 0:
+            level = "debt"
+        elif remaining <= signal3:
+            level = "critical"
+        elif remaining <= signal2:
+            level = "risk"
+        elif remaining <= signal1:
+            level = "warning"
+        if level is None:
+            continue
+        item = schemas.AdminDashboardAttentionClientOut(
+            clientId=uid,
+            clientName=client_name(uid),
+            clientLogin=str(getattr(user_by_id.get(uid), "login", "") or ""),
+            ownerType=("agent" if getattr(user_by_id.get(uid), "owner_agent_id", None) is not None else "admin"),  # type: ignore[arg-type]
+            ownerName=owner_name(uid),
+            remaining=remaining,
+            tariffAmount=int(tariff.base_amount or 0),
+            signal1=signal1,
+            signal2=signal2,
+            signal3=signal3,
+            level=level,
+            activeProjects=int(active_by_client.get(uid, 0)),
+            dailySpend=max(0, int(round(int(last7_leads_by_client.get(uid, 0)) / 7))),
+            lastTariffAt=tariff.created_at.strftime("%Y-%m-%d %H:%M:%S") if tariff.created_at else None,
+        )
+        if level in ("critical", "debt"):
+            critical_clients.append(item)
+        elif level == "risk":
+            risk_clients.append(item)
+        else:
+            warning_clients.append(item)
+
+    critical_clients.sort(key=lambda item: (item.remaining, item.clientName))
+    risk_clients.sort(key=lambda item: (item.remaining, item.clientName))
+    warning_clients.sort(key=lambda item: (item.remaining, item.clientName))
+
+    unlinked_stmt = (
+        select(models.ProviderLead.project_name, func.count())
+        .where(models.ProviderLead.project_id.is_(None))
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(models.ProviderLead.project_name)
+    )
+    if source_filter:
+        unlinked_stmt = unlinked_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+    unlinked_rows = db.execute(unlinked_stmt).all()
+    unlinked_total = 0
+    unlinked_ambiguous = 0
+    unlinked_not_found = 0
+    unlinked_unknown = 0
+    for project_name, count_value in unlinked_rows:
+        count_int = int(count_value or 0)
+        unlinked_total += count_int
+        if not str(project_name or "").strip():
+            unlinked_unknown += count_int
+            continue
+        _project_id, status, _matches = resolve_project_by_name_for_provider_lead(db, str(project_name or ""))
+        if status == "ambiguous":
+            unlinked_ambiguous += count_int
+        elif status == "not_found":
+            unlinked_not_found += count_int
+        else:
+            unlinked_unknown += count_int
+
+    failed_base = (
+        select(models.ProjectOperationEvent)
+        .where(models.ProjectOperationEvent.user_id.in_(client_ids))
+        .where(models.ProjectOperationEvent.status == "failed")
+        .where(models.ProjectOperationEvent.created_at >= start_local)
+        .where(models.ProjectOperationEvent.created_at < end_local)
+    )
+    failed_total = int(db.execute(select(func.count()).select_from(failed_base.subquery())).scalar_one() or 0)
+    failed_rows = db.execute(
+        failed_base.order_by(models.ProjectOperationEvent.created_at.desc()).limit(5)
+    ).scalars().all()
+    failed_items = [
+        {
+            "id": int(row.id),
+            "clientId": int(row.user_id),
+            "clientName": client_name(int(row.user_id)),
+            "projectId": int(row.project_id) if row.project_id is not None else None,
+            "projectName": row.project_name,
+            "operation": row.operation,
+            "errorMessage": row.error_message,
+            "createdAt": row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else None,
+        }
+        for row in failed_rows
+    ]
+
+    daily_stmt = (
+        select(func.date(ts_col), func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.ProviderLead.project_id.is_not(None))
+        .where(ts_col >= chart_start)
+        .where(ts_col < chart_end)
+        .group_by(func.date(ts_col))
+    )
+    if source_filter:
+        daily_stmt = daily_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+    daily_rows = db.execute(daily_stmt).all()
+    daily_map = {str(day): int(cnt or 0) for day, cnt in daily_rows}
+    leads_daily: List[schemas.AdminDashboardSeriesPointOut] = []
+    current_day = chart_start.date()
+    while current_day < chart_end.date():
+        day_key = current_day.isoformat()
+        leads_daily.append(schemas.AdminDashboardSeriesPointOut(date=day_key, value=daily_map.get(day_key, 0)))
+        current_day = current_day + timedelta(days=1)
+
+    source_stmt = (
+        select(models.ProviderLead.prov_chanel, func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id.in_(client_ids))
+        .where(models.ProviderLead.project_id.is_not(None))
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(models.ProviderLead.prov_chanel)
+    )
+    if source_filter:
+        source_stmt = source_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+    source_rows = db.execute(source_stmt).all()
+    source_counts = {str(source or "UNMAPPED"): int(cnt or 0) for source, cnt in source_rows}
+    source_breakdown = [
+        schemas.AdminDashboardBreakdownItemOut(key=code, label=code, value=int(source_counts.get(code, 0)))
+        for code in ["B1", "B2", "B3", "B4"]
+        if not source_filter or code in source_filter
+    ]
+
+    top_by_leads = [
+        schemas.AdminDashboardClientRankingItemOut(
+            clientId=uid,
+            clientName=client_name(uid),
+            ownerName=owner_name(uid),
+            value=int(value),
+            activeProjects=int(active_by_client.get(uid, 0)),
+        )
+        for uid, value in sorted(period_leads_by_client.items(), key=lambda pair: pair[1], reverse=True)[:5]
+    ]
+    top_by_active = [
+        schemas.AdminDashboardClientRankingItemOut(
+            clientId=uid,
+            clientName=client_name(uid),
+            ownerName=owner_name(uid),
+            value=int(value),
+            activeProjects=int(value),
+        )
+        for uid, value in sorted(active_by_client.items(), key=lambda pair: pair[1], reverse=True)[:5]
+        if int(value) > 0
+    ]
+
+    return schemas.AdminDashboardOut(
+        summary=schemas.AdminDashboardSummaryOut(
+            clients=len(client_ids),
+            projects=projects_count,
+            activeProjects=active_projects,
+            pausedProjects=paused_projects,
+            operatorBlockedProjects=blocked_projects,
+            totalRemaining=total_remaining,
+            leadsToday=leads_today,
+            leadsYesterday=leads_yesterday,
+            leads7Days=leads_7,
+            leads30Days=leads_30,
+            unlinkedLeads=unlinked_total,
+            operationErrors=failed_total,
+        ),
+        attention=schemas.AdminDashboardAttentionOut(
+            criticalClients=critical_clients[:10],
+            riskClients=risk_clients[:10],
+            warningClients=warning_clients[:10],
+            operatorBlockedProjects=operator_projects,
+            unlinkedLeads=schemas.AdminDashboardUnlinkedLeadsOut(
+                total=unlinked_total,
+                ambiguous=unlinked_ambiguous,
+                notFound=unlinked_not_found,
+                unknown=unlinked_unknown,
+            ),
+            operationErrors=schemas.AdminDashboardOperationErrorsOut(total=failed_total, items=failed_items),
+        ),
+        charts=schemas.AdminDashboardChartsOut(
+            leadsDaily=leads_daily,
+            sourceBreakdown=source_breakdown,
+            projectStatuses=status_breakdown,
+        ),
+        rankings=schemas.AdminDashboardRankingsOut(
+            topClientsByLeads=top_by_leads,
+            topClientsByActiveProjects=top_by_active,
+        ),
+    )
+
+
 def admin_list_client_changes(db: Session, client_id: int, actions: Optional[List[str]] = None) -> schemas.AdminClientChangesOut:
     """
     Подробный список необработанных изменений конкретного клиента (по всем его проектам).
@@ -5181,6 +5634,64 @@ def admin_list_provider_leads(
             user=user_info,
         ))
 
+    return schemas.AdminLeadsListOut(items=items, total=total)
+
+
+def admin_list_all_leads(
+    db: Session,
+    start_local: datetime,
+    end_local: datetime,
+    offset: int,
+    limit: int,
+    user_id_filter: int | None = None,
+    project_ids_filter: Optional[List[int]] = None,
+    sources_filter: Optional[List[str]] = None,
+    unlinked_only: bool = False,
+) -> schemas.AdminLeadsListOut:
+    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    base = select(models.ProviderLead).where(and_(ts_col >= start_local, ts_col < end_local))
+    if unlinked_only:
+        base = base.where(models.ProviderLead.project_id.is_(None))
+    elif project_ids_filter is not None:
+        base = base.where(models.ProviderLead.project_id.in_(project_ids_filter))
+    if sources_filter:
+        base = base.where(models.ProviderLead.prov_chanel.in_(sources_filter))
+
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    rows = db.execute(base.order_by(ts_col.desc()).offset(offset).limit(limit)).scalars().all()
+
+    project_ids = sorted({int(row.project_id) for row in rows if row.project_id is not None})
+    projects_map: Dict[int, models.Project] = {}
+    if project_ids:
+        projects = db.execute(select(models.Project).where(models.Project.id.in_(project_ids))).scalars().all()
+        projects_map = {int(project.id): project for project in projects}
+    user_ids = sorted({int(project.user_id) for project in projects_map.values() if project.user_id is not None})
+    user_infos = _load_user_infos(db, user_ids) if user_ids else {}
+    unlinked_user = schemas.UserInfo(id=0, login="(unlinked)", name="Без привязки")
+
+    items: List[schemas.AdminLeadOut] = []
+    for row in rows:
+        phone_value = row.phone
+        if not phone_value and row.phones_raw:
+            try:
+                phone_value = ", ".join([str(x) for x in row.phones_raw if x is not None])
+            except Exception:
+                phone_value = None
+        created_at = row.prov_created_at or row.imported_at
+        project = projects_map.get(int(row.project_id)) if row.project_id is not None else None
+        user_info = user_infos.get(int(project.user_id)) if project is not None and project.user_id is not None else unlinked_user
+        items.append(schemas.AdminLeadOut(
+            ext_id=str(row.vid),
+            lk_id=format_provider_lead_lk_id(row.id),
+            project_id=row.project_id,
+            created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
+            imported_at=row.imported_at.strftime('%Y-%m-%d %H:%M:%S') if row.imported_at else "",
+            phone=phone_value or "",
+            utm_campaign=_build_utm_campaign(row.prov_source, row.subdomain),
+            source=row.prov_chanel,
+            project_name=row.project_name,
+            user=user_info or unlinked_user,
+        ))
     return schemas.AdminLeadsListOut(items=items, total=total)
 
 

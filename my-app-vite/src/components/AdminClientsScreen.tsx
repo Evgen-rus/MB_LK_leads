@@ -256,6 +256,16 @@ function AdminClientsScreen({
           return row;
         });
         setBaseClients(rows);
+        try {
+          const focusIdRaw = localStorage.getItem('admin_clients_focus_id');
+          const focusId = focusIdRaw ? Number(focusIdRaw) : null;
+          if (focusId && rows.some((row) => row.id === focusId)) {
+            setSelectedClientId(focusId);
+            localStorage.removeItem('admin_clients_focus_id');
+          }
+        } catch {
+          /* ignore */
+        }
         setPage(1);
       } catch (err: unknown) {
         console.error(err);

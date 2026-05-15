@@ -12,6 +12,7 @@ import Reports from './components/Reports';
 import AdminReports from './components/AdminReports';
 import AdminClientsScreen from './components/AdminClientsScreen';
 import AdminAgentsScreen from './components/AdminAgentsScreen';
+import AdminDashboard from './components/AdminDashboard';
 import AdminProviderLeadsImport from './components/AdminProviderLeadsImport';
 import AdminProjectsScreen, {
   type AdminProjectsFocus,
@@ -56,6 +57,7 @@ function App() {
       const saved = localStorage.getItem(STORAGE_VIEW_KEY);
       if (
         saved === 'agents' ||
+        saved === 'admin-dashboard' ||
         saved === 'projects' ||
         saved === 'leads' ||
         saved === 'reports' ||
@@ -93,7 +95,7 @@ function App() {
   // Предзаполнение фильтров идентификаций при переходе из «Проектов»
   const [leadsPrefill, setLeadsPrefill] = useState<{ projectId?: number; from?: string; to?: string } | null>(null);
   // Предзаполнение идентификаций для админа (клиент + проект)
-  const [adminLeadsPrefill, setAdminLeadsPrefill] = useState<{ clientId?: number; projectId?: number; from?: string; to?: string } | null>(null);
+  const [adminLeadsPrefill, setAdminLeadsPrefill] = useState<{ clientId?: number; projectId?: number; from?: string; to?: string; unlinked?: boolean } | null>(null);
   // Клиентский баланс для шапки
   const [clientBalance, setClientBalance] = useState<{ remaining: number; debt: boolean } | null>(null);
   const [clientName, setClientName] = useState<string | null>(null);
@@ -169,10 +171,10 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && view === 'agents') {
-      setView('projects');
+    if (!isAdmin && (view === 'agents' || view === 'admin-dashboard')) {
+      setView(isManager ? 'admin-clients' : 'projects');
       try {
-        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+        localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'projects');
       } catch {
         /* ignore */
       }
@@ -189,6 +191,7 @@ function App() {
     }
     // если вдруг сохранённая вкладка невалидная, откатываем
     if (
+      view !== 'admin-dashboard' &&
       view !== 'agents' &&
       view !== 'projects' &&
       view !== 'leads' &&
@@ -304,7 +307,7 @@ function App() {
 
       // Требование: дефолтная вкладка выставляется ТОЛЬКО после ввода логина/пароля.
       // При обычном обновлении страницы остаёмся на last_view.
-      const nextView: ViewType = nextRole === 'client' ? 'leads' : 'admin-clients';
+      const nextView: ViewType = nextRole === 'client' ? 'leads' : nextRole === 'admin' ? 'admin-dashboard' : 'admin-clients';
       setView(nextView);
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, nextView);
@@ -346,6 +349,8 @@ function App() {
               <span className="page-title__title">
                 {view === 'agents'
                   ? 'Агенты'
+                  : view === 'admin-dashboard'
+                  ? 'Дашборд'
                   : view === 'admin-clients'
                   ? 'Клиенты'
                   : view === 'admin-provider-import'
@@ -482,7 +487,51 @@ function App() {
               {impersonatorUserId != null && <span className="sub">администратор id: {impersonatorUserId}</span>}
             </div>
           )}
-          {view === 'agents' && isAdmin ? (
+          {view === 'admin-dashboard' && isAdmin ? (
+            <AdminDashboard
+              onOpenClient={(clientId) => {
+                setAdminProjectsClientId(null);
+                setAdminProjectsClientName(null);
+                setAdminBalanceClientId(null);
+                setAdminBalanceClientName(null);
+                setView('admin-clients');
+                try {
+                  localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
+                  localStorage.setItem('admin_clients_focus_id', String(clientId));
+                } catch {
+                  /* ignore */
+                }
+              }}
+              onOpenProject={(clientId, clientName) => {
+                setAdminProjectsClientId(clientId);
+                setAdminProjectsClientName(clientName);
+                setAdminProjectsFocus('projects');
+                setView('projects');
+                try {
+                  localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+                } catch {
+                  /* ignore */
+                }
+              }}
+              onOpenLeads={(fromDate, toDate) => {
+                setAdminLeadsPrefill({ from: fromDate, to: toDate, unlinked: true });
+                setView('leads');
+                try {
+                  localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                } catch {
+                  /* ignore */
+                }
+              }}
+              onOpenActivity={() => {
+                setView('activity');
+                try {
+                  localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
+                } catch {
+                  /* ignore */
+                }
+              }}
+            />
+          ) : view === 'agents' && isAdmin ? (
             <AdminAgentsScreen
               onOpenClientProjects={(clientId, clientName) => {
                 setAdminProjectsClientId(clientId);

@@ -863,6 +863,130 @@ export async function runAdminOperatorBlockCheck(): Promise<OperatorBlockCheckRe
   return http<OperatorBlockCheckResp>('/admin/operator-block-check/run', { method: 'POST' });
 }
 
+export type DashboardRiskLevel = 'warning' | 'risk' | 'critical' | 'debt';
+
+export type AdminDashboardSummary = {
+  clients: number;
+  projects: number;
+  activeProjects: number;
+  pausedProjects: number;
+  operatorBlockedProjects: number;
+  totalRemaining: number;
+  leadsToday: number;
+  leadsYesterday: number;
+  leads7Days: number;
+  leads30Days: number;
+  unlinkedLeads: number;
+  operationErrors: number;
+};
+
+export type AdminDashboardAttentionClient = {
+  clientId: number;
+  clientName: string;
+  clientLogin: string;
+  ownerType: 'admin' | 'agent';
+  ownerName?: string | null;
+  remaining: number;
+  tariffAmount?: number | null;
+  signal1: number;
+  signal2: number;
+  signal3: number;
+  level: DashboardRiskLevel;
+  activeProjects: number;
+  dailySpend: number;
+  lastTariffAt?: string | null;
+};
+
+export type AdminDashboardAttentionProject = {
+  projectId: number;
+  projectName: string;
+  clientId?: number | null;
+  clientName?: string | null;
+  source: string;
+};
+
+export type AdminDashboardUnlinkedLeads = {
+  total: number;
+  ambiguous: number;
+  notFound: number;
+  unknown: number;
+};
+
+export type AdminDashboardOperationErrors = {
+  total: number;
+  items: Array<{
+    id: number;
+    clientId: number;
+    clientName: string;
+    projectId?: number | null;
+    projectName?: string | null;
+    operation?: string | null;
+    errorMessage?: string | null;
+    createdAt?: string | null;
+  }>;
+};
+
+export type AdminDashboardAttention = {
+  criticalClients: AdminDashboardAttentionClient[];
+  riskClients: AdminDashboardAttentionClient[];
+  warningClients: AdminDashboardAttentionClient[];
+  operatorBlockedProjects: AdminDashboardAttentionProject[];
+  unlinkedLeads: AdminDashboardUnlinkedLeads;
+  operationErrors: AdminDashboardOperationErrors;
+};
+
+export type AdminDashboardBreakdownItem = {
+  key: string;
+  label: string;
+  value: number;
+};
+
+export type AdminDashboardSeriesPoint = {
+  date: string;
+  value: number;
+};
+
+export type AdminDashboardCharts = {
+  leadsDaily: AdminDashboardSeriesPoint[];
+  sourceBreakdown: AdminDashboardBreakdownItem[];
+  projectStatuses: AdminDashboardBreakdownItem[];
+};
+
+export type AdminDashboardRankingItem = {
+  clientId: number;
+  clientName: string;
+  ownerName?: string | null;
+  value: number;
+  activeProjects: number;
+};
+
+export type AdminDashboard = {
+  summary: AdminDashboardSummary;
+  attention: AdminDashboardAttention;
+  charts: AdminDashboardCharts;
+  rankings: {
+    topClientsByLeads: AdminDashboardRankingItem[];
+    topClientsByActiveProjects: AdminDashboardRankingItem[];
+  };
+};
+
+export async function fetchAdminDashboard(params: {
+  fromDate: string;
+  toDate: string;
+  clientId?: number | null;
+  sources?: string[];
+  includeAgentClients?: boolean;
+}): Promise<AdminDashboard> {
+  const q = new URLSearchParams({
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+    includeAgentClients: params.includeAgentClients === false ? 'false' : 'true',
+  });
+  if (params.clientId != null) q.set('clientId', String(params.clientId));
+  if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
+  return http<AdminDashboard>(`/admin/dashboard?${q.toString()}`);
+}
+
 export async function fetchAdminClientCollectionState(clientId: number): Promise<AdminClientCollectionState> {
   return http<AdminClientCollectionState>(`/admin/clients/${clientId}/collection-state`);
 }
@@ -904,6 +1028,7 @@ export async function fetchAdminLeads(params: {
   userId?: number;
   projectIds?: number[];
   sources?: string[];
+  unlinked?: boolean;
   offset?: number;
   limit?: number;
 }): Promise<AdminLeadsListResp> {
@@ -918,6 +1043,7 @@ export async function fetchAdminLeads(params: {
   if (params.sources && params.sources.length > 0) {
     q.set('sources', params.sources.join(','));
   }
+  if (params.unlinked) q.set('unlinked', 'true');
   if (params.offset != null) q.set('offset', String(params.offset));
   if (params.limit != null) q.set('limit', String(params.limit));
   return http<AdminLeadsListResp>(`/admin/leads?${q.toString()}`);

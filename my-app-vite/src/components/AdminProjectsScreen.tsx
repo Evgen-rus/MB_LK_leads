@@ -93,6 +93,13 @@ function AdminProjectsScreen({
   const [focus, setFocus] = useState<AdminProjectsFocus>(initialFocus ?? 'projects');
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
 
+  useEffect(() => {
+    if (initialClientId == null) return;
+    setSelectedClientId(initialClientId);
+    setSelectedClientName(initialClientName ?? null);
+    setFocus(initialFocus ?? 'projects');
+  }, [initialClientId, initialClientName, initialFocus]);
+
   // Загрузка списка клиентов для селекта
   useEffect(() => {
     (async () => {

@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-05-13
+Last updated: 2026-05-15
 
 ## 1) System At A Glance
 
@@ -13,6 +13,7 @@ Last updated: 2026-05-13
 - Frontend: React + Vite (`my-app-vite/src`)
 - БД: PostgreSQL (основной контур), SQLite (fallback локально)
 - Интеграции: Prostats, Telegram, Google Sheets
+- **Админский дашборд:** отдельный раздел только для админа; агрегаты считаются на backend через `GET /admin/dashboard`, frontend показывает KPI, риски, графики и рейтинги без загрузки больших таблиц.
 - **Импорт лидов провайдера из XLSX:** админский UI (двухшаговый preview → commit) и служебный CLI; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
 
 ## 2) Source Of Truth
@@ -25,6 +26,7 @@ Last updated: 2026-05-13
 - Модели БД: `backend/app/models.py`
 - Схемы API: `backend/app/schemas.py`
 - Front API client: `my-app-vite/src/api.ts`
+- Админский дашборд: backend `crud.admin_dashboard` + endpoint `GET /admin/dashboard`; frontend `my-app-vite/src/components/AdminDashboard.tsx`
 - Запуск/команды: `README.md`
 
 ## 3) Critical Invariants
@@ -53,6 +55,7 @@ Last updated: 2026-05-13
 22. Проекты в статусе `Блокировка оператора` не должны участвовать в автоматических массовых операциях и автоконтроле лимитов как активные проекты. Ручное включение идёт через обычный update в Prostats.
 23. В manager-таблицах клиентов (`Клиенты`, раскрытые клиенты агента) нет единого “статуса клиента”. Статусы разделены на три независимых блока: `Сбор данных` — автоматический статус по неудалённым проектам (`Нет проектов` / `Сбор активен` / `На паузе`); `Остаток` — число и финансовый бейдж по сигналам последнего тарифа (`Дожим 1/2/3` / `Долг`, без бейджа если тарифа нет); `Работа` — ручной статус менеджера из `client_profiles.work_status`, который не меняется автоматикой.
 24. `user.id == 1` — служебный админ и не должен попадать в клиентские summary/итоги вкладки `Клиенты`, даже если в старой БД у него остался `users.role = client`.
+25. Админский дашборд доступен только настоящему админу через `require_admin`, не агенту. “Полученные данные” и “расход” на дашборде считаются только по привязанным `provider_leads` (`project_id IS NOT NULL`); непривязанные лиды показываются отдельным операционным риском. Дашборд не должен выполнять actions изменения данных: только обзор и переходы в существующие разделы.
 
 ## 4) Key Domain Objects
 
@@ -222,6 +225,32 @@ Backend проверяет активные проекты источника `B
 - DB-сессия не удерживается во время сетевых запросов к Prostats: сначала короткий snapshot из БД, затем внешние вызовы, затем короткие write-сессии для найденных изменений;
 - статус `Блокировка оператора` является системным output-статусом, а не ручным input-статусом.
 
+### J) Admin Dashboard
+
+Админский frontend-раздел `Дашборд` вызывает `GET /admin/dashboard` -> `require_admin` -> `crud.admin_dashboard` -> backend считает агрегаты по клиентам, проектам, привязанным provider leads, тарифным сигналам, непривязанным лидам и failed project-operation events -> frontend показывает готовую сводку.
+
+Параметры endpoint:
+- `fromDate` / `toDate` — выбранный период, по умолчанию вчера;
+- `clientId` — опциональный фильтр клиента;
+- `sources` — raw-коды `B1,B2,B3,B4`;
+- `includeAgentClients` — по умолчанию `true`, включает клиентов агентов в управленческую картину админа.
+
+Что считается:
+- KPI “данные сегодня/вчера/7 дней/30 дней” считаются только по `provider_leads.project_id IS NOT NULL`;
+- `topClientsByLeads` и “расход за период” в v1 тоже считаются как количество привязанных лидов;
+- тарифные зоны `Предупреждение` / `Риск` / `Критично` считаются по последнему тарифу клиента и текущему `remaining`; клиент попадает только в самую критичную достигнутую группу;
+- непривязанные лиды считаются по `project_id IS NULL`; разбивка ambiguous/not_found в v1 вычисляется на лету по текущему `project_name`, без отдельной DB-колонки причины;
+- source-фильтр влияет на lead/project-source метрики, но не скрывает тарифные риски клиента, потому что остаток клиентский, а не source-level.
+
+Frontend:
+- экран: `my-app-vite/src/components/AdminDashboard.tsx`;
+- API-типы и клиент: `my-app-vite/src/api.ts`;
+- navigation/view wiring: `my-app-vite/src/App.tsx` + `my-app-vite/src/components/Sidebar.tsx`;
+- стили: `my-app-vite/src/App.css`;
+- графики нативные CSS/SVG/HTML, без chart-библиотеки;
+- фильтры сохраняются в `localStorage`;
+- drilldown-переходы ведут в существующие разделы (`Клиенты`, `Проекты`, `Идентификации`, `История изменений`) без изменения данных на самом дашборде.
+
 ## 6) Where To Change Code By Task Type
 
 - Новое поле/правило в API: `schemas.py` + `crud.py` + endpoint в `main.py`
@@ -235,6 +264,7 @@ Backend проверяет активные проекты источника `B
 - Тарифы клиента (контур, который теперь зеркалит изменения в баланс клиента и содержит Telegram-сигналы остатка): `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/TariffManagerModal.tsx`
 - Статусы клиентов в manager-таблицах (`Сбор данных`, финансовый бейдж в `Остаток`, ручная `Работа`): backend `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminAgentsScreen.tsx` + `my-app-vite/src/App.css`
 - Агентский уровень доступа и владение клиентами: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/App.tsx` + `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/Sidebar.tsx`
+- Админский дашборд (KPI, риски, графики, рейтинги): backend `backend/app/schemas.py` + `backend/app/crud.py` + endpoint в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminDashboard.tsx` + `my-app-vite/src/App.tsx` + `my-app-vite/src/components/Sidebar.tsx` + `my-app-vite/src/App.css`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
 - Экспорт provider leads и `lk_id`: `backend/app/provider_lead_ids.py` + `tool_export_provider_leads.py` + `/leads/export` в `backend/app/main.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`
@@ -315,3 +345,7 @@ Google Sheets export:
 24. Не добавлять `Блокировка оператора` в ручные select создания/редактирования и массовой смены статуса: это системный статус, выставляемый только проверкой активных `B4` проектов по `gck_project.result.status == 0`.
 25. Не распространять логику `Блокировка оператора` на `B1` / `B2` / `B3` без отдельного решения: текущий смысл `status: 0` у поставщика используется только для активных `B4` проектов.
 26. При доработке проверки B4 не держать DB-сессию во время запросов к Prostats; сохранять текущий паттерн коротких read/write-сессий вокруг внешних вызовов.
+27. Не считать админский дашборд на frontend из больших списков клиентов/проектов/лидов: агрегаты должны приходить готовыми с backend endpoint `GET /admin/dashboard`.
+28. В дашборде не смешивать “полученные данные” с непривязанными лидами: основные KPI и расход считаются только по `provider_leads.project_id IS NOT NULL`, а непривязанные лиды — отдельный риск.
+29. Не добавлять actions изменения данных прямо на дашборд v1. Допустимы только переходы в существующие разделы с контекстом/фильтрами.
+30. При изменении фильтров дашборда помнить, что source-фильтр работает raw-кодами `B1` / `B2` / `B3` / `B4`, а в UI показывается `A` / `B` / `C` / `D`; клиентские тарифные риски не являются source-level метрикой.

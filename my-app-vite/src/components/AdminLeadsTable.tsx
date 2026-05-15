@@ -28,6 +28,7 @@ type AdminLeadsInitialFilter = {
   projectId?: number;
   from?: string;
   to?: string;
+  unlinked?: boolean;
 };
 
 function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialFilter }) {
@@ -44,6 +45,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [unlinkedOnly, setUnlinkedOnly] = useState(Boolean(initialFilter?.unlinked));
   const initialApplied = useRef(false);
   const initialProjectId = useRef<number | undefined>(initialFilter?.projectId);
 
@@ -72,12 +74,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
   // Загрузка страницы; не привязываем к state page, чтобы смена страницы
   // не дергала useEffect с load(1)
   const load = useCallback(async (p: number, s = pageSize) => {
-    if (!userIdFilter) {
-      // Пока клиент не выбран — таблица пустая
-      setRows([]);
-      setTotal(0);
-      return;
-    }
     try {
       setLoading(true);
       const offset = (p - 1) * s;
@@ -87,6 +83,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
         userId: userIdFilter ?? undefined,
         projectIds: projectIds.length ? projectIds : undefined,
         sources: sources.length ? sources : undefined,
+        unlinked: unlinkedOnly,
         offset,
         limit: s,
       });
@@ -98,7 +95,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     } finally {
       setLoading(false);
     }
-  }, [pageSize, userIdFilter, fromDate, toDate, projectIds, sources]);
+  }, [pageSize, userIdFilter, fromDate, toDate, projectIds, sources, unlinkedOnly]);
 
   useEffect(() => {
     loadUsers();
@@ -139,6 +136,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     if (clientId) setUserIdFilter(clientId);
     if (from) setFromDate(from);
     if (to) setToDate(to);
+    if (initialFilter.unlinked) setUnlinkedOnly(true);
     // projectId применяем после загрузки проектов (в эффекте выше)
     if (projectId) {
       initialProjectId.current = projectId;
@@ -234,6 +232,21 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
               setPage(1);
             }}
           />
+          <label className="dashboard-toggle">
+            <input
+              type="checkbox"
+              checked={unlinkedOnly}
+              onChange={(e) => {
+                setUnlinkedOnly(e.target.checked);
+                if (e.target.checked) {
+                  setUserIdFilter(null);
+                  setProjectIds([]);
+                }
+                setPage(1);
+              }}
+            />
+            Без привязки
+          </label>
         </div>
         <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}

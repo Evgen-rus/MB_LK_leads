@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 
 export type ViewType =
+  | 'admin-dashboard'
   | 'agents'
   | 'projects'
   | 'leads'
@@ -58,6 +59,18 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
           <>
             <div className="nav-section">Администратор</div>
             <ul>
+              <li className={active === 'admin-dashboard' ? 'active' : ''} onClick={() => onNavigate('admin-dashboard')}>
+                <span className="nav-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <path d="M14 18h7" />
+                    <path d="M17.5 14.5v7" />
+                  </svg>
+                </span>
+                <span className="nav-label">Дашборд</span>
+              </li>
               <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => onNavigate('admin-clients')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
