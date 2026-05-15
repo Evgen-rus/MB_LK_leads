@@ -3414,6 +3414,7 @@ def admin_clients_summary(
     users = db.execute(
         select(models.User)
         .where(models.User.role == ROLE_CLIENT)
+        .where(models.User.id != 1)
         .order_by(models.User.id.asc())
     ).scalars().all()
     user_row_map = {int(user.id): user for user in users}
