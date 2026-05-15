@@ -885,7 +885,7 @@
   box-shadow: 0 0 0 3px rgba(106,92,255,0.2);
 }
 .delivery-select--green {
-  background-color: #e6f7ed;
+  background-color: #f4f8f6;
   border-color: #1d7a45;
   color: #1d7a45;
 }
@@ -932,7 +932,7 @@
   cursor: wait;
 }
 .client-work-select--green {
-  background-color: #e6f7ed;
+  background-color: #f4f8f6;
   border-color: #87d8ad;
   color: #087a43;
 }
