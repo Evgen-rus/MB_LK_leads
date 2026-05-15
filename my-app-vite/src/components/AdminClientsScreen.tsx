@@ -693,7 +693,7 @@ function AdminClientsScreen({
                               openTariffModal(row, 'create');
                             }}
                           >
-                            Создать тариф
+                            Тариф
                           </button>
                         )}
                         <button

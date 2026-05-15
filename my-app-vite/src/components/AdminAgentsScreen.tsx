@@ -682,7 +682,7 @@ function AdminAgentsScreen({
                               openTariffModal(client);
                             }}
                           >
-                            Создать тариф
+                            Тариф
                           </button>
                           <button
                             className="btn btn--primary"
@@ -1413,7 +1413,7 @@ function AdminAgentsScreen({
                                                     openTariffModal(client);
                                                   }}
                                                 >
-                                                  Создать тариф
+                                                  Тариф
                                                 </button>
                                                 <button
                                                   className="btn btn--primary"
