@@ -13,6 +13,7 @@ import {
   updateAdminTariff,
   transferAdminClientOwner,
   updateAdminClient,
+  updateAdminClientWorkStatus,
   fetchAdminClientCollectionState,
   pauseAdminClientProjects,
   resumeAdminClientProjects,
@@ -20,6 +21,9 @@ import {
   type AdminClientChangesSummaryListOut,
   type AdminClientCollectionState,
   type ClientProfile,
+  type ClientWorkStatus,
+  type ClientDataCollectionStatus,
+  type ClientFinanceStatus,
 } from '../api';
 import DateRangeFilter from './DateRangeFilter';
 import DateRangeCompact from './DateRangeCompact';
@@ -48,8 +52,6 @@ export type AdminClientsScreenProps = {
   onOpenClientBalance?: (clientId: number, clientName: string, action: 'tariff') => void;
 };
 
-type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
-
 type ClientRow = {
   id: number;
   name: string;
@@ -57,7 +59,9 @@ type ClientRow = {
   ownerType: 'admin' | 'agent';
   ownerUser?: { id: number; name: string; login: string } | null;
   projectCount: number;
-  status: ClientStatus;
+  dataCollectionStatus: ClientDataCollectionStatus;
+  financeStatus?: ClientFinanceStatus | null;
+  workStatus: ClientWorkStatus;
   tariffAmount?: number | null;
   remaining: number;      // Остаток по лимиту
   totalVolume: number;    // Использовано за период
@@ -78,14 +82,16 @@ type ClientRow = {
   contact?: string | null;
 };
 
-const STATUS_COLORS: Record<ClientStatus, string> = {
-  Активен: '#4CAF50',
-  'Нет проектов': '#03A9F4',
-  Долг: '#F44336',
-  Дожим: '#7E57C2',
-};
-
 type DateRange = { from: string; to: string };
+
+const WORK_STATUSES: ClientWorkStatus[] = [
+  'В работе',
+  'Ждём оплату',
+  'Ждём данные',
+  'На согласовании',
+  'Пауза по клиенту',
+  'Неактивен',
+];
 
 // Вспомогательный хелпер: вернуть диапазон "сегодня"
 function getTodayRange(): DateRange {
@@ -101,22 +107,32 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-function deriveStatus(row: ClientRow): ClientStatus {
-  if (row.projectCount === 0) return 'Нет проектов';
-  if (row.remaining <= 0) return 'Долг';
-  const statusBase =
-    typeof row.tariffAmount === 'number' && row.tariffAmount > 0
-      ? row.tariffAmount
-      : row.totalLimit || 0;
-  if (statusBase > 0 && row.remaining <= statusBase * 0.3) return 'Дожим';
-  return 'Активен';
-}
-
 function formatOwnerLabel(row: ClientRow): string {
   if (row.ownerType === 'agent' && row.ownerUser) {
     return `${row.ownerUser.name} (агент)`;
   }
   return 'Админ';
+}
+
+function getCollectionBadgeClass(status: ClientDataCollectionStatus): string {
+  if (status === 'Сбор активен') return 'badge badge--green';
+  if (status === 'Нет проектов') return 'badge badge--info';
+  return 'badge badge--gray';
+}
+
+function getFinanceBadgeClass(status: ClientFinanceStatus): string {
+  if (status === 'Долг') return 'badge badge--red';
+  if (status === 'Дожим 3') return 'badge badge--red-orange';
+  if (status === 'Дожим 2') return 'badge badge--orange';
+  return 'badge badge--soft-orange';
+}
+
+function getWorkStatusSelectClass(status: ClientWorkStatus): string {
+  if (status === 'В работе') return 'client-work-select client-work-select--green';
+  if (status === 'Ждём оплату') return 'client-work-select client-work-select--orange';
+  if (status === 'Ждём данные') return 'client-work-select client-work-select--blue';
+  if (status === 'На согласовании') return 'client-work-select client-work-select--violet';
+  return 'client-work-select client-work-select--gray';
 }
 
 function AdminClientsScreen({
@@ -141,6 +157,7 @@ function AdminClientsScreen({
   const [refreshKey, setRefreshKey] = useState(0);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
+  const [savingWorkStatusClientId, setSavingWorkStatusClientId] = useState<number | null>(null);
   const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
@@ -214,6 +231,9 @@ function AdminClientsScreen({
                 }
               : null,
             projectCount: it.projectCount,
+            dataCollectionStatus: it.dataCollectionStatus ?? 'Нет проектов',
+            financeStatus: it.financeStatus ?? null,
+            workStatus: it.workStatus ?? profile?.workStatus ?? 'В работе',
             tariffAmount: it.tariffAmount ?? null,
             remaining: it.remaining,
             totalVolume: it.usedPeriod,
@@ -232,9 +252,8 @@ function AdminClientsScreen({
             inn: profile?.inn,
             phone: profile?.phone,
             contact: profile?.contact,
-            status: 'Активен',
           };
-          return { ...row, status: deriveStatus(row) };
+          return row;
         });
         setBaseClients(rows);
         setPage(1);
@@ -479,6 +498,30 @@ function AdminClientsScreen({
     }
   }
 
+  async function handleWorkStatusChange(clientId: number, nextStatus: ClientWorkStatus) {
+    const prevRow = baseClients.find((row) => row.id === clientId);
+    if (!prevRow || prevRow.workStatus === nextStatus) return;
+    setSavingWorkStatusClientId(clientId);
+    setBaseClients((prev) =>
+      prev.map((row) => (row.id === clientId ? { ...row, workStatus: nextStatus } : row)),
+    );
+    try {
+      const resp = await updateAdminClientWorkStatus(clientId, nextStatus);
+      setBaseClients((prev) =>
+        prev.map((row) => (row.id === clientId ? { ...row, workStatus: resp.workStatus } : row)),
+      );
+    } catch (err: unknown) {
+      setBaseClients((prev) =>
+        prev.map((row) => (row.id === clientId ? { ...row, workStatus: prevRow.workStatus } : row)),
+      );
+      window.dispatchEvent(
+        new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить рабочий статус клиента') }),
+      );
+    } finally {
+      setSavingWorkStatusClientId(null);
+    }
+  }
+
   function openTariffModal(client: Pick<ClientRow, 'id' | 'name'>, mode: 'list' | 'create') {
     setTariffModalState({
       clientId: client.id,
@@ -585,9 +628,10 @@ function AdminClientsScreen({
                 <th className="table-sticky-cell table-sticky-cell--lead">ID</th>
                 <th>Название клиента</th>
                 <th>Проектов</th>
-                <th>Статус клиента</th>
+                <th>Сбор данных</th>
                 <th>Тариф</th>
                 <th>Остаток</th>
+                <th>Работа</th>
                 <th>Данных за период</th>
                 <th>Действия</th>
               </tr>
@@ -595,21 +639,21 @@ function AdminClientsScreen({
             <tbody>
               {error && (
                 <tr>
-                  <td colSpan={8} style={{ color: '#d00', padding: 16 }}>
+                  <td colSpan={9} style={{ color: '#d00', padding: 16 }}>
                     {error}
                   </td>
                 </tr>
               )}
               {!error && loading && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={9} className="muted" style={{ padding: 16 }}>
                     Загрузка списка клиентов…
                   </td>
                 </tr>
               )}
               {!error && !loading && pageRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                  <td colSpan={9} className="muted" style={{ padding: 16 }}>
                     Клиенты не найдены.
                   </td>
                 </tr>
@@ -648,38 +692,36 @@ function AdminClientsScreen({
                     </td>
                     <td>{row.projectCount}</td>
                     <td>
-                      {row.projectCount === 0 ? (
-                        <span className="badge badge--info">Нет проектов</span>
-                      ) : (
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: '50%',
-                              backgroundColor: STATUS_COLORS[row.status],
-                            }}
-                          />
-                          <span className="sub" style={{ whiteSpace: 'nowrap' }}>
-                            {row.status}
-                          </span>
-                        </span>
-                      )}
+                      <span className={getCollectionBadgeClass(row.dataCollectionStatus)}>
+                        {row.dataCollectionStatus}
+                      </span>
                     </td>
                     <td>{row.tariffAmount == null ? '-' : row.tariffAmount}</td>
                     <td>
                       <div className={isDebt ? 'remaining-negative' : undefined}>{row.remaining}</div>
-                      {isDebt && (
-                        <div className="sub" style={{ color: '#d23' }}>
-                          долг
+                      {row.financeStatus && (
+                        <div className="client-finance-badge-row">
+                          <span className={getFinanceBadgeClass(row.financeStatus)}>{row.financeStatus}</span>
                         </div>
                       )}
+                    </td>
+                    <td>
+                      <select
+                        className={getWorkStatusSelectClass(row.workStatus)}
+                        value={row.workStatus}
+                        disabled={savingWorkStatusClientId === row.id}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          void handleWorkStatusChange(row.id, e.target.value as ClientWorkStatus);
+                        }}
+                      >
+                        {WORK_STATUSES.map((statusOption) => (
+                          <option key={statusOption} value={statusOption}>
+                            {statusOption}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>{row.totalVolume}</td>
                     <td>
@@ -813,13 +855,9 @@ function AdminClientsScreen({
               </div>
               <div className="client-summary__status-list">
                 <div className="client-summary__status-item">
-                  <span className="sub">Статус клиента</span>
-                  <span className="client-summary__status-value">
-                    <span
-                      className="client-summary__status-dot"
-                      style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
-                    />
-                    <span>{selectedClient.status}</span>
+                  <span className="sub">Сбор данных</span>
+                  <span className={getCollectionBadgeClass(selectedClient.dataCollectionStatus)}>
+                    {selectedClient.dataCollectionStatus}
                   </span>
                 </div>
                 <div className="client-summary__status-item">

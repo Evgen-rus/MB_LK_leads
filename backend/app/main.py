@@ -133,6 +133,32 @@ def _ensure_audit_event_columns() -> None:
 _ensure_audit_event_columns()
 
 
+def _ensure_client_profile_columns() -> None:
+    """
+    Лёгкая схема-эволюция для карточек клиентов без отдельного мигратора.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "client_profiles" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("client_profiles")}
+    with engine.begin() as conn:
+        if "work_status" not in columns:
+            conn.execute(text("ALTER TABLE client_profiles ADD COLUMN work_status VARCHAR"))
+        conn.execute(
+            text(
+                "UPDATE client_profiles "
+                "SET work_status = :default_status "
+                "WHERE work_status IS NULL OR trim(work_status) = ''"
+            ),
+            {"default_status": "В работе"},
+        )
+
+
+_ensure_client_profile_columns()
+
+
 def _ensure_project_operation_event_columns() -> None:
     """
     Лёгкая schema-evolution для журнала неудачных операций с проектами.
@@ -3600,6 +3626,29 @@ def admin_update_client(
     except ValueError as exc:
         db_sess.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/admin/clients/{client_id}/work-status", response_model=schemas.AdminClientWorkStatusUpdateOut)
+def admin_update_client_work_status(
+    client_id: int,
+    payload: schemas.AdminClientWorkStatusUpdateIn,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
+    try:
+        return crud.admin_update_client_work_status(
+            db_sess,
+            client_id=client_id,
+            actor_user_id=int(current_manager.id),
+            work_status=payload.workStatus,
+        )
+    except ValueError as exc:
+        db_sess.rollback()
+        message = str(exc)
+        if "не найден" in message.lower():
+            raise HTTPException(status_code=404, detail=message)
+        raise HTTPException(status_code=400, detail=message)
 
 
 @app.get("/admin/agents", response_model=schemas.AdminAgentsListOut)

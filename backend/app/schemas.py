@@ -15,6 +15,9 @@ DeliveryStatus = Literal['Активна', 'На модерации', 'Откл�
 CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение']
 DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
 UserRole = Literal['admin', 'client', 'agent']
+ClientWorkStatus = Literal['В работе', 'Ждём оплату', 'Ждём данные', 'На согласовании', 'Пауза по клиенту', 'Неактивен']
+ClientDataCollectionStatus = Literal['Нет проектов', 'Сбор активен', 'На паузе']
+ClientFinanceStatus = Literal['Дожим 1', 'Дожим 2', 'Дожим 3', 'Долг']
 
 
 class CreateProjectItem(BaseModel):
@@ -133,6 +136,7 @@ class ClientProfileOut(BaseModel):
     contact: Optional[str] = None
     internalClientId: Optional[str] = None
     tableUrl: Optional[str] = None
+    workStatus: ClientWorkStatus = 'В работе'
 
     class Config:
         from_attributes = True
@@ -184,6 +188,15 @@ class AdminClientUpdateOut(BaseModel):
     password: Optional[str] = None
     telegramTestStatus: Optional[Literal['queued', 'failed']] = None
     telegramTestNotificationId: Optional[int] = None
+
+
+class AdminClientWorkStatusUpdateIn(BaseModel):
+    workStatus: ClientWorkStatus
+
+
+class AdminClientWorkStatusUpdateOut(BaseModel):
+    clientId: int
+    workStatus: ClientWorkStatus
 
 
 class AdminProjectOut(ProjectOut):
@@ -475,6 +488,9 @@ class AdminClientSummaryItem(BaseModel):
     numbersUsedPeriod: int | None = None
     tariffAmount: int | None = None
     autoLimitControlEnabled: bool = False
+    dataCollectionStatus: ClientDataCollectionStatus = 'Нет проектов'
+    financeStatus: Optional[ClientFinanceStatus] = None
+    workStatus: ClientWorkStatus = 'В работе'
 
 
 class AdminClientSummaryTotals(BaseModel):

@@ -69,6 +69,7 @@ class ClientProfile(Base):
     contact = Column(String, nullable=True)
     internal_client_id = Column(String, nullable=True)
     table_url = Column(String, nullable=True)
+    work_status = Column(String, nullable=False, default="В работе")
     created_at = Column(DateTime, default=now_msk, nullable=False)
     updated_at = Column(DateTime, default=now_msk, nullable=False)
 
@@ -79,6 +80,10 @@ class ClientProfile(Base):
     @property
     def tableUrl(self) -> Optional[str]:
         return self.table_url
+
+    @property
+    def workStatus(self) -> str:
+        return self.work_status or "В работе"
 
 
 class Project(Base):

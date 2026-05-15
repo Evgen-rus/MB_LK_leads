@@ -728,7 +728,19 @@ export type ClientProfile = {
   contact?: string | null;
   internalClientId?: string | null;
   tableUrl?: string | null;
+  workStatus?: ClientWorkStatus | null;
 };
+
+export type ClientWorkStatus =
+  | 'В работе'
+  | 'Ждём оплату'
+  | 'Ждём данные'
+  | 'На согласовании'
+  | 'Пауза по клиенту'
+  | 'Неактивен';
+
+export type ClientDataCollectionStatus = 'Нет проектов' | 'Сбор активен' | 'На паузе';
+export type ClientFinanceStatus = 'Дожим 1' | 'Дожим 2' | 'Дожим 3' | 'Долг';
 
 export type AdminProject = Project & {
   user: UserInfo;
@@ -1105,6 +1117,9 @@ export type AdminClientSummaryItem = {
   numbersUsedPeriod?: number | null;
   tariffAmount?: number | null;
   autoLimitControlEnabled: boolean;
+  dataCollectionStatus?: ClientDataCollectionStatus;
+  financeStatus?: ClientFinanceStatus | null;
+  workStatus?: ClientWorkStatus;
 };
 
 export type AdminClientsSummaryOut = {
@@ -1183,6 +1198,16 @@ export async function updateAdminClient(clientId: number, payload: AdminClientUp
   return http<AdminClientUpdateResp>(`/admin/clients/${clientId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminClientWorkStatus(
+  clientId: number,
+  workStatus: ClientWorkStatus,
+): Promise<{ clientId: number; workStatus: ClientWorkStatus }> {
+  return http<{ clientId: number; workStatus: ClientWorkStatus }>(`/admin/clients/${clientId}/work-status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ workStatus }),
   });
 }
 

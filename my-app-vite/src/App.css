@@ -506,6 +506,8 @@
 .badge { padding: 0 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; height: 20px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent; }
 .badge--green { background: #e6f7ed; color: #1d7a45; border-color: #b6e3cb; }
 .badge--orange { background: #fff3e6; color: #8a4b00; border-color: #ffd7b3; }
+.badge--soft-orange { background: #fff8e5; color: #a06400; border-color: #f5d279; }
+.badge--red-orange { background: #fff0e8; color: #ba3f00; border-color: #ffb999; }
 .badge--gray { background: #f0f0f3; color: #5f616b; border-color: #d5d9e3; }
 .badge--red { background: #ffecec; color: #9f1d2a; border-color: #f4b8bf; }
 .project-status-inline {
@@ -904,6 +906,56 @@
 
 .chip-stack { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .client-row .remaining-negative { color: #d83a3a; font-weight: 700; }
+.client-finance-badge-row { margin-top: 4px; display: flex; align-items: center; }
+.client-work-select {
+  appearance: none;
+  width: 160px;
+  max-width: 100%;
+  padding: 6px 30px 6px 12px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b6b76' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.client-work-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(106,92,255,0.16);
+}
+.client-work-select:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.client-work-select--green {
+  background-color: #e6f7ed;
+  border-color: #87d8ad;
+  color: #087a43;
+}
+.client-work-select--orange {
+  background-color: #fff3e6;
+  border-color: #f2b36c;
+  color: #a74700;
+}
+.client-work-select--blue {
+  background-color: #e7f0ff;
+  border-color: #adc8ff;
+  color: #1f5fd1;
+}
+.client-work-select--violet {
+  background-color: #f2edff;
+  border-color: #cbbcff;
+  color: #6a25d7;
+}
+.client-work-select--gray {
+  background-color: #f5f7fa;
+  border-color: #d6dde8;
+  color: #526071;
+}
 
 .client-summary-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .client-summary__header {

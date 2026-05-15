@@ -27,6 +27,15 @@ POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
 ROLE_AGENT = "agent"
+CLIENT_WORK_STATUSES = {
+    "В работе",
+    "Ждём оплату",
+    "Ждём данные",
+    "На согласовании",
+    "Пауза по клиенту",
+    "Неактивен",
+}
+CLIENT_WORK_STATUS_DEFAULT = "В работе"
 PROJECT_SORT_FIELDS = {
     "id",
     "name",
@@ -301,6 +310,35 @@ def get_client_owner_type_and_id(client_user: models.User) -> tuple[str, Optiona
     if owner_agent_id is None:
         return "admin", None
     return "agent", int(owner_agent_id)
+
+
+def normalize_client_work_status(value: Optional[str]) -> str:
+    status = str(value or "").strip() or CLIENT_WORK_STATUS_DEFAULT
+    if status not in CLIENT_WORK_STATUSES:
+        raise ValueError("Недопустимый рабочий статус клиента.")
+    return status
+
+
+def resolve_client_finance_status(
+    remaining: int,
+    tariff: Optional[models.ClientTariff],
+) -> Optional[schemas.ClientFinanceStatus]:
+    if int(remaining) <= 0:
+        return "Долг"
+    if tariff is None:
+        return None
+    signal1 = getattr(tariff, "signal1", None)
+    signal2 = getattr(tariff, "signal2", None)
+    signal3 = getattr(tariff, "signal3", None)
+    if signal1 is None or signal2 is None or signal3 is None:
+        return None
+    if int(remaining) <= int(signal3):
+        return "Дожим 3"
+    if int(remaining) <= int(signal2):
+        return "Дожим 2"
+    if int(remaining) <= int(signal1):
+        return "Дожим 1"
+    return None
 
 
 def get_user_manual_balance(db: Session, user_id: int) -> int:
@@ -2871,6 +2909,7 @@ def admin_create_client(
         contact=(contact or "").strip() or None,
         internal_client_id=(internal_client_id or "").strip() or None,
         table_url=(table_url or "").strip() or None,
+        work_status=CLIENT_WORK_STATUS_DEFAULT,
         created_at=now,
         updated_at=now,
     )
@@ -2974,6 +3013,7 @@ def admin_update_client(
             contact=(contact or "").strip() or None,
             internal_client_id=(internal_client_id or "").strip() or None,
             table_url=(table_url or "").strip() or None,
+            work_status=CLIENT_WORK_STATUS_DEFAULT,
             created_at=now,
             updated_at=now,
         )
@@ -3011,6 +3051,63 @@ def admin_update_client(
         profile=schemas.ClientProfileOut.from_orm(profile),
         login=user.login,
         password=raw_password,
+    )
+
+
+def admin_update_client_work_status(
+    db: Session,
+    *,
+    client_id: int,
+    actor_user_id: int,
+    work_status: str,
+) -> schemas.AdminClientWorkStatusUpdateOut:
+    user = db.get(models.User, int(client_id))
+    if not user or not is_client_user(user):
+        raise ValueError("Клиент не найден.")
+    next_status = normalize_client_work_status(work_status)
+    now = now_msk()
+    profile = db.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == int(client_id))
+    ).scalar_one_or_none()
+    if profile is None:
+        profile = models.ClientProfile(
+            user_id=int(client_id),
+            name=user.display_name or user.login,
+            inn="",
+            phone="",
+            work_status=CLIENT_WORK_STATUS_DEFAULT,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(profile)
+        db.flush()
+
+    prev_status = normalize_client_work_status(getattr(profile, "work_status", None))
+    if prev_status != next_status:
+        profile.work_status = next_status
+        profile.updated_at = now
+        db.add(
+            models.AuditEvent(
+                user_id=int(client_id),
+                actor_user_id=int(actor_user_id),
+                project_id=None,
+                action="client_work_status_update",
+                before={"workStatus": prev_status},
+                after={"workStatus": next_status},
+                changed_fields=["workStatus"],
+                via_impersonation=False,
+                created_at=now,
+                sent=True,
+                admin_processed_at=now,
+                admin_processed_by=int(actor_user_id),
+            )
+        )
+
+    db.commit()
+    db.refresh(profile)
+    return schemas.AdminClientWorkStatusUpdateOut(
+        clientId=int(client_id),
+        workStatus=normalize_client_work_status(getattr(profile, "work_status", None)),
     )
 
 
@@ -3359,6 +3456,27 @@ def admin_clients_summary(
         by_user[int(uid)]["projects"] = int(cnt or 0)
         by_user[int(uid)]["limit"] = int(limit_sum or 0)
 
+    collection_rows = db.execute(
+        select(
+            models.Project.user_id,
+            func.coalesce(func.count(models.Project.id), 0),
+            func.coalesce(func.sum(case((models.Project.status == "Активен", 1), else_=0)), 0),
+        )
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .group_by(models.Project.user_id)
+    ).all()
+    collection_map: Dict[int, schemas.ClientDataCollectionStatus] = {}
+    for uid, project_count, active_count in collection_rows:
+        if uid is None:
+            continue
+        if int(project_count or 0) <= 0:
+            collection_map[int(uid)] = "Нет проектов"
+        elif int(active_count or 0) > 0:
+            collection_map[int(uid)] = "Сбор активен"
+        else:
+            collection_map[int(uid)] = "На паузе"
+
     # Использование за все время
     used_total_rows = db.execute(
         select(models.Project.user_id, func.count())
@@ -3479,6 +3597,9 @@ def admin_clients_summary(
             numbersUsedPeriod=used_period,
             tariffAmount=tariff_amount,
             autoLimitControlEnabled=bool(getattr(info, "autoLimitControlEnabled", False)),
+            dataCollectionStatus=collection_map.get(uid, "Нет проектов"),
+            financeStatus=resolve_client_finance_status(remaining, last_tariff),
+            workStatus=normalize_client_work_status(getattr(profiles_map.get(uid), "workStatus", None)),
         )
         totals_projects += item.projectCount
         totals_limit += item.totalLimit
