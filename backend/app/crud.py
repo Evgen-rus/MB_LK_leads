@@ -323,10 +323,10 @@ def resolve_client_finance_status(
     remaining: int,
     tariff: Optional[models.ClientTariff],
 ) -> Optional[schemas.ClientFinanceStatus]:
-    if int(remaining) <= 0:
-        return "Долг"
     if tariff is None:
         return None
+    if int(remaining) <= 0:
+        return "Долг"
     signal1 = getattr(tariff, "signal1", None)
     signal2 = getattr(tariff, "signal2", None)
     signal3 = getattr(tariff, "signal3", None)

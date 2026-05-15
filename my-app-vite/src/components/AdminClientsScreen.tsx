@@ -663,7 +663,7 @@ function AdminClientsScreen({
                 pageRows.map((row) => {
                   const blacklistTotal = (row.pendingBlacklistAdds ?? 0) + (row.pendingBlacklistDeletes ?? 0);
                   const hasEvents = (row.pendingChanges ?? 0) > 0 || (row.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
-                  const isDebt = row.remaining < 0;
+                  const isDebt = row.financeStatus === 'Долг';
                   return (
                     <tr
                       key={row.id}
@@ -850,7 +850,7 @@ function AdminClientsScreen({
               <div className="client-summary__title">{selectedClient.name}</div>
               <div className="client-summary__meta">
                 <span className="sub">ID: {selectedClient.id}</span>
-                {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                {selectedClient.financeStatus === 'Долг' && <span className="badge badge--orange">Долг</span>}
                 <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
               </div>
               <div className="client-summary__status-list">
@@ -1104,7 +1104,7 @@ function AdminClientsScreen({
             </div>
             <div className="summary-card">
               <div className="sub">Баланс</div>
-              <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>
+              <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>
                 Остаток: {selectedClient.remaining}
               </div>
               <div className="sub">Использовано: {selectedClient.usedTotal}</div>

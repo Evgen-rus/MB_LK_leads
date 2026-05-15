@@ -664,7 +664,7 @@ function AdminAgentsScreen({
                 {pageRows.map((client) => {
                   const blacklistTotal = (client.pendingBlacklistAdds ?? 0) + (client.pendingBlacklistDeletes ?? 0);
                   const hasEvents = (client.pendingChanges ?? 0) > 0 || (client.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
-                  const isDebt = client.remaining < 0;
+                  const isDebt = client.financeStatus === 'Долг';
                   return (
                     <tr
                       key={client.id}
@@ -831,7 +831,7 @@ function AdminAgentsScreen({
                   <div className="client-summary__title">{selectedClient.name}</div>
                   <div className="client-summary__meta">
                     <span className="sub">ID: {selectedClient.id}</span>
-                    {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                    {selectedClient.financeStatus === 'Долг' && <span className="badge badge--orange">Долг</span>}
                     <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
                   </div>
                     <div className="client-summary__status-list">
@@ -1041,7 +1041,7 @@ function AdminAgentsScreen({
               </div>
               <div className="summary-card">
                 <div className="sub">Баланс</div>
-                <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
+                <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
                 <div className="sub">Использовано: {selectedClient.usedTotal}</div>
                 <div className="sub">Начислено: {selectedAccrued}</div>
               </div>
@@ -1386,7 +1386,7 @@ function AdminAgentsScreen({
                                       {pageRows.map((client) => {
                                         const blacklistTotal = (client.pendingBlacklistAdds ?? 0) + (client.pendingBlacklistDeletes ?? 0);
                                         const hasEvents = (client.pendingChanges ?? 0) > 0 || (client.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
-                                        const isDebt = client.remaining < 0;
+                                        const isDebt = client.financeStatus === 'Долг';
                                         return (
                                           <tr
                                             key={client.id}
@@ -1553,7 +1553,7 @@ function AdminAgentsScreen({
                                         <div className="client-summary__title">{selectedClient.name}</div>
                                         <div className="client-summary__meta">
                                           <span className="sub">ID: {selectedClient.id}</span>
-                                          {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
+                                          {selectedClient.financeStatus === 'Долг' && <span className="badge badge--orange">Долг</span>}
                                           <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
                                         </div>
                                           <div className="client-summary__status-list">
@@ -1763,7 +1763,7 @@ function AdminAgentsScreen({
                                     </div>
                                     <div className="summary-card">
                                       <div className="sub">Баланс</div>
-                                      <div className={`value${selectedClient.remaining < 0 ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
+                                      <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>Остаток: {selectedClient.remaining}</div>
                                       <div className="sub">Использовано: {selectedClient.usedTotal}</div>
                                       <div className="sub">Начислено: {selectedAccrued}</div>
                                     </div>
