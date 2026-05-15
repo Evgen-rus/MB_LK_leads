@@ -20,9 +20,13 @@ import {
   resumeAdminClientProjects,
   transferAdminClientOwner,
   updateAdminClient,
+  updateAdminClientWorkStatus,
   type AdminAgentSummaryItem,
   type AdminClientCollectionState,
   type AdminClientSummaryItem,
+  type ClientWorkStatus,
+  type ClientDataCollectionStatus,
+  type ClientFinanceStatus,
 } from '../api';
 import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
@@ -33,8 +37,6 @@ type AdminAgentsScreenProps = {
   onOpenClientBalance?: (clientId: number, clientName: string, action: 'tariff') => void;
 };
 
-type ClientStatus = 'Активен' | 'Нет проектов' | 'Долг' | 'Дожим';
-
 type AgentClientRow = {
   id: number;
   name: string;
@@ -42,7 +44,9 @@ type AgentClientRow = {
   ownerType: 'admin' | 'agent';
   ownerUser?: { id: number; name: string; login: string } | null;
   projectCount: number;
-  status: ClientStatus;
+  dataCollectionStatus: ClientDataCollectionStatus;
+  financeStatus?: ClientFinanceStatus | null;
+  workStatus: ClientWorkStatus;
   tariffAmount?: number | null;
   remaining: number;
   totalVolume: number;
@@ -63,14 +67,16 @@ type AgentClientRow = {
   contact?: string | null;
 };
 
-const STATUS_COLORS: Record<ClientStatus, string> = {
-  Активен: '#4CAF50',
-  'Нет проектов': '#03A9F4',
-  Долг: '#F44336',
-  Дожим: '#7E57C2',
-};
-
 type DateRange = { from: string; to: string };
+
+const WORK_STATUSES: ClientWorkStatus[] = [
+  'В работе',
+  'Ждём оплату',
+  'Ждём данные',
+  'На согласовании',
+  'Пауза по клиенту',
+  'Неактивен',
+];
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -84,20 +90,30 @@ function getToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function deriveStatus(row: AgentClientRow): ClientStatus {
-  if (row.projectCount === 0) return 'Нет проектов';
-  if (row.remaining <= 0) return 'Долг';
-  const statusBase =
-    typeof row.tariffAmount === 'number' && row.tariffAmount > 0
-      ? row.tariffAmount
-      : row.totalLimit || 0;
-  if (statusBase > 0 && row.remaining <= statusBase * 0.3) return 'Дожим';
-  return 'Активен';
-}
-
 function formatOwnerLabel(row: AgentClientRow): string {
   if (row.ownerType === 'agent' && row.ownerUser) return `${row.ownerUser.name} (агент)`;
   return 'Админ';
+}
+
+function getCollectionBadgeClass(status: ClientDataCollectionStatus): string {
+  if (status === 'Сбор активен') return 'badge badge--green';
+  if (status === 'Нет проектов') return 'badge badge--info';
+  return 'badge badge--gray';
+}
+
+function getFinanceBadgeClass(status: ClientFinanceStatus): string {
+  if (status === 'Долг') return 'badge badge--red';
+  if (status === 'Дожим 3') return 'badge badge--red-orange';
+  if (status === 'Дожим 2') return 'badge badge--orange';
+  return 'badge badge--soft-orange';
+}
+
+function getWorkStatusSelectClass(status: ClientWorkStatus): string {
+  if (status === 'В работе') return 'client-work-select client-work-select--green';
+  if (status === 'Ждём оплату') return 'client-work-select client-work-select--orange';
+  if (status === 'Ждём данные') return 'client-work-select client-work-select--blue';
+  if (status === 'На согласовании') return 'client-work-select client-work-select--violet';
+  return 'client-work-select client-work-select--gray';
 }
 
 function mapSummaryItemToClientRow(it: AdminClientSummaryItem): AgentClientRow {
@@ -112,6 +128,9 @@ function mapSummaryItemToClientRow(it: AdminClientSummaryItem): AgentClientRow {
       ? { id: it.ownerUser.id, name: it.ownerUser.name || it.ownerUser.login, login: it.ownerUser.login }
       : null,
     projectCount: it.projectCount,
+    dataCollectionStatus: it.dataCollectionStatus ?? 'Нет проектов',
+    financeStatus: it.financeStatus ?? null,
+    workStatus: it.workStatus ?? profile?.workStatus ?? 'В работе',
     tariffAmount: it.tariffAmount ?? null,
     remaining: it.remaining,
     totalVolume: it.usedPeriod,
@@ -130,9 +149,8 @@ function mapSummaryItemToClientRow(it: AdminClientSummaryItem): AgentClientRow {
     inn: profile?.inn,
     phone: profile?.phone,
     contact: profile?.contact,
-    status: 'Активен',
   };
-  return { ...row, status: deriveStatus(row) };
+  return row;
 }
 
 function AdminAgentsScreen({
@@ -176,6 +194,7 @@ function AdminAgentsScreen({
     login: string;
   } | null>(null);
   const [openingClientCabinetId, setOpeningClientCabinetId] = useState<number | null>(null);
+  const [savingWorkStatusClientId, setSavingWorkStatusClientId] = useState<number | null>(null);
   const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
@@ -503,7 +522,6 @@ function AdminAgentsScreen({
             ? {
                 ...row,
                 autoLimitControlEnabled: nextEnabled,
-                status: deriveStatus({ ...row, autoLimitControlEnabled: nextEnabled }),
               }
             : row,
         ),
@@ -519,6 +537,30 @@ function AdminAgentsScreen({
       window.dispatchEvent(
         new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим авто-контроля лимитов') }),
       );
+    }
+  }
+
+  async function handleWorkStatusChange(clientId: number, nextStatus: ClientWorkStatus) {
+    const prevRow = agentClients.find((row) => row.id === clientId);
+    if (!prevRow || prevRow.workStatus === nextStatus) return;
+    setSavingWorkStatusClientId(clientId);
+    setAgentClients((prev) =>
+      prev.map((row) => (row.id === clientId ? { ...row, workStatus: nextStatus } : row)),
+    );
+    try {
+      const resp = await updateAdminClientWorkStatus(clientId, nextStatus);
+      setAgentClients((prev) =>
+        prev.map((row) => (row.id === clientId ? { ...row, workStatus: resp.workStatus } : row)),
+      );
+    } catch (err: unknown) {
+      setAgentClients((prev) =>
+        prev.map((row) => (row.id === clientId ? { ...row, workStatus: prevRow.workStatus } : row)),
+      );
+      window.dispatchEvent(
+        new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить рабочий статус клиента') }),
+      );
+    } finally {
+      setSavingWorkStatusClientId(null);
     }
   }
 
@@ -603,9 +645,10 @@ function AdminAgentsScreen({
                   <th>ID</th>
                   <th>Название клиента</th>
                   <th>Проектов</th>
-                  <th>Статус клиента</th>
+                  <th>Сбор данных</th>
                   <th>Тариф</th>
                   <th>Остаток</th>
+                  <th>Работа</th>
                   <th>Данных за период</th>
                   <th>Действия</th>
                 </tr>
@@ -613,7 +656,7 @@ function AdminAgentsScreen({
               <tbody>
                 {totalExpandedClients === 0 && (
                   <tr>
-                    <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                    <td colSpan={9} className="muted" style={{ padding: 16 }}>
                       У агента пока нет клиентов по текущему фильтру.
                     </td>
                   </tr>
@@ -650,26 +693,36 @@ function AdminAgentsScreen({
                       </td>
                       <td>{client.projectCount}</td>
                       <td>
-                        {client.projectCount === 0 ? (
-                          <span className="badge badge--info">Нет проектов</span>
-                        ) : (
-                          <span className="agent-client-row__status">
-                            <span
-                              style={{
-                                width: 10,
-                                height: 10,
-                                borderRadius: '50%',
-                                backgroundColor: STATUS_COLORS[client.status],
-                              }}
-                            />
-                            <span className="sub" style={{ whiteSpace: 'nowrap' }}>{client.status}</span>
-                          </span>
-                        )}
+                        <span className={getCollectionBadgeClass(client.dataCollectionStatus)}>
+                          {client.dataCollectionStatus}
+                        </span>
                       </td>
                       <td>{client.tariffAmount == null ? '-' : client.tariffAmount}</td>
                       <td>
                         <div className={isDebt ? 'remaining-negative' : undefined}>{client.remaining}</div>
-                        {isDebt && <div className="sub" style={{ color: '#d23' }}>долг</div>}
+                        {client.financeStatus && (
+                          <div className="client-finance-badge-row">
+                            <span className={getFinanceBadgeClass(client.financeStatus)}>{client.financeStatus}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <select
+                          className={getWorkStatusSelectClass(client.workStatus)}
+                          value={client.workStatus}
+                          disabled={savingWorkStatusClientId === client.id}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            void handleWorkStatusChange(client.id, e.target.value as ClientWorkStatus);
+                          }}
+                        >
+                          {WORK_STATUSES.map((statusOption) => (
+                            <option key={statusOption} value={statusOption}>
+                              {statusOption}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>{client.totalVolume}</td>
                       <td>
@@ -781,40 +834,20 @@ function AdminAgentsScreen({
                     {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
                     <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
                   </div>
-                  <div className="client-summary__status-list">
-                    <div className="client-summary__status-item">
-                      <span className="sub">Статус клиента</span>
-                      <span className="client-summary__status-value">
-                        <span
-                          className="client-summary__status-dot"
-                          style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
-                        />
-                        <span>{selectedClient.status}</span>
-                      </span>
-                    </div>
+                    <div className="client-summary__status-list">
+                      <div className="client-summary__status-item">
+                        <span className="sub">Сбор данных</span>
+                        <span className={getCollectionBadgeClass(selectedClient.dataCollectionStatus)}>
+                          {selectedClient.dataCollectionStatus}
+                        </span>
+                      </div>
                     <div className="client-summary__status-item">
                       <span className="sub">Авто-контроль</span>
                       <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
                         {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
                       </span>
                     </div>
-                    <div className="client-summary__status-item">
-                      <span className="sub">Сбор данных</span>
-                      {collectionLoading ? (
-                        <span className="badge badge--gray">Загрузка…</span>
-                      ) : (
-                        <span
-                          className={
-                            collectionState?.dataCollectionStatus === 'На паузе'
-                              ? 'badge badge--orange'
-                              : 'badge badge--green'
-                          }
-                        >
-                          {collectionState?.dataCollectionStatus ?? '—'}
-                        </span>
-                      )}
                     </div>
-                  </div>
                 </div>
                 <div className="client-summary__actions-panel">
                   <div className="client-summary__panel-grid">
@@ -1334,9 +1367,10 @@ function AdminAgentsScreen({
                                         <th>ID</th>
                                         <th>Название клиента</th>
                                         <th>Проектов</th>
-                                        <th>Статус клиента</th>
+                                        <th>Сбор данных</th>
                                         <th>Тариф</th>
                                         <th>Остаток</th>
+                                        <th>Работа</th>
                                         <th>Данных за период</th>
                                         <th>Действия</th>
                                       </tr>
@@ -1344,7 +1378,7 @@ function AdminAgentsScreen({
                                     <tbody>
                                       {totalExpandedClients === 0 && (
                                         <tr>
-                                          <td colSpan={8} className="muted" style={{ padding: 16 }}>
+                                          <td colSpan={9} className="muted" style={{ padding: 16 }}>
                                             У агента пока нет клиентов по текущему фильтру.
                                           </td>
                                         </tr>
@@ -1381,26 +1415,36 @@ function AdminAgentsScreen({
                                             </td>
                                             <td>{client.projectCount}</td>
                                             <td>
-                                              {client.projectCount === 0 ? (
-                                                <span className="badge badge--info">Нет проектов</span>
-                                              ) : (
-                                                <span className="agent-client-row__status">
-                                                  <span
-                                                    style={{
-                                                      width: 10,
-                                                      height: 10,
-                                                      borderRadius: '50%',
-                                                      backgroundColor: STATUS_COLORS[client.status],
-                                                    }}
-                                                  />
-                                                  <span className="sub" style={{ whiteSpace: 'nowrap' }}>{client.status}</span>
-                                                </span>
-                                              )}
+                                              <span className={getCollectionBadgeClass(client.dataCollectionStatus)}>
+                                                {client.dataCollectionStatus}
+                                              </span>
                                             </td>
                                             <td>{client.tariffAmount == null ? '-' : client.tariffAmount}</td>
                                             <td>
                                               <div className={isDebt ? 'remaining-negative' : undefined}>{client.remaining}</div>
-                                              {isDebt && <div className="sub" style={{ color: '#d23' }}>долг</div>}
+                                              {client.financeStatus && (
+                                                <div className="client-finance-badge-row">
+                                                  <span className={getFinanceBadgeClass(client.financeStatus)}>{client.financeStatus}</span>
+                                                </div>
+                                              )}
+                                            </td>
+                                            <td>
+                                              <select
+                                                className={getWorkStatusSelectClass(client.workStatus)}
+                                                value={client.workStatus}
+                                                disabled={savingWorkStatusClientId === client.id}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => {
+                                                  e.stopPropagation();
+                                                  void handleWorkStatusChange(client.id, e.target.value as ClientWorkStatus);
+                                                }}
+                                              >
+                                                {WORK_STATUSES.map((statusOption) => (
+                                                  <option key={statusOption} value={statusOption}>
+                                                    {statusOption}
+                                                  </option>
+                                                ))}
+                                              </select>
                                             </td>
                                             <td>{client.totalVolume}</td>
                                             <td>
@@ -1512,40 +1556,20 @@ function AdminAgentsScreen({
                                           {selectedClient.remaining < 0 && <span className="badge badge--orange">Долг</span>}
                                           <span className="badge badge--gray">Необработанных событий: {selectedPendingTotal}</span>
                                         </div>
-                                        <div className="client-summary__status-list">
-                                          <div className="client-summary__status-item">
-                                            <span className="sub">Статус клиента</span>
-                                            <span className="client-summary__status-value">
-                                              <span
-                                                className="client-summary__status-dot"
-                                                style={{ backgroundColor: STATUS_COLORS[selectedClient.status] }}
-                                              />
-                                              <span>{selectedClient.status}</span>
-                                            </span>
-                                          </div>
+                                          <div className="client-summary__status-list">
+                                            <div className="client-summary__status-item">
+                                              <span className="sub">Сбор данных</span>
+                                              <span className={getCollectionBadgeClass(selectedClient.dataCollectionStatus)}>
+                                                {selectedClient.dataCollectionStatus}
+                                              </span>
+                                            </div>
                                           <div className="client-summary__status-item">
                                             <span className="sub">Авто-контроль</span>
                                             <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
                                               {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
                                             </span>
                                           </div>
-                                          <div className="client-summary__status-item">
-                                            <span className="sub">Сбор данных</span>
-                                            {collectionLoading ? (
-                                              <span className="badge badge--gray">Загрузка…</span>
-                                            ) : (
-                                              <span
-                                                className={
-                                                  collectionState?.dataCollectionStatus === 'На паузе'
-                                                    ? 'badge badge--orange'
-                                                    : 'badge badge--green'
-                                                }
-                                              >
-                                                {collectionState?.dataCollectionStatus ?? '—'}
-                                              </span>
-                                            )}
                                           </div>
-                                        </div>
                                       </div>
                                       <div className="client-summary__actions-panel">
                                       <div className="client-summary__panel-grid">
