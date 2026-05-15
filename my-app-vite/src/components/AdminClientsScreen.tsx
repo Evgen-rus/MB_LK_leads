@@ -866,24 +866,6 @@ function AdminClientsScreen({
                     {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
                   </span>
                 </div>
-                {!isAgentManager && (
-                  <div className="client-summary__status-item">
-                    <span className="sub">Сбор данных</span>
-                    {collectionLoading ? (
-                      <span className="badge badge--gray">Загрузка…</span>
-                    ) : (
-                      <span
-                        className={
-                          collectionState?.dataCollectionStatus === 'На паузе'
-                            ? 'badge badge--orange'
-                            : 'badge badge--green'
-                        }
-                      >
-                        {collectionState?.dataCollectionStatus ?? '—'}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
             <div className="client-summary__actions-panel">
