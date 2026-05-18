@@ -1315,23 +1315,6 @@ button.dashboard-alert {
   width: 100%;
   cursor: pointer;
 }
-.dashboard-system-risk {
-  border: none;
-  border-radius: 10px;
-  background: #6f63ff;
-  color: #fff;
-  display: grid;
-  gap: 7px;
-  padding: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-.dashboard-system-risk strong {
-  font-size: 1.1rem;
-}
-.dashboard-system-risk small {
-  color: rgba(255,255,255,0.82);
-}
 .dashboard-daily-chart {
   height: 220px;
   display: grid;

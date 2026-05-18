@@ -335,7 +335,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
             <div className="dashboard-kpi">
               <span>Данные сегодня</span>
               <strong>{formatNumber(data.summary.leadsToday)}</strong>
-              <small>provider leads</small>
+              <small>получено данных</small>
             </div>
             <div className="dashboard-kpi">
               <span>7 дней</span>
@@ -439,14 +439,6 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
                   </div>
                 ))}
               </div>
-              <button type="button" className="dashboard-system-risk" onClick={() => {
-                const first = data.attention.operatorBlockedProjects[0];
-                if (first?.clientId) onOpenProject?.(first.clientId, first.clientName || 'Клиент');
-              }}>
-                <span>Системный риск</span>
-                <strong>{formatNumber(data.summary.operatorBlockedProjects)} B4-блокировок</strong>
-                <small>Проверьте поставщика и историю проектов.</small>
-              </button>
               <button type="button" className="dashboard-link-row" onClick={() => onOpenLeads?.(filters.fromDate, filters.toDate)}>
                 <span>Непривязанные лиды</span>
                 <strong>{formatNumber(data.attention.unlinkedLeads.total)}</strong>
@@ -463,7 +455,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
               <div className="dashboard-section__header">
                 <div>
                   <h2>Динамика данных</h2>
-                  <p>Полученные provider leads по дням</p>
+                  <p>Данные по дням</p>
                 </div>
               </div>
               <DailyChart data={data.charts.leadsDaily} />
