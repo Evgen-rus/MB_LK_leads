@@ -3878,6 +3878,9 @@ def admin_dashboard(
         manual_balance = balance_map.get(uid, {}).get("credit", 0) - balance_map.get(uid, {}).get("debit", 0)
         remaining = int(manual_balance) - int(used_total_by_client.get(uid, 0))
         total_remaining += remaining
+        profile = profile_by_client.get(uid)
+        if normalize_client_work_status(getattr(profile, "work_status", None)) == "Неактивен":
+            continue
         tariff = last_tariff_by_client.get(uid)
         if tariff is None or tariff.signal1 is None or tariff.signal2 is None or tariff.signal3 is None:
             continue
