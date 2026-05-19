@@ -673,7 +673,7 @@ function AdminClientsScreen({
                 pageRows.map((row) => {
                   const blacklistTotal = (row.pendingBlacklistAdds ?? 0) + (row.pendingBlacklistDeletes ?? 0);
                   const hasEvents = (row.pendingChanges ?? 0) > 0 || (row.pendingCreates ?? 0) > 0 || blacklistTotal > 0;
-                  const isDebt = row.financeStatus === 'Долг';
+                  const isDebt = row.workStatus !== 'Неактивен' && row.financeStatus === 'Долг';
                   return (
                     <tr
                       key={row.id}
@@ -709,7 +709,7 @@ function AdminClientsScreen({
                     <td>{row.tariffAmount == null ? '-' : row.tariffAmount}</td>
                     <td>
                       <div className={isDebt ? 'remaining-negative' : undefined}>{row.remaining}</div>
-                      {row.financeStatus && (
+                      {row.workStatus !== 'Неактивен' && row.financeStatus && (
                         <div className="client-finance-badge-row">
                           <span className={getFinanceBadgeClass(row.financeStatus)}>{row.financeStatus}</span>
                         </div>
