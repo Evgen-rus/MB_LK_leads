@@ -3,31 +3,20 @@ import './App.css';
 import Sidebar, { type ViewType } from './components/Sidebar';
 import ProjectsTable from './components/ProjectsTable';
 import LeadsTable from './components/LeadsTable';
-import AdminLeadsTable from './components/AdminLeadsTable';
 import Integrations from './components/Integrations';
 import Support from './components/Support';
 import Blacklist from './components/Blacklist';
-import AdminBlacklist from './components/AdminBlacklist';
 import Reports from './components/Reports';
-import AdminReports from './components/AdminReports';
-import AdminClientsScreen from './components/AdminClientsScreen';
-import AdminAgentsScreen from './components/AdminAgentsScreen';
-import AdminDashboard from './components/AdminDashboard';
-import AdminProviderLeadsImport from './components/AdminProviderLeadsImport';
-import AdminProjectsScreen, {
-  type AdminProjectsFocus,
-} from './components/AdminProjectsScreen';
-import AdminBalance from './components/AdminBalance';
 import ClientBalance from './components/ClientBalance';
 import ClientActivityHistory from './components/ClientActivityHistory';
-import AdminActivityHistory from './components/AdminActivityHistory';
 import NotificationBell from './components/NotificationBell';
 import AdminActivityBell from './components/AdminActivityBell';
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
 import ProjectHistoryModal from './components/ProjectHistoryModal';
 import type { Project } from './types/project';
+import type { AdminProjectsFocus } from './components/AdminProjectsScreen';
 import {
   createProjects as apiCreate,
   fetchProjects as apiList,
@@ -42,6 +31,17 @@ import { getRoleFromToken, isJwtValid } from './utils/jwt';
 import { formatSourceTextForDisplay } from './utils/sourceCodeDisplay';
 
 const STORAGE_VIEW_KEY = 'last_view';
+
+const AdminLeadsTable = lazy(() => import('./components/AdminLeadsTable'));
+const AdminBlacklist = lazy(() => import('./components/AdminBlacklist'));
+const AdminReports = lazy(() => import('./components/AdminReports'));
+const AdminClientsScreen = lazy(() => import('./components/AdminClientsScreen'));
+const AdminAgentsScreen = lazy(() => import('./components/AdminAgentsScreen'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const AdminProviderLeadsImport = lazy(() => import('./components/AdminProviderLeadsImport'));
+const AdminProjectsScreen = lazy(() => import('./components/AdminProjectsScreen'));
+const AdminBalance = lazy(() => import('./components/AdminBalance'));
+const AdminActivityHistory = lazy(() => import('./components/AdminActivityHistory'));
 
 function App() {
   type UserRole = 'admin' | 'agent' | 'client';
@@ -487,127 +487,35 @@ function App() {
               {impersonatorUserId != null && <span className="sub">администратор id: {impersonatorUserId}</span>}
             </div>
           )}
-          {view === 'admin-dashboard' && isAdmin ? (
-            <AdminDashboard
-              onOpenClient={(clientId) => {
-                setAdminProjectsClientId(null);
-                setAdminProjectsClientName(null);
-                setAdminBalanceClientId(null);
-                setAdminBalanceClientName(null);
-                setView('admin-clients');
-                try {
-                  localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
-                  localStorage.setItem('admin_clients_focus_id', String(clientId));
-                } catch {
-                  /* ignore */
-                }
-              }}
-              onOpenProject={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('projects');
-                setView('projects');
-                try {
-                  localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
-                } catch {
-                  /* ignore */
-                }
-              }}
-              onOpenLeads={(fromDate, toDate) => {
-                setAdminLeadsPrefill({ from: fromDate, to: toDate, unlinked: true });
-                setView('leads');
-                try {
-                  localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
-                } catch {
-                  /* ignore */
-                }
-              }}
-              onOpenActivity={() => {
-                setView('activity');
-                try {
-                  localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
-                } catch {
-                  /* ignore */
-                }
-              }}
-            />
-          ) : view === 'agents' && isAdmin ? (
-            <AdminAgentsScreen
-              onOpenClientProjects={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('projects');
-                setView('projects');
-              }}
-              onOpenClientChanges={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('changes');
-                setView('projects');
-              }}
-              onOpenClientBlacklistChanges={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('blacklist-changes');
-                setView('projects');
-              }}
-              onOpenClientBalance={(clientId, clientName, action) => {
-                setAdminBalanceClientId(clientId);
-                setAdminBalanceClientName(clientName);
-                setAdminBalanceModalType(action);
-                setView('balance');
-              }}
-            />
-          ) : view === 'admin-clients' && isManager ? (
-            <AdminClientsScreen
-              managerRole={role}
-              // Переход к проектам клиента из вкладки «Клиенты»
-              onOpenClientProjects={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('projects');
-                setView('projects');
-              }}
-              // Быстрый переход к изменениям клиента во вкладке «Проекты»
-              onOpenClientChanges={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('changes');
-                setView('projects');
-              }}
-              // Быстрый переход к событиям ЧС клиента во вкладке «Проекты»
-              onOpenClientBlacklistChanges={(clientId, clientName) => {
-                setAdminProjectsClientId(clientId);
-                setAdminProjectsClientName(clientName);
-                setAdminProjectsFocus('blacklist-changes');
-                setView('projects');
-              }}
-              onOpenClientBalance={(clientId, clientName, action) => {
-                setAdminBalanceClientId(clientId);
-                setAdminBalanceClientName(clientName);
-                setAdminBalanceModalType(action);
-                setView('balance');
-              }}
-            />
-          ) : view === 'admin-provider-import' && isAdmin ? (
-            <AdminProviderLeadsImport />
-          ) : view === 'projects' ? (
-            isManager ? (
-              <AdminProjectsScreen
-                initialClientId={adminProjectsClientId ?? undefined}
-                initialClientName={adminProjectsClientName ?? undefined}
-                initialFocus={adminProjectsFocus}
-                onOpenClientBlacklist={({ clientId }) => {
-                  setAdminBlacklistClientId(clientId);
-                  setView('blacklist');
+          <Suspense fallback={<div className="table-card" style={{ padding: 16 }}>Загрузка…</div>}>
+            {view === 'admin-dashboard' && isAdmin ? (
+              <AdminDashboard
+                onOpenClient={(clientId) => {
+                  setAdminProjectsClientId(null);
+                  setAdminProjectsClientName(null);
+                  setAdminBalanceClientId(null);
+                  setAdminBalanceClientName(null);
+                  setView('admin-clients');
                   try {
-                    localStorage.setItem(STORAGE_VIEW_KEY, 'blacklist');
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'admin-clients');
+                    localStorage.setItem('admin_clients_focus_id', String(clientId));
                   } catch {
                     /* ignore */
                   }
                 }}
-                onOpenLeads={({ clientId, projectId, fromDate, toDate }) => {
-                  setAdminLeadsPrefill({ clientId, projectId, from: fromDate, to: toDate });
+                onOpenProject={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('projects');
+                  setView('projects');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onOpenLeads={(fromDate, toDate) => {
+                  setAdminLeadsPrefill({ from: fromDate, to: toDate, unlinked: true });
                   setView('leads');
                   try {
                     localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
@@ -615,79 +523,173 @@ function App() {
                     /* ignore */
                   }
                 }}
+                onOpenActivity={() => {
+                  setView('activity');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              />
+            ) : view === 'agents' && isAdmin ? (
+              <AdminAgentsScreen
+                onOpenClientProjects={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('projects');
+                  setView('projects');
+                }}
+                onOpenClientChanges={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('changes');
+                  setView('projects');
+                }}
+                onOpenClientBlacklistChanges={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('blacklist-changes');
+                  setView('projects');
+                }}
+                onOpenClientBalance={(clientId, clientName, action) => {
+                  setAdminBalanceClientId(clientId);
+                  setAdminBalanceClientName(clientName);
+                  setAdminBalanceModalType(action);
+                  setView('balance');
+                }}
+              />
+            ) : view === 'admin-clients' && isManager ? (
+              <AdminClientsScreen
+                managerRole={role}
+                // Переход к проектам клиента из вкладки «Клиенты»
+                onOpenClientProjects={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('projects');
+                  setView('projects');
+                }}
+                // Быстрый переход к изменениям клиента во вкладке «Проекты»
+                onOpenClientChanges={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('changes');
+                  setView('projects');
+                }}
+                // Быстрый переход к событиям ЧС клиента во вкладке «Проекты»
+                onOpenClientBlacklistChanges={(clientId, clientName) => {
+                  setAdminProjectsClientId(clientId);
+                  setAdminProjectsClientName(clientName);
+                  setAdminProjectsFocus('blacklist-changes');
+                  setView('projects');
+                }}
+                onOpenClientBalance={(clientId, clientName, action) => {
+                  setAdminBalanceClientId(clientId);
+                  setAdminBalanceClientName(clientName);
+                  setAdminBalanceModalType(action);
+                  setView('balance');
+                }}
+              />
+            ) : view === 'admin-provider-import' && isAdmin ? (
+              <AdminProviderLeadsImport />
+            ) : view === 'projects' ? (
+              isManager ? (
+                <AdminProjectsScreen
+                  initialClientId={adminProjectsClientId ?? undefined}
+                  initialClientName={adminProjectsClientName ?? undefined}
+                  initialFocus={adminProjectsFocus}
+                  onOpenClientBlacklist={({ clientId }) => {
+                    setAdminBlacklistClientId(clientId);
+                    setView('blacklist');
+                    try {
+                      localStorage.setItem(STORAGE_VIEW_KEY, 'blacklist');
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  onOpenLeads={({ clientId, projectId, fromDate, toDate }) => {
+                    setAdminLeadsPrefill({ clientId, projectId, from: fromDate, to: toDate });
+                    setView('leads');
+                    try {
+                      localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                />
+              ) : (
+                <ProjectsTable
+                  projectsMutationLocked={projectsMutationLocked}
+                  projectsMutationLockMessage={
+                    projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.'
+                  }
+                  onCreate={() => {
+                    if (projectsMutationLocked) {
+                      window.dispatchEvent(
+                        new CustomEvent('app-toast', {
+                          detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
+                        }),
+                      );
+                      return;
+                    }
+                    setIsCreateOpen(true);
+                  }}
+                  onEdit={(row) => {
+                    if (projectsMutationLocked) {
+                      window.dispatchEvent(
+                        new CustomEvent('app-toast', {
+                          detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
+                        }),
+                      );
+                      return;
+                    }
+                    setEditing(row);
+                  }}
+                  onHistory={(row) => setHistoryFor(row)}
+                  onOpenLeads={({ projectId, fromDate, toDate }) => {
+                    setLeadsPrefill({ projectId, from: fromDate, to: toDate });
+                    setView('leads');
+                    try {
+                      localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                />
+              )
+            ) : view === 'leads' ? (
+              isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
+            ) : view === 'reports' ? (
+              isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
+          ) : view === 'activity' ? (
+            isManager ? <AdminActivityHistory /> : <ClientActivityHistory />
+          ) : view === 'balance' ? (
+            isManager ? (
+              <AdminBalance
+                managerRole={role}
+                initialClientId={adminBalanceClientId ?? undefined}
+                initialClientName={adminBalanceClientName ?? undefined}
+                initialModalType={adminBalanceModalType ?? undefined}
               />
             ) : (
-              <ProjectsTable
-                projectsMutationLocked={projectsMutationLocked}
-                projectsMutationLockMessage={
-                  projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.'
-                }
-                onCreate={() => {
-                  if (projectsMutationLocked) {
-                    window.dispatchEvent(
-                      new CustomEvent('app-toast', {
-                        detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
-                      }),
-                    );
-                    return;
-                  }
-                  setIsCreateOpen(true);
-                }}
-                onEdit={(row) => {
-                  if (projectsMutationLocked) {
-                    window.dispatchEvent(
-                      new CustomEvent('app-toast', {
-                        detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
-                      }),
-                    );
-                    return;
-                  }
-                  setEditing(row);
-                }}
-                onHistory={(row) => setHistoryFor(row)}
-                onOpenLeads={({ projectId, fromDate, toDate }) => {
-                  setLeadsPrefill({ projectId, from: fromDate, to: toDate });
-                  setView('leads');
-                  try {
-                    localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-              />
+              <ClientBalance />
             )
-          ) : view === 'leads' ? (
-            isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
-          ) : view === 'reports' ? (
-            isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
-        ) : view === 'activity' ? (
-          isManager ? <AdminActivityHistory /> : <ClientActivityHistory />
-        ) : view === 'balance' ? (
-          isManager ? (
-            <AdminBalance
-              managerRole={role}
-              initialClientId={adminBalanceClientId ?? undefined}
-              initialClientName={adminBalanceClientName ?? undefined}
-              initialModalType={adminBalanceModalType ?? undefined}
-            />
-          ) : (
-            <ClientBalance />
-          )
-        ) : view === 'education' ? (
-          <div className="table-card" style={{ padding: 16 }}>
-            Раздел «Обучение» в разработке.
-          </div>
-        ) : view === 'onboarding' ? (
-          <div className="table-card" style={{ padding: 16 }}>
-            Раздел «Онбординг» в разработке.
-          </div>
-          ) : view === 'integrations' ? (
-            <Integrations />
-          ) : view === 'support' ? (
-            <Support />
-          ) : (
-            isManager ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
-          )}
+          ) : view === 'education' ? (
+            <div className="table-card" style={{ padding: 16 }}>
+              Раздел «Обучение» в разработке.
+            </div>
+          ) : view === 'onboarding' ? (
+            <div className="table-card" style={{ padding: 16 }}>
+              Раздел «Онбординг» в разработке.
+            </div>
+            ) : view === 'integrations' ? (
+              <Integrations />
+            ) : view === 'support' ? (
+              <Support />
+            ) : (
+              isManager ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
+            )}
+          </Suspense>
         </main>
       </div>
       {isCreateOpen && (

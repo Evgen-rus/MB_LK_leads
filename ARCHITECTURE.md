@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-05-15
+Last updated: 2026-05-19
 
 ## 1) System At A Glance
 
@@ -246,6 +246,7 @@ Frontend:
 - экран: `my-app-vite/src/components/AdminDashboard.tsx`;
 - API-типы и клиент: `my-app-vite/src/api.ts`;
 - navigation/view wiring: `my-app-vite/src/App.tsx` + `my-app-vite/src/components/Sidebar.tsx`;
+- админские/manager-only экраны подключаются в `App.tsx` через `React.lazy` + `Suspense`, чтобы клиентский ЛК не скачивал их в стартовом JS bundle;
 - стили: `my-app-vite/src/App.css`;
 - графики нативные CSS/SVG/HTML, без chart-библиотеки;
 - фильтры сохраняются в `localStorage`;
@@ -255,6 +256,7 @@ Frontend:
 
 - Новое поле/правило в API: `schemas.py` + `crud.py` + endpoint в `main.py`
 - UI + API контракт: `my-app-vite/src/api.ts` + backend endpoint/schema
+- Root navigation / lazy loading экранов: `my-app-vite/src/App.tsx`; новые тяжёлые админские экраны добавлять через `lazy(() => import(...))`, type-only зависимости держать как `import type`
 - Интеграция Prostats: `backend/app/providers/prostats.py`
 - Логика уникальных имён проектов и server-side валидация имени: `backend/app/main.py` + `backend/app/crud.py`
 - Notification routing / Telegram outbox: `backend/app/notifications.py` + `backend/app/crud.py` + internal endpoints в `backend/app/main.py`
@@ -349,3 +351,4 @@ Google Sheets export:
 28. В дашборде не смешивать “полученные данные” с непривязанными лидами: основные KPI и расход считаются только по `provider_leads.project_id IS NOT NULL`, а непривязанные лиды — отдельный риск.
 29. Не добавлять actions изменения данных прямо на дашборд v1. Допустимы только переходы в существующие разделы с контекстом/фильтрами.
 30. При изменении фильтров дашборда помнить, что source-фильтр работает raw-кодами `B1` / `B2` / `B3` / `B4`, а в UI показывается `A` / `B` / `C` / `D`; клиентские тарифные риски не являются source-level метрикой.
+31. В `App.tsx` не возвращать статические runtime-импорты тяжёлых админских/manager-only экранов: они должны оставаться lazy-loaded через `React.lazy`, иначе клиентский ЛК снова начнёт скачивать админский код на старте. Type-only импорты вроде `AdminProjectsFocus` оставлять через `import type`.
