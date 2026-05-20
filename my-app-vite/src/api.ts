@@ -462,8 +462,8 @@ export type Lead = {
   ext_id: string;
   lk_id: string;
   project_id?: number | null;
-  created_at: string; // ISO string (время из источника)
-  imported_at: string; // ISO string (время попадания в БД)
+  created_at: string; // дата в ЛК (момент записи в БД, = imported_at)
+  imported_at: string; // время попадания в БД
   phone: string;
   utm_campaign?: string | null;
   source?: string | null;
@@ -1008,8 +1008,8 @@ export type AdminLead = {
   ext_id: string;
   lk_id: string;
   project_id?: number | null;
-  created_at: string;
-  imported_at: string;
+  created_at: string; // дата в ЛК (момент записи в БД, = imported_at)
+  imported_at: string; // время попадания в БД
   phone: string;
   utm_campaign?: string | null;
   source?: string | null;

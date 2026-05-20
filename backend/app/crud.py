@@ -497,7 +497,7 @@ def _apply_project_sort(
     direction = "asc" if safe_sort_dir == "asc" else "desc"
 
     if safe_sort_by == "numbersPeriod":
-        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+        ts_col = _provider_lead_ts_col()
         counts_stmt = select(
             models.ProviderLead.project_id.label("project_id"),
             func.count().label("sort_count"),
@@ -542,7 +542,7 @@ def _apply_daily_limit_reached_filter(
     start_local: Optional[datetime],
     end_local: Optional[datetime],
 ):
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     counts_stmt = select(
         models.ProviderLead.project_id.label("project_id"),
         func.count().label("period_count"),
@@ -862,7 +862,7 @@ def list_projects_paginated(
     counts_total_map: Dict[int, int] = {}
     if start_local and end_local and rows:
         proj_ids = [p.id for p in rows]
-        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+        ts_col = _provider_lead_ts_col()
         cnt_rows_period = (
             db.execute(
                 select(models.ProviderLead.project_id, func.count())
@@ -2288,6 +2288,15 @@ def get_provider_lead_by_vid(db: Session, vid: str) -> Optional[models.ProviderL
     ).scalar_one_or_none()
 
 
+def _provider_lead_ts_col():
+    """Операционное время идентификации в ЛК — момент записи в БД."""
+    return models.ProviderLead.imported_at
+
+
+def _provider_lead_display_dt(lead: models.ProviderLead) -> Optional[datetime]:
+    return lead.imported_at
+
+
 def resolve_project_by_name_for_provider_lead(
     db: Session,
     project_name: str,
@@ -2391,7 +2400,7 @@ def _provider_lead_to_export_row(
             phone_value = ", ".join([str(x) for x in lead.phones_raw if x is not None])
         except Exception:
             phone_value = None
-    display_dt = lead.prov_created_at or lead.imported_at
+    display_dt = _provider_lead_display_dt(lead)
     project_name = lead.project_name or ""
     if not expose_internal_name and project is not None:
         project_name = _clean_client_internal_prefix_from_name(
@@ -2429,7 +2438,7 @@ def iter_provider_leads_for_export(
         return
 
     chunk_size = min(2000, remaining)
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     last_ts: Optional[datetime] = None
     last_id: Optional[int] = None
 
@@ -2495,7 +2504,7 @@ def iter_provider_leads_for_export(
 
         remaining -= len(batch)
         tail = batch[-1]
-        last_ts = tail.prov_created_at or tail.imported_at
+        last_ts = _provider_lead_display_dt(tail)
         last_id = int(tail.id)
 
 
@@ -2548,7 +2557,7 @@ def list_provider_leads_paginated(
         if not proj_ids:
             return schemas.LeadsListOut(items=[], total=0)
 
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     base = select(models.ProviderLead).where(
         and_(ts_col >= start_local, ts_col < end_local)
     )
@@ -2588,7 +2597,7 @@ def list_provider_leads_paginated(
                 phone_value = ", ".join([str(x) for x in r.phones_raw if x is not None])
             except Exception:
                 phone_value = None
-        created_at = r.prov_created_at or r.imported_at
+        created_at = _provider_lead_display_dt(r)
         items.append(schemas.LeadOut(
             ext_id=str(r.vid),
             lk_id=format_provider_lead_lk_id(r.id),
@@ -3490,8 +3499,8 @@ def admin_clients_summary(
         by_user.setdefault(int(uid), {"projects": 0, "limit": 0, "used_total": 0, "used_period": 0})
         by_user[int(uid)]["used_total"] = int(cnt or 0)
 
-    # Использование за период (по prov_created_at/imported_at, локальное время без tz)
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    # Использование за период (по imported_at, локальное время без tz)
+    ts_col = _provider_lead_ts_col()
     used_period_rows = db.execute(
         select(models.Project.user_id, func.count())
         .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
@@ -3723,7 +3732,7 @@ def admin_dashboard(
             return None
         return owner_name_by_id.get(int(owner_id))
 
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
 
     def scoped_project_stmt(include_deleted: bool = False):
         stmt = select(models.Project).where(models.Project.user_id.in_(client_ids))
@@ -4328,7 +4337,7 @@ def _client_leads_usage(
     """
     Количество выданных номеров (лидов) по всем проектам клиента.
     """
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     stmt = (
         select(func.count())
         .select_from(models.ProviderLead)
@@ -4553,7 +4562,7 @@ def get_agent_balance_summary(
     )
     used_total = int(db.execute(total_stmt).scalar_one() or 0)
 
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     period_stmt = (
         select(func.count())
         .select_from(models.ProviderLead)
@@ -5300,7 +5309,7 @@ def admin_list_all_projects(
     counts_total_map: Dict[int, int] = {}
     if start_local and end_local and rows:
         proj_ids = [p.id for p in rows]
-        ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+        ts_col = _provider_lead_ts_col()
         cnt_rows_period = (
             db.execute(
                 select(models.ProviderLead.project_id, func.count())
@@ -5597,7 +5606,7 @@ def admin_list_provider_leads(
         if not proj_ids:
             return schemas.AdminLeadsListOut(items=[], total=0)
 
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     base = select(models.ProviderLead).where(
         and_(ts_col >= start_local, ts_col < end_local)
     )
@@ -5622,14 +5631,13 @@ def admin_list_provider_leads(
                 phone_value = ", ".join([str(x) for x in r.phones_raw if x is not None])
             except Exception:
                 phone_value = None
-        created_at = r.prov_created_at or r.imported_at
-        imported_at = r.imported_at
+        created_at = _provider_lead_display_dt(r)
         items.append(schemas.AdminLeadOut(
             ext_id=str(r.vid),
             lk_id=format_provider_lead_lk_id(r.id),
             project_id=r.project_id,
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
-            imported_at=imported_at.strftime('%Y-%m-%d %H:%M:%S') if imported_at else "",
+            imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=phone_value or "",
             utm_campaign=_build_utm_campaign(r.prov_source, r.subdomain),
             source=r.prov_chanel,
@@ -5651,7 +5659,7 @@ def admin_list_all_leads(
     sources_filter: Optional[List[str]] = None,
     unlinked_only: bool = False,
 ) -> schemas.AdminLeadsListOut:
-    ts_col = func.coalesce(models.ProviderLead.prov_created_at, models.ProviderLead.imported_at)
+    ts_col = _provider_lead_ts_col()
     base = select(models.ProviderLead).where(and_(ts_col >= start_local, ts_col < end_local))
     if unlinked_only:
         base = base.where(models.ProviderLead.project_id.is_(None))
@@ -5680,7 +5688,7 @@ def admin_list_all_leads(
                 phone_value = ", ".join([str(x) for x in row.phones_raw if x is not None])
             except Exception:
                 phone_value = None
-        created_at = row.prov_created_at or row.imported_at
+        created_at = _provider_lead_display_dt(row)
         project = projects_map.get(int(row.project_id)) if row.project_id is not None else None
         user_info = user_infos.get(int(project.user_id)) if project is not None and project.user_id is not None else unlinked_user
         items.append(schemas.AdminLeadOut(

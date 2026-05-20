@@ -370,6 +370,21 @@ def _ensure_project_provider_leads_grace_columns() -> None:
 _ensure_project_provider_leads_grace_columns()
 
 
+def _ensure_provider_leads_imported_at_index() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "provider_leads" not in tables:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_provider_leads_imported_at ON provider_leads (imported_at)")
+        )
+
+
+_ensure_provider_leads_imported_at_index()
+
+
 def _ensure_active_project_name_unique_index() -> None:
     """
     PostgreSQL guard against duplicate names among non-deleted projects.

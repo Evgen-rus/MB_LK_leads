@@ -235,7 +235,7 @@ class ProviderLead(Base):
     prov_chanel = Column(String, nullable=True, index=True)
     prov_source = Column(String, nullable=True, index=True)
     subdomain = Column(String, nullable=True, index=True)
-    imported_at = Column(DateTime, nullable=False, default=now_msk)
+    imported_at = Column(DateTime, nullable=False, default=now_msk, index=True)
     project_id = Column(Integer, nullable=True, index=True)
 
 
