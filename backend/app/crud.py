@@ -3634,6 +3634,214 @@ def admin_clients_summary(
     return schemas.AdminClientsSummaryOut(items=items, totals=totals)
 
 
+def client_dashboard(
+    db: Session,
+    *,
+    client_id: int,
+    start_local: datetime,
+    end_local: datetime,
+    today_start: datetime,
+    today_end: datetime,
+    last7_start: datetime,
+    last30_start: datetime,
+    chart_start: datetime,
+    chart_end: datetime,
+    sources: Optional[List[str]] = None,
+) -> schemas.ClientDashboardOut:
+    source_filter = [str(s).strip().upper() for s in (sources or []) if str(s).strip()]
+    source_filter = [s for s in source_filter if s in {"B1", "B2", "B3", "B4"}]
+    ts_col = _provider_lead_ts_col()
+
+    def scoped_project_stmt():
+        stmt = (
+            select(models.Project)
+            .where(models.Project.user_id == int(client_id))
+            .where(models.Project.deleted_at.is_(None))
+            .where(models.Project.status != "Удалён")
+        )
+        if source_filter:
+            stmt = stmt.where(models.Project.data_source_code.in_(source_filter))
+        return stmt
+
+    project_rows = db.execute(scoped_project_stmt().order_by(models.Project.id.asc())).scalars().all()
+    project_by_id = {int(project.id): project for project in project_rows}
+    project_ids = list(project_by_id.keys())
+
+    active_projects = sum(1 for project in project_rows if project.status == "Активен")
+    paused_projects = sum(1 for project in project_rows if project.status == "На паузе")
+    blocked_projects = sum(1 for project in project_rows if project.status == PROJECT_STATUS_OPERATOR_BLOCK)
+
+    status_order = ["Активен", "На паузе", PROJECT_STATUS_OPERATOR_BLOCK]
+    status_counts: Dict[str, int] = {status: 0 for status in status_order}
+    for project in project_rows:
+        status_counts[str(project.status or "")] = status_counts.get(str(project.status or ""), 0) + 1
+    status_breakdown = [
+        schemas.AdminDashboardBreakdownItemOut(key=status, label=status, value=int(status_counts.get(status, 0)))
+        for status in status_order
+    ]
+
+    def leads_count(start: datetime, end: datetime) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(models.ProviderLead)
+            .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+            .where(models.Project.user_id == int(client_id))
+            .where(models.ProviderLead.project_id.is_not(None))
+            .where(ts_col >= start)
+            .where(ts_col < end)
+        )
+        if source_filter:
+            stmt = stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+        return int(db.execute(stmt).scalar_one() or 0)
+
+    leads_period = leads_count(start_local, end_local)
+    leads_today = leads_count(today_start, today_end)
+    leads_7 = leads_count(last7_start, today_end)
+    leads_30 = leads_count(last30_start, today_end)
+
+    balance_summary = get_client_balance_summary(db, client_id=int(client_id), start_local=None, end_local=None)
+    remaining = int(balance_summary.remaining)
+    if leads_7 > 0:
+        average_daily_spend = float(leads_7 / 7)
+        spend_basis: Optional[schemas.DashboardSpendBasis] = "7d"
+    elif leads_30 > 0:
+        average_daily_spend = float(leads_30 / 30)
+        spend_basis = "30d"
+    else:
+        average_daily_spend = 0.0
+        spend_basis = None
+
+    if remaining <= 0:
+        estimated_days_left: Optional[int] = 0
+    elif average_daily_spend > 0:
+        estimated_days_left = int(remaining / average_daily_spend)
+    else:
+        estimated_days_left = None
+
+    daily_stmt = (
+        select(func.date(ts_col), func.count())
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.user_id == int(client_id))
+        .where(models.ProviderLead.project_id.is_not(None))
+        .where(ts_col >= chart_start)
+        .where(ts_col < chart_end)
+        .group_by(func.date(ts_col))
+    )
+    if source_filter:
+        daily_stmt = daily_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+    daily_rows = db.execute(daily_stmt).all()
+    daily_map = {str(day): int(cnt or 0) for day, cnt in daily_rows}
+    leads_daily: List[schemas.AdminDashboardSeriesPointOut] = []
+    current_day = chart_start.date()
+    while current_day < chart_end.date():
+        day_key = current_day.isoformat()
+        leads_daily.append(schemas.AdminDashboardSeriesPointOut(date=day_key, value=daily_map.get(day_key, 0)))
+        current_day = current_day + timedelta(days=1)
+
+    period_by_project: Dict[int, int] = {}
+    last7_by_project: Dict[int, int] = {}
+    if project_ids:
+        period_stmt = (
+            select(models.ProviderLead.project_id, func.count())
+            .where(models.ProviderLead.project_id.in_(project_ids))
+            .where(ts_col >= start_local)
+            .where(ts_col < end_local)
+            .group_by(models.ProviderLead.project_id)
+        )
+        if source_filter:
+            period_stmt = period_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+        period_rows = db.execute(period_stmt).all()
+        period_by_project = {int(pid): int(cnt or 0) for pid, cnt in period_rows if pid is not None}
+
+        last7_stmt = (
+            select(models.ProviderLead.project_id, func.count())
+            .where(models.ProviderLead.project_id.in_(project_ids))
+            .where(ts_col >= last7_start)
+            .where(ts_col < today_end)
+            .group_by(models.ProviderLead.project_id)
+        )
+        if source_filter:
+            last7_stmt = last7_stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
+        last7_rows = db.execute(last7_stmt).all()
+        last7_by_project = {int(pid): int(cnt or 0) for pid, cnt in last7_rows if pid is not None}
+
+    attention_projects: List[schemas.ClientDashboardAttentionProjectOut] = []
+    reason_order = {"operator_blocked": 0, "paused": 1, "no_data_7d": 2}
+    for project in project_rows:
+        reason: Optional[Literal["operator_blocked", "paused", "no_data_7d"]] = None
+        reason_label = ""
+        if project.status == PROJECT_STATUS_OPERATOR_BLOCK:
+            reason = "operator_blocked"
+            reason_label = "Блокировка оператора"
+        elif project.status == "На паузе":
+            reason = "paused"
+            reason_label = "На паузе"
+        elif project.status == "Активен" and int(last7_by_project.get(int(project.id), 0)) == 0:
+            reason = "no_data_7d"
+            reason_label = "Нет данных за 7 дней"
+        if reason is None:
+            continue
+        attention_projects.append(
+            schemas.ClientDashboardAttentionProjectOut(
+                projectId=int(project.id),
+                projectName=str(project.name or ""),
+                status=project.status,
+                source=str(project.data_source_code or ""),
+                reason=reason,
+                reasonLabel=reason_label,
+            )
+        )
+    attention_projects.sort(key=lambda item: (reason_order.get(item.reason, 99), item.projectName))
+
+    top_projects = [
+        schemas.ClientDashboardProjectRankingItemOut(
+            projectId=pid,
+            projectName=str(getattr(project_by_id[pid], "name", "") or ""),
+            status=project_by_id[pid].status,
+            source=str(getattr(project_by_id[pid], "data_source_code", "") or ""),
+            value=int(value),
+        )
+        for pid, value in sorted(period_by_project.items(), key=lambda pair: pair[1], reverse=True)[:5]
+        if pid in project_by_id and int(value) > 0
+    ]
+
+    recent_events = list_client_activity_events(
+        db,
+        client_id=int(client_id),
+        offset=0,
+        limit=5,
+        start_local=None,
+        end_local=None,
+    ).items
+
+    return schemas.ClientDashboardOut(
+        summary=schemas.ClientDashboardSummaryOut(
+            leadsPeriod=leads_period,
+            leadsToday=leads_today,
+            leads7Days=leads_7,
+            leads30Days=leads_30,
+            remaining=remaining,
+            activeProjects=active_projects,
+            pausedProjects=paused_projects,
+            operatorBlockedProjects=blocked_projects,
+        ),
+        balance=schemas.ClientDashboardBalanceOut(
+            remaining=remaining,
+            averageDailySpend=round(average_daily_spend, 2),
+            averageDailySpendBasis=spend_basis,
+            estimatedDaysLeft=estimated_days_left,
+        ),
+        charts=schemas.ClientDashboardChartsOut(
+            leadsDaily=leads_daily,
+            projectStatuses=status_breakdown,
+        ),
+        attention=schemas.ClientDashboardAttentionOut(projects=attention_projects[:10]),
+        rankings=schemas.ClientDashboardRankingsOut(topProjectsByLeads=top_projects),
+        recentEvents=recent_events,
+    )
+
+
 def admin_dashboard(
     db: Session,
     *,

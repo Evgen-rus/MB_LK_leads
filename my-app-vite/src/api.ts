@@ -988,6 +988,70 @@ export async function fetchAdminDashboard(params: {
   return http<AdminDashboard>(`/admin/dashboard?${q.toString()}`);
 }
 
+export type ClientDashboardSummary = {
+  leadsPeriod: number;
+  leadsToday: number;
+  leads7Days: number;
+  leads30Days: number;
+  remaining: number;
+  activeProjects: number;
+  pausedProjects: number;
+  operatorBlockedProjects: number;
+};
+
+export type ClientDashboardBalance = {
+  remaining: number;
+  averageDailySpend: number;
+  averageDailySpendBasis?: '7d' | '30d' | null;
+  estimatedDaysLeft?: number | null;
+};
+
+export type ClientDashboardAttentionProject = {
+  projectId: number;
+  projectName: string;
+  status: ProjectStatus;
+  source: string;
+  reason: 'operator_blocked' | 'paused' | 'no_data_7d';
+  reasonLabel: string;
+};
+
+export type ClientDashboardProjectRankingItem = {
+  projectId: number;
+  projectName: string;
+  status: ProjectStatus;
+  source: string;
+  value: number;
+};
+
+export type ClientDashboard = {
+  summary: ClientDashboardSummary;
+  balance: ClientDashboardBalance;
+  charts: {
+    leadsDaily: AdminDashboardSeriesPoint[];
+    projectStatuses: AdminDashboardBreakdownItem[];
+  };
+  attention: {
+    projects: ClientDashboardAttentionProject[];
+  };
+  rankings: {
+    topProjectsByLeads: ClientDashboardProjectRankingItem[];
+  };
+  recentEvents: ActivityEvent[];
+};
+
+export async function fetchClientDashboard(params: {
+  fromDate: string;
+  toDate: string;
+  sources?: string[];
+}): Promise<ClientDashboard> {
+  const q = new URLSearchParams({
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+  if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
+  return http<ClientDashboard>(`/dashboard?${q.toString()}`);
+}
+
 export async function fetchAdminClientCollectionState(clientId: number): Promise<AdminClientCollectionState> {
   return http<AdminClientCollectionState>(`/admin/clients/${clientId}/collection-state`);
 }

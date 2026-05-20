@@ -1183,6 +1183,9 @@
   font-size: 1.6rem;
   line-height: 1;
 }
+.dashboard-kpi .value--negative {
+  color: #d83a3a;
+}
 .dashboard-grid {
   display: grid;
   gap: 16px;
@@ -1218,6 +1221,9 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(130px, 1fr));
   gap: 10px;
+}
+.dashboard-alerts--compact {
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
 }
 .dashboard-alert {
   border: 1px solid transparent;

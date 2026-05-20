@@ -617,6 +617,67 @@ class AdminDashboardOut(BaseModel):
     rankings: AdminDashboardRankingsOut
 
 
+# -------- Клиентский дашборд --------
+DashboardSpendBasis = Literal['7d', '30d']
+
+
+class ClientDashboardSummaryOut(BaseModel):
+    leadsPeriod: int
+    leadsToday: int
+    leads7Days: int
+    leads30Days: int
+    remaining: int
+    activeProjects: int
+    pausedProjects: int
+    operatorBlockedProjects: int
+
+
+class ClientDashboardBalanceOut(BaseModel):
+    remaining: int
+    averageDailySpend: float
+    averageDailySpendBasis: Optional[DashboardSpendBasis] = None
+    estimatedDaysLeft: Optional[int] = None
+
+
+class ClientDashboardAttentionProjectOut(BaseModel):
+    projectId: int
+    projectName: str
+    status: ProjectStatus
+    source: str
+    reason: Literal['operator_blocked', 'paused', 'no_data_7d']
+    reasonLabel: str
+
+
+class ClientDashboardChartsOut(BaseModel):
+    leadsDaily: List[AdminDashboardSeriesPointOut]
+    projectStatuses: List[AdminDashboardBreakdownItemOut]
+
+
+class ClientDashboardProjectRankingItemOut(BaseModel):
+    projectId: int
+    projectName: str
+    status: ProjectStatus
+    source: str
+    value: int
+
+
+class ClientDashboardAttentionOut(BaseModel):
+    projects: List[ClientDashboardAttentionProjectOut]
+
+
+class ClientDashboardRankingsOut(BaseModel):
+    topProjectsByLeads: List[ClientDashboardProjectRankingItemOut]
+
+
+class ClientDashboardOut(BaseModel):
+    summary: ClientDashboardSummaryOut
+    balance: ClientDashboardBalanceOut
+    charts: ClientDashboardChartsOut
+    attention: ClientDashboardAttentionOut
+    rankings: ClientDashboardRankingsOut
+    recentEvents: List[ActivityEventOut]
+
+
 class AdminAgentCreateIn(BaseModel):
     name: str
     inn: str

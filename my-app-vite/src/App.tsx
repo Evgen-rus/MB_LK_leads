@@ -9,6 +9,7 @@ import Blacklist from './components/Blacklist';
 import Reports from './components/Reports';
 import ClientBalance from './components/ClientBalance';
 import ClientActivityHistory from './components/ClientActivityHistory';
+import ClientDashboard from './components/ClientDashboard';
 import NotificationBell from './components/NotificationBell';
 import AdminActivityBell from './components/AdminActivityBell';
 import { lazy, Suspense, useState, useEffect } from 'react';
@@ -58,6 +59,7 @@ function App() {
       if (
         saved === 'agents' ||
         saved === 'admin-dashboard' ||
+        saved === 'client-dashboard' ||
         saved === 'projects' ||
         saved === 'leads' ||
         saved === 'reports' ||
@@ -172,18 +174,27 @@ function App() {
   useEffect(() => {
     if (!authChecked || needLogin) return;
     if (!isAdmin && (view === 'agents' || view === 'admin-dashboard')) {
-      setView(isManager ? 'admin-clients' : 'projects');
+      setView(isManager ? 'admin-clients' : 'client-dashboard');
       try {
-        localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'projects');
+        localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'client-dashboard');
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (isManager && view === 'client-dashboard') {
+      setView(isAdmin ? 'admin-dashboard' : 'admin-clients');
+      try {
+        localStorage.setItem(STORAGE_VIEW_KEY, isAdmin ? 'admin-dashboard' : 'admin-clients');
       } catch {
         /* ignore */
       }
       return;
     }
     if (!isManager && (view === 'admin-clients' || view === 'admin-provider-import')) {
-      setView('projects');
+      setView('client-dashboard');
       try {
-        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+        localStorage.setItem(STORAGE_VIEW_KEY, 'client-dashboard');
       } catch {
         /* ignore */
       }
@@ -192,6 +203,7 @@ function App() {
     // если вдруг сохранённая вкладка невалидная, откатываем
     if (
       view !== 'admin-dashboard' &&
+      view !== 'client-dashboard' &&
       view !== 'agents' &&
       view !== 'projects' &&
       view !== 'leads' &&
@@ -206,9 +218,9 @@ function App() {
       view !== 'education' &&
       view !== 'onboarding'
     ) {
-      setView('projects');
+      setView(isManager ? 'admin-clients' : 'client-dashboard');
       try {
-        localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+        localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'client-dashboard');
       } catch {
         /* ignore */
       }
@@ -307,7 +319,7 @@ function App() {
 
       // Требование: дефолтная вкладка выставляется ТОЛЬКО после ввода логина/пароля.
       // При обычном обновлении страницы остаёмся на last_view.
-      const nextView: ViewType = nextRole === 'client' ? 'leads' : nextRole === 'admin' ? 'admin-dashboard' : 'admin-clients';
+      const nextView: ViewType = nextRole === 'client' ? 'client-dashboard' : nextRole === 'admin' ? 'admin-dashboard' : 'admin-clients';
       setView(nextView);
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, nextView);
@@ -350,6 +362,8 @@ function App() {
                 {view === 'agents'
                   ? 'Агенты'
                   : view === 'admin-dashboard'
+                  ? 'Дашборд'
+                  : view === 'client-dashboard'
                   ? 'Дашборд'
                   : view === 'admin-clients'
                   ? 'Клиенты'
@@ -488,7 +502,43 @@ function App() {
             </div>
           )}
           <Suspense fallback={<div className="table-card" style={{ padding: 16 }}>Загрузка…</div>}>
-            {view === 'admin-dashboard' && isAdmin ? (
+            {view === 'client-dashboard' && !isManager ? (
+              <ClientDashboard
+                onOpenLeads={(fromDate, toDate) => {
+                  setLeadsPrefill({ from: fromDate, to: toDate });
+                  setView('leads');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'leads');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onOpenProjects={() => {
+                  setView('projects');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'projects');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onOpenBalance={() => {
+                  setView('balance');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'balance');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                onOpenActivity={() => {
+                  setView('activity');
+                  try {
+                    localStorage.setItem(STORAGE_VIEW_KEY, 'activity');
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              />
+            ) : view === 'admin-dashboard' && isAdmin ? (
               <AdminDashboard
                 onOpenClient={(clientId) => {
                   setAdminProjectsClientId(null);

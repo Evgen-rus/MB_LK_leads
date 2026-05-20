@@ -1956,6 +1956,66 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
     )
 
 
+@app.get("/dashboard", response_model=schemas.ClientDashboardOut)
+def client_dashboard(
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    sources: Optional[str] = None,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    if crud.get_user_role(current_user) != crud.ROLE_CLIENT:
+        raise HTTPException(status_code=403, detail="Client access required")
+
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today = datetime.now(tz).date()
+    if not fromDate:
+        fromDate = today.isoformat()
+    if not toDate:
+        toDate = today.isoformat()
+
+    try:
+        y, m, d = [int(x) for x in fromDate.split("-")]
+        y2, m2, d2 = [int(x) for x in toDate.split("-")]
+        start_date = datetime(y, m, d, 0, 0, 0, tzinfo=tz).date()
+        end_date = datetime(y2, m2, d2, 0, 0, 0, tzinfo=tz).date()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Некорректный формат дат. Используйте YYYY-MM-DD.") from exc
+
+    if end_date < start_date:
+        raise HTTPException(status_code=422, detail="Дата окончания не может быть раньше даты начала.")
+
+    def day_start(value):
+        return datetime(value.year, value.month, value.day, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip().upper() for s in sources.split(",") if s.strip()]
+        src_list = [s for s in src_list if s in {"B1", "B2", "B3", "B4"}]
+        if not src_list:
+            src_list = None
+
+    return crud.client_dashboard(
+        db_sess,
+        client_id=int(current_user.id),
+        start_local=day_start(start_date),
+        end_local=day_start(end_date + timedelta(days=1)),
+        today_start=day_start(today),
+        today_end=day_start(today + timedelta(days=1)),
+        last7_start=day_start(today - timedelta(days=6)),
+        last30_start=day_start(today - timedelta(days=29)),
+        chart_start=day_start(today - timedelta(days=29)),
+        chart_end=day_start(today + timedelta(days=1)),
+        sources=src_list,
+    )
+
+
 @app.get("/projects", response_model=schemas.ProjectListOut)
 def list_projects(
     offset: int = 0,
