@@ -872,6 +872,7 @@ export type AdminDashboardSummary = {
   pausedProjects: number;
   operatorBlockedProjects: number;
   totalRemaining: number;
+  leadsPeriod: number;
   leadsToday: number;
   leadsYesterday: number;
   leads7Days: number;

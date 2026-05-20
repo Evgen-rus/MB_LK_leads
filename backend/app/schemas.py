@@ -525,6 +525,7 @@ class AdminDashboardSummaryOut(BaseModel):
     pausedProjects: int
     operatorBlockedProjects: int
     totalRemaining: int
+    leadsPeriod: int
     leadsToday: int
     leadsYesterday: int
     leads7Days: int

@@ -3676,6 +3676,7 @@ def admin_dashboard(
                 pausedProjects=0,
                 operatorBlockedProjects=0,
                 totalRemaining=0,
+                leadsPeriod=0,
                 leadsToday=0,
                 leadsYesterday=0,
                 leads7Days=0,
@@ -3798,6 +3799,7 @@ def admin_dashboard(
             stmt = stmt.where(models.ProviderLead.prov_chanel.in_(source_filter))
         return int(db.execute(stmt).scalar_one() or 0)
 
+    leads_period = leads_count(start_local, end_local)
     leads_today = leads_count(today_start, today_end)
     leads_yesterday = leads_count(yesterday_start, yesterday_end)
     leads_7 = leads_count(last7_start, today_end)
@@ -4058,6 +4060,7 @@ def admin_dashboard(
             pausedProjects=paused_projects,
             operatorBlockedProjects=blocked_projects,
             totalRemaining=total_remaining,
+            leadsPeriod=leads_period,
             leadsToday=leads_today,
             leadsYesterday=leads_yesterday,
             leads7Days=leads_7,

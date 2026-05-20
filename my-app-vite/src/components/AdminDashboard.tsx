@@ -386,6 +386,11 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
               <small>{formatNumber(data.summary.activeProjects)} активных</small>
             </div>
             <div className="dashboard-kpi">
+              <span>Данные за период</span>
+              <strong>{formatNumber(data.summary.leadsPeriod)}</strong>
+              <small>получено данных</small>
+            </div>
+            <div className="dashboard-kpi">
               <span>Данные сегодня</span>
               <strong>{formatNumber(data.summary.leadsToday)}</strong>
               <small>получено данных</small>
