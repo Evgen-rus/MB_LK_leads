@@ -13,6 +13,7 @@ import {
   RAW_SOURCE_CODES,
   toDisplaySourceCode,
 } from '../utils/sourceCodeDisplay';
+import DateRangeFilter from './DateRangeFilter';
 
 type DashboardFilters = {
   period: 'yesterday' | 'today' | '7d' | '30d' | 'custom';
@@ -62,10 +63,21 @@ function getRangeForPeriod(period: DashboardFilters['period']): Pick<DashboardFi
   return { fromDate: value, toDate: value };
 }
 
+function detectPeriodForRange(fromDate: string, toDate: string): DashboardFilters['period'] {
+  const periods: Array<Exclude<DashboardFilters['period'], 'custom'>> = ['yesterday', 'today', '7d', '30d'];
+  for (const period of periods) {
+    const range = getRangeForPeriod(period);
+    if (range.fromDate === fromDate && range.toDate === toDate) {
+      return period;
+    }
+  }
+  return 'custom';
+}
+
 function getDefaultFilters(): DashboardFilters {
   return {
-    period: 'yesterday',
-    ...getRangeForPeriod('yesterday'),
+    period: 'today',
+    ...getRangeForPeriod('today'),
     clientId: null,
     sources: [...RAW_SOURCE_CODES],
     includeAgentClients: true,
@@ -291,11 +303,12 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
     ].slice(0, 8);
   }, [data]);
 
-  function updatePeriod(period: DashboardFilters['period']) {
+  function updateDateRange(range: { from: string; to: string }) {
     setFilters((prev) => ({
       ...prev,
-      period,
-      ...(period === 'custom' ? {} : getRangeForPeriod(period)),
+      period: detectPeriodForRange(range.from, range.to),
+      fromDate: range.from,
+      toDate: range.to,
     }));
   }
 
@@ -314,27 +327,11 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
     <div className="admin-dashboard">
       <div className="admin-dashboard__toolbar table-card">
         <div className="filters admin-dashboard__filters">
-          <select value={filters.period} onChange={(e) => updatePeriod(e.target.value as DashboardFilters['period'])}>
-            <option value="yesterday">Период: вчера</option>
-            <option value="today">Период: сегодня</option>
-            <option value="7d">Период: 7 дней</option>
-            <option value="30d">Период: 30 дней</option>
-            <option value="custom">Произвольный период</option>
-          </select>
-          {filters.period === 'custom' && (
-            <>
-              <input
-                type="date"
-                value={filters.fromDate}
-                onChange={(e) => setFilters((prev) => ({ ...prev, fromDate: e.target.value }))}
-              />
-              <input
-                type="date"
-                value={filters.toDate}
-                onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
-              />
-            </>
-          )}
+          <DateRangeFilter
+            from={filters.fromDate}
+            to={filters.toDate}
+            onChange={updateDateRange}
+          />
           <select
             value={filters.clientId ?? ''}
             onChange={(e) => setFilters((prev) => ({ ...prev, clientId: e.target.value ? Number(e.target.value) : null }))}
