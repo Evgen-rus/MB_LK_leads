@@ -7,9 +7,9 @@
  B id           -> vid
  C Phone        -> первый телефон
  D Unused       -> пусто
- E Project Tag  -> project_name (+ "_first_subdomain", если он есть)
+ E Project Tag  -> project_name (+ "_first_subdomain" только для B4_, если subdomain есть)
  F GCK Tag      -> "ГЦК " + project_name без префикса B1_/B2_/B3_/B4_
-                   (+ "_first_subdomain", если он есть)
+                   (+ "_first_subdomain" только для B4_, если subdomain есть)
  G Check_mark   -> subdomain
  H lk id        -> 30100000 + id
 """
@@ -59,6 +59,28 @@ def _to_gck_tag(project_name: Optional[str]) -> str:
         return ""
     base = _strip_provider_channel(project_name).strip()
     return f"ГЦК {base}" if base else ""
+
+
+def _is_b4_project_name(project_name: Optional[str]) -> bool:
+    return bool(project_name and project_name.startswith("B4_"))
+
+
+def _build_project_tag(project_name: Optional[str], subdomain: Optional[str]) -> str:
+    base = (project_name or "").strip()
+    if not base:
+        return ""
+    if _is_b4_project_name(project_name):
+        return _append_subdomain_suffix(project_name, subdomain)
+    return base
+
+
+def _build_gck_tag(project_name: Optional[str], subdomain: Optional[str]) -> str:
+    gck_base = _to_gck_tag(project_name)
+    if not gck_base:
+        return ""
+    if _is_b4_project_name(project_name):
+        return _append_subdomain_suffix(gck_base, subdomain)
+    return gck_base
 
 
 def _append_subdomain_suffix(value: Optional[str], subdomain: Optional[str]) -> str:
@@ -214,8 +236,8 @@ def export_provider_leads():
         if str(r.vid).strip() in existing_ids:
             skipped_count += 1
             continue
-        project_tag = _append_subdomain_suffix(r.project_name, r.subdomain)
-        gck_tag = _append_subdomain_suffix(_to_gck_tag(r.project_name), r.subdomain)
+        project_tag = _build_project_tag(r.project_name, r.subdomain)
+        gck_tag = _build_gck_tag(r.project_name, r.subdomain)
         out_rows.append(
             [
                 _format_dt(r.prov_created_at),
