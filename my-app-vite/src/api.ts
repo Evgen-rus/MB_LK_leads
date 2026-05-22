@@ -1219,6 +1219,25 @@ export type AdminChangeStatus = 'pending' | 'done';
 
 export type AdminChangeAction = 'create' | 'update' | 'delete' | 'blacklist_add' | 'blacklist_delete';
 
+export type ProjectDuplicateDiagnosticMatch = {
+  projectId: number;
+  projectName: string;
+  clientId?: number | null;
+  clientName?: string | null;
+  clientLogin?: string | null;
+};
+
+export type ProjectDuplicateDiagnostics = {
+  kind: 'sites' | 'phones';
+  reason: 'provider_missing_items' | 'provider_duplicate_error' | string;
+  summary?: string | null;
+  items: Array<{
+    value: string;
+    matches: ProjectDuplicateDiagnosticMatch[];
+    externalProviderOnly?: boolean;
+  }>;
+};
+
 export type ProjectChangeCardData = {
   id?: number;
   eventId?: string;

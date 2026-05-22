@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { ProjectChangeCardData } from '../api';
+import type { ProjectChangeCardData, ProjectDuplicateDiagnostics } from '../api';
 import DateTimeCompact from './DateTimeCompact';
 import {
   RAW_SOURCE_CODES,
@@ -29,6 +29,7 @@ type ProjectSnapshot = {
   phones?: string[];
   smsSenderName?: string;
   daysReceived?: string;
+  duplicateDiagnostics?: ProjectDuplicateDiagnostics;
 };
 
 type FieldKey =
@@ -62,6 +63,35 @@ const fieldLabels: Record<FieldKey, string> = {
   daysReceived: 'Дни получения',
 };
 
+function normalizeDuplicateDiagnostics(value: unknown): ProjectDuplicateDiagnostics | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Partial<ProjectDuplicateDiagnostics>;
+  if (raw.kind !== 'sites' && raw.kind !== 'phones') return null;
+  const items: ProjectDuplicateDiagnostics['items'] = [];
+  if (Array.isArray(raw.items)) {
+    raw.items.forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const source = item as ProjectDuplicateDiagnostics['items'][number];
+      const itemValue = String(source.value || '').trim();
+      if (!itemValue) return;
+      const matches = Array.isArray(source.matches) ? source.matches : [];
+      items.push({
+        value: itemValue,
+        matches,
+        externalProviderOnly: Boolean(source.externalProviderOnly),
+      });
+    });
+  }
+  const summary = typeof raw.summary === 'string' && raw.summary.trim() ? raw.summary.trim() : null;
+  if (items.length === 0 && !summary) return null;
+  return {
+    kind: raw.kind,
+    reason: String(raw.reason || ''),
+    summary,
+    items,
+  };
+}
+
 function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props) {
   const after: ProjectSnapshot = (change.projectSnapshot || {}) as ProjectSnapshot;
   const before: ProjectSnapshot = (change.beforeSnapshot || {}) as ProjectSnapshot;
@@ -76,6 +106,7 @@ function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props)
   const beforeSms = typeof before.smsSenderName === 'string' ? before.smsSenderName : '';
   const afterDays = typeof after.daysReceived === 'string' ? after.daysReceived : '';
   const beforeDays = typeof before.daysReceived === 'string' ? before.daysReceived : '';
+  const duplicateDiagnostics = normalizeDuplicateDiagnostics(after.duplicateDiagnostics);
 
   const changedList = useMemo(
     () => (change.changedFields && change.changedFields.length ? change.changedFields : []),
@@ -148,6 +179,65 @@ function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props)
 
   function boxStyleFor(key: FieldKey): React.CSSProperties {
     return isChanged(key) ? { ...baseBoxStyle, ...highlight } : baseBoxStyle;
+  }
+
+  function renderDuplicateDiagnostics() {
+    if (!duplicateDiagnostics) return null;
+    const label = duplicateDiagnostics.kind === 'sites' ? 'Занятые сайты' : 'Занятые номера';
+    return (
+      <div style={{ display: 'grid', gap: 8 }}>
+        <span className="section-title">{label}</span>
+        <div
+          style={{
+            border: '1px solid #f2d59c',
+            background: '#fff9ed',
+            borderRadius: 10,
+            padding: 12,
+            display: 'grid',
+            gap: 10,
+          }}
+        >
+          {duplicateDiagnostics.summary && (
+            <div className="sub" style={{ color: '#7a4b00', overflowWrap: 'anywhere' }}>
+              {duplicateDiagnostics.summary}
+            </div>
+          )}
+          {duplicateDiagnostics.items.map((item) => (
+            <div key={item.value} style={{ display: 'grid', gap: 4 }}>
+              <div
+                style={{
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                  fontWeight: 700,
+                  overflowWrap: 'anywhere',
+                }}
+              >
+                {item.value}
+              </div>
+              {item.matches.length > 0 ? (
+                <div style={{ display: 'grid', gap: 3 }}>
+                  {item.matches.map((match) => (
+                    <div
+                      key={`${item.value}-${match.projectId}-${match.clientId ?? 'client'}`}
+                      className="sub"
+                      style={{ overflowWrap: 'anywhere' }}
+                    >
+                      Проект: {formatProjectNameForDisplay(match.projectName)} (id: {match.projectId}); клиент:{' '}
+                      {match.clientName || match.clientLogin || 'неизвестно'}
+                      {match.clientId != null ? ` (id: ${match.clientId})` : ''}
+                      {match.clientLogin ? `, login: ${match.clientLogin}` : ''}
+                    </div>
+                  ))}
+                </div>
+              ) : item.externalProviderOnly ? (
+                <div className="sub" style={{ color: '#7a4b00' }}>
+                  Занято у провайдера вне нашего ЛК, точный проект неизвестен.
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -390,6 +480,8 @@ function ChangeProjectDiffModal({ change, onClose, showCopyJson = true }: Props)
                 )}
               </div>
             )}
+
+            {renderDuplicateDiagnostics()}
 
             <div style={{ display: 'grid', gap: 4 }}>
               <span className="section-title">Дни получения</span>

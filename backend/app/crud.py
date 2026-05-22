@@ -605,6 +605,101 @@ def find_duplicates_in_projects(
     return duplicates
 
 
+def build_project_duplicate_diagnostics(
+    db: Session,
+    items: List[str],
+    target_type: str,
+    *,
+    reason: str,
+    exclude_project_id: Optional[int] = None,
+    mark_external_provider_only: bool = False,
+    summary: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Admin-only diagnostic payload for project source duplicates.
+
+    It is intentionally broader than find_duplicates_in_projects(): this scans
+    all active projects in our LK so admins can see which client/project owns a
+    rejected site/phone. Client-facing responses must strip this payload.
+    """
+    if target_type not in ("hosts", "calls"):
+        return None
+
+    normalized_items: List[str] = []
+    seen: set[str] = set()
+    for raw in items or []:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized_items.append(value)
+    if not normalized_items and not summary:
+        return None
+
+    item_matches: Dict[str, List[Dict[str, Any]]] = {value: [] for value in normalized_items}
+    rows = (
+        db.execute(
+            select(models.Project, models.User, models.ClientProfile)
+            .outerjoin(models.User, models.User.id == models.Project.user_id)
+            .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.Project.user_id)
+            .where(models.Project.status != "Удалён")
+            .order_by(models.Project.id.asc())
+        )
+        .all()
+    )
+
+    values_set = set(normalized_items)
+    for project, user, profile in rows:
+        if exclude_project_id is not None and int(project.id) == int(exclude_project_id):
+            continue
+        sources = project.sites if target_type == "hosts" else project.phones
+        if not isinstance(sources, list):
+            continue
+        project_values = {str(item or "").strip() for item in sources if str(item or "").strip()}
+        intersect = values_set.intersection(project_values)
+        if not intersect:
+            continue
+
+        client_id = int(project.user_id) if project.user_id is not None else None
+        client_login = str(getattr(user, "login", "") or "")
+        client_name = str(getattr(profile, "name", "") or "").strip()
+        if not client_name:
+            client_name = str(getattr(user, "display_name", "") or "").strip()
+        if not client_name:
+            client_name = client_login or (f"id {client_id}" if client_id is not None else "")
+        match = {
+            "projectId": int(project.id),
+            "projectName": str(project.name or ""),
+            "clientId": client_id,
+            "clientName": client_name,
+            "clientLogin": client_login,
+        }
+        for value in intersect:
+            item_matches.setdefault(value, []).append(match)
+
+    diagnostics_items: List[Dict[str, Any]] = []
+    for value in normalized_items:
+        matches = item_matches.get(value, [])
+        if matches or mark_external_provider_only:
+            diagnostics_items.append(
+                {
+                    "value": value,
+                    "matches": matches,
+                    "externalProviderOnly": bool(mark_external_provider_only and not matches),
+                }
+            )
+
+    if not diagnostics_items and not summary:
+        return None
+
+    return {
+        "kind": "sites" if target_type == "hosts" else "phones",
+        "reason": str(reason or ""),
+        "summary": summary if not diagnostics_items else None,
+        "items": diagnostics_items,
+    }
+
+
 def normalize_client_internal_prefix(value: Optional[str]) -> Optional[str]:
     raw = str(value or "").strip()
     if not raw:
@@ -652,9 +747,12 @@ def _project_tag_for_view(p: models.Project, *, expose_internal_name: bool) -> s
 
 
 def _clean_project_snapshot_for_client(snapshot: Any, project: Optional[models.Project]) -> Any:
-    if not isinstance(snapshot, dict) or project is None:
+    if not isinstance(snapshot, dict):
         return snapshot
     cleaned = dict(snapshot)
+    cleaned.pop("duplicateDiagnostics", None)
+    if project is None:
+        return cleaned
     for key in ("name", "tag"):
         if isinstance(cleaned.get(key), str):
             cleaned[key] = _clean_client_internal_prefix_from_name(
@@ -662,6 +760,14 @@ def _clean_project_snapshot_for_client(snapshot: Any, project: Optional[models.P
                 data_source_code=getattr(project, "data_source_code", None),
                 client_internal_prefix=getattr(project, "client_internal_prefix", None),
             )
+    return cleaned
+
+
+def strip_duplicate_diagnostics_from_snapshot(snapshot: Any) -> Any:
+    if not isinstance(snapshot, dict):
+        return snapshot
+    cleaned = dict(snapshot)
+    cleaned.pop("duplicateDiagnostics", None)
     return cleaned
 
 
@@ -1279,6 +1385,9 @@ def get_history_event_detail(
         if not expose_internal_name:
             after = _clean_project_snapshot_for_client(after, project)
             before = _clean_project_snapshot_for_client(before, project)
+        elif not is_admin_user(viewer):
+            after = strip_duplicate_diagnostics_from_snapshot(after)
+            before = strip_duplicate_diagnostics_from_snapshot(before)
         project_name = (
             (str(project.name).strip() if project and project.name else None)
             or _project_name_from_snapshot(after)
@@ -1346,6 +1455,8 @@ def get_history_event_detail(
                     data_source_code=getattr(project, "data_source_code", None),
                     client_internal_prefix=getattr(project, "client_internal_prefix", None),
                 )
+        elif not is_admin_user(viewer):
+            snapshot = strip_duplicate_diagnostics_from_snapshot(snapshot)
         changed_fields = list(snapshot.keys()) if snapshot else None
         error_message = _clean_project_operation_error_message(ev.error_message)
         return schemas.HistoryEventDetailOut(
@@ -2057,6 +2168,7 @@ def create_projects(
     actor_user_id: Optional[int] = None,
     via_impersonation: bool = False,
     client_internal_prefix: Optional[str] = None,
+    duplicate_diagnostics: Optional[List[Optional[Dict[str, Any]]]] = None,
 ) -> List[schemas.ProjectOut]:
     created: List[schemas.ProjectOut] = []
     now = now_msk()
@@ -2078,6 +2190,8 @@ def create_projects(
         db.flush()
 
         after = _project_to_out(p).dict()
+        if duplicate_diagnostics and idx < len(duplicate_diagnostics) and duplicate_diagnostics[idx]:
+            after["duplicateDiagnostics"] = duplicate_diagnostics[idx]
         add_project_audit_event(
             db,
             project=p,
@@ -2176,6 +2290,7 @@ def update_project(
     user_id: int,
     actor_user_id: Optional[int] = None,
     via_impersonation: bool = False,
+    duplicate_diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Optional[schemas.ProjectOut]:
     p = db.get(models.Project, project_id)
     if not p:
@@ -2199,6 +2314,8 @@ def update_project(
     p.updated_at = now_msk()
 
     after = _snapshot_project(p)
+    if duplicate_diagnostics:
+        after["duplicateDiagnostics"] = duplicate_diagnostics
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
     add_project_audit_event(
         db,
@@ -5591,6 +5708,7 @@ def admin_update_project(
     project_id: int,
     update: schemas.AdminProjectUpdate,
     admin_user_id: int,
+    duplicate_diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Optional[schemas.AdminProjectOut]:
     """
     Обновить проект админом (включая delivery_status).
@@ -5618,6 +5736,8 @@ def admin_update_project(
     p.updated_at = now_msk()
 
     after = _snapshot_project(p)
+    if duplicate_diagnostics:
+        after["duplicateDiagnostics"] = duplicate_diagnostics
     changed = [k for k in after.keys() if before.get(k) != after.get(k)]
     add_project_audit_event(
         db,

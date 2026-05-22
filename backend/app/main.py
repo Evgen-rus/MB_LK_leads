@@ -1134,6 +1134,27 @@ def _find_duplicates_with_new_session(
         )
 
 
+def _build_admin_duplicate_diagnostics_with_new_session(
+    items: List[str],
+    target_type: str,
+    *,
+    reason: str,
+    exclude_project_id: Optional[int] = None,
+    mark_external_provider_only: bool = False,
+    summary: Optional[str] = None,
+) -> Optional[dict]:
+    with SessionLocal() as s:  # type: Session
+        return crud.build_project_duplicate_diagnostics(
+            s,
+            items,
+            target_type,
+            reason=reason,
+            exclude_project_id=exclude_project_id,
+            mark_external_provider_only=mark_external_provider_only,
+            summary=summary,
+        )
+
+
 def _run_limit_control_for_client_in_new_session(client_id: int, trigger: str) -> dict:
     with SessionLocal() as s:  # type: Session
         return _run_limit_control_for_client(s, client_id=client_id, trigger=trigger)
@@ -1895,6 +1916,16 @@ def _project_payload_for_history(payload: object) -> dict:
     return data
 
 
+def _project_payload_for_history_with_duplicate_diagnostics(
+    payload: object,
+    duplicate_diagnostics: Optional[dict],
+) -> dict:
+    data = _project_payload_for_history(payload)
+    if duplicate_diagnostics:
+        data["duplicateDiagnostics"] = duplicate_diagnostics
+    return data
+
+
 def _record_failed_project_operation(
     *,
     user_id: int,
@@ -2359,6 +2390,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     notices: List[str] = []
     adjusted_items: List[schemas.CreateProjectItem] = []
     provider_ids: List[Optional[str]] = []
+    duplicate_diagnostics: List[Optional[dict]] = []
     db_sess.rollback()
     for item in payload.items:
         notice_name = _project_name_for_client_message(item.name, item.dataSourceCode, client_internal_prefix)
@@ -2367,10 +2399,17 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
             provider_id_value = str(result.get("provider_id") or "").strip() or None
             provider_ids.append(provider_id_value)
             adjusted_items.append(item)
+            item_duplicate_diagnostics: Optional[dict] = None
 
             missing_items = result.get("missing_items") or []
             target_type = result.get("target_type")
             if missing_items and target_type in ("hosts", "calls"):
+                item_duplicate_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                    missing_items,
+                    target_type,
+                    reason="provider_missing_items",
+                    mark_external_provider_only=True,
+                )
                 duplicates = _find_duplicates_with_new_session(
                     missing_items,
                     target_type,
@@ -2392,17 +2431,29 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                     item.phones = [p for p in (item.phones or []) if p not in missing_items]
             else:
                 notices.append(f'Проект "{notice_name}" создан.')
+            duplicate_diagnostics.append(item_duplicate_diagnostics)
         except prostats.ProstatsError as exc:
             target_type = prostats._type_from_collection(item.collectionSource)
             message = exc.message
+            item_duplicate_diagnostics = None
             if prostats._should_check_duplicates(exc.message, target_type):
                 message = "Данные номера/сайты используются в других проектах. Подробности недоступны."
+                items_for_diagnostics = item.sites if target_type == "hosts" else item.phones
+                item_duplicate_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                    items_for_diagnostics or [],
+                    target_type,
+                    reason="provider_duplicate_error",
+                    summary=(
+                        "Провайдер отклонил набор как занятый, но среди проектов нашего ЛК совпадения не найдены. "
+                        "Вероятно занято в ЛК провайдера."
+                    ),
+                )
             _record_failed_project_operation(
                 user_id=current_user.id,
                 actor_user_id=actor_user_id,
                 operation="create",
                 project_name=item.name,
-                request_payload=_project_payload_for_history(item),
+                request_payload=_project_payload_for_history_with_duplicate_diagnostics(item, item_duplicate_diagnostics),
                 error_message=message,
                 error_code=str(exc.status_code) if exc.status_code else None,
                 via_impersonation=via_impersonation,
@@ -2424,6 +2475,7 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 actor_user_id=actor_user_id,
                 via_impersonation=via_impersonation,
                 client_internal_prefix=client_internal_prefix,
+                duplicate_diagnostics=duplicate_diagnostics,
             )
         except IntegrityError as exc:
             write_sess.rollback()
@@ -2564,6 +2616,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 detail=detail,
             )
     warning_text = None
+    duplicate_diagnostics: Optional[dict] = None
     if not skip_provider_sync:
         project_snapshot = _project_snapshot_for_prostats(project_row)
         db_sess.rollback()
@@ -2575,6 +2628,13 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 missing_items = result.get("missing_items") or []
                 target_type = result.get("target_type")
                 if missing_items and target_type in ("hosts", "calls"):
+                    duplicate_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                        missing_items,
+                        target_type,
+                        reason="provider_missing_items",
+                        exclude_project_id=project_snapshot.id,
+                        mark_external_provider_only=True,
+                    )
                     duplicates = _find_duplicates_with_new_session(
                         missing_items,
                         target_type,
@@ -2599,6 +2659,16 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                 target_type = prostats._type_from_collection(project_snapshot.collection_source)
                 if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
                     items = payload.sites if target_type == "hosts" else payload.phones
+                    duplicate_error_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                        items or [],
+                        target_type,
+                        reason="provider_duplicate_error",
+                        exclude_project_id=project_snapshot.id,
+                        summary=(
+                            "Провайдер отклонил набор как занятый, но среди проектов нашего ЛК совпадения не найдены. "
+                            "Вероятно занято в ЛК провайдера."
+                        ),
+                    )
                     duplicates = _find_duplicates_with_new_session(
                         items or [],
                         target_type,
@@ -2619,7 +2689,10 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                             operation=operation,
                             project_id=project_id,
                             project_name=project_snapshot.name,
-                            request_payload=_project_payload_for_history(payload),
+                            request_payload=_project_payload_for_history_with_duplicate_diagnostics(
+                                payload,
+                                duplicate_error_diagnostics,
+                            ),
                             error_message=_http_error_message(detail),
                             error_code=str(exc.status_code) if exc.status_code else None,
                             via_impersonation=via_impersonation,
@@ -2632,7 +2705,10 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                         operation=operation,
                         project_id=project_id,
                         project_name=project_snapshot.name,
-                        request_payload=_project_payload_for_history(payload),
+                        request_payload=_project_payload_for_history_with_duplicate_diagnostics(
+                            payload,
+                            duplicate_error_diagnostics,
+                        ),
                         error_message=_http_error_message(detail),
                         error_code=str(exc.status_code) if exc.status_code else None,
                         via_impersonation=via_impersonation,
@@ -2675,6 +2751,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                     user_id=current_user.id,
                     actor_user_id=actor_user_id,
                     via_impersonation=via_impersonation,
+                    duplicate_diagnostics=duplicate_diagnostics,
                 )
             except IntegrityError as exc:
                 write_sess.rollback()
@@ -4112,6 +4189,8 @@ def admin_project_history(
     )
     if crud.is_agent_user(current_manager):
         history.items = [item for item in history.items if item.user is None or crud.manager_can_access_client(db_sess, current_manager, int(item.user.id))]
+        for item in history.items:
+            item.projectSnapshot = crud.strip_duplicate_diagnostics_from_snapshot(item.projectSnapshot)
         history.total = len(history.items)
     return history
 
@@ -4221,6 +4300,7 @@ def admin_update_project(
                 detail=detail,
             )
     warning_text = None
+    duplicate_diagnostics: Optional[dict] = None
     if not skip_provider_sync:
         project_snapshot = _project_snapshot_for_prostats(project_row)
         db_sess.rollback()
@@ -4232,6 +4312,13 @@ def admin_update_project(
                 missing_items = result.get("missing_items") or []
                 target_type = result.get("target_type")
                 if missing_items and target_type in ("hosts", "calls"):
+                    duplicate_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                        missing_items,
+                        target_type,
+                        reason="provider_missing_items",
+                        exclude_project_id=project_snapshot.id,
+                        mark_external_provider_only=True,
+                    )
                     duplicates = _find_duplicates_with_new_session(
                         missing_items,
                         target_type,
@@ -4256,6 +4343,16 @@ def admin_update_project(
                 target_type = prostats._type_from_collection(project_snapshot.collection_source)
                 if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
                     items = payload.sites if target_type == "hosts" else payload.phones
+                    duplicate_error_diagnostics = _build_admin_duplicate_diagnostics_with_new_session(
+                        items or [],
+                        target_type,
+                        reason="provider_duplicate_error",
+                        exclude_project_id=project_snapshot.id,
+                        summary=(
+                            "Провайдер отклонил набор как занятый, но среди проектов нашего ЛК совпадения не найдены. "
+                            "Вероятно занято в ЛК провайдера."
+                        ),
+                    )
                     duplicates = _find_duplicates_with_new_session(
                         items or [],
                         target_type,
@@ -4277,7 +4374,10 @@ def admin_update_project(
                                 operation=operation,
                                 project_id=project_id,
                                 project_name=project_snapshot.name,
-                                request_payload=_project_payload_for_history(payload),
+                                request_payload=_project_payload_for_history_with_duplicate_diagnostics(
+                                    payload,
+                                    duplicate_error_diagnostics,
+                                ),
                                 error_message=_http_error_message(detail),
                                 error_code=str(exc.status_code) if exc.status_code else None,
                                 via_impersonation=False,
@@ -4291,7 +4391,10 @@ def admin_update_project(
                             operation=operation,
                             project_id=project_id,
                             project_name=project_snapshot.name,
-                            request_payload=_project_payload_for_history(payload),
+                            request_payload=_project_payload_for_history_with_duplicate_diagnostics(
+                                payload,
+                                duplicate_error_diagnostics,
+                            ),
                             error_message=_http_error_message(detail),
                             error_code=str(exc.status_code) if exc.status_code else None,
                             via_impersonation=False,
@@ -4322,7 +4425,13 @@ def admin_update_project(
     else:
         with SessionLocal() as write_sess:  # type: Session
             try:
-                updated = crud.admin_update_project(write_sess, project_id, payload, admin_user_id=current_manager.id)
+                updated = crud.admin_update_project(
+                    write_sess,
+                    project_id,
+                    payload,
+                    admin_user_id=current_manager.id,
+                    duplicate_diagnostics=duplicate_diagnostics,
+                )
             except IntegrityError as exc:
                 write_sess.rollback()
                 if _is_project_name_unique_violation(exc):
@@ -5231,7 +5340,12 @@ def admin_client_changes(
     """
     _ensure_manager_client_access(db_sess, current_manager, client_id)
     actions_list = [a.strip() for a in (actions or "").split(",") if a.strip()] or None
-    return crud.admin_list_client_changes(db_sess, client_id=client_id, actions=actions_list)
+    result = crud.admin_list_client_changes(db_sess, client_id=client_id, actions=actions_list)
+    if not crud.is_admin_user(current_manager):
+        for item in result.items:
+            item.projectSnapshot = crud.strip_duplicate_diagnostics_from_snapshot(item.projectSnapshot)
+            item.beforeSnapshot = crud.strip_duplicate_diagnostics_from_snapshot(item.beforeSnapshot)
+    return result
 
 
 @app.post("/admin/changes/{event_id}/resolve")
