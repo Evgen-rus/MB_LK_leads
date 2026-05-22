@@ -2589,6 +2589,16 @@ def list_provider_leads_paginated(
         base.order_by(ts_col.desc()).offset(offset).limit(limit)
     ).scalars().all()
 
+    project_ids_from_rows = sorted(
+        {int(row.project_id) for row in rows if row.project_id is not None}
+    )
+    projects_map: Dict[int, models.Project] = {}
+    if project_ids_from_rows:
+        projects = db.execute(
+            select(models.Project).where(models.Project.id.in_(project_ids_from_rows))
+        ).scalars().all()
+        projects_map = {int(project.id): project for project in projects}
+
     items: List[schemas.LeadOut] = []
     for r in rows:
         phone_value = r.phone
@@ -2598,10 +2608,17 @@ def list_provider_leads_paginated(
             except Exception:
                 phone_value = None
         created_at = _provider_lead_display_dt(r)
+        project = projects_map.get(int(r.project_id)) if r.project_id is not None else None
+        project_name = (
+            _project_name_for_view(project, expose_internal_name=False)
+            if project is not None
+            else r.project_name
+        )
         items.append(schemas.LeadOut(
             ext_id=str(r.vid),
             lk_id=format_provider_lead_lk_id(r.id),
             project_id=r.project_id,
+            project_name=project_name,
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=phone_value or "",

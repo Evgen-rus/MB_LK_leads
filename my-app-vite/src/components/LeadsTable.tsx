@@ -54,7 +54,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
     return m;
   }, [projects]);
 
-  // По умолчанию — все проекты
+  // По умолчанию пустой выбор означает "все проекты".
   useEffect(() => {
     if (!projects.length) return;
     if (!initialProjectApplied.current && initialProjectId.current) {
@@ -62,11 +62,10 @@ function LeadsTable({ projects, initialFilter }: Props) {
       initialProjectApplied.current = true;
       return;
     }
-    if (!initialProjectApplied.current && projectIds.length === 0) {
-      setProjectIds(projects.map((p) => p.id));
+    if (!initialProjectApplied.current) {
       initialProjectApplied.current = true;
     }
-  }, [projects, projectIds.length]);
+  }, [projects]);
 
   // Применяем входные фильтры (переход из таблицы проектов)
   useEffect(() => {
@@ -167,7 +166,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
             selected={projectIds.map(String)}
             allLabel="Все проекты"
             onApply={(vals) => {
-              setProjectIds(vals.map(Number));
+              setProjectIds(vals.length === projects.length ? [] : vals.map(Number));
               setPage(1);
             }}
           />
@@ -245,7 +244,9 @@ function LeadsTable({ projects, initialFilter }: Props) {
               <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
               <td>
                 <div className="name">
-                  {r.project_id != null ? projectNameMap.get(r.project_id) ?? '—' : '—'}
+                  {formatProjectNameForDisplay(
+                    r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—',
+                  )}
                   {r.project_id != null ? (
                     <span className="project-id-badge">
                       id{r.project_id}

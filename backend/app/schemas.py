@@ -243,6 +243,7 @@ class LeadOut(BaseModel):
     ext_id: str
     lk_id: str
     project_id: Optional[int] = None
+    project_name: Optional[str] = None
     created_at: str
     imported_at: str
     phone: str

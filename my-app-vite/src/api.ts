@@ -462,6 +462,7 @@ export type Lead = {
   ext_id: string;
   lk_id: string;
   project_id?: number | null;
+  project_name?: string | null;
   created_at: string; // дата в ЛК (момент записи в БД, = imported_at)
   imported_at: string; // время попадания в БД
   phone: string;

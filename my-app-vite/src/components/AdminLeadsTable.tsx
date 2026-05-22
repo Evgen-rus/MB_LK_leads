@@ -55,13 +55,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     return m;
   }, [projects]);
 
-  // По умолчанию — все проекты клиента
-  useEffect(() => {
-    if (projects.length && projectIds.length === 0) {
-      setProjectIds(projects.map((p) => p.id));
-    }
-  }, [projects, projectIds.length]);
-
   async function loadUsers() {
     try {
       const list = await fetchAdminUsers();
@@ -216,7 +209,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             allLabel="Все проекты"
             disabled={!userIdFilter}
             onApply={(vals) => {
-              setProjectIds(vals.map(Number));
+              setProjectIds(vals.length === projects.length ? [] : vals.map(Number));
               setPage(1);
             }}
           />
