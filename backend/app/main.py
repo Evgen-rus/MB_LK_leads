@@ -1403,7 +1403,8 @@ def _notify_auto_limit_pause(
     trigger: str,
     errors: List[str],
 ) -> None:
-    chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
+    # Автопауза остается техническим событием для общего админского чата.
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
     if not chat_id:
         return
     paused_lines = [
@@ -1449,13 +1450,18 @@ def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
       отправляем туда;
     - иначе используем общий TELEGRAM_CHAT_ID из env, чтобы не потерять уведомление.
     """
+    client_chat_id = _get_client_personal_telegram_chat_id(user)
+    return _resolve_notification_chat_id(bool(client_chat_id), client_chat_id)
+
+
+def _get_client_personal_telegram_chat_id(user: Any) -> str:
     if isinstance(user, dict):
         use_client_route = bool(user.get("telegram_auto_pause_enabled", False))
         client_chat_id = str(user.get("telegram_notifications_chat_id", "") or "").strip()
     else:
         use_client_route = bool(getattr(user, "telegram_auto_pause_enabled", False))
         client_chat_id = str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
-    return _resolve_notification_chat_id(use_client_route, client_chat_id)
+    return client_chat_id if use_client_route and client_chat_id else ""
 
 
 def _resolve_notification_chat_id(use_client_route: bool, client_chat_id: str) -> str:
@@ -1486,7 +1492,8 @@ def _build_operator_block_notification(project: dict, trigger: str) -> str:
 
 
 def _notify_operator_block(project: dict, trigger: str) -> None:
-    chat_id = _get_client_telegram_chat_id_for_notifications(project)
+    # Блокировка поставщиком остается техническим событием для общего админского чата.
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
     if not chat_id:
         return
     with SessionLocal() as notify_sess:  # type: Session
@@ -1716,6 +1723,80 @@ def _actor_name_for_notification(db_sess: Session, actor_user_id: Optional[int])
         return f"id={int(actor_user_id)}"
     label = str(getattr(user, "display_name", "") or "").strip() or str(getattr(user, "login", "") or "").strip()
     return f"{label} (id={int(actor_user_id)})" if label else f"id={int(actor_user_id)}"
+
+
+def _queue_client_tariff_operation_notification(
+    *,
+    client_id: int,
+    tariff_id: int,
+    action: str,
+    amount: int,
+    comment: Optional[str],
+) -> None:
+    action_label_map = {
+        "create": "Начисление нового тарифа",
+        "credit": "Начисление внутри тарифа",
+        "debit": "Списание внутри тарифа",
+    }
+    action_label = action_label_map.get(action)
+    if not action_label:
+        return
+
+    try:
+        with SessionLocal() as notify_sess:  # type: Session
+            client = notify_sess.get(models.User, int(client_id))
+            if not client or not crud.is_client_user(client):
+                return
+            chat_id = _get_client_personal_telegram_chat_id(client)
+            if not chat_id:
+                return
+            tariff = crud.get_client_tariff(notify_sess, tariff_id=int(tariff_id))
+            if not tariff:
+                return
+            remaining = crud.get_client_remaining_numbers(notify_sess, client_id=int(client_id))
+            client_name = _client_name_for_notification(notify_sess, int(client_id))
+            sign = "-" if action == "debit" else "+"
+            text = (
+                f"<b>[ЛК | {html.escape(action_label)}]</b>\n"
+                f"Клиент: <code>{html.escape(client_name)}</code>\n"
+                f"Тариф: <b>#{int(tariff.id)}</b>\n"
+                f"Сумма операции: <b>{sign}{int(amount)}</b>\n"
+                f"Текущий объём тарифа: <b>{int(tariff.currentAmount)}</b>\n"
+                f"Текущий остаток клиента: <b>{int(remaining)}</b>"
+            )
+            normalized_comment = str(comment or "").strip()
+            if normalized_comment:
+                text += f"\nКомментарий: {html.escape(normalized_comment)}"
+            result = notifications.send_telegram_notification(
+                db_sess=notify_sess,
+                chat_id=chat_id,
+                text=text,
+                parse_mode="HTML",
+                kind="tariff_operation",
+                metadata={
+                    "client_id": int(client_id),
+                    "tariff_id": int(tariff_id),
+                    "action": action,
+                    "amount": int(amount),
+                },
+            )
+    except Exception:
+        logging.getLogger("app").warning(
+            "Failed to prepare tariff operation notification: client_id=%s tariff_id=%s action=%s",
+            client_id,
+            tariff_id,
+            action,
+            exc_info=True,
+        )
+        return
+    if not result.delivered and result.reason != "telegram_disabled":
+        logging.getLogger("app").warning(
+            "Failed to queue tariff operation notification: client_id=%s tariff_id=%s action=%s reason=%s",
+            client_id,
+            tariff_id,
+            action,
+            result.reason,
+        )
 
 
 def _queue_sms_project_notification(
@@ -5337,6 +5418,13 @@ def admin_create_client_tariff(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    _queue_client_tariff_operation_notification(
+        client_id=client_id,
+        tariff_id=int(tariff.id),
+        action="create",
+        amount=int(payload.amount),
+        comment=payload.comment,
+    )
     _run_limit_control_for_client(db_sess, client_id=client_id, trigger="tariff_create")
     return tariff
 
@@ -5367,6 +5455,15 @@ def admin_update_client_tariff(
         if message == "Tariff not found":
             raise HTTPException(status_code=404, detail=message)
         raise HTTPException(status_code=400, detail=message)
+    amount_delta = int(result.currentAmount) - int(existing_tariff.currentAmount)
+    if amount_delta != 0:
+        _queue_client_tariff_operation_notification(
+            client_id=int(existing_tariff.clientId),
+            tariff_id=int(tariff_id),
+            action=("credit" if amount_delta > 0 else "debit"),
+            amount=abs(amount_delta),
+            comment=payload.comment,
+        )
     target_user = db_sess.get(models.User, int(existing_tariff.clientId))
     if target_user and crud.is_client_user(target_user):
         _run_limit_control_for_client(db_sess, client_id=int(target_user.id), trigger="tariff_update")
@@ -5432,6 +5529,13 @@ def admin_create_client_tariff_operation(
         if message == "Tariff not found":
             raise HTTPException(status_code=404, detail=message)
         raise HTTPException(status_code=400, detail=message)
+    _queue_client_tariff_operation_notification(
+        client_id=int(tariff.clientId),
+        tariff_id=int(tariff_id),
+        action=result.type,
+        amount=int(result.amount),
+        comment=result.comment,
+    )
     target_user = db_sess.get(models.User, int(tariff.clientId))
     if target_user and crud.is_client_user(target_user):
         _run_limit_control_for_client(db_sess, client_id=int(target_user.id), trigger="tariff_operation")

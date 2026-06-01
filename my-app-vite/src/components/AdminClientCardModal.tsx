@@ -237,12 +237,14 @@ function AdminClientCardModal({
                   onChange={(e) => setTelegramNotificationsChatId(e.target.value)}
                 />
                 <span className="hint">
-                  Для персональных уведомлений создайте Telegram-группу клиента, добавьте в неё бота
+                  Для персональных тарифных уведомлений создайте Telegram-группу клиента, добавьте в неё бота
                   {' '}
                   <code>@MB_Info_LK_Bot</code> и укажите chat ID группы.
                 </span>
                 <span className="sub" style={{ fontSize: 12, color: '#6b7280' }}>
-                  Если chat ID не задан или маршрут выключен, уведомления будут уходить в общий чат.
+                  Если chat ID не задан или маршрут выключен, сигналы остатка будут уходить в общий чат,
+                  а уведомления о начислениях и списаниях отправляться не будут.
+                  Технические уведомления об автопаузе и блокировке оператора всегда отправляются в общий чат.
                 </span>
               </label>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
