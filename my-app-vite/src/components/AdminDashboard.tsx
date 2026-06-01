@@ -17,7 +17,7 @@ import DateRangeFilter from './DateRangeFilter';
 import DashboardDailyChart from './DashboardDailyChart';
 
 type DashboardFilters = {
-  period: 'yesterday' | 'today' | '7d' | '30d' | 'custom';
+  period: 'yesterday' | 'today' | '7d' | '30d' | 'currentMonth' | 'custom';
   fromDate: string;
   toDate: string;
   clientId: number | null;
@@ -59,13 +59,16 @@ function getRangeForPeriod(period: DashboardFilters['period']): Pick<DashboardFi
   if (period === '30d') {
     return { fromDate: formatDateInput(addDays(today, -29)), toDate: formatDateInput(today) };
   }
+  if (period === 'currentMonth') {
+    return { fromDate: formatDateInput(new Date(today.getFullYear(), today.getMonth(), 1)), toDate: formatDateInput(today) };
+  }
   const yesterday = addDays(today, -1);
   const value = formatDateInput(yesterday);
   return { fromDate: value, toDate: value };
 }
 
 function detectPeriodForRange(fromDate: string, toDate: string): DashboardFilters['period'] {
-  const periods: Array<Exclude<DashboardFilters['period'], 'custom'>> = ['yesterday', 'today', '7d', '30d'];
+  const periods: Array<Exclude<DashboardFilters['period'], 'custom'>> = ['yesterday', 'today', '7d', '30d', 'currentMonth'];
   for (const period of periods) {
     const range = getRangeForPeriod(period);
     if (range.fromDate === fromDate && range.toDate === toDate) {
@@ -77,8 +80,8 @@ function detectPeriodForRange(fromDate: string, toDate: string): DashboardFilter
 
 function getDefaultFilters(): DashboardFilters {
   return {
-    period: 'today',
-    ...getRangeForPeriod('today'),
+    period: 'currentMonth',
+    ...getRangeForPeriod('currentMonth'),
     clientId: null,
     sources: [...RAW_SOURCE_CODES],
     includeAgentClients: true,
@@ -91,19 +94,13 @@ function readSavedFilters(): DashboardFilters {
     if (!raw) return getDefaultFilters();
     const parsed = JSON.parse(raw) as Partial<DashboardFilters>;
     const fallback = getDefaultFilters();
-    const period = parsed.period || fallback.period;
-    const range = period === 'custom'
-      ? {
-          fromDate: parsed.fromDate || fallback.fromDate,
-          toDate: parsed.toDate || fallback.toDate,
-        }
-      : getRangeForPeriod(period);
     const sources = Array.isArray(parsed.sources)
       ? parsed.sources.filter((source) => RAW_SOURCE_CODES.includes(source as (typeof RAW_SOURCE_CODES)[number]))
       : fallback.sources;
     return {
-      period,
-      ...range,
+      period: fallback.period,
+      fromDate: fallback.fromDate,
+      toDate: fallback.toDate,
       clientId: typeof parsed.clientId === 'number' ? parsed.clientId : null,
       sources: sources.length ? sources : fallback.sources,
       includeAgentClients: parsed.includeAgentClients !== false,
@@ -195,11 +192,15 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        clientId: filters.clientId,
+        sources: filters.sources,
+        includeAgentClients: filters.includeAgentClients,
+      }));
     } catch {
       /* ignore */
     }
-  }, [filters]);
+  }, [filters.clientId, filters.includeAgentClients, filters.sources]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +262,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
           <DateRangeFilter
             from={filters.fromDate}
             to={filters.toDate}
+            resetPreset="currentMonth"
             onChange={updateDateRange}
           />
           <select

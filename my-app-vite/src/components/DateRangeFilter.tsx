@@ -4,7 +4,7 @@ import { DayPicker, type DateRange as DayPickerRange } from 'react-day-picker';
 import { ru } from 'react-day-picker/locale';
 import 'react-day-picker/dist/style.css';
 
-type PresetKey = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type PresetKey = 'today' | 'yesterday' | 'week' | 'month' | 'currentMonth' | 'custom';
 
 type DateRange = {
   from: string;
@@ -17,6 +17,7 @@ type Props = {
   from: string;
   to: string;
   onChange: (range: DateRange) => void;
+  resetPreset?: Exclude<PresetKey, 'custom'>;
 };
 
 function formatDateInput(date: Date) {
@@ -59,6 +60,8 @@ function getPresetRange(preset: Exclude<PresetKey, 'custom'>): DateRange {
     from.setDate(from.getDate() - 6); // последние 7 дней, включая сегодня
   } else if (preset === 'month') {
     from.setDate(from.getDate() - 29); // последние 30 дней, включая сегодня
+  } else if (preset === 'currentMonth') {
+    from.setDate(1);
   }
 
   return {
@@ -68,7 +71,7 @@ function getPresetRange(preset: Exclude<PresetKey, 'custom'>): DateRange {
 }
 
 function detectPreset(from: string, to: string): PresetKey {
-  const presets: Array<Exclude<PresetKey, 'custom'>> = ['today', 'yesterday', 'week', 'month'];
+  const presets: Array<Exclude<PresetKey, 'custom'>> = ['today', 'yesterday', 'week', 'month', 'currentMonth'];
   for (const preset of presets) {
     const range = getPresetRange(preset);
     if (range.from === from && range.to === to) {
@@ -78,7 +81,7 @@ function detectPreset(from: string, to: string): PresetKey {
   return 'custom';
 }
 
-function DateRangeFilter({ from, to, onChange }: Props) {
+function DateRangeFilter({ from, to, onChange, resetPreset = 'today' }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [openMode, setOpenMode] = useState<OpenMode>('closed');
@@ -258,8 +261,8 @@ function DateRangeFilter({ from, to, onChange }: Props) {
   };
 
   const handleReset = () => {
-    const range = getPresetRange('today');
-    setActivePreset('today');
+    const range = getPresetRange(resetPreset);
+    setActivePreset(resetPreset);
     setDraftFrom(range.from);
     setDraftTo(range.to);
     onChange(range);
@@ -330,7 +333,16 @@ function DateRangeFilter({ from, to, onChange }: Props) {
         }`}
         onClick={() => handlePresetClick('month')}
       >
-        Месяц
+        30 дней
+      </button>
+      <button
+        type="button"
+        className={`date-filter__preset${
+          activePreset === 'currentMonth' ? ' date-filter__preset--active' : ''
+        }`}
+        onClick={() => handlePresetClick('currentMonth')}
+      >
+        Текущий месяц
       </button>
       <button
         type="button"

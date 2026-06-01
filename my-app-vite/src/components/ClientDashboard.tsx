@@ -39,10 +39,10 @@ function formatDateInput(date: Date): string {
 }
 
 function getDefaultFilters(): DashboardFilters {
-  const today = formatDateInput(new Date());
+  const today = new Date();
   return {
-    fromDate: today,
-    toDate: today,
+    fromDate: formatDateInput(new Date(today.getFullYear(), today.getMonth(), 1)),
+    toDate: formatDateInput(today),
     sources: [...RAW_SOURCE_CODES],
   };
 }
@@ -57,8 +57,8 @@ function readSavedFilters(): DashboardFilters {
       ? parsed.sources.filter((source) => RAW_SOURCE_CODES.includes(source as (typeof RAW_SOURCE_CODES)[number]))
       : fallback.sources;
     return {
-      fromDate: parsed.fromDate || fallback.fromDate,
-      toDate: parsed.toDate || fallback.toDate,
+      fromDate: fallback.fromDate,
+      toDate: fallback.toDate,
       sources: sources.length ? sources : fallback.sources,
     };
   } catch {
@@ -181,11 +181,11 @@ function ClientDashboard({ onOpenLeads, onOpenProjects, onOpenBalance, onOpenAct
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ sources: filters.sources }));
     } catch {
       /* ignore */
     }
-  }, [filters]);
+  }, [filters.sources]);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,6 +225,7 @@ function ClientDashboard({ onOpenLeads, onOpenProjects, onOpenBalance, onOpenAct
           <DateRangeFilter
             from={filters.fromDate}
             to={filters.toDate}
+            resetPreset="currentMonth"
             onChange={(range) => setFilters((prev) => ({ ...prev, fromDate: range.from, toDate: range.to }))}
           />
         </div>
