@@ -398,6 +398,10 @@ function AdminAgentsScreen({
     setSelectedClientId(null);
   }
 
+  function closeClientSummary() {
+    setSelectedClientId(null);
+  }
+
   async function handleOpenClientCabinet(clientId: number) {
     if (!clientId) return;
     setOpeningClientCabinetId(clientId);
@@ -670,11 +674,7 @@ function AdminAgentsScreen({
                       key={client.id}
                       className={`client-row${isDebt ? ' row--debt' : ''}`}
                       style={{
-                        cursor: 'pointer',
                         backgroundColor: selectedClientId === client.id ? '#f7f8fc' : undefined,
-                      }}
-                      onClick={() => {
-                        setSelectedClientId((prev) => (prev === client.id ? null : client.id));
                       }}
                     >
                       <td className="muted">{client.id}</td>
@@ -730,15 +730,12 @@ function AdminAgentsScreen({
                           <button
                             className="btn btn--primary"
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openTariffModal(client);
-                            }}
+                            onClick={() => setSelectedClientId(client.id)}
                           >
-                            Тариф
+                            Сводка
                           </button>
                           <button
-                            className="btn btn--primary"
+                            className="btn btn--secondary"
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -757,7 +754,7 @@ function AdminAgentsScreen({
                               });
                             }}
                           >
-                            Карточка
+                            Изменить
                           </button>
                           <button
                             className="btn btn--secondary"
@@ -768,7 +765,7 @@ function AdminAgentsScreen({
                             }}
                             disabled={openingClientCabinetId === client.id}
                           >
-                            {openingClientCabinetId === client.id ? 'Переходим…' : 'Перейти в ЛК'}
+                            {openingClientCabinetId === client.id ? 'Переходим…' : 'ЛК'}
                           </button>
                         </div>
                       </td>
@@ -823,8 +820,38 @@ function AdminAgentsScreen({
           </div>
         </div>
 
-        {selectedClient ? (
-          <div className="table-card client-summary-card agent-accordion__client-summary agent-accordion__client-summary--dense">
+        {selectedClient && (
+          <div
+            className="modal-backdrop client-summary-modal__backdrop"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) closeClientSummary();
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="modal client-summary-modal"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="client-summary-modal__header">
+                <div>
+                  <div className="client-summary-modal__eyebrow">Сводка клиента</div>
+                  <div className="client-summary-modal__title">{selectedClient.name}</div>
+                  <div className="client-summary-modal__meta">
+                    ID: {selectedClient.id} · Необработанных событий: {selectedPendingTotal}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn client-summary-modal__close"
+                  aria-label="Закрыть"
+                  onClick={closeClientSummary}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="client-summary-modal__body">
+                <div className="client-summary-card client-summary-card--modal agent-accordion__client-summary agent-accordion__client-summary--dense">
             <div className="client-summary">
               <div className="client-summary__header">
                 <div className="client-summary__info">
@@ -890,8 +917,11 @@ function AdminAgentsScreen({
                     <section className="client-summary__section">
                       <div className="client-summary__section-title">Финансы</div>
                       <div className="client-summary__section-actions">
+                        <button type="button" className="btn btn--primary" onClick={() => openTariffModal(selectedClient)}>
+                          + Новый тариф
+                        </button>
                         {onOpenClientBalance && (
-                          <button type="button" className="btn btn--primary" onClick={() => onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}>
+                          <button type="button" className="btn btn--secondary" onClick={() => onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}>
                             Управление тарифами
                           </button>
                         )}
@@ -1103,13 +1133,9 @@ function AdminAgentsScreen({
               )}
             </div>
           </div>
-        ) : (
-          <div className="table-card agent-accordion__placeholder">
-            <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>Клиент не выбран</div>
-            <div className="sub agent-accordion__placeholder-text">
-              Выберите клиента в таблице выше, чтобы открыть detail-режим.
+                </div>
+              </div>
             </div>
-          </div>
         )}
       </>
     );
@@ -1137,7 +1163,7 @@ function AdminAgentsScreen({
                 className="btn btn--ghost"
                 onClick={() => setEditingAgent(selectedExpandedAgent)}
               >
-                Редактировать
+                Изменить
               </button>
               <button
                 type="button"
@@ -1147,7 +1173,7 @@ function AdminAgentsScreen({
                 }}
                 disabled={openingAgentCabinetId === selectedExpandedAgent.user.id}
               >
-                {openingAgentCabinetId === selectedExpandedAgent.user.id ? 'Переходим…' : 'Перейти в ЛК'}
+                {openingAgentCabinetId === selectedExpandedAgent.user.id ? 'Переходим…' : 'ЛК'}
               </button>
             </div>
           </div>
@@ -1234,8 +1260,7 @@ function AdminAgentsScreen({
                 return (
                   <Fragment key={agent.user.id}>
                     <tr
-                      style={{ backgroundColor: isExpanded ? '#f7f8fc' : undefined, cursor: 'pointer' }}
-                      onClick={() => toggleAgent(agent.user.id)}
+                      style={{ backgroundColor: isExpanded ? '#f7f8fc' : undefined }}
                     >
                       <td>
                         <div className="name">{agent.user.name || agent.user.login}</div>
@@ -1269,7 +1294,7 @@ function AdminAgentsScreen({
                                   setEditingAgent(agent);
                                 }}
                               >
-                                Редактировать
+                                Изменить
                           </button>
                           <button
                             type="button"
@@ -1280,7 +1305,7 @@ function AdminAgentsScreen({
                             }}
                             disabled={openingAgentCabinetId === agent.user.id}
                           >
-                            {openingAgentCabinetId === agent.user.id ? 'Переходим…' : 'Перейти в ЛК'}
+                            {openingAgentCabinetId === agent.user.id ? 'Переходим…' : 'ЛК'}
                           </button>
                         </div>
                       </td>
@@ -1392,11 +1417,7 @@ function AdminAgentsScreen({
                                             key={client.id}
                                             className={`client-row${isDebt ? ' row--debt' : ''}`}
                                             style={{
-                                              cursor: 'pointer',
                                               backgroundColor: selectedClientId === client.id ? '#f7f8fc' : undefined,
-                                            }}
-                                            onClick={() => {
-                                              setSelectedClientId((prev) => (prev === client.id ? null : client.id));
                                             }}
                                           >
                                             <td className="muted">{client.id}</td>
@@ -1452,15 +1473,12 @@ function AdminAgentsScreen({
                                                 <button
                                                   className="btn btn--primary"
                                                   type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openTariffModal(client);
-                                                  }}
+                                                  onClick={() => setSelectedClientId(client.id)}
                                                 >
-                                                  Тариф
+                                                  Сводка
                                                 </button>
                                                 <button
-                                                  className="btn btn--primary"
+                                                  className="btn btn--secondary"
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
@@ -1479,7 +1497,7 @@ function AdminAgentsScreen({
                                                     });
                                                   }}
                                                 >
-                                                  Карточка
+                                                  Изменить
                                                 </button>
                                                 <button
                                                   className="btn btn--secondary"
@@ -1490,7 +1508,7 @@ function AdminAgentsScreen({
                                                   }}
                                                   disabled={openingClientCabinetId === client.id}
                                                 >
-                                                  {openingClientCabinetId === client.id ? 'Переходим…' : 'Перейти в ЛК'}
+                                                  {openingClientCabinetId === client.id ? 'Переходим…' : 'ЛК'}
                                                 </button>
                                               </div>
                                             </td>
@@ -1545,8 +1563,38 @@ function AdminAgentsScreen({
                                 </div>
                               </div>
 
-                              {selectedClient ? (
-                                <div className="table-card client-summary-card agent-accordion__client-summary agent-accordion__client-summary--dense">
+                              {selectedClient && (
+                                <div
+                                  className="modal-backdrop client-summary-modal__backdrop"
+                                  onMouseDown={(e) => {
+                                    if (e.target === e.currentTarget) closeClientSummary();
+                                  }}
+                                >
+                                  <div
+                                    role="dialog"
+                                    aria-modal="true"
+                                    className="modal client-summary-modal"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                  >
+                                    <div className="client-summary-modal__header">
+                                      <div>
+                                        <div className="client-summary-modal__eyebrow">Сводка клиента</div>
+                                        <div className="client-summary-modal__title">{selectedClient.name}</div>
+                                        <div className="client-summary-modal__meta">
+                                          ID: {selectedClient.id} · Необработанных событий: {selectedPendingTotal}
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        className="icon-btn client-summary-modal__close"
+                                        aria-label="Закрыть"
+                                        onClick={closeClientSummary}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                    <div className="client-summary-modal__body">
+                                      <div className="client-summary-card client-summary-card--modal agent-accordion__client-summary agent-accordion__client-summary--dense">
                                   <div className="client-summary">
                                     <div className="client-summary__header">
                                       <div className="client-summary__info">
@@ -1612,8 +1660,11 @@ function AdminAgentsScreen({
                                         <section className="client-summary__section">
                                           <div className="client-summary__section-title">Финансы</div>
                                           <div className="client-summary__section-actions">
+                                            <button type="button" className="btn btn--primary" onClick={() => openTariffModal(selectedClient)}>
+                                              + Новый тариф
+                                            </button>
                                             {onOpenClientBalance && (
-                                              <button type="button" className="btn btn--primary" onClick={() => onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}>
+                                              <button type="button" className="btn btn--secondary" onClick={() => onOpenClientBalance(selectedClient.id, selectedClient.name, 'tariff')}>
                                                 Управление тарифами
                                               </button>
                                             )}
@@ -1825,13 +1876,9 @@ function AdminAgentsScreen({
                                     )}
                                   </div>
                                 </div>
-                              ) : (
-                                <div className="table-card agent-accordion__placeholder">
-                                  <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>Клиент не выбран</div>
-                                  <div className="sub agent-accordion__placeholder-text">
-                                    Выберите клиента в таблице выше, чтобы открыть detail-режим.
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
                               )}
 
                             </div>

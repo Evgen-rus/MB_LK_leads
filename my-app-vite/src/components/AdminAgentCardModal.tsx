@@ -111,7 +111,7 @@ function AdminAgentCardModal({ agent, onClose, onUpdated }: AdminAgentCardModalP
       >
         <div style={{ padding: 20, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'grid', gap: 6 }}>
-            <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Карточка агента</div>
+            <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Редактирование карточки агента</div>
             <div className="sub">
               ID: {agent.user.id}
               {' · '}

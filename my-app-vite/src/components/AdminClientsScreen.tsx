@@ -765,14 +765,6 @@ function AdminClientsScreen({
                     <tr
                       key={row.id}
                       className={`client-row${isDebt ? ' row--debt' : ''}`}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => {
-                        if (isAgentManager) {
-                          setSelectedClientId((prev) => (prev === row.id ? null : row.id));
-                          return;
-                        }
-                        setSelectedClientId(row.id);
-                      }}
                     >
                       <td className="muted table-sticky-cell table-sticky-cell--lead">{row.id}</td>
                       <td>
@@ -825,27 +817,22 @@ function AdminClientsScreen({
                       <td>{row.totalVolume}</td>
                       <td>
                         <div className="client-row-actions">
-                          {!isAgentManager && (
-                            <button
-                              className="btn btn--primary"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openTariffModal(row, 'create');
-                              }}
-                            >
-                              Тариф
-                            </button>
-                          )}
                           <button
                             className="btn btn--primary"
+                            type="button"
+                            onClick={() => setSelectedClientId(row.id)}
+                          >
+                            Сводка
+                          </button>
+                          <button
+                            className="btn btn--secondary"
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               openClientEditor(row);
                             }}
                           >
-                            Карточка
+                            Изменить
                           </button>
                           <button
                             className="btn btn--secondary"
@@ -856,7 +843,7 @@ function AdminClientsScreen({
                             }}
                             disabled={openingClientCabinetId === row.id}
                           >
-                            {openingClientCabinetId === row.id ? 'Переходим…' : 'Перейти в ЛК'}
+                            {openingClientCabinetId === row.id ? 'Переходим…' : 'ЛК'}
                           </button>
                         </div>
                       </td>
@@ -971,21 +958,34 @@ function AdminClientsScreen({
                 <div className="client-summary__section-title">Финансы</div>
                 <div className="client-summary__section-actions">
                   {!isAgentManager ? (
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      onClick={() => {
-                        const client = selectedClient;
-                        closeSummaryModal();
-                        if (onOpenClientBalance) {
-                          onOpenClientBalance(client.id, client.name, 'tariff');
-                          return;
-                        }
-                        openTariffModal(client, 'list');
-                      }}
-                    >
-                      Управление тарифами
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => {
+                          const client = selectedClient;
+                          closeSummaryModal();
+                          openTariffModal(client, 'create');
+                        }}
+                      >
+                        + Новый тариф
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={() => {
+                          const client = selectedClient;
+                          closeSummaryModal();
+                          if (onOpenClientBalance) {
+                            onOpenClientBalance(client.id, client.name, 'tariff');
+                            return;
+                          }
+                          openTariffModal(client, 'list');
+                        }}
+                      >
+                        Управление тарифами
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -1629,7 +1629,7 @@ function AdminClientsScreen({
                           }}
                           disabled={openingClientCabinetId === row.id}
                         >
-                          {openingClientCabinetId === row.id ? 'Переходим…' : 'Перейти в ЛК'}
+                          {openingClientCabinetId === row.id ? 'Переходим…' : 'ЛК'}
                         </button>
                       </div>
                     </td>

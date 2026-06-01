@@ -162,7 +162,7 @@ function AdminClientCardModal({
         }}
       >
         <div style={{ padding: 20, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Карточка клиента</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Редактирование карточки клиента</div>
           <button type="button" className="btn btn--ghost" onClick={onClose} style={{ padding: '6px 10px' }}>
             ✕
           </button>
