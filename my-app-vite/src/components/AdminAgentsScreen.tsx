@@ -754,7 +754,7 @@ function AdminAgentsScreen({
                               });
                             }}
                           >
-                            Изменить
+                            Карточка
                           </button>
                           <button
                             className="btn btn--secondary"
@@ -1163,7 +1163,7 @@ function AdminAgentsScreen({
                 className="btn btn--ghost"
                 onClick={() => setEditingAgent(selectedExpandedAgent)}
               >
-                Изменить
+                Карточка
               </button>
               <button
                 type="button"
@@ -1294,7 +1294,7 @@ function AdminAgentsScreen({
                                   setEditingAgent(agent);
                                 }}
                               >
-                                Изменить
+                                Карточка
                           </button>
                           <button
                             type="button"
@@ -1497,7 +1497,7 @@ function AdminAgentsScreen({
                                                     });
                                                   }}
                                                 >
-                                                  Изменить
+                                                  Карточка
                                                 </button>
                                                 <button
                                                   className="btn btn--secondary"

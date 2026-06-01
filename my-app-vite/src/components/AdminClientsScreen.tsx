@@ -832,7 +832,7 @@ function AdminClientsScreen({
                               openClientEditor(row);
                             }}
                           >
-                            Изменить
+                            Карточка
                           </button>
                           <button
                             className="btn btn--secondary"
