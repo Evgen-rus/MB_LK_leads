@@ -745,15 +745,8 @@ function ProjectsTable({
                       {
                         key: 'settings',
                         label: 'Настройки проекта',
-                        onSelect: () => {
-                          if (projectsMutationLocked) {
-                            window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
-                            return;
-                          }
-                          onEdit?.(row);
-                        },
-                        disabled: projectsMutationLocked,
-                        title: projectsMutationLocked ? projectsMutationLockMessage : undefined,
+                        onSelect: () => onEdit?.(row),
+                        title: projectsMutationLocked ? 'Открыть карточку проекта только для просмотра' : undefined,
                       },
                       {
                         key: 'history',
@@ -872,7 +865,7 @@ function ProjectsTable({
                   </button>
                   <button
                     className="icon-btn"
-                    title="Настройки"
+                    title={projectsMutationLocked ? 'Открыть карточку проекта только для просмотра' : 'Настройки'}
                     onClick={() => onEdit?.(row)}
                   >
                     ⚙️

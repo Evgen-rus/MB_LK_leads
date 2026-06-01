@@ -33,6 +33,7 @@ type EditProjectModalProps = {
   project: Project;
   onClose: () => void;
   onSubmit?: (update: SubmitUpdate) => Promise<void>;
+  readOnly?: boolean;
 };
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -43,7 +44,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return formatSourceTextForDisplay(fallback);
 }
 
-function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps) {
+function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: EditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(formatProjectNameForDisplay(project.name));
@@ -251,6 +252,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     if (!name.trim()) return;
     if (!isDirty || saving) return;
     const normalizedName = name.trim();
@@ -336,13 +338,15 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
     >
       <div ref={dialogRef} role="dialog" aria-modal="true" className="modal-card" style={{ background: '#fff', borderRadius: 8, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
         <div style={{ padding: 20, borderBottom: '1px solid #eee' }}>
-          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Редактировать проект</div>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>
+            {readOnly ? 'Карточка проекта' : 'Редактировать проект'}
+          </div>
         </div>
         <form onSubmit={handleSubmit} style={{ padding: 20 }}>
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
               <span className="hint" style={{ color: '#666' }}>
                 {protectedNameHint}
               </span>
@@ -358,7 +362,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
 
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Лимит</span>
-                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} onWheel={preventNumberInputWheel} />
+                <input type="number" min={0} value={dataLimit} onChange={(e) => setDataLimit(Number(e.target.value))} onWheel={preventNumberInputWheel} disabled={readOnly} />
               </label>
             </div>
 
@@ -387,6 +391,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                   }}
                   onBlur={sanitizeSites}
                   style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                  disabled={readOnly}
                 />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {sitesParsed.length}, уникальных: {uniqueList(sitesParsed).length}</span>
                 {sitesError && (
@@ -411,6 +416,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                   }}
                   onBlur={sanitizePhones}
                   style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }}
+                  disabled={readOnly}
                 />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
                 {phonesError && (
@@ -424,7 +430,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
             {(source === 'СМС' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Наименование отправителя (СМС)</span>
-                <input type="text" placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен" value={smsSenderName} onChange={(e) => setSmsSenderName(e.target.value)} />
+                <input type="text" placeholder="Требуется точное имя отправителя; если укажете физический номер — проект не будет запущен" value={smsSenderName} onChange={(e) => setSmsSenderName(e.target.value)} disabled={readOnly} />
                 {!isSmsSenderValid && (
                   <div className="sub" style={{ color: '#d00' }}>
                     Укажите корректный sender: не номер и не пустое значение.
@@ -449,6 +455,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                     setRegionsOpen(true);
                     setRegionQuery(e.target.value);
                   }}
+                  disabled={readOnly}
                 />
               </div>
               <div className="hint" style={{ color: '#666' }}>
@@ -462,6 +469,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                         type="checkbox"
                         checked={regions.includes(r.code)}
                         onChange={(e) => setRegions((prev) => e.target.checked ? [...prev, r.code] : prev.filter(x => x !== r.code))}
+                        disabled={readOnly}
                       /> {r.name}
                     </label>
                   ))}
@@ -485,7 +493,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                   Удалён
                 </div>
               ) : (
-                <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)}>
+                <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} disabled={readOnly}>
                   {status === 'Блокировка оператора' && (
                     <option value="Блокировка оператора" disabled>Блокировка оператора</option>
                   )}
@@ -509,7 +517,7 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {(['Пн','Вт','Ср','Чт','Пт','Сб','Вс'] as const).map(d => (
                   <label key={d}>
-                    <input type="checkbox" checked={days.includes(d)} onChange={() => toggleDay(d)} /> {d}
+                    <input type="checkbox" checked={days.includes(d)} onChange={() => toggleDay(d)} disabled={readOnly} /> {d}
                   </label>
                 ))}
               </div>
@@ -528,9 +536,13 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
               </div>
             )}
             <button type="button" className="btn" onClick={() => { if (!saving) onClose(); }} disabled={saving}>
-              Отмена
+              {readOnly ? 'Закрыть' : 'Отмена'}
             </button>
-            {isDeleted ? (
+            {readOnly ? (
+              <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
+                Изменение проектов временно заблокировано администратором.
+              </span>
+            ) : isDeleted ? (
               <span className="sub" style={{ alignSelf: 'center', color: '#666', marginRight: 8 }}>
                 Проект удалён. Сохранение недоступно.
               </span>
@@ -539,13 +551,15 @@ function EditProjectModal({ project, onClose, onSubmit }: EditProjectModalProps)
                 Нет изменений
               </span>
             )}
-            <button
-              type="submit"
-              className="btn btn--primary"
-              disabled={!isDirty || !isSmsSenderValid || isDeleted || saving}
-            >
-              {saving ? 'Сохранение…' : 'Сохранить'}
-            </button>
+            {!readOnly && (
+              <button
+                type="submit"
+                className="btn btn--primary"
+                disabled={!isDirty || !isSmsSenderValid || isDeleted || saving}
+              >
+                {saving ? 'Сохранение…' : 'Сохранить'}
+              </button>
+            )}
           </div>
         </form>
       </div>

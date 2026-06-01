@@ -685,14 +685,6 @@ function App() {
                     setIsCreateOpen(true);
                   }}
                   onEdit={(row) => {
-                    if (projectsMutationLocked) {
-                      window.dispatchEvent(
-                        new CustomEvent('app-toast', {
-                          detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
-                        }),
-                      );
-                      return;
-                    }
                     setEditing(row);
                   }}
                   onHistory={(row) => setHistoryFor(row)}
@@ -768,6 +760,7 @@ function App() {
       {editing && (
         <EditProjectModal
           project={editing}
+          readOnly={projectsMutationLocked}
           onClose={() => setEditing(null)}
           onSubmit={async (u: ProjectUpdatePayload) => {
             const result = await apiUpdate(editing.id, u);
