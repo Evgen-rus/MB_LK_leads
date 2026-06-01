@@ -81,9 +81,9 @@ function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: A
   function validate(): string | null {
     if (!name.trim()) return 'Укажите название клиента';
     const innDigits = normalizeDigits(inn);
-    if (![10, 12].includes(innDigits.length)) return 'ИНН должен содержать 10 или 12 цифр';
+    if (innDigits && ![10, 12].includes(innDigits.length)) return 'ИНН должен содержать 10 или 12 цифр';
     const phoneDigits = normalizeDigits(phone);
-    if (phoneDigits.length < 10) return 'Телефон должен содержать минимум 10 цифр';
+    if (phone.trim() && phoneDigits.length < 10) return 'Телефон должен содержать минимум 10 цифр';
     if (!login.trim()) return 'Логин не может быть пустым';
     if (!password.trim()) return 'Пароль не может быть пустым';
     return null;
@@ -101,8 +101,8 @@ function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: A
     try {
       const resp = await createAdminClient({
         name: name.trim(),
-        inn: normalizeDigits(inn),
-        phone: phone.trim(),
+        inn: normalizeDigits(inn) || undefined,
+        phone: phone.trim() || undefined,
         contact: contact.trim() || undefined,
         login: login.trim(),
         password: password.trim(),
@@ -184,7 +184,7 @@ function AdminCreateClientModal({ managerRole = 'admin', onClose, onCreated }: A
             <span className="section-title">Телефон</span>
             <input
               type="tel"
-              placeholder="+7 999 123-45-67"
+              placeholder="79991234567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               style={{ height: 34, borderRadius: 8, background: '#f7f7f9', border: '1px solid #e5e5e5', padding: '8px 10px' }}

@@ -170,7 +170,7 @@ function AdminCreateAgentModal({ onClose, onCreated }: AdminCreateAgentModalProp
               <span className="section-title">Телефон</span>
               <input
                 type="tel"
-                placeholder="+7 999 123-45-67"
+                placeholder="79991234567"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
               />

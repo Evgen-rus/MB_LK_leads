@@ -724,8 +724,8 @@ export type UserInfo = {
 
 export type ClientProfile = {
   name: string;
-  inn: string;
-  phone: string;
+  inn?: string | null;
+  phone?: string | null;
   contact?: string | null;
   internalClientId?: string | null;
   tableUrl?: string | null;
@@ -1347,8 +1347,8 @@ export type AdminClientsSummaryOut = {
 
 export type AdminClientCreatePayload = {
   name: string;
-  inn: string;
-  phone: string;
+  inn?: string;
+  phone?: string;
   contact?: string;
   login?: string;
   password?: string;

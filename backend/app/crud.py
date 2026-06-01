@@ -2988,8 +2988,8 @@ def _ensure_agent_owner(db: Session, owner_agent_id: Optional[int]) -> Optional[
 def admin_create_client(
     db: Session,
     name: str,
-    inn: str,
-    phone: str,
+    inn: Optional[str],
+    phone: Optional[str],
     contact: Optional[str],
     login: Optional[str],
     password: Optional[str],
@@ -3006,18 +3006,13 @@ def admin_create_client(
     if not name_clean:
         raise ValueError("Имя клиента не может быть пустым.")
 
-    inn_digits = re.sub(r"\D+", "", inn or "")
-    if len(inn_digits) not in (10, 12):
+    inn_digits = re.sub(r"\D+", "", inn or "") or None
+    if inn_digits is not None and len(inn_digits) not in (10, 12):
         raise ValueError("ИНН должен содержать 10 или 12 цифр.")
-    existing_by_inn = db.execute(
-        select(models.ClientProfile).where(models.ClientProfile.inn == inn_digits)
-    ).scalar_one_or_none()
-    if existing_by_inn:
-        raise ValueError("Клиент с таким ИНН уже существует.")
 
-    phone_clean = (phone or "").strip()
-    phone_digits = re.sub(r"\D+", "", phone_clean)
-    if len(phone_digits) < 10:
+    phone_clean = (phone or "").strip() or None
+    phone_digits = re.sub(r"\D+", "", phone_clean or "")
+    if phone_clean is not None and len(phone_digits) < 10:
         raise ValueError("Телефон должен содержать минимум 10 цифр.")
 
     if login:
@@ -3127,20 +3122,11 @@ def admin_update_client(
 
     # Профиль
     name_clean = name.strip() if name else None
-    inn_digits = re.sub(r"\D+", "", inn or "") if inn is not None else None
-    phone_clean = phone.strip() if phone else None
+    inn_digits = (re.sub(r"\D+", "", inn or "") or None) if inn is not None else None
+    phone_clean = ((phone or "").strip() or None) if phone is not None else None
 
-    if inn_digits is not None:
-        if len(inn_digits) not in (10, 12):
-            raise ValueError("ИНН должен содержать 10 или 12 цифр.")
-        existing_by_inn = db.execute(
-            select(models.ClientProfile).where(
-                models.ClientProfile.inn == inn_digits,
-                models.ClientProfile.user_id != client_id,
-            )
-        ).scalar_one_or_none()
-        if existing_by_inn:
-            raise ValueError("Клиент с таким ИНН уже существует.")
+    if inn_digits is not None and len(inn_digits) not in (10, 12):
+        raise ValueError("ИНН должен содержать 10 или 12 цифр.")
 
     if phone_clean is not None:
         phone_digits = re.sub(r"\D+", "", phone_clean)
@@ -3151,8 +3137,8 @@ def admin_update_client(
         profile = models.ClientProfile(
             user_id=client_id,
             name=name_clean or user.login,
-            inn=inn_digits or "",
-            phone=phone_clean or "",
+            inn=inn_digits,
+            phone=phone_clean,
             contact=(contact or "").strip() or None,
             internal_client_id=(internal_client_id or "").strip() or None,
             table_url=(table_url or "").strip() or None,
@@ -3164,9 +3150,9 @@ def admin_update_client(
     else:
         if name_clean is not None:
             profile.name = name_clean
-        if inn_digits is not None:
+        if inn is not None:
             profile.inn = inn_digits
-        if phone_clean is not None:
+        if phone is not None:
             profile.phone = phone_clean
         if contact is not None:
             profile.contact = (contact or "").strip() or None
@@ -3216,8 +3202,8 @@ def admin_update_client_work_status(
         profile = models.ClientProfile(
             user_id=int(client_id),
             name=user.display_name or user.login,
-            inn="",
-            phone="",
+            inn=None,
+            phone=None,
             work_status=CLIENT_WORK_STATUS_DEFAULT,
             created_at=now,
             updated_at=now,

@@ -131,8 +131,8 @@ class SelfProfileOut(BaseModel):
 
 class ClientProfileOut(BaseModel):
     name: str
-    inn: str
-    phone: str
+    inn: Optional[str] = None
+    phone: Optional[str] = None
     contact: Optional[str] = None
     internalClientId: Optional[str] = None
     tableUrl: Optional[str] = None
@@ -144,8 +144,8 @@ class ClientProfileOut(BaseModel):
 
 class AdminClientCreateIn(BaseModel):
     name: str
-    inn: str
-    phone: str
+    inn: Optional[str] = None
+    phone: Optional[str] = None
     contact: Optional[str] = None
     login: Optional[str] = None
     password: Optional[str] = None

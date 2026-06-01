@@ -159,6 +159,127 @@ def _ensure_client_profile_columns() -> None:
 _ensure_client_profile_columns()
 
 
+def _ensure_optional_client_profile_contacts() -> None:
+    """
+    ИНН и телефон клиента необязательны. ИНН больше не является уникальным:
+    несколько карточек могут относиться к одной организации.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "client_profiles" not in tables:
+        return
+
+    columns = {col.get("name"): col for col in inspector.get_columns("client_profiles")}
+    unique_constraints = inspector.get_unique_constraints("client_profiles")
+    has_unique_inn = any(
+        set(constraint.get("column_names") or []) == {"inn"}
+        for constraint in unique_constraints
+    )
+    needs_nullable_columns = any(
+        not bool(columns.get(column_name, {}).get("nullable", True))
+        for column_name in ("inn", "phone")
+    )
+    dialect_name = engine.dialect.name
+
+    if dialect_name == "postgresql":
+        with engine.begin() as conn:
+            preparer = conn.dialect.identifier_preparer
+            for constraint in unique_constraints:
+                if set(constraint.get("column_names") or []) != {"inn"}:
+                    continue
+                constraint_name = constraint.get("name")
+                if constraint_name:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE client_profiles "
+                            f"DROP CONSTRAINT IF EXISTS {preparer.quote(constraint_name)}"
+                        )
+                    )
+            conn.execute(text("ALTER TABLE client_profiles ALTER COLUMN inn DROP NOT NULL"))
+            conn.execute(text("ALTER TABLE client_profiles ALTER COLUMN phone DROP NOT NULL"))
+            conn.execute(text("UPDATE client_profiles SET inn = NULL WHERE trim(inn) = ''"))
+            conn.execute(text("UPDATE client_profiles SET phone = NULL WHERE trim(phone) = ''"))
+        return
+
+    if dialect_name == "sqlite":
+        if has_unique_inn or needs_nullable_columns:
+            legacy_table = "client_profiles_before_optional_contacts"
+            next_table = "client_profiles_optional_contacts"
+            with engine.begin() as conn:
+                for table_name in (legacy_table, next_table):
+                    exists = conn.execute(
+                        text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name"),
+                        {"name": table_name},
+                    ).scalar_one_or_none()
+                    if exists:
+                        raise RuntimeError(f"SQLite migration table already exists: {table_name}")
+
+                conn.execute(text("ALTER TABLE client_profiles RENAME TO client_profiles_before_optional_contacts"))
+                conn.execute(
+                    text(
+                        "CREATE TABLE client_profiles_optional_contacts ("
+                        "id INTEGER NOT NULL PRIMARY KEY, "
+                        "user_id INTEGER NOT NULL, "
+                        "name VARCHAR NOT NULL, "
+                        "inn VARCHAR, "
+                        "phone VARCHAR, "
+                        "contact VARCHAR, "
+                        "internal_client_id VARCHAR, "
+                        "table_url VARCHAR, "
+                        "work_status VARCHAR NOT NULL, "
+                        "created_at DATETIME NOT NULL, "
+                        "updated_at DATETIME NOT NULL, "
+                        "CONSTRAINT uq_client_profiles_user UNIQUE (user_id), "
+                        "FOREIGN KEY(user_id) REFERENCES users (id)"
+                        ")"
+                    )
+                )
+                legacy_columns = {
+                    row[1]
+                    for row in conn.execute(
+                        text("PRAGMA table_info('client_profiles_before_optional_contacts')")
+                    ).fetchall()
+                }
+                copy_columns = [
+                    column_name
+                    for column_name in (
+                        "id",
+                        "user_id",
+                        "name",
+                        "inn",
+                        "phone",
+                        "contact",
+                        "internal_client_id",
+                        "table_url",
+                        "work_status",
+                        "created_at",
+                        "updated_at",
+                    )
+                    if column_name in legacy_columns
+                ]
+                joined_columns = ", ".join(copy_columns)
+                conn.execute(
+                    text(
+                        f"INSERT INTO client_profiles_optional_contacts ({joined_columns}) "
+                        f"SELECT {joined_columns} FROM client_profiles_before_optional_contacts"
+                    )
+                )
+                conn.execute(text("DROP TABLE client_profiles_before_optional_contacts"))
+                conn.execute(text("ALTER TABLE client_profiles_optional_contacts RENAME TO client_profiles"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_client_profiles_user_id ON client_profiles (user_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_client_profiles_inn ON client_profiles (inn)"))
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE client_profiles SET inn = NULL WHERE trim(inn) = ''"))
+            conn.execute(text("UPDATE client_profiles SET phone = NULL WHERE trim(phone) = ''"))
+        return
+
+    if has_unique_inn or needs_nullable_columns:
+        raise RuntimeError(f"Unsupported database dialect for client_profiles migration: {dialect_name}")
+
+
+_ensure_optional_client_profile_contacts()
+
+
 def _ensure_project_operation_event_columns() -> None:
     """
     Лёгкая schema-evolution для журнала неудачных операций с проектами.

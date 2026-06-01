@@ -57,15 +57,14 @@ class User(Base):
 class ClientProfile(Base):
     __tablename__ = "client_profiles"
     __table_args__ = (
-        UniqueConstraint("inn", name="uq_client_profiles_inn"),
         UniqueConstraint("user_id", name="uq_client_profiles_user"),
     )
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
-    inn = Column(String, nullable=False, index=True)
-    phone = Column(String, nullable=False)
+    inn = Column(String, nullable=True, index=True)
+    phone = Column(String, nullable=True)
     contact = Column(String, nullable=True)
     internal_client_id = Column(String, nullable=True)
     table_url = Column(String, nullable=True)
