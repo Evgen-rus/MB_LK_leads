@@ -1464,6 +1464,7 @@
   display: grid;
   gap: 14px;
   min-width: 0;
+  align-content: start;
 }
 .dashboard-section__header {
   display: flex;
@@ -1694,6 +1695,11 @@ button.dashboard-alert {
   display: grid;
   gap: 8px;
 }
+.dashboard-ranking--attention {
+  max-height: 396px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
 .dashboard-ranking__row {
   border: 1px solid #edf0f6;
   border-radius: 10px;
@@ -1745,6 +1751,11 @@ button.dashboard-alert {
   }
   .dashboard-alerts {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+  .dashboard-ranking--attention {
+    max-height: none;
+    overflow-y: visible;
+    padding-right: 0;
   }
 }
 @media (max-width: 640px) {

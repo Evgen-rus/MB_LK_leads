@@ -100,7 +100,7 @@ function AttentionProjects({
     return <div className="dashboard-empty">Проектов, требующих внимания, нет.</div>;
   }
   return (
-    <div className="dashboard-ranking">
+    <div className="dashboard-ranking dashboard-ranking--attention">
       {items.map((item) => (
         <button
           type="button"
