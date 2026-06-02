@@ -174,7 +174,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       const examples = res.errors.slice(0, 5).map((e) => `строка ${e.lineNumber}: "${e.raw}" (${e.reason})`);
       const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
       setPhonesError(
-        `Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`,
+        `Некорректные номера. Нужно: 11 цифр и первая — 7 или 8.\n${examples.join('\n')}${suffix}`,
       );
     } else {
       setPhonesError(null);
@@ -238,7 +238,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       if (res.errors.length > 0) {
         const examples = res.errors.slice(0, 5).map((er) => `строка ${er.lineNumber}: "${er.raw}" (${er.reason})`);
         const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
-        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
+        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7 или 8.\n${examples.join('\n')}${suffix}`);
         return;
       }
       setPhonesError(null);
@@ -458,7 +458,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
               {(collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Телефоны конкурентов/целевых компаний</span>
-                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
+                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7 или 8</span>
                 <textarea
                   rows={8}
                   placeholder={"79231234567\n74951234567"}

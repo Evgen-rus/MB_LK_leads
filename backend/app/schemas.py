@@ -3,9 +3,10 @@
 Назначение: Pydantic-схемы ввода/вывода для API.
 """
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
@@ -18,6 +19,28 @@ UserRole = Literal['admin', 'client', 'agent']
 ClientWorkStatus = Literal['В работе', 'Ждём оплату', 'Ждём данные', 'На согласовании', 'Пауза по клиенту', 'Неактивен']
 ClientDataCollectionStatus = Literal['Нет проектов', 'Сбор активен', 'На паузе']
 ClientFinanceStatus = Literal['Дожим 1', 'Дожим 2', 'Дожим 3', 'Долг']
+
+
+def _normalize_project_phones(value: Optional[List[str]]) -> Optional[List[str]]:
+    if value is None:
+        return None
+    normalized: List[str] = []
+    seen = set()
+    for raw_value in value:
+        raw = str(raw_value or "").strip()
+        if not raw:
+            continue
+        digits = re.sub(r"\D+", "", raw)
+        if len(digits) != 11:
+            raise ValueError(f'Некорректный номер телефона "{raw}": нужно ровно 11 цифр')
+        if digits[0] == "8":
+            digits = f"7{digits[1:]}"
+        elif digits[0] != "7":
+            raise ValueError(f'Некорректный номер телефона "{raw}": номер должен начинаться с 7 или 8')
+        if digits not in seen:
+            seen.add(digits)
+            normalized.append(digits)
+    return normalized
 
 
 class CreateProjectItem(BaseModel):
@@ -33,6 +56,8 @@ class CreateProjectItem(BaseModel):
     phones: Optional[List[str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
+
+    _normalize_phones = field_validator("phones")(_normalize_project_phones)
 
 
 class CreateProjectsPayload(BaseModel):
@@ -50,6 +75,8 @@ class ProjectUpdate(BaseModel):
     phones: Optional[List[str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
+
+    _normalize_phones = field_validator("phones")(_normalize_project_phones)
 
 
 class ProjectOut(BaseModel):
@@ -227,6 +254,8 @@ class AdminProjectUpdate(BaseModel):
     phones: Optional[List[str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
+
+    _normalize_phones = field_validator("phones")(_normalize_project_phones)
 
 
 class ClientErrorIn(BaseModel):

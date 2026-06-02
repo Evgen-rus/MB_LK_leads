@@ -22,15 +22,19 @@ function normalizePhoneLine(rawLine: string): { normalized?: string; reason?: st
   if (digits.length !== 11) {
     return { reason: 'нужно ровно 11 цифр' };
   }
+  if (digits[0] === '8') {
+    return { normalized: `7${digits.slice(1)}` };
+  }
   if (digits[0] !== '7') {
-    return { reason: 'номер должен начинаться с 7' };
+    return { reason: 'номер должен начинаться с 7 или 8' };
   }
   return { normalized: digits };
 }
 
 /**
  * Нормализация/валидация телефонов из multiline textarea.
- * Правило: один номер в строке, строго 11 цифр, начинается с 7.
+ * Правило: один номер в строке, строго 11 цифр, начинается с 7 или 8.
+ * Российский формат с первой 8 приводим к формату с первой 7.
  */
 export function normalizePhonesMultiline(text: string): NormalizePhonesResult {
   const lines = text.split(/\r?\n/);

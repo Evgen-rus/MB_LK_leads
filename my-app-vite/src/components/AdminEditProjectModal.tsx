@@ -93,7 +93,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       const examples = res.errors.slice(0, 5).map((e) => `строка ${e.lineNumber}: "${e.raw}" (${e.reason})`);
       const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
       setPhonesError(
-        `Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`,
+        `Некорректные номера. Нужно: 11 цифр и первая — 7 или 8.\n${examples.join('\n')}${suffix}`,
       );
     } else {
       setPhonesError(null);
@@ -272,7 +272,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
       if (res.errors.length > 0) {
         const examples = res.errors.slice(0, 5).map((er) => `строка ${er.lineNumber}: "${er.raw}" (${er.reason})`);
         const suffix = res.errors.length > 5 ? `\n… и ещё ${res.errors.length - 5}` : '';
-        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7.\n${examples.join('\n')}${suffix}`);
+        setPhonesError(`Некорректные номера. Нужно: 11 цифр и первая — 7 или 8.\n${examples.join('\n')}${suffix}`);
         return;
       }
       if (res.normalized.length === 0) {
@@ -404,7 +404,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
             {(source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className="section-title">Список телефонов</span>
-                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7</span>
+                <span className="hint">По одному номеру в строке, строго 11 цифр, начинаем с 7 или 8</span>
                 <textarea rows={8} placeholder={"79231234567\n74951234567"} value={phonesText} onChange={(e) => setPhonesText(e.target.value)} onBlur={sanitizePhones} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }} disabled={readOnly} />
                 <span style={{ fontSize: '0.75rem', color: '#666' }}>Элементов: {phonesParsed.length}, уникальных: {uniqueList(phonesParsed).length}</span>
                 {phonesError && (

@@ -128,7 +128,7 @@ function BulkEditContactsModal({
         </span>
         <span className="hint">
           {target === 'calls'
-            ? 'По одному номеру в строке, строго 11 цифр и первая 7.'
+            ? 'По одному номеру в строке, строго 11 цифр и первая 7 или 8.'
             : 'По одному сайту в строке.'}
         </span>
         <textarea
