@@ -12,7 +12,7 @@ import ClientActivityHistory from './components/ClientActivityHistory';
 import ClientDashboard from './components/ClientDashboard';
 import NotificationBell from './components/NotificationBell';
 import AdminActivityBell from './components/AdminActivityBell';
-import { lazy, Suspense, useState, useEffect } from 'react';
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
 import ProjectHistoryModal from './components/ProjectHistoryModal';
@@ -43,6 +43,53 @@ const AdminProviderLeadsImport = lazy(() => import('./components/AdminProviderLe
 const AdminProjectsScreen = lazy(() => import('./components/AdminProjectsScreen'));
 const AdminBalance = lazy(() => import('./components/AdminBalance'));
 const AdminActivityHistory = lazy(() => import('./components/AdminActivityHistory'));
+
+type ChunkLoadErrorBoundaryProps = {
+  children: ReactNode;
+};
+
+type ChunkLoadErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class ChunkLoadErrorBoundary extends Component<
+  ChunkLoadErrorBoundaryProps,
+  ChunkLoadErrorBoundaryState
+> {
+  state: ChunkLoadErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ChunkLoadErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Ошибка загрузки раздела приложения', error);
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <div className="app-update-card table-card" role="alert">
+        <div className="app-update-card__icon" aria-hidden="true">
+          ↻
+        </div>
+        <div className="app-update-card__body">
+          <h2>Сайт обновился</h2>
+          <p>
+            Не удалось загрузить раздел из старой версии приложения. Обновите страницу,
+            чтобы открыть актуальную версию ЛК.
+          </p>
+          <button className="btn btn--primary" type="button" onClick={() => window.location.reload()}>
+            Обновить страницу
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
 
 function App() {
   type UserRole = 'admin' | 'agent' | 'client';
@@ -501,9 +548,10 @@ function App() {
               {impersonatorUserId != null && <span className="sub">администратор id: {impersonatorUserId}</span>}
             </div>
           )}
-          <Suspense fallback={<div className="table-card" style={{ padding: 16 }}>Загрузка…</div>}>
-            {view === 'client-dashboard' && !isManager ? (
-              <ClientDashboard
+          <ChunkLoadErrorBoundary key={view}>
+            <Suspense fallback={<div className="table-card" style={{ padding: 16 }}>Загрузка…</div>}>
+              {view === 'client-dashboard' && !isManager ? (
+                <ClientDashboard
                 onOpenLeads={(fromDate, toDate) => {
                   setLeadsPrefill({ from: fromDate, to: toDate });
                   setView('leads');
@@ -728,10 +776,11 @@ function App() {
               <Integrations />
             ) : view === 'support' ? (
               <Support />
-            ) : (
-              isManager ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
-            )}
-          </Suspense>
+              ) : (
+                isManager ? <AdminBlacklist initialUserId={adminBlacklistClientId ?? undefined} /> : <Blacklist />
+              )}
+            </Suspense>
+          </ChunkLoadErrorBoundary>
         </main>
       </div>
       {isCreateOpen && (
