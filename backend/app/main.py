@@ -2327,6 +2327,7 @@ def list_projects(
     offset: int = 0,
     limit: int = 50,
     q: str | None = None,
+    sources: Optional[str] = None,
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
@@ -2362,12 +2363,20 @@ def list_projects(
     start_naive = start_local.replace(tzinfo=None)
     end_naive = end_local.replace(tzinfo=None)
 
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip().upper() for s in sources.split(",") if s.strip()]
+        src_list = [s for s in src_list if s in {"B1", "B2", "B3", "B4"}]
+        if not src_list:
+            src_list = None
+
     return crud.list_projects_paginated(
         db_sess,
         offset=offset,
         limit=limit,
         q=q,
         user_id=current_user.id,
+        sources=src_list,
         start_local=start_naive,
         end_local=end_naive,
         include_deleted=includeDeleted,

@@ -13,7 +13,14 @@ import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
-import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
+import {
+  RAW_SOURCE_CODES,
+  formatProjectNameForDisplay,
+  formatProjectNameForSubmit,
+  formatSourceTextForDisplay,
+  getSourceCodeFilterOptions,
+  toDisplaySourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
@@ -44,6 +51,7 @@ const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Перес
 const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
+const SOURCE_OPTIONS = getSourceCodeFilterOptions(RAW_SOURCE_CODES);
 
 type ApiError = Error & {
   status?: number;
@@ -71,6 +79,7 @@ function ProjectsTable({
   const [search, setSearch] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>('Все');
+  const [selectedSources, setSelectedSources] = useState<string[]>([...RAW_SOURCE_CODES]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
@@ -102,12 +111,14 @@ function ProjectsTable({
       sortField = sortBy,
       direction = sortDir,
       limitReached = dailyLimitReached,
+      sources = selectedSources,
     ) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
         offset,
         limit: s,
         q: formatProjectNameForSubmit(q.trim()) || undefined,
+        sources,
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
@@ -119,7 +130,7 @@ function ProjectsTable({
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached],
+    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources],
   );
 
   useEffect(() => {
@@ -133,10 +144,10 @@ function ProjectsTable({
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
+  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -451,6 +462,16 @@ function ProjectsTable({
     }
   }
 
+  function toggleSource(source: string) {
+    setSelectedSources((prev) => {
+      const next = prev.includes(source)
+        ? prev.filter((item) => item !== source)
+        : [...prev, source];
+      return next.length ? next : [...RAW_SOURCE_CODES];
+    });
+    setPage(1);
+  }
+
   async function handleBulkDaysSubmit(days: Day[]) {
     await runBulkAction(() => ({ days }));
   }
@@ -567,6 +588,18 @@ function ProjectsTable({
             />
             Показывать удалённые
           </label>
+        </div>
+        <div className="project-source-filters">
+          {SOURCE_OPTIONS.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              className={`dashboard-source${selectedSources.includes(option.value) ? ' dashboard-source--active' : ''}`}
+              onClick={() => toggleSource(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
         <div className="actions">
           <button

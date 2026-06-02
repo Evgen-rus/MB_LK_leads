@@ -1429,7 +1429,8 @@
   border-radius: 10px;
   background: #fff;
 }
-.admin-dashboard__sources {
+.admin-dashboard__sources,
+.project-source-filters {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;

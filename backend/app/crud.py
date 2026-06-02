@@ -924,6 +924,7 @@ def list_projects_paginated(
     limit: int,
     q: str | None,
     user_id: int,
+    sources: Optional[List[str]] = None,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
@@ -938,6 +939,8 @@ def list_projects_paginated(
         project_status=project_status,
         include_deleted=include_deleted,
     )
+    if sources:
+        stmt = stmt.where(models.Project.data_source_code.in_(sources))
     if q:
         q = q.strip()
         if q:
