@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -8,6 +9,9 @@ from .. import models, schemas
 
 API_URL_DEFAULT = "https://prostats.info/api/index.php"
 MIN_DUPLICATE_ID = 4189111
+PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE = (
+    "Сервис поставщика временно недоступен. Попробуйте повторить операцию позже."
+)
 
 REGION_CODE_BY_NAME: Dict[str, int] = {
     "Республика Адыгея": 1,
@@ -113,14 +117,24 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
     try:
         response = requests.post(_get_api_url(), json=payload, timeout=60)
     except requests.exceptions.Timeout as exc:
+        logging.getLogger("app.prostats").warning(
+            "Prostats request timed out: command=%s",
+            payload.get("command"),
+            exc_info=True,
+        )
         raise ProstatsError(
-            "API провайдера не ответило за 60 секунд",
+            PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE,
             status_code=504,
             details={"error": str(exc)},
         ) from exc
     except requests.exceptions.RequestException as exc:
+        logging.getLogger("app.prostats").warning(
+            "Prostats request failed: command=%s",
+            payload.get("command"),
+            exc_info=True,
+        )
         raise ProstatsError(
-            "Не удалось подключиться к API провайдера",
+            PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE,
             status_code=502,
             details={"error": str(exc)},
         ) from exc
@@ -131,6 +145,14 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
         parsed = response.json()
     except Exception:
         parsed = None
+    if response.status_code >= 500 or parsed is None:
+        logging.getLogger("app.prostats").warning(
+            "Unexpected Prostats response: command=%s status=%s content_type=%s body=%r",
+            payload.get("command"),
+            response.status_code,
+            response.headers.get("Content-Type"),
+            raw_text[:2000],
+        )
     return response.status_code, raw_text, parsed
 
 
@@ -379,13 +401,28 @@ def build_status_only_payload(provider_id: str, project: models.Project, status:
     return build_update_payload(provider_id, project, update_like)  # type: ignore[arg-type]
 
 
-def _extract_error_message(parsed: Optional[dict], raw_text: str) -> str:
+def _looks_like_html(value: str) -> bool:
+    normalized = str(value or "").strip().lower()
+    return any(marker in normalized for marker in ("<!doctype html", "<html", "<head", "<body", "<title", "<h1"))
+
+
+def _extract_error_message(parsed: Optional[dict], raw_text: str, *, status_code: int) -> str:
+    if status_code in {502, 503, 504} or _looks_like_html(raw_text):
+        return PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE
     if not parsed:
         return raw_text or "Unknown error"
     msg = parsed.get("message")
     if isinstance(msg, dict):
-        return str(msg.get("message") or msg.get("status") or raw_text or "Unknown error")
-    return str(msg or raw_text or "Unknown error")
+        message = str(msg.get("message") or msg.get("status") or raw_text or "Unknown error")
+    else:
+        message = str(msg or raw_text or "Unknown error")
+    if _looks_like_html(message):
+        return PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE
+    return message
+
+
+def _error_status_code(status_code: int) -> int:
+    return status_code if status_code >= 400 else 502
 
 
 def _should_check_duplicates(error_message: str, target_type: str) -> bool:
@@ -481,8 +518,8 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
     status_code, raw_text, parsed = _post(payload)
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text)
-        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
+        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
 
     result = parsed.get("result") or {}
     provider_id = result.get("id")
@@ -517,8 +554,8 @@ def update_project(
     status_code, raw_text, parsed = _post(payload)
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text)
-        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
+        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
 
     missing_items: List[str] = []
     provider_content = ""
@@ -553,8 +590,8 @@ def delete_project(provider_id: str, project: models.Project) -> dict:
     }
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text)
-        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
+        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
     return {"raw": parsed}
 
 
@@ -562,6 +599,6 @@ def update_project_status(provider_id: str, project: models.Project, status: sch
     payload = build_status_only_payload(provider_id, project, status)
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text)
-        raise ProstatsError(error_message, status_code=status_code, details={"raw": raw_text})
+        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
+        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
     return {"raw": parsed}

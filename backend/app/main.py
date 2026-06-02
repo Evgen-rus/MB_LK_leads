@@ -2177,6 +2177,11 @@ def _http_error_code(detail: object) -> Optional[str]:
     return None
 
 
+def _prostats_http_detail(exc: prostats.ProstatsError) -> dict:
+    # details может содержать сырой HTML поставщика; наружу отдаём только безопасное сообщение.
+    return {"message": exc.message}
+
+
 def _project_payload_for_history(payload: object) -> dict:
     try:
         if hasattr(payload, "dict"):
@@ -2938,7 +2943,7 @@ def update_project(project_id: int, payload: schemas.ProjectUpdate, current_user
                     else:
                         payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
         except prostats.ProstatsError as exc:
-            detail = {"message": exc.message, **(exc.details or {})}
+            detail = _prostats_http_detail(exc)
             if payload.status != "Удалён":
                 target_type = prostats._type_from_collection(project_snapshot.collection_source)
                 if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
@@ -3112,7 +3117,7 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
         db_sess.rollback()
         prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
-        detail = {"message": exc.message, **(exc.details or {})}
+        detail = _prostats_http_detail(exc)
         _record_failed_project_operation(
             user_id=current_user.id,
             actor_user_id=actor_user_id,
@@ -4622,7 +4627,7 @@ def admin_update_project(
                     else:
                         payload.phones = [p for p in (payload.phones or []) if p not in missing_items]
         except prostats.ProstatsError as exc:
-            detail = {"message": exc.message, **(exc.details or {})}
+            detail = _prostats_http_detail(exc)
             if payload.status != "Удалён":
                 target_type = prostats._type_from_collection(project_snapshot.collection_source)
                 if prostats._should_check_duplicates(exc.message, target_type) and target_type in ("hosts", "calls"):
@@ -4763,7 +4768,7 @@ def admin_delete_project(
     try:
         prostats.delete_project(str(project_snapshot.provider_project_id), project_snapshot)
     except prostats.ProstatsError as exc:
-        detail = {"message": exc.message, **(exc.details or {})}
+        detail = _prostats_http_detail(exc)
         if owner_user_id:
             _record_failed_project_operation(
                 user_id=owner_user_id,
