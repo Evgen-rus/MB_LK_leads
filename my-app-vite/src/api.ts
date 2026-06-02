@@ -892,7 +892,7 @@ export type AdminDashboardAttentionClient = {
   tariffAmount?: number | null;
   signal1: number;
   signal2: number;
-  signal3: number;
+  signal3?: number | null;
   level: DashboardRiskLevel;
   activeProjects: number;
   dailySpend: number;
@@ -1669,7 +1669,7 @@ export async function fetchAdminClientTariffs(
 
 export async function createAdminClientTariff(
   clientId: number,
-  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number },
+  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3?: number | null },
 ): Promise<ClientTariff> {
   return http<ClientTariff>(`/admin/clients/${clientId}/tariffs`, {
     method: 'POST',
@@ -1679,7 +1679,7 @@ export async function createAdminClientTariff(
 
 export async function updateAdminTariff(
   tariffId: number,
-  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number },
+  payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3?: number | null },
 ): Promise<ClientTariff> {
   return http<ClientTariff>(`/admin/tariffs/${tariffId}`, {
     method: 'PATCH',

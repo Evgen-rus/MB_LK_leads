@@ -1296,14 +1296,16 @@ def _normalize_tariff_signal_level(value: Any) -> int:
 def _resolve_tariff_signal_level(remaining: int, tariff: Optional[schemas.ClientTariffOut]) -> Optional[int]:
     if not tariff:
         return None
-    if tariff.signal1 is None or tariff.signal2 is None or tariff.signal3 is None:
+    if tariff.signal1 is None or tariff.signal2 is None:
         return None
     signal1 = int(tariff.signal1)
     signal2 = int(tariff.signal2)
-    signal3 = int(tariff.signal3)
-    if signal3 <= 0 or signal2 <= signal3 or signal1 <= signal2 or signal1 >= int(tariff.currentAmount):
+    signal3 = int(tariff.signal3) if tariff.signal3 is not None else None
+    if signal2 <= 0 or signal1 <= signal2 or signal1 >= int(tariff.currentAmount):
         return None
-    if remaining <= signal3:
+    if signal3 is not None and (signal3 <= 0 or signal2 <= signal3):
+        return None
+    if signal3 is not None and remaining <= signal3:
         return 3
     if remaining <= signal2:
         return 2
@@ -1323,26 +1325,84 @@ def _set_client_tariff_signal_level(client_id: int, level: int) -> None:
 
 
 def _build_client_tariff_signal_message(
-    user_snapshot: dict,
     remaining: int,
-    tariff: schemas.ClientTariffOut,
     signal_level: int,
+    usage_last_7_days: int,
 ) -> str:
-    signal_value_map = {
-        1: int(tariff.signal1 or 0),
-        2: int(tariff.signal2 or 0),
-        3: int(tariff.signal3 or 0),
+    builders = {
+        1: _build_client_tariff_signal_1_message,
+        2: _build_client_tariff_signal_2_message,
+        3: _build_client_tariff_signal_3_message,
     }
-    signal_value = signal_value_map.get(signal_level, 0)
+    builder = builders.get(signal_level)
+    if not builder:
+        return ""
+    return builder(remaining=remaining, usage_last_7_days=usage_last_7_days)
+
+
+def _format_notification_number(value: int) -> str:
+    return f"{int(value):,}".replace(",", " ")
+
+
+def _format_average_days_remaining(remaining: int, usage_last_7_days: int) -> str:
+    if int(usage_last_7_days) <= 0:
+        return "невозможно рассчитать по текущей активности."
+    days = max(0, int(int(remaining) / (int(usage_last_7_days) / 7)))
+    last_two = days % 100
+    last_one = days % 10
+    if 11 <= last_two <= 14:
+        unit = "дней"
+    elif last_one == 1:
+        unit = "день"
+    elif 2 <= last_one <= 4:
+        unit = "дня"
+    else:
+        unit = "дней"
+    return f"{days} {unit}."
+
+
+def _build_client_tariff_signal_1_message(*, remaining: int, usage_last_7_days: int) -> str:
     return (
-        f"<b>[ЛК | Сигнал остатка тарифа {signal_level}]</b>\n"
-        f'Клиент: <code>{html.escape(str(user_snapshot.get("client_name", "") or ""))}</code>\n'
-        f"Текущий остаток: <b>{html.escape(str(int(remaining)))}</b>\n"
-        f"Достигнут порог: <b>{html.escape(str(signal_value))}</b>\n"
-        f"Текущий тариф: <b>{html.escape(str(int(tariff.currentAmount)))}</b>\n"
-        f"Сигналы: {html.escape(str(int(tariff.signal1 or 0)))} / "
-        f"{html.escape(str(int(tariff.signal2 or 0)))} / "
-        f"{html.escape(str(int(tariff.signal3 or 0)))}"
+        "<b>Уведомление: в ближайшее время тариф закончится</b>\n\n"
+        f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
+        f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
+        "Рекомендуем заранее запланировать продление, чтобы работа проектов продолжалась без перерывов."
+    )
+
+
+def _build_client_tariff_signal_2_message(*, remaining: int, usage_last_7_days: int) -> str:
+    return (
+        "<b>Уведомление: требуется продление тарифа</b>\n\n"
+        f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
+        f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
+        "Остаток почти исчерпан. Рекомендуем оперативно согласовать новый тариф, "
+        "чтобы проекты продолжили работу без перерыва."
+    )
+
+
+def _build_client_tariff_signal_3_message(*, remaining: int, usage_last_7_days: int) -> str:
+    return (
+        "<b>Уведомление: требуется продление тарифа</b>\n\n"
+        f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
+        f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
+        "Остаток почти исчерпан. Рекомендуем оперативно согласовать новый тариф, "
+        "чтобы проекты продолжили работу без перерыва."
+    )
+
+
+def _build_admin_tariff_signal_message(user_snapshot: dict, remaining: int, signal_level: int) -> str:
+    level_labels = {
+        1: "предупреждение",
+        2: "критический",
+        3: "критический повторный",
+    }
+    return (
+        "<b>[ЛК | Остаток клиента]</b>\n\n"
+        f"Клиент: {html.escape(str(user_snapshot.get('client_name', '') or ''))}\n"
+        f"ID клиента: {html.escape(str(user_snapshot.get('id', '') or ''))}\n"
+        f"Текущий остаток: {_format_notification_number(remaining)} идентификаций\n"
+        f"Уровень уведомления: {level_labels.get(signal_level, 'неизвестный')}\n\n"
+        "Персональная Telegram-группа клиента не настроена."
     )
 
 
@@ -1365,16 +1425,28 @@ def _sync_client_tariff_signal_alert(
         _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
         return next_level
 
-    chat_id = _get_client_telegram_chat_id_for_notifications(user_snapshot)
+    personal_chat_id = _get_client_personal_telegram_chat_id(user_snapshot)
+    chat_id = _resolve_notification_chat_id(bool(personal_chat_id), personal_chat_id)
     if not chat_id or not latest_tariff:
         return None
 
-    text = _build_client_tariff_signal_message(
-        user_snapshot=user_snapshot,
-        remaining=remaining,
-        tariff=latest_tariff,
-        signal_level=next_level,
-    )
+    if personal_chat_id:
+        usage_last_7_days = crud.get_client_leads_usage_for_last_days(
+            db_sess,
+            client_id=int(user_snapshot["id"]),
+            days=7,
+        )
+        text = _build_client_tariff_signal_message(
+            remaining=remaining,
+            signal_level=next_level,
+            usage_last_7_days=usage_last_7_days,
+        )
+    else:
+        text = _build_admin_tariff_signal_message(
+            user_snapshot=user_snapshot,
+            remaining=remaining,
+            signal_level=next_level,
+        )
     result = notifications.send_system_notification(
         db_sess=db_sess,
         chat_id=chat_id,
@@ -1598,13 +1670,10 @@ def _should_send_auto_pause_test_message(
 
 
 def _build_auto_pause_test_message(user: models.User) -> str:
-    client_login = html.escape(str(getattr(user, "login", "") or ""))
-    client_id = html.escape(str(getattr(user, "id", "") or ""))
     return (
-        "<b>[ЛК | Тест Telegram-маршрута]</b>\n"
-        "Это тестовое сообщение подтверждает, что персональный Telegram-чат для уведомлений настроен корректно.\n\n"
-        f"Клиент: <code>{client_login}</code> (id={client_id})\n"
-        "Дальше сюда будут приходить уведомления из личного кабинета"
+        "<b>Уведомление: тест Telegram-уведомлений</b>\n\n"
+        "Telegram-чат для уведомлений настроен корректно.\n\n"
+        "Дальше сюда будут приходить уведомления из личного кабинета."
     )
 
 
@@ -1734,9 +1803,9 @@ def _queue_client_tariff_operation_notification(
     comment: Optional[str],
 ) -> None:
     action_label_map = {
-        "create": "Начисление нового тарифа",
-        "credit": "Начисление внутри тарифа",
-        "debit": "Списание внутри тарифа",
+        "create": "начислен новый тариф",
+        "credit": "тариф увеличен",
+        "debit": "корректировка тарифа",
     }
     action_label = action_label_map.get(action)
     if not action_label:
@@ -1747,7 +1816,7 @@ def _queue_client_tariff_operation_notification(
             client = notify_sess.get(models.User, int(client_id))
             if not client or not crud.is_client_user(client):
                 return
-            chat_id = _get_client_personal_telegram_chat_id(client)
+            chat_id = _get_client_telegram_chat_id_for_notifications(client)
             if not chat_id:
                 return
             tariff = crud.get_client_tariff(notify_sess, tariff_id=int(tariff_id))
@@ -1756,17 +1825,21 @@ def _queue_client_tariff_operation_notification(
             remaining = crud.get_client_remaining_numbers(notify_sess, client_id=int(client_id))
             client_name = _client_name_for_notification(notify_sess, int(client_id))
             sign = "-" if action == "debit" else "+"
+            operation_label = {
+                "create": "Начислено",
+                "credit": "Дополнительно начислено",
+                "debit": "Скорректировано",
+            }[action]
             text = (
-                f"<b>[ЛК | {html.escape(action_label)}]</b>\n"
-                f"Клиент: <code>{html.escape(client_name)}</code>\n"
-                f"Тариф: <b>#{int(tariff.id)}</b>\n"
-                f"Сумма операции: <b>{sign}{int(amount)}</b>\n"
-                f"Текущий объём тарифа: <b>{int(tariff.currentAmount)}</b>\n"
-                f"Текущий остаток клиента: <b>{int(remaining)}</b>"
+                f"<b>Уведомление: {html.escape(action_label)}</b>\n\n"
+                f"Клиент: {html.escape(client_name)}\n"
+                f"Тариф: #{int(tariff.id)}\n\n"
+                f"{operation_label}: {sign}{_format_notification_number(amount)} идентификаций"
             )
             normalized_comment = str(comment or "").strip()
-            if normalized_comment:
+            if action != "create" and normalized_comment:
                 text += f"\nКомментарий: {html.escape(normalized_comment)}"
+            text += f"\n\nТекущий остаток: {_format_notification_number(remaining)} идентификаций"
             result = notifications.send_telegram_notification(
                 db_sess=notify_sess,
                 chat_id=chat_id,

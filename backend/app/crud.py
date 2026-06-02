@@ -330,9 +330,9 @@ def resolve_client_finance_status(
     signal1 = getattr(tariff, "signal1", None)
     signal2 = getattr(tariff, "signal2", None)
     signal3 = getattr(tariff, "signal3", None)
-    if signal1 is None or signal2 is None or signal3 is None:
+    if signal1 is None or signal2 is None:
         return None
-    if int(remaining) <= int(signal3):
+    if signal3 is not None and int(remaining) <= int(signal3):
         return "Дожим 3"
     if int(remaining) <= int(signal2):
         return "Дожим 2"
@@ -391,29 +391,31 @@ def _get_tariff_current_amount(db: Session, tariff: models.ClientTariff) -> int:
     return int(tariff.base_amount or 0) + int(adjustment.get("credit", 0)) - int(adjustment.get("debit", 0))
 
 
-def _validate_tariff_signals(amount: int, signal1: int, signal2: int, signal3: int) -> None:
-    if int(signal3) <= 0:
-        raise ValueError("Сигнал 3 должен быть больше нуля.")
-    if int(signal2) <= int(signal3):
-        raise ValueError("Сигнал 2 должен быть больше сигнала 3.")
+def _validate_tariff_signals(amount: int, signal1: int, signal2: int, signal3: Optional[int]) -> None:
+    if int(signal2) <= 0:
+        raise ValueError("Сигнал 2 должен быть больше нуля.")
     if int(signal1) <= int(signal2):
         raise ValueError("Сигнал 1 должен быть больше сигнала 2.")
     if int(signal1) >= int(amount):
         raise ValueError("Сигнал 1 должен быть меньше тарифа.")
+    if signal3 is not None:
+        if int(signal3) <= 0:
+            raise ValueError("Сигнал 3 должен быть больше нуля.")
+        if int(signal2) <= int(signal3):
+            raise ValueError("Сигнал 2 должен быть больше сигнала 3.")
 
 
 def _validate_existing_tariff_signals_for_amount(tariff: models.ClientTariff, amount: int) -> None:
     if (
         getattr(tariff, "signal1", None) is None
         or getattr(tariff, "signal2", None) is None
-        or getattr(tariff, "signal3", None) is None
     ):
         return
     _validate_tariff_signals(
         amount=int(amount),
         signal1=int(tariff.signal1 or 0),
         signal2=int(tariff.signal2 or 0),
-        signal3=int(tariff.signal3 or 0),
+        signal3=(int(tariff.signal3) if getattr(tariff, "signal3", None) is not None else None),
     )
 
 
@@ -4221,15 +4223,15 @@ def admin_dashboard(
         if normalize_client_work_status(getattr(profile, "work_status", None)) == "Неактивен":
             continue
         tariff = last_tariff_by_client.get(uid)
-        if tariff is None or tariff.signal1 is None or tariff.signal2 is None or tariff.signal3 is None:
+        if tariff is None or tariff.signal1 is None or tariff.signal2 is None:
             continue
         signal1 = int(tariff.signal1)
         signal2 = int(tariff.signal2)
-        signal3 = int(tariff.signal3)
+        signal3 = int(tariff.signal3) if tariff.signal3 is not None else None
         level: Optional[schemas.DashboardRiskLevel] = None
         if remaining <= 0:
             level = "debt"
-        elif remaining <= signal3:
+        elif signal3 is not None and remaining <= signal3:
             level = "critical"
         elif remaining <= signal2:
             level = "risk"
@@ -4698,6 +4700,17 @@ def get_client_remaining_numbers(db: Session, client_id: int) -> int:
     manual_balance = int(credits or 0) - int(debits or 0)
     used_total = _client_leads_usage(db, client_id)
     return manual_balance - used_total
+
+
+def get_client_leads_usage_for_last_days(db: Session, client_id: int, days: int) -> int:
+    normalized_days = max(1, int(days))
+    end_local = now_msk_naive()
+    return _client_leads_usage(
+        db,
+        client_id=int(client_id),
+        start_local=end_local - timedelta(days=normalized_days),
+        end_local=end_local,
+    )
 
 
 def _get_client_remaining_map(db: Session, client_ids: List[int]) -> Dict[int, int]:
@@ -5269,17 +5282,17 @@ def create_client_tariff(
     comment: Optional[str],
     signal1: int,
     signal2: int,
-    signal3: int,
+    signal3: Optional[int],
 ) -> schemas.ClientTariffOut:
     target_user = _ensure_tariff_target_user(db, int(client_id))
-    _validate_tariff_signals(amount=int(amount), signal1=int(signal1), signal2=int(signal2), signal3=int(signal3))
+    _validate_tariff_signals(amount=int(amount), signal1=int(signal1), signal2=int(signal2), signal3=signal3)
     tariff = models.ClientTariff(
         client_id=client_id,
         base_amount=amount,
         comment=(comment or "").strip() or None,
         signal1=int(signal1),
         signal2=int(signal2),
-        signal3=int(signal3),
+        signal3=(int(signal3) if signal3 is not None else None),
         created_by=admin_id,
         created_at=now_msk(),
         updated_at=now_msk(),
@@ -5310,7 +5323,7 @@ def update_client_tariff(
     comment: Optional[str],
     signal1: int,
     signal2: int,
-    signal3: int,
+    signal3: Optional[int],
 ) -> schemas.ClientTariffOut:
     tariff = db.get(models.ClientTariff, tariff_id)
     if not tariff:
@@ -5319,14 +5332,15 @@ def update_client_tariff(
     next_amount = int(amount)
     if next_amount < 0:
         raise ValueError("Тариф не может быть отрицательным.")
-    _validate_tariff_signals(amount=next_amount, signal1=int(signal1), signal2=int(signal2), signal3=int(signal3))
+    _validate_tariff_signals(amount=next_amount, signal1=int(signal1), signal2=int(signal2), signal3=signal3)
 
     current_amount = _get_tariff_current_amount(db, tariff)
     normalized_comment = (comment or "").strip()
     signals_changed = (
         int(getattr(tariff, "signal1", 0) or 0) != int(signal1)
         or int(getattr(tariff, "signal2", 0) or 0) != int(signal2)
-        or int(getattr(tariff, "signal3", 0) or 0) != int(signal3)
+        or (int(tariff.signal3) if getattr(tariff, "signal3", None) is not None else None)
+        != (int(signal3) if signal3 is not None else None)
     )
     amount_changed = next_amount != current_amount
 
@@ -5363,7 +5377,7 @@ def update_client_tariff(
 
     tariff.signal1 = int(signal1)
     tariff.signal2 = int(signal2)
-    tariff.signal3 = int(signal3)
+    tariff.signal3 = int(signal3) if signal3 is not None else None
     tariff.updated_at = now_msk()
     db.add(tariff)
     db.commit()

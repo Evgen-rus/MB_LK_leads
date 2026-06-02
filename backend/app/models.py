@@ -40,7 +40,8 @@ class User(Base):
     # Необязательный chat id конкретной Telegram-группы/чата клиента.
     # Используется для маршрутизации системных уведомлений по клиенту.
     telegram_notifications_chat_id = Column(String, nullable=True)
-    # Legacy-имя поля: если True, тарифные сигналы и операции уходят в клиентский чат.
+    # Legacy-имя поля: если True, тарифные сигналы и операции уходят в клиентский чат,
+    # иначе для них используется общий TELEGRAM_CHAT_ID.
     # Автопауза по лимитам и B4-блокировки всегда отправляются в общий TELEGRAM_CHAT_ID.
     telegram_auto_pause_enabled = Column(Boolean, nullable=False, default=False)
     # Если True, новым проектам клиента добавляется внутренний идентификатор из карточки клиента.

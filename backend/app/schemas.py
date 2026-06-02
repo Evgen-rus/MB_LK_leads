@@ -545,7 +545,7 @@ class AdminDashboardAttentionClientOut(BaseModel):
     tariffAmount: Optional[int] = None
     signal1: int
     signal2: int
-    signal3: int
+    signal3: Optional[int] = None
     level: DashboardRiskLevel
     activeProjects: int
     dailySpend: int
@@ -843,7 +843,7 @@ class ClientTariffCreateIn(BaseModel):
     comment: Optional[str] = None
     signal1: int
     signal2: int
-    signal3: int
+    signal3: Optional[int] = None
 
 
 class ClientTariffUpdateIn(BaseModel):
@@ -851,7 +851,7 @@ class ClientTariffUpdateIn(BaseModel):
     comment: Optional[str] = None
     signal1: int
     signal2: int
-    signal3: int
+    signal3: Optional[int] = None
 
 
 class ClientTariffListOut(BaseModel):

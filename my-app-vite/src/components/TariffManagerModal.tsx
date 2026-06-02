@@ -26,8 +26,8 @@ type TariffManagerModalProps = {
   initialEditorMode?: 'create' | null;
   createOnly?: boolean;
   fetchTariffs: (targetId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffList>;
-  createTariff: (targetId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
-  updateTariff: (tariffId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3: number }) => Promise<ClientTariff>;
+  createTariff: (targetId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3?: number | null }) => Promise<ClientTariff>;
+  updateTariff: (tariffId: number, payload: { amount: number; comment?: string; signal1: number; signal2: number; signal3?: number | null }) => Promise<ClientTariff>;
   createTariffOp: (tariffId: number, payload: { amount: number; type: 'credit' | 'debit'; comment: string }) => Promise<ClientTariffOperation>;
   fetchTariffOps: (tariffId: number, params?: { offset?: number; limit?: number }) => Promise<ClientTariffOperationList>;
 };
@@ -215,18 +215,17 @@ function TariffActionDialog({
                   />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className="sub">Сигнал 3</span>
+                  <span className="sub">Сигнал 3 (необязательно)</span>
                   <input
                     type="number"
                     min={1}
                     value={signal3}
                     onChange={(e) => onSignal3Change(parseNumberInputValue(e.target.value))}
                     onWheel={preventNumberInputWheel}
-                    required
                   />
                 </label>
               </div>
-              <div className="sub">Правило: `Сигнал 1 &gt; Сигнал 2 &gt; Сигнал 3`, а `Сигнал 1` должен быть меньше тарифа.</div>
+              <div className="sub">Правило: `Сигнал 1 &gt; Сигнал 2`. Если задан `Сигнал 3`, он должен быть меньше `Сигнала 2`. `Сигнал 1` должен быть меньше тарифа.</div>
             </div>
           )}
 
@@ -328,7 +327,7 @@ function TariffManagerModal({
     setAmount('');
     setSignal1(tariff.signal1 ?? 0);
     setSignal2(tariff.signal2 ?? 0);
-    setSignal3(tariff.signal3 ?? 0);
+    setSignal3(tariff.signal3 ?? '');
     setComment('');
     setError(null);
     setEditor({ mode, tariff });
@@ -399,13 +398,13 @@ function TariffManagerModal({
     const signal1Number = getInputNumber(signal1);
     const signal2Number = getInputNumber(signal2);
     const signal3Number = getInputNumber(signal3);
-    if (signal1 === '' || signal2 === '' || signal3 === '') {
-      return 'Заполните все сигналы';
+    if (signal1 === '' || signal2 === '') {
+      return 'Заполните сигналы 1 и 2';
     }
-    if (signal3Number <= 0) {
+    if (signal3 !== '' && signal3Number <= 0) {
       return 'Сигнал 3 должен быть больше нуля';
     }
-    if (signal2Number <= signal3Number) {
+    if (signal3 !== '' && signal2Number <= signal3Number) {
       return 'Сигнал 2 должен быть больше сигнала 3';
     }
     if (signal1Number <= signal2Number) {
@@ -425,6 +424,7 @@ function TariffManagerModal({
     const signal1Number = getInputNumber(signal1);
     const signal2Number = getInputNumber(signal2);
     const signal3Number = getInputNumber(signal3);
+    const signal3Payload = signal3 === '' ? null : signal3Number;
 
     try {
       setSubmitting(true);
@@ -446,7 +446,7 @@ function TariffManagerModal({
           comment: trimmedComment || undefined,
           signal1: signal1Number,
           signal2: signal2Number,
-          signal3: signal3Number,
+          signal3: signal3Payload,
         });
         nextTariffId = tariff.id;
       } else {
@@ -477,14 +477,14 @@ function TariffManagerModal({
         });
         const signalsChanged = (editor.tariff.signal1 ?? 0) !== signal1Number
           || (editor.tariff.signal2 ?? 0) !== signal2Number
-          || (editor.tariff.signal3 ?? 0) !== signal3Number;
+          || (editor.tariff.signal3 ?? null) !== signal3Payload;
         if (signalsChanged) {
           await updateTariff(editor.tariff.id, {
             amount: nextAmount,
             comment: undefined,
             signal1: signal1Number,
             signal2: signal2Number,
-            signal3: signal3Number,
+            signal3: signal3Payload,
           });
         }
         nextTariffId = editor.tariff.id;
@@ -601,7 +601,7 @@ function TariffManagerModal({
                       <td className="muted" style={{ whiteSpace: 'nowrap' }}><DateTimeCompact value={tariff.createdAt} /></td>
                       <td>{tariff.baseAmount}</td>
                       <td style={{ fontWeight: 600 }}>{tariff.currentAmount}</td>
-                      <td>{[tariff.signal1, tariff.signal2, tariff.signal3].every((value) => typeof value === 'number') ? `${tariff.signal1} / ${tariff.signal2} / ${tariff.signal3}` : '-'}</td>
+                      <td>{tariff.signal1 ?? '-'} / {tariff.signal2 ?? '-'} / {tariff.signal3 ?? '-'}</td>
                       <td>{tariff.comment || '-'}</td>
                       <td className="muted">{tariff.createdBy.name || tariff.createdBy.login} (id: {tariff.createdBy.id})</td>
                       <td>

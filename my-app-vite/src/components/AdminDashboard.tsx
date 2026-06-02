@@ -357,7 +357,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
                 <div className="dashboard-alert dashboard-alert--critical">
                   <span>Критично</span>
                   <strong>{formatNumber(data.attention.criticalClients.length)}</strong>
-                  <small>ниже signal3 / долг</small>
+                  <small>ниже signal3, если задан / долг</small>
                 </div>
                 <div className="dashboard-alert dashboard-alert--risk">
                   <span>Риск</span>
