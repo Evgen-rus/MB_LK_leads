@@ -1563,6 +1563,20 @@ def _build_operator_block_notification(project: dict, trigger: str) -> str:
     )
 
 
+def _build_operator_block_empty_response_notification(project: dict, trigger: str) -> str:
+    return (
+        "<b>[ЛК | Блокировка оператора]</b>\n"
+        f'Клиент: <code>{html.escape(str(project.get("client_name", "") or ""))}</code> '
+        f'(id={html.escape(str(project.get("user_id", "") or ""))})\n'
+        f'Проект: <code>{html.escape(_project_name_for_display(str(project.get("name", "") or "")))}</code> '
+        f'(id={html.escape(str(project.get("id", "") or ""))})\n'
+        f"Триггер: <code>{html.escape(trigger)}</code>\n\n"
+        "Пустой ответ, нужна доп проверка админом.\n"
+        "В ЛК установлен статус "
+        f"<b>{html.escape(crud.PROJECT_STATUS_OPERATOR_BLOCK)}</b>."
+    )
+
+
 def _notify_operator_block(project: dict, trigger: str) -> None:
     # Блокировка поставщиком остается техническим событием для общего админского чата.
     chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
@@ -1585,6 +1599,33 @@ def _notify_operator_block(project: dict, trigger: str) -> None:
     if not result.delivered and result.reason != "telegram_disabled":
         logging.getLogger("app").warning(
             "Failed to send operator block notification for project_id=%s reason=%s",
+            project.get("id"),
+            result.reason,
+        )
+
+
+def _notify_operator_block_empty_response(project: dict, trigger: str) -> None:
+    # Пустой ответ поставщика тоже является техническим событием для общего админского чата.
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not chat_id:
+        return
+    with SessionLocal() as notify_sess:  # type: Session
+        result = notifications.send_system_notification(
+            db_sess=notify_sess,
+            chat_id=chat_id,
+            text=_build_operator_block_empty_response_notification(project, trigger),
+            parse_mode="HTML",
+            metadata={
+                "client_id": project.get("user_id"),
+                "project_id": project.get("id"),
+                "provider_project_id": project.get("provider_project_id"),
+                "trigger": trigger,
+                "kind": "operator_block_empty_response",
+            },
+        )
+    if not result.delivered and result.reason != "telegram_disabled":
+        logging.getLogger("app").warning(
+            "Failed to send empty-response operator block notification for project_id=%s reason=%s",
             project.get("id"),
             result.reason,
         )
@@ -1613,7 +1654,27 @@ def _run_operator_block_check(trigger: str = "manual") -> schemas.OperatorBlockC
             errors.append(f'Проект {project["id"]} "{project["name"]}": {exc.message}')
             continue
         if not detail:
-            errors.append(f'Проект {project["id"]} "{project["name"]}": пустой ответ gck_project')
+            with SessionLocal() as write_sess:  # type: Session
+                changed_project = crud.mark_project_operator_blocked_if_active(
+                    write_sess,
+                    project_id=int(project["id"]),
+                    operator_block_reason=(
+                        "Система изменила статус: поставщик вернул пустой ответ по проекту при проверке D."
+                    ),
+                )
+            if changed_project:
+                blocked += 1
+                blocked_projects.append(
+                    schemas.OperatorBlockProjectOut(
+                        id=int(changed_project["id"]),
+                        name=str(changed_project.get("name") or ""),
+                        clientName=(str(changed_project.get("client_name") or "").strip() or None),
+                        providerProjectId=(str(changed_project.get("provider_project_id") or "").strip() or None),
+                    )
+                )
+                _notify_operator_block_empty_response(changed_project, trigger=trigger)
+            else:
+                skipped += 1
             continue
         if not _provider_project_is_disabled(detail):
             skipped += 1

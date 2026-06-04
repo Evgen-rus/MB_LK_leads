@@ -5835,7 +5835,11 @@ def list_operator_block_check_project_snapshots(db: Session) -> List[dict]:
     return snapshots
 
 
-def mark_project_operator_blocked_if_active(db: Session, project_id: int) -> Optional[dict]:
+def mark_project_operator_blocked_if_active(
+    db: Session,
+    project_id: int,
+    operator_block_reason: Optional[str] = None,
+) -> Optional[dict]:
     p = db.get(models.Project, int(project_id))
     if not p or p.status != "Активен" or p.user_id is None:
         return None
@@ -5854,7 +5858,8 @@ def mark_project_operator_blocked_if_active(db: Session, project_id: int) -> Opt
     p.updated_at = changed_at
     after = _snapshot_project(p)
     after["operatorBlockReason"] = (
-        "Система изменила статус: поставщик отключил проект при проверке B4."
+        str(operator_block_reason or "").strip()
+        or "Система изменила статус: поставщик отключил проект при проверке B4."
     )
 
     add_project_audit_event(
