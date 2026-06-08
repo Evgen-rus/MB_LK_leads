@@ -19,6 +19,7 @@ import {
   pauseAdminClientProjects,
   resumeAdminClientProjects,
   type AdminClientSummaryItem,
+  type AdminDashboardSeriesPoint,
   type AdminClientChangesSummaryListOut,
   type AdminClientCollectionState,
   type ClientProfile,
@@ -31,6 +32,7 @@ import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 import TariffManagerModal from './TariffManagerModal';
+import DashboardDailyChart from './DashboardDailyChart';
 import {
   RAW_SOURCE_CODES,
   formatProjectNameForDisplay,
@@ -78,6 +80,7 @@ type ClientRow = {
   averageWorkday3: number;
   averageWorkday7BySource: Record<string, number>;
   averageWorkday3BySource: Record<string, number>;
+  leadsDaily30BySource: Record<string, AdminDashboardSeriesPoint[]>;
   pendingChanges: number;
   pendingCreates: number;
   pendingBlacklistAdds: number;
@@ -137,6 +140,17 @@ function formatSummaryNumber(value: number): string {
   return rounded.toLocaleString('ru-RU', {
     maximumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
   });
+}
+
+function sumDailySeriesBySource(
+  record: Record<string, AdminDashboardSeriesPoint[]> | undefined,
+  sources: readonly string[],
+): AdminDashboardSeriesPoint[] {
+  const firstSeries = RAW_SOURCE_CODES.map((source) => record?.[source]).find((series) => Array.isArray(series) && series.length) ?? [];
+  return firstSeries.map((point, index) => ({
+    date: point.date,
+    value: sources.reduce((sum, source) => sum + Number(record?.[source]?.[index]?.value ?? 0), 0),
+  }));
 }
 
 function getCollectionBadgeClass(status: ClientDataCollectionStatus): string {
@@ -279,6 +293,7 @@ function AdminClientsScreen({
             averageWorkday3: it.averageWorkday3 ?? 0,
             averageWorkday7BySource: it.averageWorkday7BySource ?? {},
             averageWorkday3BySource: it.averageWorkday3BySource ?? {},
+            leadsDaily30BySource: it.leadsDaily30BySource ?? {},
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
             pendingCreates: createsMap[it.user.id] ?? it.pendingCreates ?? 0,
             pendingBlacklistAdds: blAddsMap[it.user.id] ?? 0,
@@ -421,6 +436,9 @@ function AdminClientsScreen({
   const selectedSummaryAverage3 = selectedClient
     ? sumSourceRecord(selectedClient.averageWorkday3BySource, selectedSummarySources)
     : 0;
+  const selectedSummaryDaily30 = selectedClient
+    ? sumDailySeriesBySource(selectedClient.leadsDaily30BySource, selectedSummarySources)
+    : [];
 
   function toggleSummarySource(source: string) {
     setSelectedSummarySources((prev) => {
@@ -919,22 +937,6 @@ function AdminClientsScreen({
     if (!selectedClient) return null;
     return (
       <>
-        <div className="client-summary-sources">
-          <div className="client-summary-sources__label">Источники</div>
-          <div className="client-summary-sources__buttons">
-            {summarySourceOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`dashboard-source${selectedSummarySources.includes(option.value) ? ' dashboard-source--active' : ''}`}
-                onClick={() => toggleSummarySource(option.value)}
-                title={`Источник ${option.label}`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="summary-grid summary-grid--priority">
           <div className="summary-card">
             <div className="sub">Среднее 7 раб. дн.</div>
@@ -980,6 +982,40 @@ function AdminClientsScreen({
           </div>
         </div>
       </>
+    );
+  }
+
+  function renderSummarySourceButtons() {
+    return (
+      <div className="client-summary-sources__buttons" aria-label="Источники">
+        {summarySourceOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={`dashboard-source${selectedSummarySources.includes(option.value) ? ' dashboard-source--active' : ''}`}
+            onClick={() => toggleSummarySource(option.value)}
+            title={`Источник ${option.label}`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderClientSummaryChart() {
+    if (!selectedClient) return null;
+    return (
+      <section className="client-summary-chart">
+        <div className="client-summary-chart__header">
+          <div>
+            <div className="client-summary__section-title">Динамика данных</div>
+            <div className="sub">Данные по дням · последние 30 дней</div>
+          </div>
+          <strong>{formatSummaryNumber(selectedSummaryDaily30.reduce((sum, point) => sum + point.value, 0))}</strong>
+        </div>
+        <DashboardDailyChart data={selectedSummaryDaily30} />
+      </section>
     );
   }
 
@@ -1255,6 +1291,7 @@ function AdminClientsScreen({
             )}
           </div>
         </div>
+        {renderClientSummaryChart()}
         {renderClientSummaryMetrics()}
         {!isAgentManager && (
           <div className="client-summary__snapshot">
@@ -1411,14 +1448,17 @@ function AdminClientsScreen({
                     ID: {selectedClient.id} · Необработанных событий: {selectedPendingTotal}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="icon-btn client-summary-modal__close"
-                  aria-label="Закрыть"
-                  onClick={closeSummaryModal}
-                >
-                  ✕
-                </button>
+                <div className="client-summary-modal__header-actions">
+                  {renderSummarySourceButtons()}
+                  <button
+                    type="button"
+                    className="icon-btn client-summary-modal__close"
+                    aria-label="Закрыть"
+                    onClick={closeSummaryModal}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
               <div className="client-summary-modal__body">
                 <div className="client-summary-card client-summary-card--modal">
@@ -2043,6 +2083,7 @@ function AdminClientsScreen({
               )}
             </div>
           </div>
+          {renderClientSummaryChart()}
           {renderClientSummaryMetrics()}
           {!isAgentManager && (
           <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>

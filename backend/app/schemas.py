@@ -498,6 +498,11 @@ class AdminClientChangesSummaryListOut(BaseModel):
 
 
 # -------- Сводка по клиентам --------
+class AdminClientSummarySeriesPoint(BaseModel):
+    date: str
+    value: int
+
+
 class AdminClientSummaryItem(BaseModel):
     user: UserInfo
     profile: Optional[ClientProfileOut] = None
@@ -512,6 +517,7 @@ class AdminClientSummaryItem(BaseModel):
     averageWorkday3: float = 0.0
     averageWorkday7BySource: Dict[str, float] = Field(default_factory=dict)
     averageWorkday3BySource: Dict[str, float] = Field(default_factory=dict)
+    leadsDaily30BySource: Dict[str, List[AdminClientSummarySeriesPoint]] = Field(default_factory=dict)
     remaining: int
     pendingChanges: int = 0
     pendingCreates: int = 0

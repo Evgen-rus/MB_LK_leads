@@ -1407,6 +1407,7 @@ export type AdminClientSummaryItem = {
   averageWorkday3?: number;
   averageWorkday7BySource?: Record<string, number>;
   averageWorkday3BySource?: Record<string, number>;
+  leadsDaily30BySource?: Record<string, AdminDashboardSeriesPoint[]>;
   remaining: number;
   pendingChanges: number;
   pendingCreates: number;

@@ -3858,6 +3858,57 @@ def admin_clients_summary(
             result[code] = round(float(total) / max(1, len(day_keys)), 2)
         return result
 
+    today_for_chart = now_msk_naive().date()
+    chart_start_day = today_for_chart - timedelta(days=29)
+    chart_start = datetime(chart_start_day.year, chart_start_day.month, chart_start_day.day)
+    chart_end_day = today_for_chart + timedelta(days=1)
+    chart_end = datetime(chart_end_day.year, chart_end_day.month, chart_end_day.day)
+    chart_day_keys: List[str] = []
+    current_chart_day = chart_start_day
+    while current_chart_day <= today_for_chart:
+        chart_day_keys.append(current_chart_day.isoformat())
+        current_chart_day = current_chart_day + timedelta(days=1)
+    chart_counts: Dict[int, Dict[str, Dict[str, int]]] = {
+        uid: {code: {} for code in source_codes}
+        for uid in users_map.keys()
+    }
+    chart_rows = db.execute(
+        select(
+            models.Project.user_id,
+            models.ProviderLead.prov_chanel,
+            func.date(ts_col),
+            func.count(),
+        )
+        .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
+        .where(ts_col >= chart_start)
+        .where(ts_col < chart_end)
+        .where(models.ProviderLead.prov_chanel.in_(source_codes))
+        .group_by(models.Project.user_id, models.ProviderLead.prov_chanel, func.date(ts_col))
+    ).all()
+    for uid, source, day, cnt in chart_rows:
+        if uid is None:
+            continue
+        source_key = str(source or "").upper()
+        if source_key not in source_codes:
+            continue
+        day_key = str(day)[:10]
+        chart_counts.setdefault(int(uid), {code: {} for code in source_codes})
+        chart_counts[int(uid)].setdefault(source_key, {})
+        chart_counts[int(uid)][source_key][day_key] = int(cnt or 0)
+
+    def chart_by_source(uid: int) -> Dict[str, List[schemas.AdminClientSummarySeriesPoint]]:
+        source_counts = chart_counts.get(int(uid), {})
+        result: Dict[str, List[schemas.AdminClientSummarySeriesPoint]] = {}
+        for code in source_codes:
+            result[code] = [
+                schemas.AdminClientSummarySeriesPoint(
+                    date=day_key,
+                    value=int(source_counts.get(code, {}).get(day_key, 0)),
+                )
+                for day_key in chart_day_keys
+            ]
+        return result
+
     pending_items = admin_list_client_changes_summary(db)
     pending_map = {item.user.id: item.pendingChanges for item in pending_items}
     pending_creates_map = {item.user.id: item.pendingCreates for item in pending_items}
@@ -3947,6 +3998,7 @@ def admin_clients_summary(
             averageWorkday3=round(sum(float(value or 0) for value in avg_3_by_source.values()), 2),
             averageWorkday7BySource=avg_7_by_source,
             averageWorkday3BySource=avg_3_by_source,
+            leadsDaily30BySource=chart_by_source(uid),
             remaining=remaining,
             pendingChanges=pending_map.get(uid, 0),
             pendingCreates=pending_creates_map.get(uid, 0),
