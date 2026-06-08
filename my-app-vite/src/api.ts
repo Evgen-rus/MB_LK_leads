@@ -1402,6 +1402,11 @@ export type AdminClientSummaryItem = {
   totalLimit: number;
   usedTotal: number;
   usedPeriod: number;
+  usedPeriodBySource?: Record<string, number>;
+  averageWorkday7?: number;
+  averageWorkday3?: number;
+  averageWorkday7BySource?: Record<string, number>;
+  averageWorkday3BySource?: Record<string, number>;
   remaining: number;
   pendingChanges: number;
   pendingCreates: number;

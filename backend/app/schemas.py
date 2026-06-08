@@ -507,6 +507,11 @@ class AdminClientSummaryItem(BaseModel):
     totalLimit: int
     usedTotal: int
     usedPeriod: int
+    usedPeriodBySource: Dict[str, int] = Field(default_factory=dict)
+    averageWorkday7: float = 0.0
+    averageWorkday3: float = 0.0
+    averageWorkday7BySource: Dict[str, float] = Field(default_factory=dict)
+    averageWorkday3BySource: Dict[str, float] = Field(default_factory=dict)
     remaining: int
     pendingChanges: int = 0
     pendingCreates: int = 0

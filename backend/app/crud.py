@@ -3785,6 +3785,79 @@ def admin_clients_summary(
         by_user[int(uid)]["used_period"] = int(cnt or 0)
 
     # Карта pending изменений
+    source_codes = ["B1", "B2", "B3", "B4"]
+    used_period_by_source: Dict[int, Dict[str, int]] = {
+        uid: {code: 0 for code in source_codes}
+        for uid in users_map.keys()
+    }
+    used_period_source_rows = db.execute(
+        select(models.Project.user_id, models.ProviderLead.prov_chanel, func.count())
+        .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
+        .where(ts_col >= start_local)
+        .where(ts_col <= end_local)
+        .where(models.ProviderLead.prov_chanel.in_(source_codes))
+        .group_by(models.Project.user_id, models.ProviderLead.prov_chanel)
+    ).all()
+    for uid, source, cnt in used_period_source_rows:
+        if uid is None:
+            continue
+        source_key = str(source or "").upper()
+        if source_key not in source_codes:
+            continue
+        used_period_by_source.setdefault(int(uid), {code: 0 for code in source_codes})
+        used_period_by_source[int(uid)][source_key] = int(cnt or 0)
+
+    def recent_workdays(count: int) -> List[datetime]:
+        result: List[datetime] = []
+        current_day = now_msk_naive().date()
+        while len(result) < count:
+            if current_day.weekday() in {1, 2, 3, 4, 5}:
+                result.append(datetime(current_day.year, current_day.month, current_day.day))
+            current_day = current_day - timedelta(days=1)
+        return result
+
+    average_days_7 = recent_workdays(7)
+    average_days_3 = average_days_7[:3]
+    average_counts: Dict[int, Dict[str, Dict[str, int]]] = {
+        uid: {code: {} for code in source_codes}
+        for uid in users_map.keys()
+    }
+    if average_days_7:
+        average_start = min(average_days_7)
+        average_end = max(average_days_7) + timedelta(days=1)
+        average_rows = db.execute(
+            select(
+                models.Project.user_id,
+                models.ProviderLead.prov_chanel,
+                func.date(ts_col),
+                func.count(),
+            )
+            .join(models.ProviderLead, models.ProviderLead.project_id == models.Project.id)
+            .where(ts_col >= average_start)
+            .where(ts_col < average_end)
+            .where(models.ProviderLead.prov_chanel.in_(source_codes))
+            .group_by(models.Project.user_id, models.ProviderLead.prov_chanel, func.date(ts_col))
+        ).all()
+        for uid, source, day, cnt in average_rows:
+            if uid is None:
+                continue
+            source_key = str(source or "").upper()
+            if source_key not in source_codes:
+                continue
+            day_key = str(day)[:10]
+            average_counts.setdefault(int(uid), {code: {} for code in source_codes})
+            average_counts[int(uid)].setdefault(source_key, {})
+            average_counts[int(uid)][source_key][day_key] = int(cnt or 0)
+
+    def average_by_source(uid: int, days: List[datetime]) -> Dict[str, float]:
+        day_keys = [day.date().isoformat() for day in days]
+        source_counts = average_counts.get(int(uid), {})
+        result: Dict[str, float] = {}
+        for code in source_codes:
+            total = sum(int(source_counts.get(code, {}).get(day_key, 0)) for day_key in day_keys)
+            result[code] = round(float(total) / max(1, len(day_keys)), 2)
+        return result
+
     pending_items = admin_list_client_changes_summary(db)
     pending_map = {item.user.id: item.pendingChanges for item in pending_items}
     pending_creates_map = {item.user.id: item.pendingCreates for item in pending_items}
@@ -3855,6 +3928,8 @@ def admin_clients_summary(
             tariff_amount = int(last_tariff.base_amount or 0) + tariff_credit - tariff_debit
         used_total = int(stats["used_total"])
         used_period = int(stats["used_period"])
+        avg_7_by_source = average_by_source(uid, average_days_7)
+        avg_3_by_source = average_by_source(uid, average_days_3)
         remaining = manual_balance - used_total
         user_row = user_row_map.get(int(uid))
         client_owner_type, client_owner_agent_id = get_client_owner_type_and_id(user_row) if user_row else ("admin", None)
@@ -3867,6 +3942,11 @@ def admin_clients_summary(
             totalLimit=int(stats["limit"]),
             usedTotal=used_total,
             usedPeriod=used_period,
+            usedPeriodBySource=used_period_by_source.get(uid, {code: 0 for code in source_codes}),
+            averageWorkday7=round(sum(float(value or 0) for value in avg_7_by_source.values()), 2),
+            averageWorkday3=round(sum(float(value or 0) for value in avg_3_by_source.values()), 2),
+            averageWorkday7BySource=avg_7_by_source,
+            averageWorkday3BySource=avg_3_by_source,
             remaining=remaining,
             pendingChanges=pending_map.get(uid, 0),
             pendingCreates=pending_creates_map.get(uid, 0),

@@ -31,7 +31,12 @@ import DateRangeCompact from './DateRangeCompact';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 import TariffManagerModal from './TariffManagerModal';
-import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
+import {
+  RAW_SOURCE_CODES,
+  formatProjectNameForDisplay,
+  getSourceCodeFilterOptions,
+  toDisplaySourceCode,
+} from '../utils/sourceCodeDisplay';
 
 type ClientProfileWithContact = ClientProfile & {
   contact?: string | null;
@@ -68,6 +73,11 @@ type ClientRow = {
   totalVolume: number;    // Использовано за период
   totalLimit: number;
   usedTotal: number;
+  usedPeriodBySource: Record<string, number>;
+  averageWorkday7: number;
+  averageWorkday3: number;
+  averageWorkday7BySource: Record<string, number>;
+  averageWorkday3BySource: Record<string, number>;
   pendingChanges: number;
   pendingCreates: number;
   pendingBlacklistAdds: number;
@@ -117,6 +127,18 @@ function formatOwnerLabel(row: ClientRow): string {
   return 'Админ';
 }
 
+function sumSourceRecord(record: Record<string, number> | undefined, sources: readonly string[]): number {
+  return sources.reduce((sum, source) => sum + Number(record?.[source] ?? 0), 0);
+}
+
+function formatSummaryNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.round(value * 100) / 100;
+  return rounded.toLocaleString('ru-RU', {
+    maximumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
+  });
+}
+
 function getCollectionBadgeClass(status: ClientDataCollectionStatus): string {
   if (status === 'Сбор активен') return 'badge badge--green';
   if (status === 'Нет проектов') return 'badge badge--info';
@@ -164,6 +186,7 @@ function AdminClientsScreen({
   });
   const [pageSize, setPageSize] = useState(25);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [selectedSummarySources, setSelectedSummarySources] = useState<string[]>(() => [...RAW_SOURCE_CODES]);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -251,6 +274,11 @@ function AdminClientsScreen({
             totalVolume: it.usedPeriod,
             totalLimit: it.totalLimit,
             usedTotal: it.usedTotal,
+            usedPeriodBySource: it.usedPeriodBySource ?? {},
+            averageWorkday7: it.averageWorkday7 ?? 0,
+            averageWorkday3: it.averageWorkday3 ?? 0,
+            averageWorkday7BySource: it.averageWorkday7BySource ?? {},
+            averageWorkday3BySource: it.averageWorkday3BySource ?? {},
             pendingChanges: pendingMap[it.user.id] ?? it.pendingChanges ?? 0,
             pendingCreates: createsMap[it.user.id] ?? it.pendingCreates ?? 0,
             pendingBlacklistAdds: blAddsMap[it.user.id] ?? 0,
@@ -383,6 +411,25 @@ function AdminClientsScreen({
     selectedClient != null
       ? (clients.find((c) => c.id === selectedClient.id)?.remaining ?? 0) + selectedClient.usedTotal
       : 0;
+  const summarySourceOptions = getSourceCodeFilterOptions(RAW_SOURCE_CODES);
+  const selectedSummaryUsedPeriod = selectedClient
+    ? sumSourceRecord(selectedClient.usedPeriodBySource, selectedSummarySources)
+    : 0;
+  const selectedSummaryAverage7 = selectedClient
+    ? sumSourceRecord(selectedClient.averageWorkday7BySource, selectedSummarySources)
+    : 0;
+  const selectedSummaryAverage3 = selectedClient
+    ? sumSourceRecord(selectedClient.averageWorkday3BySource, selectedSummarySources)
+    : 0;
+
+  function toggleSummarySource(source: string) {
+    setSelectedSummarySources((prev) => {
+      const next = prev.includes(source)
+        ? prev.filter((item) => item !== source)
+        : [...prev, source];
+      return next.length ? next : [...RAW_SOURCE_CODES];
+    });
+  }
 
   useEffect(() => {
     if (isAgentManager) {
@@ -868,6 +915,74 @@ function AdminClientsScreen({
     );
   }
 
+  function renderClientSummaryMetrics() {
+    if (!selectedClient) return null;
+    return (
+      <>
+        <div className="client-summary-sources">
+          <div className="client-summary-sources__label">Источники</div>
+          <div className="client-summary-sources__buttons">
+            {summarySourceOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`dashboard-source${selectedSummarySources.includes(option.value) ? ' dashboard-source--active' : ''}`}
+                onClick={() => toggleSummarySource(option.value)}
+                title={`Источник ${option.label}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="summary-grid summary-grid--priority">
+          <div className="summary-card">
+            <div className="sub">Среднее 7 раб. дн.</div>
+            <div className="value">{formatSummaryNumber(selectedSummaryAverage7)}</div>
+            <div className="sub">Вт-Сб, от сегодня</div>
+          </div>
+          <div className="summary-card">
+            <div className="sub">Среднее 3 раб. дн.</div>
+            <div className="value">{formatSummaryNumber(selectedSummaryAverage3)}</div>
+            <div className="sub">Вт-Сб, от сегодня</div>
+          </div>
+          <div className="summary-card summary-card--sources">
+            <div className="sub">Источники за период</div>
+            <div className="client-summary-source-breakdown">
+              {RAW_SOURCE_CODES.map((source) => (
+                <span key={source} className={selectedSummarySources.includes(source) ? 'is-active' : undefined}>
+                  {toDisplaySourceCode(source)}: {formatSummaryNumber(Number(selectedClient.usedPeriodBySource[source] ?? 0))}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="summary-grid summary-grid--secondary">
+          <div className="summary-card">
+            <div className="sub">Проектов</div>
+            <div className="value">{selectedClient.projectCount}</div>
+          </div>
+          <div className="summary-card">
+            <div className="sub">Данных за период</div>
+            <div className="value">{formatSummaryNumber(selectedSummaryUsedPeriod)}</div>
+          </div>
+          <div className="summary-card">
+            <div className="sub">Тариф</div>
+            <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
+          </div>
+          <div className="summary-card">
+            <div className="sub">Баланс</div>
+            <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>
+              Остаток: {selectedClient.remaining}
+            </div>
+            <div className="sub">Использовано: {selectedClient.usedTotal}</div>
+            <div className="sub">Начислено: {selectedAccrued}</div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   function renderClientSummaryContent() {
     if (!selectedClient) return null;
     return (
@@ -1140,28 +1255,7 @@ function AdminClientsScreen({
             )}
           </div>
         </div>
-        <div className="summary-grid">
-          <div className="summary-card">
-            <div className="sub">Проектов</div>
-            <div className="value">{selectedClient.projectCount}</div>
-          </div>
-          <div className="summary-card">
-            <div className="sub">Данных за период</div>
-            <div className="value">{selectedClient.totalVolume}</div>
-          </div>
-          <div className="summary-card">
-            <div className="sub">Тариф</div>
-            <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
-          </div>
-          <div className="summary-card">
-            <div className="sub">Баланс</div>
-            <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>
-              Остаток: {selectedClient.remaining}
-            </div>
-            <div className="sub">Использовано: {selectedClient.usedTotal}</div>
-            <div className="sub">Начислено: {selectedAccrued}</div>
-          </div>
-        </div>
+        {renderClientSummaryMetrics()}
         {!isAgentManager && (
           <div className="client-summary__snapshot">
             <button
@@ -1949,28 +2043,7 @@ function AdminClientsScreen({
               )}
             </div>
           </div>
-          <div className="summary-grid">
-            <div className="summary-card">
-              <div className="sub">Проектов</div>
-              <div className="value">{selectedClient.projectCount}</div>
-            </div>
-            <div className="summary-card">
-              <div className="sub">Данных за период</div>
-              <div className="value">{selectedClient.totalVolume}</div>
-            </div>
-            <div className="summary-card">
-              <div className="sub">Тариф</div>
-              <div className="value">{selectedClient.tariffAmount == null ? '-' : selectedClient.tariffAmount}</div>
-            </div>
-            <div className="summary-card">
-              <div className="sub">Баланс</div>
-              <div className={`value${selectedClient.financeStatus === 'Долг' ? ' value--negative' : ''}`}>
-                Остаток: {selectedClient.remaining}
-              </div>
-              <div className="sub">Использовано: {selectedClient.usedTotal}</div>
-              <div className="sub">Начислено: {selectedAccrued}</div>
-            </div>
-          </div>
+          {renderClientSummaryMetrics()}
           {!isAgentManager && (
           <div style={{ marginTop: 12, borderTop: '1px dashed #eee', paddingTop: 10 }}>
             <button
