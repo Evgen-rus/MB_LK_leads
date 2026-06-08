@@ -26,6 +26,41 @@ const API_BASE =
   // 3) Фолбэк для локальной разработки
   'http://localhost:8000';
 
+const PROJECT_PROVIDER_UNAVAILABLE_MESSAGE =
+  'Сервис поставщика временно недоступен. Создание и редактирование проектов временно не работает. Попробуйте повторить через 15 минут.';
+
+const GENERIC_SERVICE_UNAVAILABLE_MESSAGE =
+  'Сервис временно недоступен. Попробуйте повторить операцию через 15 минут.';
+
+function isGatewayUnavailableStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+function looksLikeHtmlError(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  return (
+    trimmed.startsWith('<!doctype html') ||
+    trimmed.startsWith('<html') ||
+    trimmed.includes('<title>504 gateway time-out</title>') ||
+    trimmed.includes('<h1>504 gateway time-out</h1>') ||
+    trimmed.includes('nginx')
+  );
+}
+
+function isProjectMutationRequest(path: string, init?: RequestInit): boolean {
+  const method = (init?.method || 'GET').toUpperCase();
+  if (method === 'POST' && path === '/projects') return true;
+  if (method === 'PATCH' && /^\/projects\/\d+(?:$|[?#])/.test(path)) return true;
+  if (method === 'PATCH' && /^\/admin\/projects\/\d+(?:$|[?#])/.test(path)) return true;
+  return false;
+}
+
+function unavailableMessageFor(path: string, init: RequestInit | undefined): string {
+  return isProjectMutationRequest(path, init)
+    ? PROJECT_PROVIDER_UNAVAILABLE_MESSAGE
+    : GENERIC_SERVICE_UNAVAILABLE_MESSAGE;
+}
+
 function buildAccessTokenCookie(token: string, opts?: { expires?: Date }): string {
   // Cookie используется только для скачивания файлов через window.open,
   // потому что в таком запросе нельзя передать Authorization-заголовок.
@@ -227,9 +262,16 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       const text = await res.text();
       if (text) {
         errorDetail = parseErrorDetail(text);
+        if (looksLikeHtmlError(text) && isGatewayUnavailableStatus(res.status)) {
+          errorDetail = unavailableMessageFor(path, init);
+        }
       }
     } catch {
       errorDetail = null;
+    }
+
+    if (isGatewayUnavailableStatus(res.status) && isProjectMutationRequest(path, init)) {
+      errorDetail = unavailableMessageFor(path, init);
     }
 
     if (res.status === 401) {
