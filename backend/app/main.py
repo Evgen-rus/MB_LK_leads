@@ -1186,12 +1186,14 @@ def _snapshot_limit_control_user(user: models.User, db_sess: Optional[Session] =
             client_name = str(getattr(profile, "name", "") or "").strip()
     if not client_name:
         client_name = str(getattr(user, "display_name", "") or "").strip()
+    client_display_name = client_name
     if not client_name:
         client_name = str(getattr(user, "login", "") or "").strip()
     return {
         "id": int(getattr(user, "id", 0) or 0),
         "login": str(getattr(user, "login", "") or ""),
         "client_name": client_name,
+        "client_display_name": client_display_name,
         "auto_limit_control_enabled": bool(getattr(user, "auto_limit_control_enabled", False)),
         "telegram_notifications_chat_id": str(getattr(user, "telegram_notifications_chat_id", "") or "").strip(),
         "telegram_auto_pause_enabled": bool(getattr(user, "telegram_auto_pause_enabled", False)),
@@ -1328,6 +1330,7 @@ def _build_client_tariff_signal_message(
     remaining: int,
     signal_level: int,
     usage_last_7_days: int,
+    client_name: str = "",
 ) -> str:
     builders = {
         1: _build_client_tariff_signal_1_message,
@@ -1337,7 +1340,7 @@ def _build_client_tariff_signal_message(
     builder = builders.get(signal_level)
     if not builder:
         return ""
-    return builder(remaining=remaining, usage_last_7_days=usage_last_7_days)
+    return builder(remaining=remaining, usage_last_7_days=usage_last_7_days, client_name=client_name)
 
 
 def _format_notification_number(value: int) -> str:
@@ -1361,18 +1364,25 @@ def _format_average_days_remaining(remaining: int, usage_last_7_days: int) -> st
     return f"{days} {unit}."
 
 
-def _build_client_tariff_signal_1_message(*, remaining: int, usage_last_7_days: int) -> str:
+def _format_client_tariff_signal_client_line(client_name: str) -> str:
+    normalized = str(client_name or "").strip()
+    return f"{html.escape(normalized)}\n\n" if normalized else ""
+
+
+def _build_client_tariff_signal_1_message(*, remaining: int, usage_last_7_days: int, client_name: str = "") -> str:
     return (
         "<b>Уведомление: в ближайшее время тариф закончится</b>\n\n"
+        f"{_format_client_tariff_signal_client_line(client_name)}"
         f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
         f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
         "Рекомендуем заранее запланировать продление, чтобы работа проектов продолжалась без перерывов."
     )
 
 
-def _build_client_tariff_signal_2_message(*, remaining: int, usage_last_7_days: int) -> str:
+def _build_client_tariff_signal_2_message(*, remaining: int, usage_last_7_days: int, client_name: str = "") -> str:
     return (
         "<b>Уведомление: требуется продление тарифа</b>\n\n"
+        f"{_format_client_tariff_signal_client_line(client_name)}"
         f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
         f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
         "Остаток почти исчерпан. Рекомендуем оперативно согласовать новый тариф, "
@@ -1380,9 +1390,10 @@ def _build_client_tariff_signal_2_message(*, remaining: int, usage_last_7_days: 
     )
 
 
-def _build_client_tariff_signal_3_message(*, remaining: int, usage_last_7_days: int) -> str:
+def _build_client_tariff_signal_3_message(*, remaining: int, usage_last_7_days: int, client_name: str = "") -> str:
     return (
         "<b>Уведомление: требуется продление тарифа</b>\n\n"
+        f"{_format_client_tariff_signal_client_line(client_name)}"
         f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
         f"В среднем хватит на: {_format_average_days_remaining(remaining, usage_last_7_days)}\n\n"
         "Остаток почти исчерпан. Рекомендуем оперативно согласовать новый тариф, "
@@ -1440,6 +1451,7 @@ def _sync_client_tariff_signal_alert(
             remaining=remaining,
             signal_level=next_level,
             usage_last_7_days=usage_last_7_days,
+            client_name=str(user_snapshot.get("client_display_name", "") or ""),
         )
     else:
         text = _build_admin_tariff_signal_message(
@@ -1894,7 +1906,6 @@ def _queue_client_tariff_operation_notification(
             text = (
                 f"<b>Уведомление: {html.escape(action_label)}</b>\n\n"
                 f"Клиент: {html.escape(client_name)}\n"
-                f"Тариф: #{int(tariff.id)}\n\n"
                 f"{operation_label}: {sign}{_format_notification_number(amount)} идентификаций"
             )
             normalized_comment = str(comment or "").strip()
