@@ -561,6 +561,93 @@ def _apply_daily_limit_reached_filter(
     )
 
 
+def list_daily_limit_reached_project_snapshots(
+    db: Session,
+    *,
+    start_local: datetime,
+    end_local: datetime,
+) -> List[Dict[str, Any]]:
+    ts_col = _provider_lead_ts_col()
+    counts_subq = (
+        select(
+            models.ProviderLead.project_id.label("project_id"),
+            func.count().label("received_count"),
+        )
+        .where(models.ProviderLead.project_id.is_not(None))
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(models.ProviderLead.project_id)
+        .subquery()
+    )
+    stmt = (
+        select(
+            models.Project.id.label("project_id"),
+            models.Project.user_id.label("user_id"),
+            models.Project.name.label("project_name"),
+            models.Project.data_source_code.label("data_source_code"),
+            models.Project.data_limit.label("data_limit"),
+            counts_subq.c.received_count.label("received_count"),
+            models.ClientProfile.name.label("client_profile_name"),
+            models.User.display_name.label("user_display_name"),
+            models.User.login.label("user_login"),
+        )
+        .select_from(models.Project)
+        .join(counts_subq, models.Project.id == counts_subq.c.project_id)
+        .join(models.User, models.User.id == models.Project.user_id)
+        .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.Project.user_id)
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .where(models.Project.data_limit > 0)
+        .where(counts_subq.c.received_count >= models.Project.data_limit)
+        .where(
+            or_(
+                models.Project.daily_limit_reached_notified_limit.is_(None),
+                models.Project.daily_limit_reached_notified_limit != models.Project.data_limit,
+            )
+        )
+        .order_by(models.Project.user_id.asc(), models.Project.id.asc())
+    )
+    rows = db.execute(stmt).mappings().all()
+    snapshots: List[Dict[str, Any]] = []
+    for row in rows:
+        client_name = (
+            str(row.get("client_profile_name") or "").strip()
+            or str(row.get("user_display_name") or "").strip()
+            or str(row.get("user_login") or "").strip()
+            or f"Клиент {int(row['user_id'])}"
+        )
+        snapshots.append(
+            {
+                "id": int(row["project_id"]),
+                "user_id": int(row["user_id"]),
+                "name": str(row.get("project_name") or ""),
+                "client_name": client_name,
+                "data_source_code": str(row.get("data_source_code") or ""),
+                "data_limit": int(row.get("data_limit") or 0),
+                "received_count": int(row.get("received_count") or 0),
+            }
+        )
+    return snapshots
+
+
+def mark_project_daily_limit_reached_notified(
+    db: Session,
+    *,
+    project_id: int,
+    data_limit: int,
+) -> bool:
+    project = db.get(models.Project, int(project_id))
+    if not project:
+        return False
+    if int(project.data_limit or 0) != int(data_limit or 0):
+        return False
+    project.daily_limit_reached_notified_at = now_msk_naive()
+    project.daily_limit_reached_notified_limit = int(data_limit or 0)
+    project.updated_at = now_msk()
+    db.commit()
+    return True
+
+
 def find_duplicates_in_projects(
     db: Session,
     items: List[str],
@@ -2419,6 +2506,64 @@ def _provider_lead_display_dt(lead: models.ProviderLead) -> Optional[datetime]:
     return lead.imported_at
 
 
+def project_leads_chart(
+    db: Session,
+    *,
+    project: models.Project,
+    start_local: datetime,
+    end_local: datetime,
+) -> schemas.ProjectChartOut:
+    ts_col = _provider_lead_ts_col()
+    project_id = int(project.id)
+
+    daily_stmt = (
+        select(func.date(ts_col), func.count())
+        .select_from(models.ProviderLead)
+        .where(models.ProviderLead.project_id == project_id)
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(func.date(ts_col))
+    )
+    daily_rows = db.execute(daily_stmt).all()
+    daily_map = {str(day): int(cnt or 0) for day, cnt in daily_rows}
+
+    leads_daily: List[schemas.AdminDashboardSeriesPointOut] = []
+    current_day = start_local.date()
+    end_day = end_local.date()
+    while current_day < end_day:
+        day_key = current_day.isoformat()
+        leads_daily.append(schemas.AdminDashboardSeriesPointOut(date=day_key, value=daily_map.get(day_key, 0)))
+        current_day = current_day + timedelta(days=1)
+
+    source_stmt = (
+        select(models.ProviderLead.prov_chanel, func.count())
+        .select_from(models.ProviderLead)
+        .where(models.ProviderLead.project_id == project_id)
+        .where(ts_col >= start_local)
+        .where(ts_col < end_local)
+        .group_by(models.ProviderLead.prov_chanel)
+    )
+    source_rows = db.execute(source_stmt).all()
+    source_counts = {str(source or "UNMAPPED").upper(): int(cnt or 0) for source, cnt in source_rows}
+    source_breakdown = [
+        schemas.AdminDashboardBreakdownItemOut(key=code, label=code, value=int(source_counts.get(code, 0)))
+        for code in ["B1", "B2", "B3", "B4"]
+    ]
+
+    total = sum(point.value for point in leads_daily)
+    days_count = max(1, len(leads_daily))
+    return schemas.ProjectChartOut(
+        projectId=project_id,
+        projectName=str(project.name or ""),
+        fromDate=start_local.date().isoformat(),
+        toDate=(end_local.date() - timedelta(days=1)).isoformat(),
+        total=int(total),
+        averageDaily=round(float(total) / days_count, 2),
+        leadsDaily=leads_daily,
+        sourceBreakdown=source_breakdown,
+    )
+
+
 def resolve_project_by_name_for_provider_lead(
     db: Session,
     project_name: str,
@@ -4014,6 +4159,8 @@ def admin_dashboard(
                 leadsYesterday=0,
                 leads7Days=0,
                 leads30Days=0,
+                averageWorkday7=0.0,
+                averageWorkday3=0.0,
                 unlinkedLeads=0,
                 operationErrors=0,
             ),
@@ -4103,6 +4250,27 @@ def admin_dashboard(
     ]
 
     operator_projects: List[schemas.AdminDashboardAttentionProjectOut] = []
+    blocked_project_ids = [
+        int(project.id)
+        for project in project_rows
+        if project.status == PROJECT_STATUS_OPERATOR_BLOCK
+    ]
+    detected_at_by_project: Dict[int, str] = {}
+    if blocked_project_ids:
+        audit_rows = db.execute(
+            select(models.AuditEvent)
+            .where(models.AuditEvent.project_id.in_(blocked_project_ids))
+            .where(models.AuditEvent.action == "update")
+            .order_by(models.AuditEvent.created_at.desc(), models.AuditEvent.id.desc())
+        ).scalars().all()
+        for event in audit_rows:
+            pid = int(event.project_id) if event.project_id is not None else None
+            if pid is None or pid in detected_at_by_project:
+                continue
+            after = event.after if isinstance(event.after, dict) else {}
+            if str(after.get("status") or "") != PROJECT_STATUS_OPERATOR_BLOCK:
+                continue
+            detected_at_by_project[pid] = event.created_at.strftime("%Y-%m-%d %H:%M:%S") if event.created_at else ""
     for project in project_rows:
         if project.status != PROJECT_STATUS_OPERATOR_BLOCK:
             continue
@@ -4114,9 +4282,9 @@ def admin_dashboard(
                 clientId=uid,
                 clientName=(client_name(uid) if uid is not None else None),
                 source=str(project.data_source_code or ""),
+                detectedAt=detected_at_by_project.get(int(project.id)) or None,
             )
         )
-    operator_projects = operator_projects[:10]
 
     def leads_count(start: datetime, end: datetime) -> int:
         stmt = (
@@ -4137,6 +4305,26 @@ def admin_dashboard(
     leads_yesterday = leads_count(yesterday_start, yesterday_end)
     leads_7 = leads_count(last7_start, today_end)
     leads_30 = leads_count(last30_start, today_end)
+
+    def recent_workdays(count: int) -> List[datetime]:
+        result: List[datetime] = []
+        current_day = today_start.date()
+        while len(result) < count:
+            # Python weekday: Tuesday=1 ... Saturday=5.
+            if current_day.weekday() in {1, 2, 3, 4, 5}:
+                result.append(datetime(current_day.year, current_day.month, current_day.day))
+            current_day = current_day - timedelta(days=1)
+        return result
+
+    def average_for_workdays(count: int) -> float:
+        days = recent_workdays(count)
+        total = 0
+        for day in days:
+            total += leads_count(day, day + timedelta(days=1))
+        return round(float(total) / max(1, len(days)), 2)
+
+    average_workday_7 = average_for_workdays(7)
+    average_workday_3 = average_for_workdays(3)
 
     period_lead_stmt = (
         select(models.Project.user_id, func.count())
@@ -4398,6 +4586,8 @@ def admin_dashboard(
             leadsYesterday=leads_yesterday,
             leads7Days=leads_7,
             leads30Days=leads_30,
+            averageWorkday7=average_workday_7,
+            averageWorkday3=average_workday_3,
             unlinkedLeads=unlinked_total,
             operationErrors=failed_total,
         ),

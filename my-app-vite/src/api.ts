@@ -904,6 +904,10 @@ export async function updateAdminProject(id: number, payload: AdminProjectUpdate
   });
 }
 
+export async function deleteAdminProject(id: number): Promise<void> {
+  await http(`/admin/projects/${id}`, { method: 'DELETE' });
+}
+
 export async function runAdminOperatorBlockCheck(): Promise<OperatorBlockCheckResp> {
   return http<OperatorBlockCheckResp>('/admin/operator-block-check/run', { method: 'POST' });
 }
@@ -922,6 +926,8 @@ export type AdminDashboardSummary = {
   leadsYesterday: number;
   leads7Days: number;
   leads30Days: number;
+  averageWorkday7: number;
+  averageWorkday3: number;
   unlinkedLeads: number;
   operationErrors: number;
 };
@@ -949,6 +955,7 @@ export type AdminDashboardAttentionProject = {
   clientId?: number | null;
   clientName?: string | null;
   source: string;
+  detectedAt?: string | null;
 };
 
 export type AdminDashboardUnlinkedLeads = {
@@ -996,6 +1003,17 @@ export type AdminDashboardCharts = {
   leadsDaily: AdminDashboardSeriesPoint[];
   sourceBreakdown: AdminDashboardBreakdownItem[];
   projectStatuses: AdminDashboardBreakdownItem[];
+};
+
+export type ProjectChart = {
+  projectId: number;
+  projectName: string;
+  fromDate: string;
+  toDate: string;
+  total: number;
+  averageDaily: number;
+  leadsDaily: AdminDashboardSeriesPoint[];
+  sourceBreakdown: AdminDashboardBreakdownItem[];
 };
 
 export type AdminDashboardRankingItem = {
@@ -1095,6 +1113,28 @@ export async function fetchClientDashboard(params: {
   });
   if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
   return http<ClientDashboard>(`/dashboard?${q.toString()}`);
+}
+
+export async function fetchProjectChart(
+  projectId: number,
+  params: { fromDate: string; toDate: string },
+): Promise<ProjectChart> {
+  const q = new URLSearchParams({
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+  return http<ProjectChart>(`/projects/${projectId}/chart?${q.toString()}`);
+}
+
+export async function fetchAdminProjectChart(
+  projectId: number,
+  params: { fromDate: string; toDate: string },
+): Promise<ProjectChart> {
+  const q = new URLSearchParams({
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+  return http<ProjectChart>(`/admin/projects/${projectId}/chart?${q.toString()}`);
 }
 
 export async function fetchAdminClientCollectionState(clientId: number): Promise<AdminClientCollectionState> {

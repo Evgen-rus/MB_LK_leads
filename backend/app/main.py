@@ -77,6 +77,35 @@ def _csv_export_line(values: List[Any]) -> str:
     return buf.getvalue()
 
 
+def _parse_date_range_in_settings_tz(
+    from_date: Optional[str],
+    to_date: Optional[str],
+) -> tuple[datetime, datetime]:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        tz = ZoneInfo(settings["SHEETS_TZ"])
+    except ZoneInfoNotFoundError:
+        tz = timezone(timedelta(hours=3))
+
+    today = datetime.now(tz).date()
+    from_value = from_date or today.isoformat()
+    to_value = to_date or from_value
+    try:
+        y, m, d = [int(x) for x in from_value.split("-")]
+        y2, m2, d2 = [int(x) for x in to_value.split("-")]
+        start_day = datetime(y, m, d, 0, 0, 0, tzinfo=tz).date()
+        end_day = datetime(y2, m2, d2, 0, 0, 0, tzinfo=tz).date()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD") from exc
+    if end_day < start_day:
+        start_day, end_day = end_day, start_day
+    start_local = datetime(start_day.year, start_day.month, start_day.day, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    end_exclusive = end_day + timedelta(days=1)
+    end_local = datetime(end_exclusive.year, end_exclusive.month, end_exclusive.day, 0, 0, 0, tzinfo=tz).replace(tzinfo=None)
+    return start_local, end_local
+
+
 def get_settings():
     return {
         "DATABASE_URL": os.getenv("DATABASE_URL", "sqlite:///./app.db"),
@@ -486,6 +515,10 @@ def _ensure_project_provider_leads_grace_columns() -> None:
             conn.execute(text("ALTER TABLE projects ADD COLUMN deleted_at TIMESTAMP"))
         if "provider_leads_grace_until" not in columns:
             conn.execute(text("ALTER TABLE projects ADD COLUMN provider_leads_grace_until TIMESTAMP"))
+        if "daily_limit_reached_notified_at" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN daily_limit_reached_notified_at TIMESTAMP"))
+        if "daily_limit_reached_notified_limit" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN daily_limit_reached_notified_limit INTEGER"))
 
 
 _ensure_project_provider_leads_grace_columns()
@@ -1007,6 +1040,8 @@ def run_limit_control_loop(SessionLocal, sleep_seconds: int = 300) -> None:
                 tariff_signal_client_ids = crud.list_client_ids_for_tariff_signal_checks(s)
                 for client_id in tariff_signal_client_ids:
                     _run_tariff_signal_check_for_client(s, client_id=int(client_id))
+
+                _run_project_daily_limit_notifications(s)
 
                 client_ids = crud.list_clients_with_auto_limit_control(s)
                 for client_id in client_ids:
@@ -1552,6 +1587,63 @@ def _resolve_notification_chat_id(use_client_route: bool, client_chat_id: str) -
     if use_client_route and client_chat_id:
         return client_chat_id
     return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _build_project_daily_limit_reached_message(project: dict) -> str:
+    project_name = _project_name_for_display(str(project.get("name") or ""))
+    source = _source_code_for_display(str(project.get("data_source_code") or ""))
+    return (
+        "<b>Проект достиг 100% дневного лимита</b>\n\n"
+        f"Клиент: <code>{html.escape(str(project.get('client_name') or ''))}</code>\n"
+        f"Проект: <code>{html.escape(project_name)}</code>\n"
+        f"Канал: <b>{html.escape(source)}</b>\n"
+        f"Лимит: <b>{html.escape(str(int(project.get('data_limit') or 0)))}</b> идентификаций\n"
+        f"Получено: <b>{html.escape(str(int(project.get('received_count') or 0)))}</b> идентификаций\n\n"
+        "Нужно проверить проект и при необходимости продлить лимит или остановить сбор."
+    )
+
+
+def _run_project_daily_limit_notifications(db_sess: Session) -> int:
+    chat_id = str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not chat_id:
+        return 0
+
+    start_local, end_local = _parse_date_range_in_settings_tz(None, None)
+    projects = crud.list_daily_limit_reached_project_snapshots(
+        db_sess,
+        start_local=start_local,
+        end_local=end_local,
+    )
+    queued = 0
+    for project in projects:
+        result = notifications.send_system_notification(
+            db_sess=db_sess,
+            chat_id=chat_id,
+            text=_build_project_daily_limit_reached_message(project),
+            parse_mode="HTML",
+            metadata={
+                "kind": "project_daily_limit_reached",
+                "client_id": project.get("user_id"),
+                "project_id": project.get("id"),
+                "data_limit": project.get("data_limit"),
+                "received_count": project.get("received_count"),
+            },
+        )
+        if not result.delivered:
+            if result.reason != "telegram_disabled":
+                logging.getLogger("app").warning(
+                    "Failed to send daily limit reached notification for project_id=%s reason=%s",
+                    project.get("id"),
+                    result.reason,
+                )
+            continue
+        if crud.mark_project_daily_limit_reached_notified(
+            db_sess,
+            project_id=int(project["id"]),
+            data_limit=int(project["data_limit"] or 0),
+        ):
+            queued += 1
+    return queued
 
 
 def _provider_project_is_disabled(detail: dict) -> bool:
@@ -2862,6 +2954,26 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+@app.get("/projects/{project_id}/chart", response_model=schemas.ProjectChartOut)
+def project_chart(
+    project_id: int,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    project = db_sess.get(models.Project, int(project_id))
+    if not project or int(project.user_id or 0) != int(current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    start_local, end_local = _parse_date_range_in_settings_tz(fromDate, toDate)
+    return crud.project_leads_chart(
+        db_sess,
+        project=project,
+        start_local=start_local,
+        end_local=end_local,
+    )
 
 
 @app.patch("/projects/{project_id}", response_model=schemas.UpdateProjectOut)
@@ -4556,6 +4668,24 @@ def admin_project_history(
     return history
 
 
+@app.get("/admin/projects/{project_id}/chart", response_model=schemas.ProjectChartOut)
+def admin_project_chart(
+    project_id: int,
+    fromDate: Optional[str] = None,
+    toDate: Optional[str] = None,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    project = _ensure_manager_project_access(db_sess, current_admin, project_id)
+    start_local, end_local = _parse_date_range_in_settings_tz(fromDate, toDate)
+    return crud.project_leads_chart(
+        db_sess,
+        project=project,
+        start_local=start_local,
+        end_local=end_local,
+    )
+
+
 @app.patch("/admin/projects/{project_id}", response_model=schemas.AdminUpdateProjectOut)
 def admin_update_project(
     project_id: int,
@@ -4567,6 +4697,8 @@ def admin_update_project(
     project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
     operation = "delete" if payload.status == "Удалён" else "update"
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    if operation == "delete" and not crud.is_admin_user(current_manager):
+        raise HTTPException(status_code=403, detail="Удаление проекта доступно только администратору.")
     skip_provider_sync = _should_skip_provider_sync_for_status_change(project_row, payload.status)
     if project_row.status == "Удалён":
         if owner_user_id:
@@ -4815,17 +4947,17 @@ def admin_update_project(
 @app.delete("/admin/projects/{project_id}")
 def admin_delete_project(
     project_id: int,
-    current_manager: models.User = Depends(require_manager),
+    current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
     """Удалить проект (для админа)."""
-    project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
+    project_row = _ensure_manager_project_access(db_sess, current_admin, project_id)
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
     if not project_row.provider_project_id:
         if owner_user_id:
             _record_failed_project_operation(
                 user_id=owner_user_id,
-                actor_user_id=current_manager.id,
+                actor_user_id=current_admin.id,
                 operation="delete",
                 project_id=project_id,
                 project_name=project_row.name,
@@ -4844,7 +4976,7 @@ def admin_delete_project(
         if owner_user_id:
             _record_failed_project_operation(
                 user_id=owner_user_id,
-                actor_user_id=current_manager.id,
+                actor_user_id=current_admin.id,
                 operation="delete",
                 project_id=project_id,
                 project_name=project_snapshot.name,
@@ -4856,7 +4988,7 @@ def admin_delete_project(
         raise HTTPException(status_code=exc.status_code, detail=detail)
 
     with SessionLocal() as write_sess:  # type: Session
-        ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_manager.id)
+        ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
         if not ok:
             raise HTTPException(status_code=404, detail="Project not found")
     _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])

@@ -1,7 +1,8 @@
 // Экран «Проекты клиента» для админа.
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
+  deleteAdminProject,
   fetchAdminProjects,
   updateAdminProject,
   type AdminProject,
@@ -14,13 +15,23 @@ import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
+import BulkEditDaysModal from './BulkEditDaysModal';
+import BulkEditLimitModal from './BulkEditLimitModal';
+import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkEditContactsModal';
+import BulkEditRegionsModal from './BulkEditRegionsModal';
+import BulkEditStatusModal from './BulkEditStatusModal';
+import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
+import { runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
+import type { ProjectMutableStatus } from '../types/project';
 import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
+import ProjectChartModal from './ProjectChartModal';
 
 type AdminClientProjectsProps = {
   clientId: number;
   clientName: string;
   fromDate: string;
   toDate: string;
+  managerRole: 'admin' | 'agent';
   // Количество необработанных изменений по каждому проекту (projectId -> count)
   projectChanges?: Record<number, number>;
   // Количество необработанных созданий по каждому проекту (projectId -> count)
@@ -34,6 +45,7 @@ type AdminClientProjectsProps = {
   }) => void;
 };
 type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора';
+type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'delete';
 
 // Для режима "за всё время" нам всё равно нужен диапазон,
 // потому что /admin/leads и /leads требуют fromDate/toDate. Даем максимально широкий интервал.
@@ -70,7 +82,7 @@ function parseProjectDays(project: AdminProject): Day[] {
   return days.length > 0 ? days : ALL_DAYS;
 }
 
-function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLeads }: AdminClientProjectsProps) {
+function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRole, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -87,8 +99,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [activeBulkAction, setActiveBulkAction] = useState<BulkActionType | null>(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
+  const [chartFor, setChartFor] = useState<AdminProject | null>(null);
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const canUseAdminProjectActions = managerRole === 'admin';
 
   async function load(
     p = page,
@@ -150,6 +169,17 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const tableColSpan = canUseAdminProjectActions ? 13 : 12;
+  const selectableRows = useMemo(
+    () => rows.filter((row) => row.status !== 'Удалён' && row.status !== OPERATOR_BLOCK_STATUS),
+    [rows],
+  );
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.includes(row.id)),
+    [rows, selectedIds],
+  );
+  const allSelectableOnPageSelected =
+    selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
 
   const canEditProject = (project: AdminProject) => {
     void project;
@@ -159,6 +189,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
   useEffect(() => {
     setOpenProjectMenuId(null);
     setProjectMenuAnchorRect(null);
+    setSelectedIds([]);
+    setBulkMenuOpen(false);
   }, [rows]);
 
   useEffect(() => {
@@ -234,6 +266,265 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
     );
   }
 
+  function toggleRowSelection(projectId: number) {
+    if (!canUseAdminProjectActions) return;
+    setSelectedIds((prev) =>
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId],
+    );
+  }
+
+  function toggleSelectAllOnPage() {
+    if (!canUseAdminProjectActions) return;
+    setSelectedIds((prev) => {
+      const selectableIds = selectableRows.map((row) => row.id);
+      if (allSelectableOnPageSelected) {
+        return prev.filter((id) => !selectableIds.includes(id));
+      }
+      const union = new Set([...prev, ...selectableIds]);
+      return Array.from(union);
+    });
+  }
+
+  function openBulkAction(action: BulkActionType) {
+    setBulkMenuOpen(false);
+    setActiveBulkAction(action);
+  }
+
+  function closeBulkAction() {
+    if (bulkSaving) return;
+    setActiveBulkAction(null);
+    setBulkProgress(null);
+  }
+
+  function buildAdminUpdatePayload(project: AdminProject, patch: Partial<AdminProjectUpdate>): AdminProjectUpdate {
+    return {
+      name: project.name,
+      tag: project.tag,
+      status: patch.status ?? (project.status === OPERATOR_BLOCK_STATUS ? 'Активен' : project.status),
+      deliveryStatus: project.deliveryStatus,
+      dataLimit: project.dataLimit,
+      regionMode: project.regionMode || 'include',
+      regions: project.regions || [],
+      sites: project.sites || undefined,
+      phones: project.phones || undefined,
+      smsSenderName: project.smsSenderName || undefined,
+      days: parseProjectDays(project),
+      ...patch,
+    };
+  }
+
+  function formatBulkItemNames(items: Array<{ id: number; name: string }>, max = 5): string {
+    const preview = items
+      .slice(0, max)
+      .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
+      .join(', ');
+    if (items.length <= max) return preview;
+    return `${preview}, ... и еще ${items.length - max}`;
+  }
+
+  function showBulkResultToast(result: {
+    updatedCount: number;
+    skippedCount: number;
+    failedCount: number;
+    warnings: string[];
+    errors: string[];
+    updatedItems: Array<{ id: number; name: string }>;
+    skippedItems: Array<{ id: number; name: string }>;
+    failedItems: Array<{ id: number; name: string; reason: string }>;
+    skippedReasonLabel?: string;
+  }) {
+    const lines: string[] = [`Обновлено: ${result.updatedCount}.`];
+    if (result.updatedItems.length > 0) {
+      lines.push(`Применено к: ${formatBulkItemNames(result.updatedItems)}.`);
+    }
+    if (result.skippedCount > 0) {
+      lines.push(
+        result.skippedReasonLabel
+          ? `Пропущено: ${result.skippedCount} (${result.skippedReasonLabel}).`
+          : `Пропущено: ${result.skippedCount}.`,
+      );
+    }
+    if (result.skippedItems.length > 0) {
+      lines.push(`Не применено к: ${formatBulkItemNames(result.skippedItems)}.`);
+    }
+    if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
+    if (result.failedItems.length > 0) {
+      const failedPreview = result.failedItems
+        .slice(0, 3)
+        .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
+        .join('\n');
+      lines.push(`Ошибки по проектам:\n${failedPreview}`);
+      if (result.failedItems.length > 3) {
+        lines.push(`... и еще ${result.failedItems.length - 3} проект(ов) с ошибкой.`);
+      }
+    }
+    if (result.warnings.length > 0) lines.push(`Предупреждений: ${result.warnings.length}.`);
+    if (result.errors.length > 0 && result.failedItems.length === 0) {
+      const preview = result.errors.slice(0, 3).join('\n');
+      lines.push(preview);
+      if (result.errors.length > 3) {
+        lines.push(`... и еще ${result.errors.length - 3}`);
+      }
+    }
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
+  }
+
+  async function runBulkAction(
+    buildPatch: (project: AdminProject) => Partial<AdminProjectUpdate> | null,
+    options?: { skippedReasonLabel?: string },
+  ) {
+    if (!canUseAdminProjectActions || selectedRows.length === 0) return;
+    setBulkSaving(true);
+    setBulkProgress(null);
+    try {
+      const result = await runBulkProjectUpdatesSequential<AdminProject, AdminProjectUpdate>({
+        projects: selectedRows,
+        buildPatch,
+        buildPayload: buildAdminUpdatePayload,
+        updateProjectFn: updateAdminProject,
+        onProgress: setBulkProgress,
+      });
+      setRows((prev) => {
+        const updatedMap = new Map(result.updated.map((item) => [item.id, item]));
+        return prev.map((item) => updatedMap.get(item.id) ?? item);
+      });
+      showBulkResultToast({
+        updatedCount: result.updated.length,
+        skippedCount: result.skipped,
+        failedCount: result.failed,
+        warnings: result.warnings,
+        errors: result.errors,
+        updatedItems: result.updatedItems,
+        skippedItems: result.skippedItems,
+        failedItems: result.failedItems,
+        skippedReasonLabel: options?.skippedReasonLabel,
+      });
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      setSelectedIds([]);
+      setActiveBulkAction(null);
+      setBulkProgress(null);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function runBulkDeleteAction() {
+    if (!canUseAdminProjectActions || selectedRows.length === 0) return;
+
+    const deletedItems: Array<{ id: number; name: string }> = [];
+    const failedItems: Array<{ id: number; name: string; reason: string }> = [];
+    let done = 0;
+    let failed = 0;
+
+    setBulkSaving(true);
+    setBulkProgress({
+      total: selectedRows.length,
+      done,
+      updated: deletedItems.length,
+      skipped: 0,
+      failed,
+    });
+
+    try {
+      for (const project of selectedRows) {
+        try {
+          await deleteAdminProject(project.id);
+          deletedItems.push({ id: project.id, name: project.name });
+        } catch (err: unknown) {
+          failed += 1;
+          const reason = err instanceof Error && err.message
+            ? formatSourceTextForDisplay(err.message)
+            : 'Ошибка удаления';
+          failedItems.push({
+            id: project.id,
+            name: formatProjectNameForDisplay(project.name),
+            reason,
+          });
+        } finally {
+          done += 1;
+          setBulkProgress({
+            total: selectedRows.length,
+            done,
+            updated: deletedItems.length,
+            skipped: 0,
+            failed,
+          });
+        }
+      }
+
+      const lines: string[] = [`Удалено: ${deletedItems.length}.`];
+      if (deletedItems.length > 0) {
+        lines.push(`Удалены: ${formatBulkItemNames(deletedItems)}.`);
+      }
+      if (failedItems.length > 0) {
+        lines.push(`Ошибок: ${failedItems.length}.`);
+        const failedPreview = failedItems
+          .slice(0, 3)
+          .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
+          .join('\n');
+        lines.push(`Ошибки по проектам:\n${failedPreview}`);
+        if (failedItems.length > 3) {
+          lines.push(`... и еще ${failedItems.length - 3} проект(ов) с ошибкой.`);
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      setSelectedIds([]);
+      setActiveBulkAction(null);
+      setBulkProgress(null);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function handleSoftDelete(project: AdminProject) {
+    if (!canUseAdminProjectActions || project.status === 'Удалён') return;
+    if (!window.confirm(`Удалить проект ${formatProjectNameForDisplay(project.name)} (id: ${project.id}) навсегда?`)) return;
+    try {
+      await deleteAdminProject(project.id);
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+    } catch (err: unknown) {
+      console.error(err);
+      const message = err instanceof Error && err.message
+        ? err.message
+        : 'Не удалось удалить проект. Попробуйте позже.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
+    }
+  }
+
+  async function handleBulkDaysSubmit(days: Day[]) {
+    await runBulkAction(() => ({ days }));
+  }
+
+  async function handleBulkLimitSubmit(limit: number) {
+    await runBulkAction(() => ({ dataLimit: limit }));
+  }
+
+  async function handleBulkRegionsSubmit(payload: { regions: string[]; regionMode: 'include' | 'exclude' }) {
+    await runBulkAction((project) => {
+      const currentMode = project.regionMode || 'include';
+      if (currentMode !== payload.regionMode) return null;
+      return { regions: payload.regions, regionMode: payload.regionMode };
+    }, { skippedReasonLabel: 'другой режим регионов' });
+  }
+
+  async function handleBulkStatusSubmit(status: Exclude<ProjectMutableStatus, 'Удалён'>) {
+    await runBulkAction(() => ({ status }));
+  }
+
+  async function handleBulkContactsSubmit(payload: BulkEditContactsModalSubmit) {
+    await runBulkAction((project) => {
+      const collectionSource = project.collectionSource;
+      if (payload.target === 'calls') {
+        if (!['Звонки', 'Ретрозвонки', 'Пересечение'].includes(collectionSource)) return null;
+        return { phones: payload.values };
+      }
+      if (!['Сайты', 'Ретросайты', 'Пересечение'].includes(collectionSource)) return null;
+      return { sites: payload.values };
+    }, { skippedReasonLabel: 'другой источник сбора' });
+  }
+
   return (
     <div className="table-card">
       <div className="table-toolbar">
@@ -295,6 +586,66 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
           </span>
         </div>
       </div>
+      {canUseAdminProjectActions && selectedRows.length > 0 && (
+        <div
+          style={{
+            margin: '0 12px 12px',
+            padding: '10px 12px',
+            border: '1px solid #ece7ff',
+            background: '#f7f4ff',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            position: 'relative',
+          }}
+        >
+          <span className="badge badge--gray">Выбрано: {selectedRows.length}</span>
+          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkSaving}>
+            Снять выделение
+          </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn btn--primary"
+              onClick={() => setBulkMenuOpen((prev) => !prev)}
+              disabled={bulkSaving}
+            >
+              Массовые действия
+            </button>
+            {bulkMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  minWidth: 230,
+                  zIndex: 20,
+                  border: '1px solid #e7e7ef',
+                  borderRadius: 10,
+                  background: '#fff',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.12)',
+                  padding: 6,
+                  display: 'grid',
+                  gap: 2,
+                }}
+              >
+                <button className="btn btn--ghost" onClick={() => openBulkAction('days')}>Дни получения данных</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('limit')}>Лимит</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('contacts')}>Телефоны/сайты конкурентов</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('regions')}>Регионы</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('status')}>Статус проекта</button>
+                <button className="btn btn--ghost" onClick={() => openBulkAction('delete')}>Удалить проекты</button>
+              </div>
+            )}
+          </div>
+          {bulkSaving && bulkProgress && (
+            <span className="sub" style={{ color: '#6b4ce6' }}>
+              Обработка: {bulkProgress.done}/{bulkProgress.total}
+            </span>
+          )}
+        </div>
+      )}
       <div className="table-footer table-footer--top">
         Показано {rows.length} из {total}
         <div className="spacer" />
@@ -346,7 +697,24 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <table className="table">
           <thead>
             <tr>
-              {renderSortableHeader('ID', 'id', { width: 20 }, 'table-sticky-cell table-sticky-cell--lead')}
+              {canUseAdminProjectActions && (
+                <th className="table-sticky-cell table-sticky-cell--check">
+                  <input
+                    type="checkbox"
+                    checked={allSelectableOnPageSelected}
+                    onChange={toggleSelectAllOnPage}
+                    title="Выбрать все доступные проекты на странице"
+                  />
+                </th>
+              )}
+              {renderSortableHeader(
+                'ID',
+                'id',
+                { width: 20 },
+                canUseAdminProjectActions
+                  ? 'table-sticky-cell table-sticky-cell--after-check'
+                  : 'table-sticky-cell table-sticky-cell--lead',
+              )}
               {renderSortableHeader('Название', 'name')}
               {renderSortableHeader('Источник', 'dataSourceCode')}
               {renderSortableHeader('Статус проекта', 'status')}
@@ -363,21 +731,21 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
           <tbody>
             {error && (
               <tr>
-                <td colSpan={12} style={{ color: '#d00', padding: 16 }}>
+                <td colSpan={tableColSpan} style={{ color: '#d00', padding: 16 }}>
                   {error}
                 </td>
               </tr>
             )}
             {!error && loading && (
               <tr>
-                <td colSpan={12} className="muted" style={{ padding: 16 }}>
+                <td colSpan={tableColSpan} className="muted" style={{ padding: 16 }}>
                   Загрузка проектов…
                 </td>
               </tr>
             )}
             {!error && !loading && rows.length === 0 && (
               <tr>
-                <td colSpan={12} className="muted" style={{ padding: 16 }}>
+                <td colSpan={tableColSpan} className="muted" style={{ padding: 16 }}>
                   Проекты клиента не найдены.
                 </td>
               </tr>
@@ -386,7 +754,24 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
               !loading &&
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="muted table-sticky-cell table-sticky-cell--lead">{row.id}</td>
+                  {canUseAdminProjectActions && (
+                    <td className="table-sticky-cell table-sticky-cell--check">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(row.id)}
+                        disabled={row.status === 'Удалён' || row.status === OPERATOR_BLOCK_STATUS || bulkSaving}
+                        title={
+                          row.status === 'Удалён'
+                            ? 'Удалённые проекты нельзя редактировать'
+                            : row.status === OPERATOR_BLOCK_STATUS
+                              ? 'Проекты с блокировкой оператора не участвуют в массовых действиях'
+                              : 'Выбрать проект'
+                        }
+                        onChange={() => toggleRowSelection(row.id)}
+                      />
+                    </td>
+                  )}
+                  <td className={`muted table-sticky-cell ${canUseAdminProjectActions ? 'table-sticky-cell--after-check' : 'table-sticky-cell--lead'}`}>{row.id}</td>
                   <td
                     style={{ cursor: 'pointer', position: 'relative' }}
                     title="Открыть меню действий проекта"
@@ -429,6 +814,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           disabled: !onOpenLeads,
                           title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
                         },
+                        ...(canUseAdminProjectActions
+                          ? [
+                              {
+                                key: 'chart',
+                                label: 'График данных',
+                                onSelect: () => setChartFor(row),
+                              },
+                            ]
+                          : []),
                         {
                           key: 'settings',
                           label: 'Настройки проекта',
@@ -442,6 +836,23 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           label: 'История изменений',
                           onSelect: () => setHistoryFor(row),
                         },
+                        ...(canUseAdminProjectActions
+                          ? [
+                              {
+                                key: 'delete',
+                                label: 'Удаление проекта',
+                                onSelect: () => {
+                                  if (row.status === 'Удалён') return;
+                                  handleSoftDelete(row);
+                                },
+                                disabled: row.status === 'Удалён',
+                                danger: true,
+                                title: row.status === 'Удалён'
+                                  ? 'Проект уже удален'
+                                  : 'Удалить проект навсегда',
+                              },
+                            ]
+                          : []),
                       ]}
                     />
                   )}
@@ -527,6 +938,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                       const canEdit = canEditProject(row);
                       return (
                         <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
+                          {canUseAdminProjectActions && (
+                            <button
+                              className="icon-btn"
+                              title="Показать график данных"
+                              onClick={() => setChartFor(row)}
+                            >
+                              📈
+                            </button>
+                          )}
                           <button
                             className="icon-btn"
                             title={
@@ -548,6 +968,18 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
                           >
                             📜
                           </button>
+                          {canUseAdminProjectActions && (
+                            <button
+                              className="icon-btn"
+                              title={row.status === 'Удалён' ? 'Проект уже удален' : 'Удалить проект навсегда'}
+                              onClick={() => {
+                                if (row.status === 'Удалён') return;
+                                handleSoftDelete(row);
+                              }}
+                            >
+                              🗑️
+                            </button>
+                          )}
                         </div>
                       );
                     })()}
@@ -609,6 +1041,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
         <AdminEditProjectModal
           project={editing}
           readOnly={editingReadOnly}
+          allowDelete={canUseAdminProjectActions}
           onClose={() => {
             setEditing(null);
             setEditingReadOnly(false);
@@ -625,6 +1058,70 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, onOpenLea
           projectId={historyFor.id}
           projectName={historyFor.name}
           onClose={() => setHistoryFor(null)}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'days' && (
+        <BulkEditDaysModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkDaysSubmit}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'limit' && (
+        <BulkEditLimitModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkLimitSubmit}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'contacts' && (
+        <BulkEditContactsModal
+          selectedProjects={selectedRows}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkContactsSubmit}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'regions' && (
+        <BulkEditRegionsModal
+          selectedProjects={selectedRows}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkRegionsSubmit}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'status' && (
+        <BulkEditStatusModal
+          selectedCount={selectedRows.length}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={handleBulkStatusSubmit}
+        />
+      )}
+      {canUseAdminProjectActions && activeBulkAction === 'delete' && (
+        <BulkDeleteProjectsModal
+          selectedProjects={selectedRows}
+          submitting={bulkSaving}
+          progress={bulkProgress}
+          onClose={closeBulkAction}
+          onSubmit={runBulkDeleteAction}
+        />
+      )}
+      {canUseAdminProjectActions && chartFor && (
+        <ProjectChartModal
+          projectId={chartFor.id}
+          projectName={chartFor.name}
+          fromDate={fromDate}
+          toDate={toDate}
+          mode="admin"
+          onClose={() => setChartFor(null)}
         />
       )}
     </div>

@@ -1733,6 +1733,11 @@ button.dashboard-alert {
   border-radius: inherit;
   background: #6f63ff;
 }
+.project-chart-modal__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
 .dashboard-ranking {
   display: grid;
   gap: 8px;
@@ -1798,6 +1803,11 @@ button.dashboard-alert {
     max-height: none;
     overflow-y: visible;
     padding-right: 0;
+  }
+}
+@media (max-width: 720px) {
+  .project-chart-modal__metrics {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 640px) {

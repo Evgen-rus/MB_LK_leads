@@ -4,11 +4,13 @@ import {
   fetchAdminUsers,
   type AdminDashboard as AdminDashboardData,
   type AdminDashboardAttentionClient,
+  type AdminDashboardAttentionProject,
   type AdminDashboardBreakdownItem,
   type AdminDashboardRankingItem,
   type UserInfo,
 } from '../api';
 import {
+  formatProjectNameForDisplay,
   getSourceCodeFilterOptions,
   RAW_SOURCE_CODES,
   toDisplaySourceCode,
@@ -177,12 +179,119 @@ function RankingList({
   );
 }
 
+function BlockedProjectsModal({
+  items,
+  onClose,
+  onOpenProject,
+}: {
+  items: AdminDashboardAttentionProject[];
+  onClose: () => void;
+  onOpenProject?: (clientId: number, clientName: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: 16,
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="modal-card"
+        style={{
+          background: '#fff',
+          borderRadius: 8,
+          width: '100%',
+          maxWidth: 860,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.2)',
+        }}
+      >
+        <div style={{ padding: 20, borderBottom: '1px solid #eee' }}>
+          <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>Проекты в блокировке</div>
+        </div>
+        <div style={{ padding: 20 }}>
+          {items.length === 0 ? (
+            <div className="dashboard-empty">Проектов в блокировке нет.</div>
+          ) : (
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Клиент</th>
+                    <th>Проект</th>
+                    <th>Канал</th>
+                    <th>Статус</th>
+                    <th>Дата обнаружения</th>
+                    <th>Действие</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.projectId}>
+                      <td>{item.clientName || '—'}</td>
+                      <td>{formatProjectNameForDisplay(item.projectName)}</td>
+                      <td>{toDisplaySourceCode(item.source)}</td>
+                      <td>
+                        <span className="badge badge--red">Блокировка оператора</span>
+                      </td>
+                      <td>{item.detectedAt || '—'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn--secondary"
+                          disabled={!item.clientId}
+                          onClick={() => {
+                            if (!item.clientId) return;
+                            onOpenProject?.(item.clientId, item.clientName || 'Клиент');
+                            onClose();
+                          }}
+                        >
+                          Перейти в проекты
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            background: '#fff',
+            padding: '12px 20px',
+            borderTop: '1px solid #eee',
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <button type="button" className="btn" onClick={onClose}>
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivity }: AdminDashboardProps) {
   const [filters, setFilters] = useState<DashboardFilters>(() => readSavedFilters());
   const [clients, setClients] = useState<UserInfo[]>([]);
   const [data, setData] = useState<AdminDashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blockedModalOpen, setBlockedModalOpen] = useState(false);
 
   useEffect(() => {
     fetchAdminUsers({ includeAgents: true })
@@ -336,6 +445,16 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
               <small>получено данных</small>
             </div>
             <div className="dashboard-kpi">
+              <span>Среднее 7 раб. дн.</span>
+              <strong>{formatNumber(data.summary.averageWorkday7)}</strong>
+              <small>Вт-Сб, от сегодня</small>
+            </div>
+            <div className="dashboard-kpi">
+              <span>Среднее 3 раб. дн.</span>
+              <strong>{formatNumber(data.summary.averageWorkday3)}</strong>
+              <small>Вт-Сб, от сегодня</small>
+            </div>
+            <div className="dashboard-kpi">
               <span>Остаток</span>
               <strong>{formatNumber(data.summary.totalRemaining)}</strong>
               <small>{formatNumber(data.attention.criticalClients.length)} критичных</small>
@@ -372,10 +491,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
                 <button
                   type="button"
                   className="dashboard-alert dashboard-alert--blocked"
-                  onClick={() => {
-                    const first = data.attention.operatorBlockedProjects[0];
-                    if (first?.clientId) onOpenProject?.(first.clientId, first.clientName || 'Клиент');
-                  }}
+                  onClick={() => setBlockedModalOpen(true)}
                 >
                   <span>Блокировки</span>
                   <strong>{formatNumber(data.summary.operatorBlockedProjects)}</strong>
@@ -480,6 +596,13 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
             <RankingList items={data.rankings.topClientsByActiveProjects} emptyText="Активных проектов нет." onOpenClient={onOpenClient} />
           </section>
         </>
+      )}
+      {blockedModalOpen && data && (
+        <BlockedProjectsModal
+          items={data.attention.operatorBlockedProjects}
+          onClose={() => setBlockedModalOpen(false)}
+          onOpenProject={onOpenProject}
+        />
       )}
     </div>
   );

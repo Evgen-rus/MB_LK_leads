@@ -24,6 +24,7 @@ type AdminEditProjectModalProps = {
   onClose: () => void;
   onSubmit?: (updated: AdminProject) => void;
   readOnly?: boolean;
+  allowDelete?: boolean;
 };
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -34,7 +35,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return formatSourceTextForDisplay(fallback);
 }
 
-function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }: AdminEditProjectModalProps) {
+function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, allowDelete = true }: AdminEditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(formatProjectNameForDisplay(project.name));
@@ -476,9 +477,12 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false }:
                 {status === 'Блокировка оператора' && (
                   <option value="Блокировка оператора" disabled>Блокировка оператора</option>
                 )}
+                {status === 'Удалён' && !allowDelete && (
+                  <option value="Удалён" disabled>Удалён</option>
+                )}
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
-                <option value="Удалён">Удалён</option>
+                {allowDelete && <option value="Удалён">Удалён</option>}
               </select>
             </label>
 

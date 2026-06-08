@@ -693,6 +693,7 @@ function App() {
             ) : view === 'projects' ? (
               isManager ? (
                 <AdminProjectsScreen
+                  managerRole={isAdmin ? 'admin' : 'agent'}
                   initialClientId={adminProjectsClientId ?? undefined}
                   initialClientName={adminProjectsClientName ?? undefined}
                   initialFocus={adminProjectsFocus}

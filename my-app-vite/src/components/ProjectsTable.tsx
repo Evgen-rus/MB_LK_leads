@@ -13,6 +13,7 @@ import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
 import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
+import ProjectChartModal from './ProjectChartModal';
 import {
   RAW_SOURCE_CODES,
   formatProjectNameForDisplay,
@@ -94,6 +95,7 @@ function ProjectsTable({
   const [activeBulkAction, setActiveBulkAction] = useState<BulkActionType | null>(null);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
+  const [chartFor, setChartFor] = useState<Project | null>(null);
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -776,6 +778,11 @@ function ProjectsTable({
                         title: !onOpenLeads ? 'Переход к идентификациям недоступен' : undefined,
                       },
                       {
+                        key: 'chart',
+                        label: 'График данных',
+                        onSelect: () => setChartFor(row),
+                      },
+                      {
                         key: 'settings',
                         label: 'Настройки проекта',
                         onSelect: () => onEdit?.(row),
@@ -891,6 +898,13 @@ function ProjectsTable({
                 <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
                   <button
                     className="icon-btn"
+                    title="Показать график данных"
+                    onClick={() => setChartFor(row)}
+                  >
+                    📈
+                  </button>
+                  <button
+                    className="icon-btn"
                     title="История изменений"
                     onClick={() => onHistory?.(row)}
                   >
@@ -988,6 +1002,16 @@ function ProjectsTable({
           progress={bulkProgress}
           onClose={closeBulkAction}
           onSubmit={runBulkDeleteAction}
+        />
+      )}
+      {chartFor && (
+        <ProjectChartModal
+          projectId={chartFor.id}
+          projectName={chartFor.name}
+          fromDate={fromDate}
+          toDate={toDate}
+          mode="client"
+          onClose={() => setChartFor(null)}
         />
       )}
     </div>

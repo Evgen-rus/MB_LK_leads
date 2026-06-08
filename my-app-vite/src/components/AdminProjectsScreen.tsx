@@ -29,6 +29,7 @@ import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 export type AdminProjectsFocus = 'projects' | 'changes' | 'blacklist-changes' | null;
 
 export type AdminProjectsScreenProps = {
+  managerRole: 'admin' | 'agent';
   // Опционально: предварительно выбранный клиент (например, при переходе из экрана «Клиенты»)
   initialClientId?: number | null;
   initialClientName?: string | null;
@@ -68,6 +69,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
 }
 
 function AdminProjectsScreen({
+  managerRole,
   initialClientId = null,
   initialClientName = null,
   initialFocus = 'projects',
@@ -387,6 +389,7 @@ function AdminProjectsScreen({
               toDate={range.to}
               projectChanges={projectChanges}
               projectCreates={projectCreates}
+              managerRole={managerRole}
               onOpenLeads={onOpenLeads}
             />
           )}

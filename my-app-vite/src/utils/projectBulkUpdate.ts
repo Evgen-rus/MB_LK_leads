@@ -57,8 +57,8 @@ export type BulkProgress = {
   failed: number;
 };
 
-export type BulkRunResult = {
-  updated: Project[];
+export type BulkRunResult<TProject extends Project = Project> = {
+  updated: TProject[];
   skipped: number;
   failed: number;
   warnings: string[];
@@ -68,17 +68,36 @@ export type BulkRunResult = {
   failedItems: Array<{ id: number; name: string; reason: string }>;
 };
 
-type RunBulkProjectUpdatesParams = {
-  projects: Project[];
-  buildPatch: (project: Project) => Partial<ProjectUpdatePayload> | null;
+type ProjectUpdateResponse<TProject extends Project> = {
+  project: TProject;
+  warning?: string | null;
+};
+
+type RunBulkProjectUpdatesParams<
+  TProject extends Project = Project,
+  TPayload extends ProjectUpdatePayload = ProjectUpdatePayload,
+> = {
+  projects: TProject[];
+  buildPatch: (project: TProject) => Partial<TPayload> | null;
+  buildPayload?: (project: TProject, patch: Partial<TPayload>) => TPayload;
+  updateProjectFn?: (projectId: number, payload: TPayload) => Promise<ProjectUpdateResponse<TProject>>;
   onProgress?: (progress: BulkProgress) => void;
 };
 
-export async function runBulkProjectUpdatesSequential(
-  params: RunBulkProjectUpdatesParams,
-): Promise<BulkRunResult> {
-  const { projects, buildPatch, onProgress } = params;
-  const updatedProjects: Project[] = [];
+export async function runBulkProjectUpdatesSequential<
+  TProject extends Project = Project,
+  TPayload extends ProjectUpdatePayload = ProjectUpdatePayload,
+>(
+  params: RunBulkProjectUpdatesParams<TProject, TPayload>,
+): Promise<BulkRunResult<TProject>> {
+  const {
+    projects,
+    buildPatch,
+    buildPayload = (project, patch) => buildUpdatePayloadFromProject(project, patch as Partial<ProjectUpdatePayload>) as TPayload,
+    updateProjectFn = updateProject as unknown as (projectId: number, payload: TPayload) => Promise<ProjectUpdateResponse<TProject>>,
+    onProgress,
+  } = params;
+  const updatedProjects: TProject[] = [];
   const warnings: string[] = [];
   const errors: string[] = [];
   const updatedItems: Array<{ id: number; name: string }> = [];
@@ -115,8 +134,8 @@ export async function runBulkProjectUpdatesSequential(
     }
 
     try {
-      const payload = buildUpdatePayloadFromProject(project, patch);
-      const response = await updateProject(project.id, payload);
+      const payload = buildPayload(project, patch);
+      const response = await updateProjectFn(project.id, payload);
       updatedProjects.push(response.project);
       updatedItems.push({ id: response.project.id, name: formatProjectNameForDisplay(response.project.name) });
       if (response.warning) warnings.push(`Проект ${project.id} (${formatProjectNameForDisplay(project.name)}): ${formatSourceTextForDisplay(response.warning)}`);

@@ -560,6 +560,8 @@ class AdminDashboardSummaryOut(BaseModel):
     leadsYesterday: int
     leads7Days: int
     leads30Days: int
+    averageWorkday7: float = 0.0
+    averageWorkday3: float = 0.0
     unlinkedLeads: int
     operationErrors: int
 
@@ -587,6 +589,7 @@ class AdminDashboardAttentionProjectOut(BaseModel):
     clientId: Optional[int] = None
     clientName: Optional[str] = None
     source: str
+    detectedAt: Optional[str] = None
 
 
 class AdminDashboardUnlinkedLeadsOut(BaseModel):
@@ -625,6 +628,17 @@ class AdminDashboardChartsOut(BaseModel):
     leadsDaily: List[AdminDashboardSeriesPointOut]
     sourceBreakdown: List[AdminDashboardBreakdownItemOut]
     projectStatuses: List[AdminDashboardBreakdownItemOut]
+
+
+class ProjectChartOut(BaseModel):
+    projectId: int
+    projectName: str
+    fromDate: str
+    toDate: str
+    total: int
+    averageDaily: float
+    leadsDaily: List[AdminDashboardSeriesPointOut]
+    sourceBreakdown: List[AdminDashboardBreakdownItemOut]
 
 
 class AdminDashboardClientRankingItemOut(BaseModel):
