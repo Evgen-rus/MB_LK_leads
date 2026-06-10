@@ -14,7 +14,7 @@ Last updated: 2026-06-08
 - БД: PostgreSQL (основной контур), SQLite (fallback локально)
 - Интеграции: Prostats, Telegram, Google Sheets
 - **Админский дашборд:** отдельный раздел только для админа; агрегаты считаются на backend через `GET /admin/dashboard`, frontend показывает KPI, риски, графики и рейтинги без загрузки больших таблиц.
-- **Сводка клиента в «Клиенты»:** агрегаты по источникам, средним за рабочие дни и графику за 30 дней приходят с backend через `GET /admin/clients/summary`; frontend только фильтрует готовые поля по A/B/C/D.
+- **Сводка клиента в «Клиенты»:** агрегаты по источникам, средним за рабочие дни и графику за 30 дней приходят с manager-endpoint `GET /admin/clients/summary`; endpoint доступен админу и агенту, агент получает только своих клиентов, frontend только фильтрует готовые поля по A/B/C/D.
 - **Графики проектов:** `GET /projects/{id}/chart` и `GET /admin/projects/{id}/chart`; UI — `ProjectChartModal.tsx` + общий `DashboardDailyChart.tsx` (админ и клиентский ЛК).
 - **Дневной лимит проекта:** периодическая проверка в фоновом цикле; при 100% лимита за сегодня — Telegram в общий чат; дедуп по `daily_limit_reached_notified_limit`.
 - **Импорт лидов провайдера из XLSX:** админский UI (двухшаговый preview → commit) и служебный CLI; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
@@ -29,8 +29,8 @@ Last updated: 2026-06-08
 - Модели БД: `backend/app/models.py`
 - Схемы API: `backend/app/schemas.py`
 - Front API client: `my-app-vite/src/api.ts`
-- Админский дашборд: backend `crud.admin_dashboard` + endpoint `GET /admin/dashboard`; frontend `my-app-vite/src/components/AdminDashboard.tsx`
-- Сводка клиентов manager-зоны: backend `crud.admin_clients_summary` + endpoint `GET /admin/clients/summary`; frontend `my-app-vite/src/components/AdminClientsScreen.tsx`
+- Админский дашборд: backend `crud.admin_dashboard` + admin-only endpoint `GET /admin/dashboard`; frontend `my-app-vite/src/components/AdminDashboard.tsx`
+- Сводка клиентов manager-зоны: backend `crud.admin_clients_summary` + manager endpoint `GET /admin/clients/summary`; frontend `my-app-vite/src/components/AdminClientsScreen.tsx`
 - График проекта: backend `crud.project_leads_chart` + endpoints `GET /projects/{project_id}/chart`, `GET /admin/projects/{project_id}/chart`; frontend `my-app-vite/src/components/ProjectChartModal.tsx`
 - Запуск/команды: `README.md`
 
@@ -47,7 +47,7 @@ Last updated: 2026-06-08
 9. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`). Для `provider_leads` операционная дата в ЛК — `imported_at` (момент записи в БД); `prov_created_at` хранит время события у провайдера и используется для webhook/XLSX/служебных скриптов, но не для фильтров, отчётов, дашборда и расхода за период.
 10. Вебхук провайдера не запускает автоконтроль лимитов по событию: лимит-контроль работает только периодическим фоновым циклом.
 11. **Админский импорт лидов из XLSX:** запись в БД только через **commit** по существующему `previewId`; сессия preview привязана к **тому же** админу, что и commit; при строках без однозначного проекта или с **неоднозначным** матчингом проекта commit **запрещён**; при записи учитываются дубли по **`vid`** (как у вебхука). Парсинг `prov_chanel` / `prov_source` и привязка к проекту согласованы с вебхук-потоком.
-12. Роли в системе теперь три: `admin`, `agent`, `client`. Админ по-прежнему определяется как `user.id == 1`, но server-side доступ дальше ограничивается ещё и ролью.
+12. Роли в системе теперь три: `admin`, `agent`, `client`. Для admin-only доступа source-of-truth остаётся `user.id == 1` через `require_admin`; роль `admin` хранится для общей модели ролей и совместимости, но сама по себе не даёт admin-only доступ.
 13. Клиент может быть либо прямым клиентом админа, либо клиентом агента через `users.owner_agent_id`.
 14. Агентский баланс больше не является отдельным учётным контуром. В manager-зоне он считается как сумма текущих `remaining` всех клиентов, закреплённых за агентом через `users.owner_agent_id`.
 15. Агент может работать только в рамках своих клиентов: управлять проектами, лидами, отчётами, чёрным списком и смотреть тарифы своих клиентов в режиме read-only. Изменение баланса и тарифов клиентов выполняет только админ.
@@ -60,7 +60,7 @@ Last updated: 2026-06-08
 22. Проекты в статусе `Блокировка оператора` не должны участвовать в автоматических массовых операциях и автоконтроле лимитов как активные проекты. Ручное включение идёт через обычный update в Prostats.
 23. В manager-таблицах клиентов (`Клиенты`, раскрытые клиенты агента) нет единого “статуса клиента”. Статусы разделены на три независимых блока: `Сбор данных` — автоматический статус по неудалённым проектам (`Нет проектов` / `Сбор активен` / `На паузе`); `Остаток` — число и финансовый бейдж по сигналам последнего тарифа (`Дожим 1/2/3` / `Долг`, без бейджа если тарифа нет); `Работа` — ручной статус менеджера из `client_profiles.work_status`, который не меняется автоматикой.
 24. `user.id == 1` — служебный админ и не должен попадать в клиентские summary/итоги вкладки `Клиенты`, даже если в старой БД у него остался `users.role = client`.
-25. Админский дашборд доступен только настоящему админу через `require_admin`, не агенту. “Полученные данные” и “расход” на дашборде считаются только по привязанным `provider_leads` (`project_id IS NOT NULL`); непривязанные лиды показываются отдельным операционным риском. Дашборд не должен выполнять actions изменения данных: только обзор и переходы в существующие разделы.
+25. Админский дашборд доступен только настоящему админу через `require_admin` (`user.id == 1`), не агенту. “Полученные данные” и “расход” на дашборде считаются только по привязанным `provider_leads` (`project_id IS NOT NULL`); непривязанные лиды показываются отдельным операционным риском. Дашборд не должен выполнять actions изменения данных: только обзор и переходы в существующие разделы.
 26. Подробная диагностика дублей сайтов/телефонов (`duplicateDiagnostics`) является **admin-only**. Клиенты и агенты не должны получать её в истории/карточках событий, потому что поле может содержать чужие проекты и клиентов. Клиентский UX по ошибкам дублей остаётся обобщённым.
 27. **Дневной лимит проекта** (`data_limit`) и **остаток тарифа клиента** (`remaining` / автопауза) — разные контуры. Фильтр `dailyLimitReached` и Telegram «проект достиг 100% дневного лимита» смотрят на `count(provider_leads) >= project.data_limit` за период/день, а не на `remaining` клиента.
 28. Уведомления о 100% дневного лимита проекта работают только в **периодическом фоновом цикле**, не в webhook. Повтор не шлётся для того же `data_limit`; при изменении лимита уведомление может сработать снова (`daily_limit_reached_notified_limit`).
@@ -279,7 +279,7 @@ Frontend:
 
 ### K) Admin Client Summary
 
-Вкладка `Клиенты` (manager-зона) вызывает `GET /admin/clients/summary` -> backend auth/manager-role -> `crud.admin_clients_summary` -> frontend показывает карточку выбранного клиента.
+Вкладка `Клиенты` (manager-зона) вызывает `GET /admin/clients/summary` -> backend auth/manager-role -> `crud.admin_clients_summary` -> для агента ответ фильтруется до клиентов из `users.owner_agent_id` -> frontend показывает карточку выбранного клиента.
 
 Что приходит с backend (на клиента):
 - `usedPeriodBySource` — данные за выбранный период по raw-источникам `B1..B4`;
@@ -315,7 +315,7 @@ Frontend:
 - Статусы клиентов в manager-таблицах (`Сбор данных`, финансовый бейдж в `Остаток`, ручная `Работа`): backend `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminAgentsScreen.tsx` + `my-app-vite/src/App.css`
 - Агентский уровень доступа и владение клиентами: `backend/app/models.py` + `backend/app/schemas.py` + `backend/app/crud.py` + `backend/app/main.py`; фронт: `my-app-vite/src/App.tsx` + `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/AdminBalance.tsx` + `my-app-vite/src/components/Sidebar.tsx`
 - Админский дашборд (KPI, риски, графики, рейтинги): backend `backend/app/schemas.py` + `backend/app/crud.py` + endpoint в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminDashboard.tsx` + `my-app-vite/src/App.tsx` + `my-app-vite/src/components/Sidebar.tsx` + `my-app-vite/src/App.css`
-- Сводка клиента по источникам / средним / графику 30 дней: backend `backend/app/schemas.py` + `backend/app/crud.py` (`admin_clients_summary`) + `GET /admin/clients/summary` в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/DashboardDailyChart.tsx` + `my-app-vite/src/App.css`
+- Сводка клиента по источникам / средним / графику 30 дней: backend `backend/app/schemas.py` + `backend/app/crud.py` (`admin_clients_summary`) + manager endpoint `GET /admin/clients/summary` в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/DashboardDailyChart.tsx` + `my-app-vite/src/App.css`
 - График проекта: backend `backend/app/crud.py` (`project_leads_chart`) + endpoints в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/ProjectChartModal.tsx` + `ProjectsTable.tsx` + `AdminClientProjects.tsx`
 - Дневной лимит проекта (фильтр списка + Telegram): backend `backend/app/models.py` + `backend/app/crud.py` (`list_daily_limit_reached_*`, `_apply_daily_limit_reached_filter`) + `backend/app/main.py` (`_run_project_daily_limit_notifications`); frontend `dailyLimitReached` в `AdminClientProjects.tsx`
 - Понятные ошибки недоступности сервиса на frontend: `my-app-vite/src/api.ts`

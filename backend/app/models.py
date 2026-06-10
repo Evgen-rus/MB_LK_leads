@@ -295,7 +295,8 @@ class ClientBalanceOperation(Base):
 class ClientTariff(Base):
     """
     Отдельный тариф клиента.
-    Пока это независимый от старого баланса учетный слой.
+    Тарифные операции зеркалятся в ClientBalanceOperation, поэтому тариф влияет
+    на remaining, лимит-контроль и автопаузу.
     """
     __tablename__ = "client_tariffs"
 
