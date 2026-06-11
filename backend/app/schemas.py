@@ -13,8 +13,9 @@ Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
 ProjectMutableStatus = Literal['Активен', 'На паузе', 'Удалён']
 ProjectStatus = Literal['Активен', 'На паузе', 'Удалён', 'Блокировка оператора']
 DeliveryStatus = Literal['Активна', 'На модерации', 'Отключена']
-CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение']
+CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение','Пиксель']
 DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
+LeadSource = Literal['provider', 'pixel']
 UserRole = Literal['admin', 'client', 'agent']
 ClientWorkStatus = Literal['В работе', 'Ждём оплату', 'Ждём данные', 'На согласовании', 'Пауза по клиенту', 'Неактивен']
 ClientDataCollectionStatus = Literal['Нет проектов', 'Сбор активен', 'На паузе']
@@ -278,6 +279,9 @@ class LeadOut(BaseModel):
     phone: str
     utm_campaign: Optional[str] = None
     source: Optional[str] = None
+    lead_source: LeadSource = "provider"
+    pixel_url: Optional[str] = None
+    collection_source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -298,6 +302,9 @@ class AdminLeadOut(BaseModel):
     phone: str
     utm_campaign: Optional[str] = None
     source: Optional[str] = None
+    lead_source: LeadSource = "provider"
+    pixel_url: Optional[str] = None
+    collection_source: Optional[str] = None
     project_name: Optional[str] = None
     user: UserInfo
 

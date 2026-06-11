@@ -229,7 +229,8 @@ class ProviderLead(Base):
     __tablename__ = "provider_leads"
 
     id = Column(Integer, primary_key=True)
-    vid = Column(String, nullable=False, unique=True, index=True)
+    vid = Column(String, nullable=False, index=True)
+    lead_source = Column(String, nullable=False, default="provider", index=True)
     phone = Column(String, nullable=True)
     phones_raw = Column(JSON, nullable=True)
     project_name = Column(String, nullable=True)
@@ -237,6 +238,7 @@ class ProviderLead(Base):
     prov_chanel = Column(String, nullable=True, index=True)
     prov_source = Column(String, nullable=True, index=True)
     subdomain = Column(String, nullable=True, index=True)
+    pixel_url = Column(String, nullable=True)
     imported_at = Column(DateTime, nullable=False, default=now_msk, index=True)
     project_id = Column(Integer, nullable=True, index=True)
 

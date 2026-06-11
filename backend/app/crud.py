@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import string
+from urllib.parse import urlparse
 
 from sqlalchemy import String, cast, select, func, or_, and_, case
 from sqlalchemy.orm import Session
@@ -23,6 +24,9 @@ from . import models, schemas, auth
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
 PROJECT_NAME_UNAVAILABLE_MESSAGE = "Название проекта не доступно. Выберите другое название."
 PROJECT_STATUS_OPERATOR_BLOCK = "Блокировка оператора"
+COLLECTION_SOURCE_PIXEL = "Пиксель"
+LEAD_SOURCE_PROVIDER = "provider"
+LEAD_SOURCE_PIXEL = "pixel"
 POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
@@ -451,6 +455,33 @@ def _apply_tariff_balance_effect(
 
 def _join_days(days: Iterable[str]) -> str:
     return " ".join([f"{d}." for d in days])
+
+
+def is_pixel_collection_source(value: Optional[str]) -> bool:
+    return str(value or "").strip() == COLLECTION_SOURCE_PIXEL
+
+
+def normalize_pixel_domain(value: Optional[str]) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"//{raw}", scheme="")
+    host = parsed.hostname or raw.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    host = str(host or "").strip().lower().rstrip(".")
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def pixel_domain_from_project_name(value: Optional[str]) -> str:
+    return normalize_pixel_domain(value)
+
+
+def pixel_project_domain(project: models.Project) -> str:
+    sites = getattr(project, "sites", None) or []
+    if isinstance(sites, list) and sites:
+        return normalize_pixel_domain(str(sites[0] or ""))
+    return pixel_domain_from_project_name(getattr(project, "name", None))
 
 
 def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]], sms_sender_name: Optional[str]) -> int:
@@ -2226,15 +2257,25 @@ def build_project_model_from_create_item(
     sites = item.sites or None
     phones = item.phones or None
     sms = item.smsSenderName or None
+    collection_source = str(item.collectionSource or "").strip()
+    data_source_code = item.dataSourceCode
+    provider_project_id = str(provider_id).strip() if provider_id is not None and str(provider_id).strip() else None
+    if is_pixel_collection_source(collection_source):
+        domain = normalize_pixel_domain((sites or [None])[0] if sites else item.name)
+        sites = [domain] if domain else None
+        phones = None
+        sms = None
+        data_source_code = "UNMAPPED"  # type: ignore[assignment]
+        provider_project_id = None
     return models.Project(
         user_id=user_id,
-        provider_project_id=(str(provider_id).strip() if provider_id is not None and str(provider_id).strip() else None),
+        provider_project_id=provider_project_id,
         name=item.name,
         tag=item.tag or item.name,
         client_internal_prefix=normalize_client_internal_prefix(client_internal_prefix),
         unique_name_applied=bool(unique_name_applied),
-        collection_source=item.collectionSource,
-        data_source_code=item.dataSourceCode,
+        collection_source=collection_source,
+        data_source_code=data_source_code,
         region_mode=item.regionMode,
         regions=item.regions or None,
         sites=sites,
@@ -2391,6 +2432,7 @@ def update_project(
         return None
     before = _snapshot_project(p)
 
+    is_pixel = is_pixel_collection_source(getattr(p, "collection_source", None))
     p.name = update.name
     p.tag = update.tag or update.name
     p.status = update.status
@@ -2398,9 +2440,14 @@ def update_project(
     p.data_limit = update.dataLimit
     p.region_mode = update.regionMode
     p.regions = update.regions or None
-    p.sites = update.sites or None
-    p.phones = update.phones or None
-    p.sms_sender_name = update.smsSenderName or None
+    if is_pixel:
+        # Домен Пиксель-проекта фиксируется при создании и не меняется при переименовании.
+        p.phones = None
+        p.sms_sender_name = None
+    else:
+        p.sites = update.sites or None
+        p.phones = update.phones or None
+        p.sms_sender_name = update.smsSenderName or None
     p.days_received = _join_days(update.days)
     p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)
     p.updated_at = now_msk()
@@ -2493,7 +2540,22 @@ def get_provider_lead_by_vid(db: Session, vid: str) -> Optional[models.ProviderL
     if not vid:
         return None
     return db.execute(
-        select(models.ProviderLead).where(models.ProviderLead.vid == vid)
+        select(models.ProviderLead).where(
+            models.ProviderLead.vid == vid,
+            models.ProviderLead.lead_source == LEAD_SOURCE_PROVIDER,
+        )
+    ).scalar_one_or_none()
+
+
+def get_pixel_lead_by_vid_phone(db: Session, vid: str, phone: str) -> Optional[models.ProviderLead]:
+    if not vid or not phone:
+        return None
+    return db.execute(
+        select(models.ProviderLead).where(
+            models.ProviderLead.vid == vid,
+            models.ProviderLead.phone == phone,
+            models.ProviderLead.lead_source == LEAD_SOURCE_PIXEL,
+        )
     ).scalar_one_or_none()
 
 
@@ -2601,6 +2663,42 @@ def resolve_project_by_name_for_provider_lead(
     return None, "not_found", []
 
 
+def resolve_pixel_project_by_domain(
+    db: Session,
+    domain: str,
+) -> Tuple[Optional[models.Project], Literal["not_found", "matched", "ambiguous"], List[models.Project]]:
+    normalized = normalize_pixel_domain(domain)
+    if not normalized:
+        return None, "not_found", []
+
+    rows = db.execute(
+        select(models.Project)
+        .where(models.Project.collection_source == COLLECTION_SOURCE_PIXEL)
+        .order_by(models.Project.id.asc())
+    ).scalars().all()
+
+    active_rows = [
+        project
+        for project in rows
+        if str(project.status or "") != "Удалён" and pixel_project_domain(project) == normalized
+    ]
+    if len(active_rows) == 1:
+        return active_rows[0], "matched", active_rows
+    if len(active_rows) > 1:
+        return None, "ambiguous", active_rows
+
+    deleted_rows = [
+        project
+        for project in rows
+        if str(project.status or "") == "Удалён" and pixel_project_domain(project) == normalized
+    ]
+    if len(deleted_rows) == 1:
+        return deleted_rows[0], "matched", deleted_rows
+    if len(deleted_rows) > 1:
+        return None, "ambiguous", deleted_rows
+    return None, "not_found", []
+
+
 def get_project_id_by_name(db: Session, project_name: str) -> Optional[int]:
     project_id, _status, _rows = resolve_project_by_name_for_provider_lead(db, project_name)
     return project_id
@@ -2618,9 +2716,12 @@ def create_provider_lead(
     prov_source: Optional[str],
     subdomain: Optional[str],
     project_id: Optional[int],
+    lead_source: str = LEAD_SOURCE_PROVIDER,
+    pixel_url: Optional[str] = None,
 ) -> models.ProviderLead:
     row = models.ProviderLead(
         vid=vid,
+        lead_source=lead_source,
         phone=phone,
         phones_raw=phones_raw,
         project_name=project_name,
@@ -2628,6 +2729,7 @@ def create_provider_lead(
         prov_chanel=prov_chanel,
         prov_source=prov_source,
         subdomain=subdomain,
+        pixel_url=pixel_url,
         project_id=project_id,
         imported_at=now_msk(),
     )
@@ -2635,6 +2737,31 @@ def create_provider_lead(
     db.commit()
     db.refresh(row)
     return row
+
+
+def create_pixel_provider_lead(
+    db: Session,
+    *,
+    vid: str,
+    phone: str,
+    project: models.Project,
+    prov_created_at: Optional[datetime],
+    pixel_url: Optional[str],
+) -> models.ProviderLead:
+    return create_provider_lead(
+        db,
+        vid=vid,
+        phone=phone,
+        phones_raw=[phone],
+        project_name=str(project.name or ""),
+        prov_created_at=prov_created_at,
+        prov_chanel=None,
+        prov_source=None,
+        subdomain=None,
+        project_id=int(project.id),
+        lead_source=LEAD_SOURCE_PIXEL,
+        pixel_url=pixel_url,
+    )
 
 
 def _first_subdomain_value(subdomain: Optional[str]) -> Optional[str]:
@@ -2683,7 +2810,11 @@ def _provider_lead_to_export_row(
         "source": lead.prov_chanel,
         "imported_at": display_dt.strftime("%Y-%m-%d %H:%M:%S") if display_dt else "",
         "phone": phone_value or "",
-        "utm_campaign": _build_utm_campaign(lead.prov_source, lead.subdomain),
+        "utm_campaign": (
+            lead.pixel_url
+            if getattr(lead, "lead_source", LEAD_SOURCE_PROVIDER) == LEAD_SOURCE_PIXEL
+            else _build_utm_campaign(lead.prov_source, lead.subdomain)
+        ),
         "user_login": user_info.login if user_info else "",
         "user_name": (user_info.name or user_info.login) if user_info else "",
         "user_id": user_info.id if user_info else 0,
@@ -2889,8 +3020,11 @@ def list_provider_leads_paginated(
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=phone_value or "",
-            utm_campaign=_build_utm_campaign(r.prov_source, r.subdomain),
+            utm_campaign=(r.pixel_url if getattr(r, "lead_source", LEAD_SOURCE_PROVIDER) == LEAD_SOURCE_PIXEL else _build_utm_campaign(r.prov_source, r.subdomain)),
             source=r.prov_chanel,
+            lead_source=getattr(r, "lead_source", LEAD_SOURCE_PROVIDER) or LEAD_SOURCE_PROVIDER,
+            pixel_url=getattr(r, "pixel_url", None),
+            collection_source=(project.collection_source if project is not None else None),
         ))
     return schemas.LeadsListOut(items=items, total=total)
 
@@ -6317,8 +6451,11 @@ def admin_list_provider_leads(
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=r.imported_at.strftime('%Y-%m-%d %H:%M:%S') if r.imported_at else "",
             phone=phone_value or "",
-            utm_campaign=_build_utm_campaign(r.prov_source, r.subdomain),
+            utm_campaign=(r.pixel_url if getattr(r, "lead_source", LEAD_SOURCE_PROVIDER) == LEAD_SOURCE_PIXEL else _build_utm_campaign(r.prov_source, r.subdomain)),
             source=r.prov_chanel,
+            lead_source=getattr(r, "lead_source", LEAD_SOURCE_PROVIDER) or LEAD_SOURCE_PROVIDER,
+            pixel_url=getattr(r, "pixel_url", None),
+            collection_source=None,
             project_name=r.project_name,
             user=user_info,
         ))
@@ -6376,8 +6513,11 @@ def admin_list_all_leads(
             created_at=created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else "",
             imported_at=row.imported_at.strftime('%Y-%m-%d %H:%M:%S') if row.imported_at else "",
             phone=phone_value or "",
-            utm_campaign=_build_utm_campaign(row.prov_source, row.subdomain),
+            utm_campaign=(row.pixel_url if getattr(row, "lead_source", LEAD_SOURCE_PROVIDER) == LEAD_SOURCE_PIXEL else _build_utm_campaign(row.prov_source, row.subdomain)),
             source=row.prov_chanel,
+            lead_source=getattr(row, "lead_source", LEAD_SOURCE_PROVIDER) or LEAD_SOURCE_PROVIDER,
+            pixel_url=getattr(row, "pixel_url", None),
+            collection_source=(project.collection_source if project is not None else None),
             project_name=row.project_name,
             user=user_info or unlinked_user,
         ))

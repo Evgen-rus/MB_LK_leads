@@ -226,7 +226,10 @@ def get_existing_vids(db_sess, vids: List[str]) -> Set[str]:
     existing: Set[str] = set()
     for chunk in chunked(vids, size=500):
         rows = db_sess.execute(
-            select(models.ProviderLead.vid).where(models.ProviderLead.vid.in_(chunk))
+            select(models.ProviderLead.vid).where(
+                models.ProviderLead.vid.in_(chunk),
+                models.ProviderLead.lead_source == crud.LEAD_SOURCE_PROVIDER,
+            )
         ).all()
         for (vid,) in rows:
             if vid is not None:
@@ -329,6 +332,7 @@ def analyze_rows(db_sess, normalized_rows: List[Dict[str, Any]]) -> Tuple[Dict[s
 def build_provider_lead_model(row: Dict[str, Any]) -> models.ProviderLead:
     return models.ProviderLead(
         vid=str(row["vid"]),
+        lead_source=crud.LEAD_SOURCE_PROVIDER,
         phone=row.get("phone"),
         phones_raw=row.get("phones_raw"),
         project_name=row.get("project_name"),

@@ -128,8 +128,10 @@ settings = get_settings()
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
 if not WEBHOOK_SECRET:
     raise RuntimeError("WEBHOOK_SECRET is not set")
+PIXEL_WEBHOOK_SECRET = os.getenv("PIXEL_WEBHOOK_SECRET", "").strip()
 
 provider_webhook_logger = logging_setup.setup_provider_webhook_logger()
+pixel_webhook_logger = logging_setup.setup_pixel_webhook_logger()
 
 engine, SessionLocal = db.init_engine_and_session(
     settings["DATABASE_URL"],
@@ -539,6 +541,50 @@ def _ensure_provider_leads_imported_at_index() -> None:
 _ensure_provider_leads_imported_at_index()
 
 
+def _ensure_provider_leads_pixel_columns_and_indexes() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "provider_leads" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("provider_leads")}
+    with engine.begin() as conn:
+        if "lead_source" not in columns:
+            conn.execute(text("ALTER TABLE provider_leads ADD COLUMN lead_source VARCHAR DEFAULT 'provider'"))
+        if "pixel_url" not in columns:
+            conn.execute(text("ALTER TABLE provider_leads ADD COLUMN pixel_url VARCHAR"))
+        conn.execute(text("UPDATE provider_leads SET lead_source = 'provider' WHERE lead_source IS NULL OR lead_source = ''"))
+
+        if engine.dialect.name == "postgresql":
+            # Старый индекс/constraint vid был глобально уникальным. Для Пикселя нужен
+            # отдельный контур дедупликации, поэтому заменяем его частичными индексами.
+            conn.execute(text("ALTER TABLE provider_leads DROP CONSTRAINT IF EXISTS provider_leads_vid_key"))
+            conn.execute(text("DROP INDEX IF EXISTS ix_provider_leads_vid"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_leads_vid ON provider_leads (vid)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_leads_lead_source ON provider_leads (lead_source)"))
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_provider_leads_provider_vid
+                    ON provider_leads (vid)
+                    WHERE lead_source = 'provider'
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_provider_leads_pixel_vid_phone
+                    ON provider_leads (vid, phone)
+                    WHERE lead_source = 'pixel'
+                    """
+                )
+            )
+
+
+_ensure_provider_leads_pixel_columns_and_indexes()
+
+
 def _ensure_active_project_name_unique_index() -> None:
     """
     PostgreSQL guard against duplicate names among non-deleted projects.
@@ -688,6 +734,30 @@ def _provider_prefix_for_code(data_source_code: str) -> str:
     return f"{str(data_source_code or '').strip()}_"
 
 
+def _is_pixel_collection_source(value: Optional[str]) -> bool:
+    return crud.is_pixel_collection_source(value)
+
+
+def _is_pixel_project(project: Any) -> bool:
+    return _is_pixel_collection_source(str(_project_field(project, "collection_source", "") or ""))
+
+
+def _prepare_pixel_create_item(item: schemas.CreateProjectItem) -> None:
+    raw_name = str(item.name or "").strip()
+    domain_source = (item.sites or [None])[0] if item.sites else raw_name
+    domain = crud.normalize_pixel_domain(domain_source)
+    if not raw_name:
+        raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+    if not domain:
+        raise HTTPException(status_code=422, detail={"message": "Для Пиксель-проекта в названии или sites должен быть домен."})
+    item.name = raw_name
+    item.tag = str(item.tag or raw_name).strip() or raw_name
+    item.dataSourceCode = "UNMAPPED"  # type: ignore[assignment]
+    item.sites = [domain]
+    item.phones = None
+    item.smsSenderName = None
+
+
 def _strip_provider_prefix_from_name(name: Optional[str]) -> str:
     raw = str(name or "").strip()
     for code in ("B1", "B2", "B3", "B4"):
@@ -792,6 +862,9 @@ def _required_project_name_prefix(project: models.Project) -> str:
 
 
 def _validate_create_project_item_name(item: schemas.CreateProjectItem) -> None:
+    if _is_pixel_collection_source(item.collectionSource):
+        _prepare_pixel_create_item(item)
+        return
     expected_prefix = _provider_prefix_for_code(item.dataSourceCode)
     raw_name = str(item.name or "").strip()
     if not raw_name.startswith(expected_prefix):
@@ -811,6 +884,10 @@ def _validate_project_name_update(
     allow_client_internal_prefix_restore: bool = False,
 ) -> str:
     raw_name = str(proposed_name or "").strip()
+    if _is_pixel_project(project):
+        if not raw_name:
+            raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+        return raw_name
     required_prefix = _required_project_name_prefix(project)
     provider_prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
     internal_prefix = _project_client_internal_prefix(project)
@@ -1268,6 +1345,8 @@ def _project_field(project: Any, key: str, default: Any = None) -> Any:
 
 
 def _should_skip_provider_sync_for_status_change(project: Any, next_status: str) -> bool:
+    if _is_pixel_project(project):
+        return True
     # Для SMS-проектов обновление и ручное переключение статуса живут только локально:
     # провайдер не поддерживает редактирование таких проектов.
     return next_status != "Удалён" and str(_project_field(project, "collection_source", "") or "").strip() == "СМС"
@@ -2234,6 +2313,144 @@ async def provider_webhook(secret: str, request: Request, db_sess: Session = Dep
     return {"ok": True, "stored": True, "id": row.id}
 
 
+def _normalize_pixel_phone(value: object) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    digits = re.sub(r"\D+", "", raw)
+    if len(digits) == 11:
+        if digits.startswith("8"):
+            return f"7{digits[1:]}"
+        return digits
+    return raw
+
+
+def _extract_pixel_phones(raw: object) -> List[str]:
+    if raw is None:
+        return []
+    values = raw if isinstance(raw, list) else [raw]
+    phones: List[str] = []
+    seen: set[str] = set()
+    for item in values:
+        phone = _normalize_pixel_phone(item)
+        if phone and phone not in seen:
+            phones.append(phone)
+            seen.add(phone)
+    return phones
+
+
+@app.post("/api/pixel-webhook/{secret}")
+async def pixel_webhook(secret: str, request: Request, db_sess: Session = Depends(get_db)):
+    if not PIXEL_WEBHOOK_SECRET or secret != PIXEL_WEBHOOK_SECRET:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        payload, fmt = await _read_webhook_body(request)
+    except ClientDisconnect:
+        logging.getLogger("app.webhook").warning(
+            "Client disconnected while sending pixel webhook body: path=%s",
+            request.url.path,
+        )
+        return Response(status_code=499)
+    except Exception as exc:
+        pixel_webhook_logger.warning(
+            json.dumps(
+                {
+                    "event": "pixel_webhook_read_error",
+                    "path": request.url.path.replace(secret, "<secret>", 1),
+                    "error": str(exc),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": "invalid_format"}
+
+    vid = str(payload.get("vid") or "").strip() if isinstance(payload, dict) else ""
+    pixel_url = str(payload.get("page") or "").strip() or None if isinstance(payload, dict) else None
+    site = str(payload.get("site") or "").strip() if isinstance(payload, dict) else ""
+    if not site and pixel_url:
+        site = crud.normalize_pixel_domain(pixel_url)
+    domain = crud.normalize_pixel_domain(site)
+    phones = _extract_pixel_phones(payload.get("phones") if isinstance(payload, dict) else None)
+
+    log_base = {
+        "event": "pixel_webhook",
+        "format": fmt,
+        "path": request.url.path.replace(secret, "<secret>", 1),
+        "vid": vid,
+        "site": site,
+        "domain": domain,
+        "phones_count": len(phones),
+        "pixel_url": pixel_url,
+    }
+
+    if fmt != "json" or not isinstance(payload, dict):
+        pixel_webhook_logger.info(json.dumps({**log_base, "result": "invalid_format"}, ensure_ascii=False))
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": "invalid_format"}
+    if not vid:
+        pixel_webhook_logger.info(json.dumps({**log_base, "result": "invalid_format", "reason": "missing_vid"}, ensure_ascii=False))
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": "missing_vid"}
+    if not domain:
+        pixel_webhook_logger.info(json.dumps({**log_base, "result": "invalid_format", "reason": "missing_site"}, ensure_ascii=False))
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": "missing_site"}
+    if not phones:
+        pixel_webhook_logger.info(json.dumps({**log_base, "result": "no_phones"}, ensure_ascii=False))
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": "no_phones"}
+
+    project, match_status, matched_projects = crud.resolve_pixel_project_by_domain(db_sess, domain)
+    if match_status != "matched" or project is None:
+        result = "domain_not_found" if match_status == "not_found" else "domain_ambiguous"
+        pixel_webhook_logger.info(
+            json.dumps(
+                {
+                    **log_base,
+                    "result": result,
+                    "matched_project_ids": [int(p.id) for p in matched_projects],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return {"ok": True, "stored": 0, "duplicates": 0, "reason": result}
+
+    prov_created_at = _parse_provider_time(payload.get("time"))
+    stored_ids: List[int] = []
+    duplicate_count = 0
+    for phone in phones:
+        if crud.get_pixel_lead_by_vid_phone(db_sess, vid, phone):
+            duplicate_count += 1
+            continue
+        try:
+            row = crud.create_pixel_provider_lead(
+                db_sess,
+                vid=vid,
+                phone=phone,
+                project=project,
+                prov_created_at=prov_created_at,
+                pixel_url=pixel_url,
+            )
+            stored_ids.append(int(row.id))
+        except IntegrityError:
+            db_sess.rollback()
+            duplicate_count += 1
+
+    result = "stored" if stored_ids else ("duplicate" if duplicate_count else "no_rows")
+    pixel_webhook_logger.info(
+        json.dumps(
+            {
+                **log_base,
+                "result": result,
+                "project_id": int(project.id),
+                "project_name": str(project.name or ""),
+                "stored": len(stored_ids),
+                "duplicates": duplicate_count,
+                "ids": stored_ids,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return {"ok": True, "stored": len(stored_ids), "duplicates": duplicate_count, "ids": stored_ids}
+
+
 def require_auth(request: Request, db_sess: Session = Depends(get_db)):
     # Проверяем токен либо в заголовке Authorization: Bearer <token>, либо в query параметре token
     token = None
@@ -2824,6 +3041,8 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
         client_internal_prefix = _client_internal_prefix_for_user(db_sess, int(current_user.id))
         if client_internal_prefix:
             for item in payload.items:
+                if _is_pixel_collection_source(item.collectionSource):
+                    continue
                 item.name = _build_project_name_with_client_internal_prefix(
                     item.dataSourceCode,
                     item.name,
@@ -2847,6 +3066,12 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
     db_sess.rollback()
     for item in payload.items:
         notice_name = _project_name_for_client_message(item.name, item.dataSourceCode, client_internal_prefix)
+        if _is_pixel_collection_source(item.collectionSource):
+            provider_ids.append(None)
+            adjusted_items.append(item)
+            duplicate_diagnostics.append(None)
+            notices.append(f'Проект "{item.name}" создан локально.')
+            continue
         try:
             result = prostats.create_project(item)
             provider_id_value = str(result.get("provider_id") or "").strip() or None
@@ -3283,6 +3508,20 @@ def delete_project(project_id: int, current_user: models.User = Depends(require_
     project_row = db_sess.get(models.Project, project_id)
     if not project_row or project_row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
+    if _is_pixel_project(project_row):
+        db_sess.rollback()
+        with SessionLocal() as write_sess:  # type: Session
+            ok = crud.delete_project(
+                write_sess,
+                project_id,
+                user_id=current_user.id,
+                actor_user_id=actor_user_id,
+                via_impersonation=via_impersonation,
+            )
+            if not ok:
+                raise HTTPException(status_code=404, detail="Project not found")
+        _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+        return {"deleted": True}
     if not project_row.provider_project_id:
         _record_failed_project_operation(
             user_id=current_user.id,
@@ -4953,6 +5192,14 @@ def admin_delete_project(
     """Удалить проект (для админа)."""
     project_row = _ensure_manager_project_access(db_sess, current_admin, project_id)
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    if _is_pixel_project(project_row):
+        db_sess.rollback()
+        with SessionLocal() as write_sess:  # type: Session
+            ok = crud.admin_delete_project(write_sess, project_id, admin_user_id=current_admin.id)
+            if not ok:
+                raise HTTPException(status_code=404, detail="Project not found")
+        _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+        return {"deleted": True}
     if not project_row.provider_project_id:
         if owner_user_id:
             _record_failed_project_operation(
