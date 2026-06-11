@@ -239,17 +239,18 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
     if (readOnly) return;
     if (!name.trim()) return;
     if (!isDirty) return;
+    const source: CollectionSource = project.collectionSource;
+    const isPixelProject = source === 'Пиксель';
     const normalizedName = name.trim();
-    if (!normalizedName.startsWith(protectedNamePrefix)) {
+    if (!isPixelProject && !normalizedName.startsWith(protectedNamePrefix)) {
       setError(protectedNameHint);
       return;
     }
-    if (!normalizedName.slice(protectedNamePrefix.length).trim()) {
+    if (!isPixelProject && !normalizedName.slice(protectedNamePrefix.length).trim()) {
       setError('Название проекта после технического префикса не может быть пустым.');
       return;
     }
 
-    const source: CollectionSource = project.collectionSource;
     if (source === 'СМС' || source === 'Пересечение') {
       const digits = (smsSenderName || '').replace(/\D+/g, '');
       if (!smsSenderName.trim() || digits.length >= 10) return;
@@ -290,7 +291,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
     }
 
     const payload: AdminProjectUpdate = {
-      name: formatProjectNameForSubmit(normalizedName),
+      name: isPixelProject ? project.name : formatProjectNameForSubmit(normalizedName),
       tag: project.tag,
       status,
       // Статус отгрузки больше не редактируем в модалке — отправляем текущее значение
@@ -323,6 +324,11 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
 
   const bActive = (code: RawSourceCode) => project.dataSourceCode === code;
   const source: CollectionSource = project.collectionSource;
+  const isPixel = source === 'Пиксель';
+  const pixelDomain = (project.sites || [])[0] || project.name;
+  const nameHint = isPixel
+    ? 'Название и домен Пиксель-проекта не редактируются. Для другого домена создайте новый проект.'
+    : protectedNameHint;
 
   return (
     <div
@@ -346,9 +352,9 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly || isPixel} />
               <span className="hint" style={{ color: '#666' }}>
-                {protectedNameHint}
+                {nameHint}
               </span>
             </label>
 
@@ -366,6 +372,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
               </label>
             </div>
 
+            {!isPixel && (
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -376,6 +383,15 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
                 ))}
               </div>
             </div>
+            )}
+
+            {isPixel && (
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Домен сайта</span>
+                <input type="text" value={pixelDomain} disabled />
+                <span className="hint">Домен используется для привязки входящих идентификаций и не меняется после создания.</span>
+              </label>
+            )}
 
             {(source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>

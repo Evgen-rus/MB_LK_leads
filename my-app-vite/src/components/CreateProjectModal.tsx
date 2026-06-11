@@ -7,14 +7,15 @@ import {
   RAW_SOURCE_CODES,
   formatSourceTextForDisplay,
   toDisplaySourceCode,
-  type RawSourceCode,
 } from '../utils/sourceCodeDisplay';
+
+type ProjectDataSourceCode = 'B1' | 'B2' | 'B3' | 'B4' | 'UNMAPPED';
 
 type SubmitItem = {
   name: string;
   tag: string;
   collectionSource: CollectionSource;
-  dataSourceCode: RawSourceCode;
+  dataSourceCode: ProjectDataSourceCode;
   dataLimit: number;
   status: ProjectMutableStatus;
   regionMode: 'include' | 'exclude';
@@ -42,6 +43,7 @@ const ALL_COLLECTION_SOURCES: CollectionSource[] = [
   'Звонки',
   'Сайты',
   'СМС',
+  'Пиксель',
   'Ретрозвонки',
   'Ретросайты',
   'Пересечение',
@@ -80,6 +82,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
   const trimmedSmsSender = smsSenderName.trim();
   const isSmsSenderValid =
     collectionSource !== 'СМС' || (trimmedSmsSender.length > 0 && !isLikelyPhone(trimmedSmsSender));
+  const isPixel = collectionSource === 'Пиксель';
 
   const availableSources = useMemo(() => (
     ALL_COLLECTION_SOURCES.filter((src) => !DISABLED_COLLECTION_SOURCES.has(src))
@@ -129,6 +132,11 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       setB1(false);
       setB2(true);
       setB3(true);
+      setB4(false);
+    } else if (collectionSource === 'Пиксель') {
+      setB1(false);
+      setB2(false);
+      setB3(false);
       setB4(false);
     } else if (
       collectionSource === 'Ретросайты' ||
@@ -181,9 +189,10 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
     }
   }
 
-  function allowedCodesForSource(src: CollectionSource): RawSourceCode[] {
+  function allowedCodesForSource(src: CollectionSource): Array<'B1' | 'B2' | 'B3' | 'B4'> {
     if (src === 'Сайты' || src === 'Звонки') return ['B1','B2','B3','B4'];
     if (src === 'СМС') return ['B2','B3'];
+    if (src === 'Пиксель') return [];
     return ['B2'];
   }
 
@@ -215,8 +224,43 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
       if (!smsSenderName.trim()) return;
       if (isLikelyPhone(smsSenderName)) return;
     }
+    if (isPixel) {
+      const domain = name.trim();
+      const items: SubmitItem[] = [{
+        name: domain,
+        tag: domain,
+        collectionSource,
+        dataSourceCode: 'UNMAPPED',
+        dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
+        status,
+        regionMode,
+        regions: normalizeRegionValues(regions),
+        sites: [domain],
+        phones: undefined,
+        smsSenderName: undefined,
+        days,
+      }];
+      if (!onSubmit) {
+        onClose();
+        return;
+      }
+      setIsSubmitting(true);
+      setSubmitError(null);
+      try {
+        const result = await onSubmit(items);
+        if (typeof result === 'string' && result.trim()) {
+          setSubmitError(result);
+          return;
+        }
+        onClose();
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     // B-коды для генерации проектов
-    const allowedCodes: RawSourceCode[] =
+    const allowedCodes: Array<'B1' | 'B2' | 'B3' | 'B4'> =
       collectionSource === 'Сайты' || collectionSource === 'Звонки'
         ? ['B1','B2','B3','B4']
         : collectionSource === 'СМС'
@@ -342,17 +386,21 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
               </div>
             )}
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={{ fontSize: '0.75rem', color: '#666' }}>Название</span>
+              <span style={{ fontSize: '0.75rem', color: '#666' }}>
+                {isPixel ? 'Домен сайта' : 'Название'}
+              </span>
               <input
                 autoFocus
                 type="text"
-                placeholder="Название проекта"
+                placeholder={isPixel ? 'live.vyshka.su' : 'Название проекта'}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
               {!hasName && (
                 <span className="hint" style={{ color: '#666' }}>
-                  Сначала введите название проекта — затем станут доступны остальные настройки.
+                  {isPixel
+                    ? 'Введите домен сайта клиента.'
+                    : 'Сначала введите название проекта — затем станут доступны остальные настройки.'}
                 </span>
               )}
               {hasName && uniqueProjectNamesEnabled && (
@@ -396,6 +444,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
                 </label>
               </div>
 
+              {!isPixel && (
               <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div className="sub" style={{ color: '#666' }}>
@@ -438,6 +487,7 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
                   : 'Выберите источники данных'}
               </div>
               </div>
+              )}
 
               {(collectionSource === 'Сайты' || collectionSource === 'Ретросайты' || collectionSource === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>

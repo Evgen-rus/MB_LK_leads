@@ -8,7 +8,8 @@ export type CollectionSource =
   | 'СМС'
   | 'Ретросайты'
   | 'Ретрозвонки'
-  | 'Пересечение';
+  | 'Пересечение'
+  | 'Пиксель';
 
 export interface Project {
   id: number;

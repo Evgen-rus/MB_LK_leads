@@ -255,12 +255,14 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
     if (readOnly) return;
     if (!name.trim()) return;
     if (!isDirty || saving) return;
+    const source: CollectionSource = project.collectionSource;
+    const isPixelProject = source === 'Пиксель';
     const normalizedName = name.trim();
-    if (!normalizedName.startsWith(protectedNamePrefix)) {
+    if (!isPixelProject && !normalizedName.startsWith(protectedNamePrefix)) {
       setError(protectedNameHint);
       return;
     }
-    if (!normalizedName.slice(protectedNamePrefix.length).trim()) {
+    if (!isPixelProject && !normalizedName.slice(protectedNamePrefix.length).trim()) {
       setError('Название проекта после технического префикса не может быть пустым.');
       return;
     }
@@ -269,7 +271,6 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
       return;
     }
 
-    const source: CollectionSource = project.collectionSource;
     if (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') {
       const normalizedSites = uniqueList(sitesParsed);
       if (normalizedSites.length === 0) {
@@ -298,7 +299,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
       setPhonesError(null);
       phones = res.normalized;
     }
-    const rawName = formatProjectNameForSubmit(normalizedName);
+    const rawName = isPixelProject ? project.name : formatProjectNameForSubmit(normalizedName);
     if (status === 'Блокировка оператора') {
       setError('Чтобы сохранить изменения, выберите статус «Активен» или «На паузе».');
       return;
@@ -331,6 +332,11 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
 
   const bActive = (code: RawSourceCode) => project.dataSourceCode === code;
   const source: CollectionSource = project.collectionSource;
+  const isPixel = source === 'Пиксель';
+  const pixelDomain = (project.sites || [])[0] || project.name;
+  const nameHint = isPixel
+    ? 'Название и домен Пиксель-проекта не редактируются. Для другого домена создайте новый проект.'
+    : protectedNameHint;
 
   return (
     <div
@@ -346,9 +352,9 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Название</span>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly} />
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={readOnly || isPixel} />
               <span className="hint" style={{ color: '#666' }}>
-                {protectedNameHint}
+                {nameHint}
               </span>
             </label>
 
@@ -366,6 +372,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
               </label>
             </div>
 
+            {!isPixel && (
             <div style={{ display: 'grid', gap: 6 }}>
               <span className="section-title">Источник данных</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -376,6 +383,15 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
                 ))}
               </div>
             </div>
+            )}
+
+            {isPixel && (
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Домен сайта</span>
+                <input type="text" value={pixelDomain} disabled />
+                <span className="hint">Домен используется для привязки входящих идентификаций и не меняется после создания.</span>
+              </label>
+            )}
 
             {(source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') && (
               <label style={{ display: 'grid', gap: 6 }}>

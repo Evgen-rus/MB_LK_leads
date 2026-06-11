@@ -97,13 +97,13 @@ function clearAccessTokenCookie(): void {
 }
 
 export type Day = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
-export type CollectionSource = 'Сайты'|'Звонки'|'СМС'|'Ретросайты'|'Ретрозвонки'|'Пересечение';
+export type CollectionSource = 'Сайты'|'Звонки'|'СМС'|'Ретросайты'|'Ретрозвонки'|'Пересечение'|'Пиксель';
 
 export type CreateProjectItem = {
   name: string;
   tag: string;
   collectionSource: CollectionSource;
-  dataSourceCode: 'B1'|'B2'|'B3'|'B4';
+  dataSourceCode: 'B1'|'B2'|'B3'|'B4'|'UNMAPPED';
   dataLimit: number;
   status: ProjectMutableStatus;
   regionMode: 'include'|'exclude';
@@ -512,6 +512,9 @@ export type Lead = {
   phone: string;
   utm_campaign?: string | null;
   source?: string | null;
+  lead_source?: 'provider' | 'pixel';
+  pixel_url?: string | null;
+  collection_source?: string | null;
 };
 
 export type LeadsListResp = { items: Lead[]; total: number };

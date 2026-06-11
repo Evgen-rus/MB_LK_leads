@@ -887,6 +887,12 @@ def _validate_project_name_update(
     if _is_pixel_project(project):
         if not raw_name:
             raise HTTPException(status_code=422, detail={"message": "Название проекта не может быть пустым."})
+        current_name = str(_project_field(project, "name", "") or "").strip()
+        if raw_name != current_name:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "Название Пиксель-проекта нельзя изменить. Для нового домена создайте новый проект."},
+            )
         return raw_name
     required_prefix = _required_project_name_prefix(project)
     provider_prefix = _provider_prefix_for_code(str(getattr(project, "data_source_code", "") or ""))
