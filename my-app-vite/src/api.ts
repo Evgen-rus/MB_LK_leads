@@ -373,6 +373,7 @@ export async function fetchProjects(params?: {
   limit?: number;
   q?: string;
   sources?: string[];
+  collectionSources?: string[];
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
@@ -386,6 +387,7 @@ export async function fetchProjects(params?: {
   if (params?.limit != null) q.set('limit', String(params.limit));
   if (params?.q) q.set('q', params.q);
   if (params?.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
+  if (params?.collectionSources && params.collectionSources.length > 0) q.set('collectionSources', params.collectionSources.join(','));
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   if (params?.includeDeleted) q.set('includeDeleted', 'true');
@@ -519,7 +521,7 @@ export type Lead = {
 
 export type LeadsListResp = { items: Lead[]; total: number };
 
-export async function fetchLeads(params: { projectIds?: number[]; sources?: string[]; fromDate: string; toDate: string; q?: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
+export async function fetchLeads(params: { projectIds?: number[]; sources?: string[]; collectionSources?: string[]; fromDate: string; toDate: string; q?: string; offset?: number; limit?: number; }): Promise<LeadsListResp> {
   const q = new URLSearchParams({
     fromDate: params.fromDate,
     toDate: params.toDate,
@@ -529,6 +531,9 @@ export async function fetchLeads(params: { projectIds?: number[]; sources?: stri
   }
   if (params.sources && params.sources.length > 0) {
     q.set('sources', params.sources.join(','));
+  }
+  if (params.collectionSources && params.collectionSources.length > 0) {
+    q.set('collectionSources', params.collectionSources.join(','));
   }
   if (params.q && params.q.trim()) q.set('q', params.q.trim());
   if (params.offset != null) q.set('offset', String(params.offset));
@@ -676,6 +681,7 @@ export async function fetchHistoryEventDetail(eventId: string): Promise<HistoryE
 export function buildLeadsExportUrl(params: {
   projectIds?: number[];
   sources?: string[];
+  collectionSources?: string[];
   fromDate: string;
   toDate: string;
   format: 'csv'|'xlsx';
@@ -685,6 +691,7 @@ export function buildLeadsExportUrl(params: {
   const q = new URLSearchParams({ fromDate: params.fromDate, toDate: params.toDate, format: params.format });
   if (params.projectIds && params.projectIds.length > 0) q.set('projectIds', params.projectIds.join(','));
   if (params.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
+  if (params.collectionSources && params.collectionSources.length > 0) q.set('collectionSources', params.collectionSources.join(','));
   if (params.source) q.set('source', params.source);
   if (params.clientId != null) q.set('clientId', String(params.clientId));
 
@@ -696,6 +703,7 @@ export function buildLeadsExportUrl(params: {
 export async function downloadLeadsExport(params: {
   projectIds?: number[];
   sources?: string[];
+  collectionSources?: string[];
   fromDate: string;
   toDate: string;
   format: 'csv' | 'xlsx';
@@ -870,6 +878,8 @@ export async function fetchAdminProjects(params?: {
   limit?: number;
   q?: string;
   userId?: number;
+  sources?: string[];
+  collectionSources?: string[];
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
@@ -883,6 +893,8 @@ export async function fetchAdminProjects(params?: {
   if (params?.limit != null) q.set('limit', String(params.limit));
   if (params?.q) q.set('q', params.q);
   if (params?.userId != null) q.set('userId', String(params.userId));
+  if (params?.sources && params.sources.length > 0) q.set('sources', params.sources.join(','));
+  if (params?.collectionSources && params.collectionSources.length > 0) q.set('collectionSources', params.collectionSources.join(','));
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
@@ -1166,6 +1178,9 @@ export type AdminLead = {
   phone: string;
   utm_campaign?: string | null;
   source?: string | null;
+  lead_source?: 'provider' | 'pixel';
+  pixel_url?: string | null;
+  collection_source?: string | null;
   project_name?: string | null;
   user: UserInfo;
 };
@@ -1181,6 +1196,7 @@ export async function fetchAdminLeads(params: {
   userId?: number;
   projectIds?: number[];
   sources?: string[];
+  collectionSources?: string[];
   unlinked?: boolean;
   offset?: number;
   limit?: number;
@@ -1195,6 +1211,9 @@ export async function fetchAdminLeads(params: {
   }
   if (params.sources && params.sources.length > 0) {
     q.set('sources', params.sources.join(','));
+  }
+  if (params.collectionSources && params.collectionSources.length > 0) {
+    q.set('collectionSources', params.collectionSources.join(','));
   }
   if (params.unlinked) q.set('unlinked', 'true');
   if (params.offset != null) q.set('offset', String(params.offset));

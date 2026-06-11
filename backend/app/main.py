@@ -2720,6 +2720,7 @@ def list_projects(
     limit: int = 50,
     q: str | None = None,
     sources: Optional[str] = None,
+    collectionSources: Optional[str] = None,
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
@@ -2762,6 +2763,12 @@ def list_projects(
         if not src_list:
             src_list = None
 
+    collection_src_list: Optional[List[str]] = None
+    if collectionSources:
+        collection_src_list = [s.strip() for s in collectionSources.split(",") if s.strip()]
+        if not collection_src_list:
+            collection_src_list = None
+
     return crud.list_projects_paginated(
         db_sess,
         offset=offset,
@@ -2769,6 +2776,7 @@ def list_projects(
         q=q,
         user_id=current_user.id,
         sources=src_list,
+        collection_sources=collection_src_list,
         start_local=start_naive,
         end_local=end_naive,
         include_deleted=includeDeleted,
@@ -3640,6 +3648,7 @@ def support_message(
 def list_leads(
     projectIds: Optional[str] = None,  # "1,2,3"; если нет — все
     sources: Optional[str] = None,     # "B1,B2"; если нет — все
+    collectionSources: Optional[str] = None,  # "Пиксель,Сайты"; если нет — все
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     q: Optional[str] = None,         # поиск по телефону и источникам
@@ -3685,6 +3694,12 @@ def list_leads(
         if not src_list:
             src_list = None
 
+    collection_src_list: Optional[List[str]] = None
+    if collectionSources:
+        collection_src_list = [s.strip() for s in collectionSources.split(",") if s.strip()]
+        if not collection_src_list:
+            collection_src_list = None
+
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
     return crud.list_provider_leads_paginated(
@@ -3695,6 +3710,7 @@ def list_leads(
         offset=offset,
         limit=limit,
         sources=src_list,
+        collection_sources=collection_src_list,
         search_query=q,
         user_id=current_user.id,
     )
@@ -3705,6 +3721,7 @@ def export_leads(
     request: Request,
     projectIds: Optional[str] = None,
     sources: Optional[str] = None,
+    collectionSources: Optional[str] = None,
     fromDate: Optional[str] = None,
     toDate: Optional[str] = None,
     format: Optional[str] = "csv",  # csv | xlsx
@@ -3829,6 +3846,12 @@ def export_leads(
         if not src_list:
             src_list = None
 
+    collection_src_list: Optional[List[str]] = None
+    if collectionSources:
+        collection_src_list = [s.strip() for s in collectionSources.split(",") if s.strip()]
+        if not collection_src_list:
+            collection_src_list = None
+
     # Логируем экспорт отчёта (для вкладки "Отчёты").
     # Повторные скачивания из раздела "Отчёты" помечаем source=reports и не логируем,
     # чтобы не плодить дубли.
@@ -3871,6 +3894,7 @@ def export_leads(
             end_local=end_local,
             max_rows=max_rows,
             sources=src_list,
+            collection_sources=collection_src_list,
             user_info=export_user_info,
             expose_internal_names=(is_admin or is_agent),
         )
@@ -4793,6 +4817,8 @@ def admin_list_projects(
     limit: int = 50,
     q: str | None = None,
     userId: int | None = None,
+    sources: Optional[str] = None,
+    collectionSources: Optional[str] = None,
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
@@ -4833,12 +4859,27 @@ def admin_list_projects(
             return schemas.AdminProjectListOut(items=[], total=0)
         _ensure_manager_client_access(db_sess, current_manager, userId)
 
+    src_list: Optional[List[str]] = None
+    if sources:
+        src_list = [s.strip().upper() for s in sources.split(",") if s.strip()]
+        src_list = [s for s in src_list if s in {"B1", "B2", "B3", "B4"}]
+        if not src_list:
+            src_list = None
+
+    collection_src_list: Optional[List[str]] = None
+    if collectionSources:
+        collection_src_list = [s.strip() for s in collectionSources.split(",") if s.strip()]
+        if not collection_src_list:
+            collection_src_list = None
+
     return crud.admin_list_all_projects(
         db_sess,
         offset=offset,
         limit=limit,
         q=q,
         user_id_filter=userId,
+        sources=src_list,
+        collection_sources=collection_src_list,
         start_local=start_naive,
         end_local=end_naive,
         include_deleted=includeDeleted,
@@ -5255,6 +5296,7 @@ def admin_list_leads(
     userId: int | None = None,
     projectIds: Optional[str] = None,
     sources: Optional[str] = None,
+    collectionSources: Optional[str] = None,
     unlinked: bool = False,
     offset: int = 0,
     limit: int = 50,
@@ -5295,6 +5337,12 @@ def admin_list_leads(
         if not src_list:
             src_list = None
 
+    collection_src_list: Optional[List[str]] = None
+    if collectionSources:
+        collection_src_list = [s.strip() for s in collectionSources.split(",") if s.strip()]
+        if not collection_src_list:
+            collection_src_list = None
+
     limit = max(1, min(1000, limit))
     offset = max(0, offset)
 
@@ -5313,6 +5361,7 @@ def admin_list_leads(
             user_id_filter=userId,
             project_ids_filter=proj_ids,
             sources_filter=src_list,
+            collection_sources_filter=collection_src_list,
         )
 
     return crud.admin_list_all_leads(
@@ -5324,6 +5373,7 @@ def admin_list_leads(
         user_id_filter=userId,
         project_ids_filter=proj_ids,
         sources_filter=src_list,
+        collection_sources_filter=collection_src_list,
         unlinked_only=bool(unlinked),
     )
 

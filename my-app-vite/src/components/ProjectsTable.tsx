@@ -53,6 +53,7 @@ const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 const SOURCE_OPTIONS = getSourceCodeFilterOptions(RAW_SOURCE_CODES);
+const PIXEL_COLLECTION_SOURCE = 'Пиксель';
 
 type ApiError = Error & {
   status?: number;
@@ -81,6 +82,7 @@ function ProjectsTable({
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>('Все');
   const [selectedSources, setSelectedSources] = useState<string[]>([...RAW_SOURCE_CODES]);
+  const [selectedCollectionSources, setSelectedCollectionSources] = useState<string[]>([PIXEL_COLLECTION_SOURCE]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [page, setPage] = useState(1);
@@ -114,6 +116,7 @@ function ProjectsTable({
       direction = sortDir,
       limitReached = dailyLimitReached,
       sources = selectedSources,
+      collectionSources = selectedCollectionSources,
     ) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
@@ -121,6 +124,7 @@ function ProjectsTable({
         limit: s,
         q: formatProjectNameForSubmit(q.trim()) || undefined,
         sources,
+        collectionSources,
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
@@ -132,7 +136,7 @@ function ProjectsTable({
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources],
+    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources],
   );
 
   useEffect(() => {
@@ -146,10 +150,10 @@ function ProjectsTable({
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources]);
+  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -469,7 +473,23 @@ function ProjectsTable({
       const next = prev.includes(source)
         ? prev.filter((item) => item !== source)
         : [...prev, source];
-      return next.length ? next : [...RAW_SOURCE_CODES];
+      if (!next.length && selectedCollectionSources.length === 0) {
+        setSelectedCollectionSources([PIXEL_COLLECTION_SOURCE]);
+        return [...RAW_SOURCE_CODES];
+      }
+      return next;
+    });
+    setPage(1);
+  }
+
+  function togglePixelSource() {
+    setSelectedCollectionSources((prev) => {
+      const next = prev.includes(PIXEL_COLLECTION_SOURCE) ? [] : [PIXEL_COLLECTION_SOURCE];
+      if (!next.length && selectedSources.length === 0) {
+        setSelectedSources([...RAW_SOURCE_CODES]);
+        return [PIXEL_COLLECTION_SOURCE];
+      }
+      return next;
     });
     setPage(1);
   }
@@ -602,6 +622,13 @@ function ProjectsTable({
               {option.label}
             </button>
           ))}
+          <button
+            type="button"
+            className={`dashboard-source${selectedCollectionSources.includes(PIXEL_COLLECTION_SOURCE) ? ' dashboard-source--active' : ''}`}
+            onClick={togglePixelSource}
+          >
+            Пиксель
+          </button>
         </div>
         <div className="actions">
           <button

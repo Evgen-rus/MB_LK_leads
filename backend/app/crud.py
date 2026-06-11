@@ -27,6 +27,15 @@ PROJECT_STATUS_OPERATOR_BLOCK = "Блокировка оператора"
 COLLECTION_SOURCE_PIXEL = "Пиксель"
 LEAD_SOURCE_PROVIDER = "provider"
 LEAD_SOURCE_PIXEL = "pixel"
+COLLECTION_SOURCE_FILTER_VALUES = {
+    "Сайты",
+    "Звонки",
+    "СМС",
+    "Ретросайты",
+    "Ретрозвонки",
+    "Пересечение",
+    COLLECTION_SOURCE_PIXEL,
+}
 POSTGRES_INT_MAX = 2_147_483_647
 ROLE_ADMIN = "admin"
 ROLE_CLIENT = "client"
@@ -67,6 +76,28 @@ def _telegram_retry_delay_seconds(attempt_count: int) -> int:
     delays = [60, 300, 900, 3600]
     index = max(0, min(len(delays) - 1, int(attempt_count) - 1))
     return delays[index]
+
+
+def _normalize_collection_source_filter(collection_sources: Optional[List[str]]) -> List[str]:
+    values: List[str] = []
+    seen: set[str] = set()
+    for raw in collection_sources or []:
+        value = str(raw or "").strip()
+        if not value or value not in COLLECTION_SOURCE_FILTER_VALUES or value in seen:
+            continue
+        seen.add(value)
+        values.append(value)
+    return values
+
+
+def _apply_collection_source_filter(stmt, collection_sources: Optional[List[str]]):
+    values = _normalize_collection_source_filter(collection_sources)
+    if not values:
+        return stmt
+    return (
+        stmt.join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .where(models.Project.collection_source.in_(values))
+    )
 
 
 def create_telegram_notification(
@@ -1043,6 +1074,7 @@ def list_projects_paginated(
     q: str | None,
     user_id: int,
     sources: Optional[List[str]] = None,
+    collection_sources: Optional[List[str]] = None,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
@@ -1057,8 +1089,14 @@ def list_projects_paginated(
         project_status=project_status,
         include_deleted=include_deleted,
     )
+    collection_source_filter = _normalize_collection_source_filter(collection_sources)
+    project_source_conditions = []
     if sources:
-        stmt = stmt.where(models.Project.data_source_code.in_(sources))
+        project_source_conditions.append(models.Project.data_source_code.in_(sources))
+    if collection_source_filter:
+        project_source_conditions.append(models.Project.collection_source.in_(collection_source_filter))
+    if project_source_conditions:
+        stmt = stmt.where(or_(*project_source_conditions))
     if q:
         q = q.strip()
         if q:
@@ -2828,6 +2866,7 @@ def iter_provider_leads_for_export(
     max_rows: int,
     project_ids: Optional[List[int]] = None,
     sources: Optional[List[str]] = None,
+    collection_sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
     expose_internal_names: bool = True,
 ) -> Iterator[dict]:
@@ -2847,6 +2886,7 @@ def iter_provider_leads_for_export(
             stmt = stmt.where(models.ProviderLead.project_id.in_(project_ids))
         if sources:
             stmt = stmt.where(models.ProviderLead.prov_chanel.in_(sources))
+        stmt = _apply_collection_source_filter(stmt, collection_sources)
         if last_ts is not None and last_id is not None:
             stmt = stmt.where(
                 or_(
@@ -2913,6 +2953,7 @@ def fetch_provider_leads_for_export(
     max_rows: int,
     project_ids: Optional[List[int]] = None,
     sources: Optional[List[str]] = None,
+    collection_sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
     expose_internal_names: bool = True,
 ) -> List[dict]:
@@ -2925,6 +2966,7 @@ def fetch_provider_leads_for_export(
             max_rows=max_rows,
             project_ids=project_ids,
             sources=sources,
+            collection_sources=collection_sources,
             user_info=user_info,
             expose_internal_names=expose_internal_names,
         ),
@@ -2939,6 +2981,7 @@ def list_provider_leads_paginated(
     offset: int,
     limit: int,
     sources: Optional[List[str]] = None,
+    collection_sources: Optional[List[str]] = None,
     search_query: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> schemas.LeadsListOut:
@@ -2963,6 +3006,7 @@ def list_provider_leads_paginated(
         base = base.where(models.ProviderLead.project_id.in_(proj_ids))
     if sources:
         base = base.where(models.ProviderLead.prov_chanel.in_(sources))
+    base = _apply_collection_source_filter(base, collection_sources)
     if search_query:
         search = search_query.strip()
         if search:
@@ -6052,6 +6096,8 @@ def admin_list_all_projects(
     limit: int,
     q: str | None,
     user_id_filter: int | None = None,
+    sources: Optional[List[str]] = None,
+    collection_sources: Optional[List[str]] = None,
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = True,
@@ -6076,6 +6122,15 @@ def admin_list_all_projects(
         project_status=project_status,
         include_deleted=include_deleted,
     )
+
+    collection_source_filter = _normalize_collection_source_filter(collection_sources)
+    project_source_conditions = []
+    if sources:
+        project_source_conditions.append(models.Project.data_source_code.in_(sources))
+    if collection_source_filter:
+        project_source_conditions.append(models.Project.collection_source.in_(collection_source_filter))
+    if project_source_conditions:
+        stmt = stmt.where(or_(*project_source_conditions))
 
     # Текстовый поиск
     if q:
@@ -6399,6 +6454,7 @@ def admin_list_provider_leads(
     limit: int,
     project_ids_filter: Optional[List[int]] = None,
     sources_filter: Optional[List[str]] = None,
+    collection_sources_filter: Optional[List[str]] = None,
     user_id_filter: int | None = None,
 ) -> schemas.AdminLeadsListOut:
     """
@@ -6426,11 +6482,18 @@ def admin_list_provider_leads(
         base = base.where(models.ProviderLead.project_id.in_(proj_ids))
     if sources_filter:
         base = base.where(models.ProviderLead.prov_chanel.in_(sources_filter))
+    base = _apply_collection_source_filter(base, collection_sources_filter)
 
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = db.execute(
         base.order_by(ts_col.desc()).offset(offset).limit(limit)
     ).scalars().all()
+
+    project_ids = sorted({int(row.project_id) for row in rows if row.project_id is not None})
+    projects_map: Dict[int, models.Project] = {}
+    if project_ids:
+        projects = db.execute(select(models.Project).where(models.Project.id.in_(project_ids))).scalars().all()
+        projects_map = {int(project.id): project for project in projects}
 
     user_id = user_id_filter or 0
     user_info = _get_user_info(db, user_id) or schemas.UserInfo(id=user_id, login="(unknown)")
@@ -6455,7 +6518,11 @@ def admin_list_provider_leads(
             source=r.prov_chanel,
             lead_source=getattr(r, "lead_source", LEAD_SOURCE_PROVIDER) or LEAD_SOURCE_PROVIDER,
             pixel_url=getattr(r, "pixel_url", None),
-            collection_source=None,
+            collection_source=(
+                projects_map.get(int(r.project_id)).collection_source
+                if r.project_id is not None and int(r.project_id) in projects_map
+                else None
+            ),
             project_name=r.project_name,
             user=user_info,
         ))
@@ -6472,6 +6539,7 @@ def admin_list_all_leads(
     user_id_filter: int | None = None,
     project_ids_filter: Optional[List[int]] = None,
     sources_filter: Optional[List[str]] = None,
+    collection_sources_filter: Optional[List[str]] = None,
     unlinked_only: bool = False,
 ) -> schemas.AdminLeadsListOut:
     ts_col = _provider_lead_ts_col()
@@ -6482,6 +6550,7 @@ def admin_list_all_leads(
         base = base.where(models.ProviderLead.project_id.in_(project_ids_filter))
     if sources_filter:
         base = base.where(models.ProviderLead.prov_chanel.in_(sources_filter))
+    base = _apply_collection_source_filter(base, collection_sources_filter)
 
     total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
     rows = db.execute(base.order_by(ts_col.desc()).offset(offset).limit(limit)).scalars().all()

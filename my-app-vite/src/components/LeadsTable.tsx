@@ -16,12 +16,40 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return formatSourceTextForDisplay(fallback);
 }
 
+function isPixelLead(row: Pick<Lead, 'lead_source' | 'collection_source'>): boolean {
+  return row.lead_source === 'pixel' || row.collection_source === 'Пиксель';
+}
+
+function leadCollectionLabel(row: Lead): string {
+  if (isPixelLead(row)) return 'Пиксель';
+  return row.collection_source || '—';
+}
+
+function leadChannelLabel(row: Lead): string {
+  if (isPixelLead(row)) return '—';
+  return toDisplaySourceCode(row.source ?? '') || '—';
+}
+
+function leadSourceText(row: Lead): string {
+  if (isPixelLead(row)) return row.pixel_url || row.utm_campaign || '—';
+  return formatSourceTextForDisplay(row.utm_campaign ?? '') || '—';
+}
+
 type Props = {
   projects: Project[];
   initialFilter?: { projectId?: number; from?: string; to?: string };
 };
 
 const SEARCH_DEBOUNCE_MS = 400;
+const COLLECTION_SOURCE_FILTER_OPTIONS = [
+  'Сайты',
+  'Звонки',
+  'СМС',
+  'Ретросайты',
+  'Ретрозвонки',
+  'Пересечение',
+  'Пиксель',
+].map((value) => ({ value, label: value }));
 
 // Формат для value инпута даты (YYYY-MM-DD)
 function formatDateInput(d: Date) {
@@ -34,6 +62,7 @@ function formatDateInput(d: Date) {
 function LeadsTable({ projects, initialFilter }: Props) {
   const [projectIds, setProjectIds] = useState<number[]>([]);
   const [sources, setSources] = useState<string[]>([]);
+  const [collectionSources, setCollectionSources] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
@@ -93,9 +122,11 @@ function LeadsTable({ projects, initialFilter }: Props) {
       // Если массивы пустые — считаем, что выбрано «все», поэтому не передаём фильтр.
       const projectIdsFilter = projectIds.length ? projectIds : undefined;
       const sourcesFilter = sources.length ? sources : undefined;
+      const collectionSourcesFilter = collectionSources.length ? collectionSources : undefined;
       const resp = await fetchLeads({
         projectIds: projectIdsFilter,
         sources: sourcesFilter,
+        collectionSources: collectionSourcesFilter,
         fromDate,
         toDate,
         q: debouncedSearch.trim() || undefined,
@@ -110,7 +141,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [pageSize, projectIds, sources, fromDate, toDate, debouncedSearch]);
+  }, [pageSize, projectIds, sources, collectionSources, fromDate, toDate, debouncedSearch]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -122,7 +153,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
 
   useEffect(() => {
     load(1);
-  }, [projectIds, sources, fromDate, toDate, debouncedSearch, load]);
+  }, [projectIds, sources, collectionSources, fromDate, toDate, debouncedSearch, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -135,15 +166,8 @@ function LeadsTable({ projects, initialFilter }: Props) {
     return Array.from(set).sort();
   }, [rows]);
 
-  // По умолчанию — все источники
-  useEffect(() => {
-    if (sourcesList.length && sources.length === 0) {
-      setSources(sourcesList);
-    }
-  }, [sourcesList, sources.length]);
-
   const handleExport = async (format: 'csv' | 'xlsx') => {
-    await downloadLeadsExport({ projectIds, sources, fromDate, toDate, format, source: 'leads' });
+    await downloadLeadsExport({ projectIds, sources, collectionSources, fromDate, toDate, format, source: 'leads' });
   };
 
   return (
@@ -178,6 +202,18 @@ function LeadsTable({ projects, initialFilter }: Props) {
             allLabel="Все каналы"
             onApply={(vals) => {
               setSources(vals);
+              setPage(1);
+            }}
+          />
+
+          <FilterDropdown
+            label="Источник сбора"
+            options={COLLECTION_SOURCE_FILTER_OPTIONS}
+            selected={collectionSources}
+            allLabel="Все источники"
+            emptySelectionShowsAll={false}
+            onApply={(vals) => {
+              setCollectionSources(vals);
               setPage(1);
             }}
           />
@@ -222,6 +258,7 @@ function LeadsTable({ projects, initialFilter }: Props) {
           <tr>
             <th>Дата</th>
             <th>Телефон</th>
+            <th>Источник сбора</th>
             <th>Канал</th>
             <th>Источники</th>
             <th>Проект</th>
@@ -231,17 +268,20 @@ function LeadsTable({ projects, initialFilter }: Props) {
         <tbody>
           {!loading && rows.length === 0 && (
             <tr>
-              <td colSpan={6} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+              <td colSpan={7} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                 По выбранным фильтрам идентификаций не найдено.
               </td>
             </tr>
           )}
           {rows.map((r) => (
-            <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
+            <tr key={r.lk_id || `${r.ext_id}-${r.phone}`} style={{ borderBottom: '1px solid #ececf2' }}>
               <td><DateTimeCompact value={r.created_at} /></td>
               <td>{r.phone}</td>
-              <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
-              <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
+              <td className="muted">{leadCollectionLabel(r)}</td>
+              <td className="muted">{leadChannelLabel(r)}</td>
+              <td className="muted" title={leadSourceText(r)} style={{ maxWidth: 360, overflowWrap: 'anywhere' }}>
+                {leadSourceText(r)}
+              </td>
               <td>
                 <div className="name">
                   {formatProjectNameForDisplay(

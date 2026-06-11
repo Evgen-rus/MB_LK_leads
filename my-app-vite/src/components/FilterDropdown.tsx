@@ -10,9 +10,10 @@ type Props = {
   allLabel?: string;
   onApply: (values: string[]) => void;
   disabled?: boolean;
+  emptySelectionShowsAll?: boolean;
 };
 
-function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply, disabled }: Props) {
+function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply, disabled, emptySelectionShowsAll = true }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState<string[]>(selected);
   const [emptyMeansAllInUi, setEmptyMeansAllInUi] = useState(false);
@@ -33,10 +34,10 @@ function FilterDropdown({ label, options, selected, allLabel = 'Все', onApply
   useEffect(() => {
     if (isOpen) {
       setLocalSelected(selected);
-      setEmptyMeansAllInUi(selected.length === 0);
+      setEmptyMeansAllInUi(emptySelectionShowsAll && selected.length === 0);
       setQuery('');
     }
-  }, [isOpen, selected]);
+  }, [isOpen, selected, emptySelectionShowsAll]);
 
   useEffect(() => {
     if (!isOpen) return;

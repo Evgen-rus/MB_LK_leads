@@ -16,12 +16,41 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return formatSourceTextForDisplay(fallback);
 }
 
+function isPixelLead(row: Pick<AdminLead, 'lead_source' | 'collection_source'>): boolean {
+  return row.lead_source === 'pixel' || row.collection_source === 'Пиксель';
+}
+
+function leadCollectionLabel(row: AdminLead): string {
+  if (isPixelLead(row)) return 'Пиксель';
+  return row.collection_source || '—';
+}
+
+function leadChannelLabel(row: AdminLead): string {
+  if (isPixelLead(row)) return '—';
+  return toDisplaySourceCode(row.source ?? '') || '—';
+}
+
+function leadSourceText(row: AdminLead): string {
+  if (isPixelLead(row)) return row.pixel_url || row.utm_campaign || '—';
+  return formatSourceTextForDisplay(row.utm_campaign ?? '') || '—';
+}
+
 function formatDateInput(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+const COLLECTION_SOURCE_FILTER_OPTIONS = [
+  'Сайты',
+  'Звонки',
+  'СМС',
+  'Ретросайты',
+  'Ретрозвонки',
+  'Пересечение',
+  'Пиксель',
+].map((value) => ({ value, label: value }));
 
 type AdminLeadsInitialFilter = {
   clientId?: number;
@@ -37,6 +66,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
   const [projects, setProjects] = useState<AdminProject[]>([]);
   const [projectIds, setProjectIds] = useState<number[]>([]);
   const [sources, setSources] = useState<string[]>([]);
+  const [collectionSources, setCollectionSources] = useState<string[]>([]);
   const [fromDate, setFromDate] = useState<string>(formatDateInput(new Date()));
   const [toDate, setToDate] = useState<string>(formatDateInput(new Date()));
   const [rows, setRows] = useState<AdminLead[]>([]);
@@ -76,6 +106,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
         userId: userIdFilter ?? undefined,
         projectIds: projectIds.length ? projectIds : undefined,
         sources: sources.length ? sources : undefined,
+        collectionSources: collectionSources.length ? collectionSources : undefined,
         unlinked: unlinkedOnly,
         offset,
         limit: s,
@@ -88,7 +119,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     } finally {
       setLoading(false);
     }
-  }, [pageSize, userIdFilter, fromDate, toDate, projectIds, sources, unlinkedOnly]);
+  }, [pageSize, userIdFilter, fromDate, toDate, projectIds, sources, collectionSources, unlinkedOnly]);
 
   useEffect(() => {
     loadUsers();
@@ -96,7 +127,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   useEffect(() => {
     load(1);
-  }, [fromDate, toDate, userIdFilter, projectIds, sources, load]);
+  }, [fromDate, toDate, userIdFilter, projectIds, sources, collectionSources, load]);
 
   // При выборе клиента подгружаем его проекты
   useEffect(() => {
@@ -147,13 +178,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     return Array.from(set).sort();
   }, [rows]);
 
-  // По умолчанию — все источники
-  useEffect(() => {
-    if (sourcesList.length && sources.length === 0) {
-      setSources(sourcesList);
-    }
-  }, [sourcesList, sources.length]);
-
   const handleExport = async (format: 'csv' | 'xlsx') => {
     if (!userIdFilter) {
       alert('Сначала выберите клиента');
@@ -162,6 +186,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
     await downloadLeadsExport({
       projectIds: projectIds.length ? projectIds : undefined,
       sources: sources.length ? sources : undefined,
+      collectionSources: collectionSources.length ? collectionSources : undefined,
       fromDate,
       toDate,
       format,
@@ -225,6 +250,17 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
               setPage(1);
             }}
           />
+          <FilterDropdown
+            label="Источник сбора"
+            options={COLLECTION_SOURCE_FILTER_OPTIONS}
+            selected={collectionSources}
+            allLabel="Все источники"
+            emptySelectionShowsAll={false}
+            onApply={(vals) => {
+              setCollectionSources(vals);
+              setPage(1);
+            }}
+          />
           <label className="dashboard-toggle">
             <input
               type="checkbox"
@@ -274,6 +310,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             <tr>
               <th>Дата</th>
               <th>Телефон</th>
+              <th>Источник сбора</th>
               <th>Канал</th>
               <th>Источники</th>
               <th>Проект</th>
@@ -285,24 +322,27 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           <tbody>
             {!userIdFilter && !loading && (
               <tr>
-                <td colSpan={8} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={9} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Выберите клиента, чтобы увидеть идентификации.
                 </td>
               </tr>
             )}
             {userIdFilter && !loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="muted" style={{ padding: 16, textAlign: 'center' }}>
+                <td colSpan={9} className="muted" style={{ padding: 16, textAlign: 'center' }}>
                   Данных за выбранный период нет.
                 </td>
               </tr>
             )}
             {rows.map((r) => (
-              <tr key={r.ext_id} style={{ borderBottom: '1px solid #ececf2' }}>
+              <tr key={r.lk_id || `${r.ext_id}-${r.phone}`} style={{ borderBottom: '1px solid #ececf2' }}>
                 <td><DateTimeCompact value={r.created_at} /></td>
                 <td>{r.phone}</td>
-                <td className="muted">{toDisplaySourceCode(r.source ?? '')}</td>
-                <td className="muted">{formatSourceTextForDisplay(r.utm_campaign ?? '')}</td>
+                <td className="muted">{leadCollectionLabel(r)}</td>
+                <td className="muted">{leadChannelLabel(r)}</td>
+                <td className="muted" title={leadSourceText(r)} style={{ maxWidth: 360, overflowWrap: 'anywhere' }}>
+                  {leadSourceText(r)}
+                </td>
                 <td>
                   <div className="name">
                     {formatProjectNameForDisplay(r.project_name ?? (r.project_id != null ? projectNameMap.get(r.project_id) : undefined) ?? '—')}
