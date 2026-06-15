@@ -164,6 +164,7 @@ class ClientProfileOut(BaseModel):
     contact: Optional[str] = None
     internalClientId: Optional[str] = None
     tableUrl: Optional[str] = None
+    pixelTableUrl: Optional[str] = None
     workStatus: ClientWorkStatus = 'В работе'
 
     class Config:
@@ -183,6 +184,7 @@ class AdminClientCreateIn(BaseModel):
     uniqueProjectNamesEnabled: bool = False
     internalClientId: Optional[str] = None
     tableUrl: Optional[str] = None
+    pixelTableUrl: Optional[str] = None
     ownerAgentId: Optional[int] = None
 
 
@@ -206,6 +208,7 @@ class AdminClientUpdateIn(BaseModel):
     uniqueProjectNamesEnabled: Optional[bool] = None
     internalClientId: Optional[str] = None
     tableUrl: Optional[str] = None
+    pixelTableUrl: Optional[str] = None
     ownerAgentId: Optional[int] = None
 
 

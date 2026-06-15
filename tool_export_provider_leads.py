@@ -166,6 +166,7 @@ def _fetch_recent_provider_leads(db_sess, days: int) -> List[models.ProviderLead
     stmt = (
         select(models.ProviderLead)
         .where(models.ProviderLead.prov_created_at.isnot(None))
+        .where(models.ProviderLead.lead_source == "provider")
         .where(models.ProviderLead.prov_created_at >= threshold)
         .order_by(models.ProviderLead.prov_created_at.asc())
     )

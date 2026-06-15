@@ -3327,6 +3327,7 @@ def admin_create_client(
     unique_project_names_enabled: bool = False,
     internal_client_id: Optional[str] = None,
     table_url: Optional[str] = None,
+    pixel_table_url: Optional[str] = None,
     owner_agent_id: Optional[int] = None,
 ) -> schemas.AdminClientCreateOut:
     now = now_msk()
@@ -3375,6 +3376,7 @@ def admin_create_client(
         contact=(contact or "").strip() or None,
         internal_client_id=(internal_client_id or "").strip() or None,
         table_url=(table_url or "").strip() or None,
+        pixel_table_url=(pixel_table_url or "").strip() or None,
         work_status=CLIENT_WORK_STATUS_DEFAULT,
         created_at=now,
         updated_at=now,
@@ -3407,6 +3409,7 @@ def admin_update_client(
     unique_project_names_enabled: Optional[bool] = None,
     internal_client_id: Optional[str] = None,
     table_url: Optional[str] = None,
+    pixel_table_url: Optional[str] = None,
     owner_agent_id: Optional[int] = None,
     commit: bool = True,
 ) -> schemas.AdminClientUpdateOut:
@@ -3470,6 +3473,7 @@ def admin_update_client(
             contact=(contact or "").strip() or None,
             internal_client_id=(internal_client_id or "").strip() or None,
             table_url=(table_url or "").strip() or None,
+            pixel_table_url=(pixel_table_url or "").strip() or None,
             work_status=CLIENT_WORK_STATUS_DEFAULT,
             created_at=now,
             updated_at=now,
@@ -3488,6 +3492,8 @@ def admin_update_client(
             profile.internal_client_id = (internal_client_id or "").strip() or None
         if table_url is not None:
             profile.table_url = (table_url or "").strip() or None
+        if pixel_table_url is not None:
+            profile.pixel_table_url = (pixel_table_url or "").strip() or None
         profile.updated_at = now
 
     if name_clean is not None:

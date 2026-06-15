@@ -784,6 +784,7 @@ export type ClientProfile = {
   contact?: string | null;
   internalClientId?: string | null;
   tableUrl?: string | null;
+  pixelTableUrl?: string | null;
   workStatus?: ClientWorkStatus | null;
 };
 
@@ -1470,6 +1471,7 @@ export type AdminClientCreatePayload = {
   uniqueProjectNamesEnabled?: boolean;
   internalClientId?: string;
   tableUrl?: string;
+  pixelTableUrl?: string;
   ownerAgentId?: number | null;
 };
 
@@ -1493,6 +1495,7 @@ export type AdminClientUpdatePayload = {
   uniqueProjectNamesEnabled?: boolean;
   internalClientId?: string;
   tableUrl?: string;
+  pixelTableUrl?: string;
   ownerAgentId?: number | null;
 };
 

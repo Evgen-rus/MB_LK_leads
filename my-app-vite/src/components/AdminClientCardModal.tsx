@@ -13,6 +13,7 @@ type AdminClientCardModalProps = {
   initialUniqueProjectNamesEnabled?: boolean;
   initialInternalClientId?: string;
   initialTableUrl?: string;
+  initialPixelTableUrl?: string;
   initialLogin: string;
   onClose: () => void;
   onUpdated?: (resp: AdminClientUpdateResp) => void;
@@ -40,6 +41,7 @@ function AdminClientCardModal({
   initialUniqueProjectNamesEnabled,
   initialInternalClientId,
   initialTableUrl,
+  initialPixelTableUrl,
   initialLogin,
   onClose,
   onUpdated,
@@ -54,6 +56,7 @@ function AdminClientCardModal({
   const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(Boolean(initialUniqueProjectNamesEnabled));
   const [internalClientId, setInternalClientId] = useState(initialInternalClientId || '');
   const [tableUrl, setTableUrl] = useState(initialTableUrl || '');
+  const [pixelTableUrl, setPixelTableUrl] = useState(initialPixelTableUrl || '');
   const [login, setLogin] = useState(initialLogin);
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -117,6 +120,7 @@ function AdminClientCardModal({
         uniqueProjectNamesEnabled,
         internalClientId: internalClientId.trim(),
         tableUrl: tableUrl.trim(),
+        pixelTableUrl: pixelTableUrl.trim(),
         login: login.trim(),
         password: password.trim() || undefined,
       });
@@ -205,16 +209,28 @@ function AdminClientCardModal({
             />
           </label>
           {!isAgentManager && (
-            <label style={{ display: 'grid', gap: 6 }}>
-              <span className="section-title">Ссылка на таблицу</span>
-              <input
-                type="text"
-                placeholder="https://..."
-                value={tableUrl}
-                onChange={(e) => setTableUrl(e.target.value)}
-              />
-              <span className="hint">Ссылка на таблицу контроля идентификаций клиента</span>
-            </label>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Таблица клиента: остальные источники</span>
+                <input
+                  type="text"
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  value={tableUrl}
+                  onChange={(e) => setTableUrl(e.target.value)}
+                />
+                <span className="hint">Текущая таблица для обычных provider-идентификаций</span>
+              </label>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className="section-title">Таблица клиента: Пиксель</span>
+                <input
+                  type="text"
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  value={pixelTableUrl}
+                  onChange={(e) => setPixelTableUrl(e.target.value)}
+                />
+                <span className="hint">Отдельная таблица для выгрузки идентификаций Пикселя</span>
+              </label>
+            </div>
           )}
           {!isAgentManager && (
             <div

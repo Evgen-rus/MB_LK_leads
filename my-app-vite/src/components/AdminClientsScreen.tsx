@@ -91,6 +91,7 @@ type ClientRow = {
   uniqueProjectNamesEnabled: boolean;
   internalClientId?: string | null;
   tableUrl?: string | null;
+  pixelTableUrl?: string | null;
   inn?: string | null;
   phone?: string | null;
   contact?: string | null;
@@ -229,6 +230,7 @@ function AdminClientsScreen({
     uniqueProjectNamesEnabled: boolean;
     internalClientId?: string | null;
     tableUrl?: string | null;
+    pixelTableUrl?: string | null;
     login: string;
   } | null>(null);
 
@@ -304,6 +306,7 @@ function AdminClientsScreen({
             uniqueProjectNamesEnabled: Boolean(it.user.uniqueProjectNamesEnabled),
             internalClientId: profile?.internalClientId ?? null,
             tableUrl: profile?.tableUrl ?? null,
+            pixelTableUrl: profile?.pixelTableUrl ?? null,
             inn: profile?.inn,
             phone: profile?.phone,
             contact: profile?.contact,
@@ -676,6 +679,7 @@ function AdminClientsScreen({
       uniqueProjectNamesEnabled: row.uniqueProjectNamesEnabled,
       internalClientId: row.internalClientId,
       tableUrl: row.tableUrl,
+      pixelTableUrl: row.pixelTableUrl,
       login: row.login,
     });
   }
@@ -1493,6 +1497,7 @@ function AdminClientsScreen({
             initialUniqueProjectNamesEnabled={cardClientData.uniqueProjectNamesEnabled}
             initialInternalClientId={cardClientData.internalClientId || undefined}
             initialTableUrl={cardClientData.tableUrl || undefined}
+            initialPixelTableUrl={cardClientData.pixelTableUrl || undefined}
             initialLogin={cardClientData.login}
             onClose={() => setCardClientId(null)}
             onUpdated={() => {
@@ -1748,6 +1753,7 @@ function AdminClientsScreen({
                               uniqueProjectNamesEnabled: row.uniqueProjectNamesEnabled,
                               internalClientId: row.internalClientId,
                               tableUrl: row.tableUrl,
+                              pixelTableUrl: row.pixelTableUrl,
                               login: row.login,
                             });
                           }}
@@ -2216,6 +2222,7 @@ function AdminClientsScreen({
         initialUniqueProjectNamesEnabled={cardClientData.uniqueProjectNamesEnabled}
         initialInternalClientId={cardClientData.internalClientId || undefined}
         initialTableUrl={cardClientData.tableUrl || undefined}
+        initialPixelTableUrl={cardClientData.pixelTableUrl || undefined}
         initialLogin={cardClientData.login}
         onClose={() => setCardClientId(null)}
         onUpdated={() => {

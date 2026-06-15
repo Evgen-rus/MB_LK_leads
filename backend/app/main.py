@@ -482,6 +482,8 @@ def _ensure_client_profile_extra_columns() -> None:
             conn.execute(text("ALTER TABLE client_profiles ADD COLUMN internal_client_id VARCHAR"))
         if "table_url" not in columns:
             conn.execute(text("ALTER TABLE client_profiles ADD COLUMN table_url VARCHAR"))
+        if "pixel_table_url" not in columns:
+            conn.execute(text("ALTER TABLE client_profiles ADD COLUMN pixel_table_url VARCHAR"))
 
 
 _ensure_client_profile_extra_columns()
@@ -553,6 +555,8 @@ def _ensure_provider_leads_pixel_columns_and_indexes() -> None:
             conn.execute(text("ALTER TABLE provider_leads ADD COLUMN lead_source VARCHAR DEFAULT 'provider'"))
         if "pixel_url" not in columns:
             conn.execute(text("ALTER TABLE provider_leads ADD COLUMN pixel_url VARCHAR"))
+        if "client_sheet_exported_at" not in columns:
+            conn.execute(text("ALTER TABLE provider_leads ADD COLUMN client_sheet_exported_at TIMESTAMP"))
         conn.execute(text("UPDATE provider_leads SET lead_source = 'provider' WHERE lead_source IS NULL OR lead_source = ''"))
 
         if engine.dialect.name == "postgresql":
@@ -562,6 +566,7 @@ def _ensure_provider_leads_pixel_columns_and_indexes() -> None:
             conn.execute(text("DROP INDEX IF EXISTS ix_provider_leads_vid"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_leads_vid ON provider_leads (vid)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_leads_lead_source ON provider_leads (lead_source)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_provider_leads_client_sheet_exported_at ON provider_leads (client_sheet_exported_at)"))
             conn.execute(
                 text(
                     """
@@ -4455,6 +4460,7 @@ def admin_create_client(
             unique_project_names_enabled=bool(payload.uniqueProjectNamesEnabled or False) if crud.is_admin_user(current_manager) else False,
             internal_client_id=(payload.internalClientId if crud.is_admin_user(current_manager) else None),
             table_url=(payload.tableUrl if crud.is_admin_user(current_manager) else None),
+            pixel_table_url=(payload.pixelTableUrl if crud.is_admin_user(current_manager) else None),
             owner_agent_id=(payload.ownerAgentId if crud.is_admin_user(current_manager) else int(current_manager.id)),
         )
     except ValueError as exc:
@@ -4556,6 +4562,7 @@ def admin_update_client(
             unique_project_names_enabled=(payload.uniqueProjectNamesEnabled if crud.is_admin_user(current_manager) else None),
             internal_client_id=(payload.internalClientId if crud.is_admin_user(current_manager) else None),
             table_url=(payload.tableUrl if crud.is_admin_user(current_manager) else None),
+            pixel_table_url=(payload.pixelTableUrl if crud.is_admin_user(current_manager) else None),
             owner_agent_id=None,
         )
         test_message = _build_auto_pause_test_message(existing_user)

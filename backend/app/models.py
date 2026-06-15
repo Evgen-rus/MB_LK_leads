@@ -69,6 +69,7 @@ class ClientProfile(Base):
     contact = Column(String, nullable=True)
     internal_client_id = Column(String, nullable=True)
     table_url = Column(String, nullable=True)
+    pixel_table_url = Column(String, nullable=True)
     work_status = Column(String, nullable=False, default="В работе")
     created_at = Column(DateTime, default=now_msk, nullable=False)
     updated_at = Column(DateTime, default=now_msk, nullable=False)
@@ -80,6 +81,10 @@ class ClientProfile(Base):
     @property
     def tableUrl(self) -> Optional[str]:
         return self.table_url
+
+    @property
+    def pixelTableUrl(self) -> Optional[str]:
+        return self.pixel_table_url
 
     @property
     def workStatus(self) -> str:
@@ -240,6 +245,7 @@ class ProviderLead(Base):
     subdomain = Column(String, nullable=True, index=True)
     pixel_url = Column(String, nullable=True)
     imported_at = Column(DateTime, nullable=False, default=now_msk, index=True)
+    client_sheet_exported_at = Column(DateTime, nullable=True, index=True)
     project_id = Column(Integer, nullable=True, index=True)
 
 
