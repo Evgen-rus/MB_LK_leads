@@ -490,6 +490,7 @@ export type MeResponse = {
   telegramNotificationsChatId?: string | null;
   telegramAutoPauseEnabled: boolean;
   uniqueProjectNamesEnabled: boolean;
+  pixelTableUrl?: string | null;
 };
 
 export async function fetchMe(): Promise<MeResponse> {

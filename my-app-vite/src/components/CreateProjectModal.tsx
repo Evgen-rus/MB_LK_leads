@@ -30,6 +30,7 @@ type CreateProjectModalProps = {
   onClose: () => void;
   onSubmit?: (payloads: SubmitItem[]) => Promise<string | null> | string | null | void;
   uniqueProjectNamesEnabled?: boolean;
+  pixelProjectsEnabled?: boolean;
 };
 
 // Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
@@ -49,7 +50,12 @@ const ALL_COLLECTION_SOURCES: CollectionSource[] = [
   'Пересечение',
 ];
 
-function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = false }: CreateProjectModalProps) {
+function CreateProjectModal({
+  onClose,
+  onSubmit,
+  uniqueProjectNamesEnabled = false,
+  pixelProjectsEnabled = false,
+}: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -85,11 +91,14 @@ function CreateProjectModal({ onClose, onSubmit, uniqueProjectNamesEnabled = fal
   const isPixel = collectionSource === 'Пиксель';
 
   const availableSources = useMemo(() => (
-    ALL_COLLECTION_SOURCES.filter((src) => !DISABLED_COLLECTION_SOURCES.has(src))
-  ), []);
+    ALL_COLLECTION_SOURCES.filter((src) => (
+      !DISABLED_COLLECTION_SOURCES.has(src) &&
+      (src !== 'Пиксель' || pixelProjectsEnabled)
+    ))
+  ), [pixelProjectsEnabled]);
 
   useEffect(() => {
-    if (DISABLED_COLLECTION_SOURCES.has(collectionSource)) {
+    if (!availableSources.includes(collectionSource)) {
       setCollectionSource(availableSources[0] || 'Звонки');
     }
   }, [collectionSource, availableSources]);

@@ -155,6 +155,7 @@ function App() {
   const [projectsMutationLocked, setProjectsMutationLocked] = useState(false);
   const [projectsMutationLockReason, setProjectsMutationLockReason] = useState<string | null>(null);
   const [uniqueProjectNamesEnabled, setUniqueProjectNamesEnabled] = useState(false);
+  const [pixelProjectsEnabled, setPixelProjectsEnabled] = useState(false);
   // Принудительно фиксируем светлую тему по умолчанию
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', 'light');
@@ -324,6 +325,7 @@ function App() {
       setProjectsMutationLocked(false);
       setProjectsMutationLockReason(null);
       setUniqueProjectNamesEnabled(false);
+      setPixelProjectsEnabled(false);
       return;
     }
     (async () => {
@@ -337,6 +339,7 @@ function App() {
         setProjectsMutationLocked(Boolean(me.projectsMutationLocked));
         setProjectsMutationLockReason(me.projectsMutationLockReason || null);
         setUniqueProjectNamesEnabled(Boolean(me.uniqueProjectNamesEnabled));
+        setPixelProjectsEnabled(Boolean(me.pixelTableUrl && me.pixelTableUrl.trim()));
       } catch (e) {
         console.error(e);
         setClientName(null);
@@ -347,6 +350,7 @@ function App() {
         setProjectsMutationLocked(false);
         setProjectsMutationLockReason(null);
         setUniqueProjectNamesEnabled(false);
+        setPixelProjectsEnabled(false);
       }
     })();
   }, [authChecked, needLogin, isAdmin]);
@@ -518,6 +522,7 @@ function App() {
               setImpersonatorUserId(null);
               setRows([]);
               setUniqueProjectNamesEnabled(false);
+              setPixelProjectsEnabled(false);
               setRole('client');
               setNeedLogin(true);
               if (window.location.pathname !== '/login') {
@@ -787,6 +792,7 @@ function App() {
       {isCreateOpen && (
         <CreateProjectModal
           uniqueProjectNamesEnabled={uniqueProjectNamesEnabled}
+          pixelProjectsEnabled={pixelProjectsEnabled}
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (items) => {
             try {

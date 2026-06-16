@@ -160,6 +160,7 @@ class SelfProfileOut(BaseModel):
     telegramNotificationsChatId: Optional[str] = None
     telegramAutoPauseEnabled: bool = False
     uniqueProjectNamesEnabled: bool = False
+    pixelTableUrl: Optional[str] = None
 
 
 class ClientProfileOut(BaseModel):

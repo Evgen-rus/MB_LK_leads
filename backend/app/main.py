@@ -779,6 +779,13 @@ def _prepare_pixel_create_item(item: schemas.CreateProjectItem) -> None:
     item.smsSenderName = None
 
 
+def _client_has_pixel_table_url(db_sess: Session, user_id: int) -> bool:
+    profile = db_sess.execute(
+        select(models.ClientProfile).where(models.ClientProfile.user_id == int(user_id))
+    ).scalar_one_or_none()
+    return bool(str(getattr(profile, "pixel_table_url", "") or "").strip())
+
+
 def _strip_provider_prefix_from_name(name: Optional[str]) -> str:
     raw = str(name or "").strip()
     for code in ("B1", "B2", "B3", "B4"):
@@ -2672,6 +2679,11 @@ def get_me(current_user: models.User = Depends(require_auth), db_sess: Session =
         telegramNotificationsChatId=(getattr(current_user, "telegram_notifications_chat_id", None) or None),
         telegramAutoPauseEnabled=bool(getattr(current_user, "telegram_auto_pause_enabled", False)),
         uniqueProjectNamesEnabled=bool(getattr(current_user, "unique_project_names_enabled", False)),
+        pixelTableUrl=(
+            str(getattr(profile, "pixel_table_url", "") or "").strip() or None
+            if profile is not None
+            else None
+        ),
     )
 
 
@@ -3070,6 +3082,25 @@ def create_projects(payload: schemas.CreateProjectsPayload, current_user: models
                 via_impersonation=via_impersonation,
             )
             raise
+
+    if any(_is_pixel_collection_source(item.collectionSource) for item in payload.items):
+        if not _client_has_pixel_table_url(db_sess, int(current_user.id)):
+            detail = {
+                "message": "Чтобы создать Пиксель-проект, сначала заполните «Таблица клиента: Пиксель» в карточке клиента."
+            }
+            for item in payload.items:
+                if _is_pixel_collection_source(item.collectionSource):
+                    _record_failed_project_operation(
+                        user_id=current_user.id,
+                        actor_user_id=actor_user_id,
+                        operation="create",
+                        project_name=item.name,
+                        request_payload=_project_payload_for_history(item),
+                        error_message=detail["message"],
+                        error_code="pixel_table_url_required",
+                        via_impersonation=via_impersonation,
+                    )
+            raise HTTPException(status_code=422, detail=detail)
 
     client_internal_prefix: Optional[str] = None
     if bool(getattr(current_user, "unique_project_names_enabled", False)):
