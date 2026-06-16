@@ -1,7 +1,7 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
 import type { Day, ProjectSortBy, ProjectUpdatePayload, SortDir } from '../api';
-import { fetchProjects, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
+import { fetchProjects, setProjectTop as apiSetProjectTop, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
 import type { Project, ProjectMutableStatus } from '../types/project';
 import DateRangeFilter from './DateRangeFilter';
 import BulkEditDaysModal from './BulkEditDaysModal';
@@ -98,6 +98,7 @@ function ProjectsTable({
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [chartFor, setChartFor] = useState<Project | null>(null);
+  const [topSavingIds, setTopSavingIds] = useState<Set<number>>(() => new Set());
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -450,6 +451,30 @@ function ProjectsTable({
     }
   }
 
+  async function handleToggleTop(row: Project) {
+    if (row.status === 'Удалён' || topSavingIds.has(row.id)) return;
+    const nextIsTop = !row.isTop;
+    setTopSavingIds((prev) => new Set(prev).add(row.id));
+    setRows((prev) => prev.map((p) => (p.id === row.id ? { ...p, isTop: nextIsTop } : p)));
+    try {
+      const updated = await apiSetProjectTop(row.id, nextIsTop);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? updated : p)));
+    } catch (e) {
+      console.error(e);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? { ...p, isTop: row.isTop } : p)));
+      const message = e instanceof Error && e.message
+        ? e.message
+        : 'Не удалось изменить отметку Топ.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
+    } finally {
+      setTopSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  }
+
   async function handleSoftDelete(row: Project) {
     if (projectsMutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
@@ -722,6 +747,7 @@ function ProjectsTable({
         <colgroup>
           <col style={{ width: 48 }} />
           <col style={{ width: 48 }} />
+          <col style={{ width: 44 }} />
         </colgroup>
         <thead>
           <tr>
@@ -734,6 +760,7 @@ function ProjectsTable({
               />
             </th>
             {renderSortableHeader('ID', 'id', { width: 20 }, 'table-sticky-cell table-sticky-cell--after-check')}
+            <th className="project-top-cell">Топ</th>
             {renderSortableHeader('Название', 'name')}
             {renderSortableHeader('Источник', 'dataSourceCode')}
             {renderSortableHeader('Статус проекта', 'status')}
@@ -768,6 +795,22 @@ function ProjectsTable({
                 />
               </td>
               <td className="muted table-sticky-cell table-sticky-cell--after-check">{row.id}</td>
+              <td className="project-top-cell">
+                <button
+                  type="button"
+                  className={`project-top-button${row.isTop ? ' project-top-button--active' : ''}`}
+                  aria-pressed={row.isTop}
+                  disabled={row.status === 'Удалён' || topSavingIds.has(row.id)}
+                  title={
+                    row.status === 'Удалён'
+                      ? row.isTop ? 'Топ' : 'Удалённый проект нельзя отмечать как топ'
+                      : row.isTop ? 'Топ' : 'Отметить как топ'
+                  }
+                  onClick={() => handleToggleTop(row)}
+                >
+                  {row.isTop ? '★' : '☆'}
+                </button>
+              </td>
               <td
                 style={{ cursor: 'pointer', position: 'relative' }}
                 onClick={(event) => {

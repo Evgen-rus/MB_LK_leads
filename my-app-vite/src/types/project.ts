@@ -25,6 +25,7 @@ export interface Project {
   phones?: string[];
   smsSenderName?: string;
   dataLimit: number; // отображается как «Лимит»
+  isTop: boolean; // ручная отметка «Топ»
   numbersToday: number; // «Номеров получено сегодня»
   numbersTotal: number; // «Номеров получено всего»
   numbersPeriod: number; // «Номеров за период» (выбранный в календаре)

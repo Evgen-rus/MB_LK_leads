@@ -413,6 +413,13 @@ export async function updateProject(id: number, payload: ProjectUpdatePayload): 
   });
 }
 
+export async function setProjectTop(id: number, isTop: boolean): Promise<Project> {
+  return http<Project>(`/projects/${id}/top`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isTop }),
+  });
+}
+
 export async function deleteProject(id: number): Promise<void> {
   await http(`/projects/${id}`, { method: 'DELETE' });
 }
@@ -917,6 +924,13 @@ export async function updateAdminProject(id: number, payload: AdminProjectUpdate
   return http<UpdateAdminProjectResp>(`/admin/projects/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function setAdminProjectTop(id: number, isTop: boolean): Promise<AdminProject> {
+  return http<AdminProject>(`/admin/projects/${id}/top`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isTop }),
   });
 }
 

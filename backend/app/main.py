@@ -528,6 +528,22 @@ def _ensure_project_provider_leads_grace_columns() -> None:
 _ensure_project_provider_leads_grace_columns()
 
 
+def _ensure_project_top_column() -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "projects" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("projects")}
+    with engine.begin() as conn:
+        if "is_top" not in columns:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN is_top BOOLEAN DEFAULT FALSE"))
+        conn.execute(text("UPDATE projects SET is_top = FALSE WHERE is_top IS NULL"))
+
+
+_ensure_project_top_column()
+
+
 def _ensure_provider_leads_imported_at_index() -> None:
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -3200,6 +3216,29 @@ def get_project(project_id: int, current_user: models.User = Depends(require_aut
     return project
 
 
+@app.patch("/projects/{project_id}/top", response_model=schemas.ProjectOut)
+def set_project_top(
+    project_id: int,
+    payload: schemas.ProjectTopUpdate,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    project_row = db_sess.get(models.Project, project_id)
+    if not project_row or project_row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project_row.status == "Удалён":
+        raise HTTPException(status_code=409, detail="Удалённый проект нельзя отмечать как топ.")
+    updated = crud.set_project_top(
+        db_sess,
+        project_id,
+        is_top=payload.isTop,
+        expose_internal_name=False,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return updated
+
+
 @app.get("/projects/{project_id}/chart", response_model=schemas.ProjectChartOut)
 def project_chart(
     project_id: int,
@@ -4909,6 +4948,26 @@ def admin_get_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+@app.patch("/admin/projects/{project_id}/top", response_model=schemas.AdminProjectOut)
+def admin_set_project_top(
+    project_id: int,
+    payload: schemas.ProjectTopUpdate,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """Переключить ручную отметку Топ без синхронизации с поставщиком и audit history."""
+    project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
+    if project_row.status == "Удалён":
+        raise HTTPException(status_code=409, detail="Удалённый проект нельзя отмечать как топ.")
+    updated = crud.set_project_top(db_sess, project_id, is_top=payload.isTop)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Project not found")
+    admin_project = crud.admin_get_project(db_sess, project_id)
+    if not admin_project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return admin_project
 
 
 @app.get("/admin/projects/{project_id}/history", response_model=schemas.AdminProjectHistoryListOut)

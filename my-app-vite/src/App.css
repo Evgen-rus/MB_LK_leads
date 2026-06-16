@@ -550,6 +550,33 @@
   line-height: 1;
   vertical-align: middle;
 }
+.project-top-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+.project-top-button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #8a8a96;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.project-top-button--active {
+  color: #d89b00;
+}
+.project-top-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
 .table-footer { display: flex; align-items: center; gap: 8px; padding: 12px; }
 .table-footer--top { border-bottom: 1px solid #ececf2; }
 .spacer { flex: 1; }

@@ -80,6 +80,10 @@ class ProjectUpdate(BaseModel):
     _normalize_phones = field_validator("phones")(_normalize_project_phones)
 
 
+class ProjectTopUpdate(BaseModel):
+    isTop: bool
+
+
 class ProjectOut(BaseModel):
     id: int
     status: ProjectStatus
@@ -94,6 +98,7 @@ class ProjectOut(BaseModel):
     phones: Optional[List[str]] = None
     smsSenderName: Optional[str] = None
     dataLimit: int
+    isTop: bool = False
     numbersToday: int
     numbersTotal: int
     numbersPeriod: int = 0

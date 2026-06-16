@@ -121,6 +121,7 @@ class Project(Base):
     data_limit = Column(Integer, nullable=False, default=0)
     daily_limit_reached_notified_at = Column(DateTime, nullable=True)
     daily_limit_reached_notified_limit = Column(Integer, nullable=True)
+    is_top = Column(Boolean, nullable=False, default=False)
     numbers_today = Column(Integer, nullable=False, default=0)
     numbers_total = Column(Integer, nullable=False, default=0)
     days_received = Column(String, nullable=False, default='')  # "Вт. Ср. ..."

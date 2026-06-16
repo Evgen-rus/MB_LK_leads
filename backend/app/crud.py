@@ -943,6 +943,7 @@ def _project_to_out(
         phones=p.phones,  # type: ignore
         smsSenderName=p.sms_sender_name,  # type: ignore
         dataLimit=p.data_limit,
+        isTop=bool(getattr(p, "is_top", False)),
         numbersToday=p.numbers_today,
         numbersTotal=p.numbers_total if numbers_total is None else numbers_total,
         numbersPeriod=numbers_period,
@@ -2264,6 +2265,23 @@ def get_project(db: Session, project_id: int, user_id: int) -> Optional[schemas.
     return _project_to_out(p, expose_internal_name=False) if p else None
 
 
+def set_project_top(
+    db: Session,
+    project_id: int,
+    *,
+    is_top: bool,
+    expose_internal_name: bool = True,
+) -> Optional[schemas.ProjectOut]:
+    p = db.get(models.Project, project_id)
+    if not p:
+        return None
+    p.is_top = bool(is_top)
+    p.updated_at = now_msk()
+    db.commit()
+    db.refresh(p)
+    return _project_to_out(p, expose_internal_name=expose_internal_name)
+
+
 def active_project_name_exists(
     db: Session,
     project_name: str,
@@ -2383,6 +2401,7 @@ def create_projects(
 
 def _snapshot_project(p: models.Project) -> dict:
     snapshot = _project_to_out(p).dict()
+    snapshot.pop("isTop", None)
     deleted_at = getattr(p, "deleted_at", None)
     grace_until = getattr(p, "provider_leads_grace_until", None)
     snapshot["deletedAt"] = deleted_at.strftime("%Y-%m-%d %H:%M:%S") if deleted_at else None

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   deleteAdminProject,
   fetchAdminProjects,
+  setAdminProjectTop,
   updateAdminProject,
   type AdminProject,
   type AdminProjectUpdate,
@@ -105,6 +106,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [chartFor, setChartFor] = useState<AdminProject | null>(null);
+  const [topSavingIds, setTopSavingIds] = useState<Set<number>>(() => new Set());
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const canUseAdminProjectActions = managerRole === 'admin';
@@ -169,7 +171,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const tableColSpan = canUseAdminProjectActions ? 13 : 12;
+  const tableColSpan = canUseAdminProjectActions ? 14 : 13;
   const selectableRows = useMemo(
     () => rows.filter((row) => row.status !== 'Удалён' && row.status !== OPERATOR_BLOCK_STATUS),
     [rows],
@@ -240,6 +242,29 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     if (project.status === 'Удалён') return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     await applyUpdate(project, { status: nextStatus });
+  }
+
+  async function handleToggleTop(project: AdminProject) {
+    if (project.status === 'Удалён' || topSavingIds.has(project.id)) return;
+    const nextIsTop = !project.isTop;
+    setTopSavingIds((prev) => new Set(prev).add(project.id));
+    setRows((prev) => prev.map((p) => (p.id === project.id ? { ...p, isTop: nextIsTop } : p)));
+    try {
+      const updated = await setAdminProjectTop(project.id, nextIsTop);
+      setRows((prev) => prev.map((p) => (p.id === project.id ? updated : p)));
+    } catch (err: unknown) {
+      console.error(err);
+      setRows((prev) => prev.map((p) => (p.id === project.id ? { ...p, isTop: project.isTop } : p)));
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: formatSourceTextForDisplay(getErrorMessage(err, 'Не удалось изменить отметку Топ')),
+      }));
+    } finally {
+      setTopSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(project.id);
+        return next;
+      });
+    }
   }
 
   function handleSort(nextSortBy: ProjectSortBy) {
@@ -715,6 +740,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                   ? 'table-sticky-cell table-sticky-cell--after-check'
                   : 'table-sticky-cell table-sticky-cell--lead',
               )}
+              <th className="project-top-cell">Топ</th>
               {renderSortableHeader('Название', 'name')}
               {renderSortableHeader('Источник', 'dataSourceCode')}
               {renderSortableHeader('Статус проекта', 'status')}
@@ -772,6 +798,22 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                     </td>
                   )}
                   <td className={`muted table-sticky-cell ${canUseAdminProjectActions ? 'table-sticky-cell--after-check' : 'table-sticky-cell--lead'}`}>{row.id}</td>
+                  <td className="project-top-cell">
+                    <button
+                      type="button"
+                      className={`project-top-button${row.isTop ? ' project-top-button--active' : ''}`}
+                      aria-pressed={row.isTop}
+                      disabled={row.status === 'Удалён' || topSavingIds.has(row.id)}
+                      title={
+                        row.status === 'Удалён'
+                          ? row.isTop ? 'Топ' : 'Удалённый проект нельзя отмечать как топ'
+                          : row.isTop ? 'Топ' : 'Отметить как топ'
+                      }
+                      onClick={() => handleToggleTop(row)}
+                    >
+                      {row.isTop ? '★' : '☆'}
+                    </button>
+                  </td>
                   <td
                     style={{ cursor: 'pointer', position: 'relative' }}
                     title="Открыть меню действий проекта"
