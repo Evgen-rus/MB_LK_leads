@@ -403,6 +403,13 @@ def _ensure_telegram_notification_columns() -> None:
 _ensure_telegram_notification_columns()
 
 
+def _ensure_pixel_telegram_report_state_table() -> None:
+    models.PixelTelegramReportState.__table__.create(bind=engine, checkfirst=True)
+
+
+_ensure_pixel_telegram_report_state_table()
+
+
 def _ensure_user_projects_lock_columns() -> None:
     """
     Лёгкая schema-evolution: добавляем поля блокировки изменений проектов,
@@ -1125,6 +1132,17 @@ def startup_event():
     )
     limit_worker.start()
 
+    pixel_report_worker = threading.Thread(
+        target=run_pixel_telegram_reports_loop,
+        kwargs={
+            "SessionLocal": SessionLocal,
+            "sleep_seconds": 60,
+        },
+        daemon=True,
+        name="pixel-telegram-reports-thread",
+    )
+    pixel_report_worker.start()
+
     telegram_cleanup_worker = threading.Thread(
         target=run_telegram_notifications_cleanup_loop,
         kwargs={
@@ -1177,6 +1195,201 @@ def run_telegram_notifications_cleanup_loop(SessionLocal, sleep_seconds: int = 8
         except Exception:
             logging.getLogger("app").warning("telegram notifications cleanup loop failed", exc_info=True)
         time.sleep(max(3600, int(sleep_seconds)))
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = str(os.getenv(name, "") or "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _local_naive(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=None)
+
+
+def _pixel_report_day_bounds(day, tz) -> tuple[datetime, datetime]:
+    start = datetime(day.year, day.month, day.day, 0, 0, 0, tzinfo=tz)
+    return _local_naive(start), _local_naive(start + timedelta(days=1))
+
+
+def _latest_pixel_hourly_checkpoint(now_local: datetime) -> Optional[datetime]:
+    checkpoints = [
+        now_local.replace(hour=8, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=9, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=10, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=11, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=12, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=13, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=14, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=15, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=16, minute=30, second=0, microsecond=0),
+        now_local.replace(hour=17, minute=30, second=0, microsecond=0),
+    ]
+    due = [checkpoint for checkpoint in checkpoints if now_local >= checkpoint]
+    return max(due) if due else None
+
+
+def _format_pixel_report_period(start_local: datetime, end_local: datetime) -> str:
+    return f"{start_local:%H:%M}-{end_local:%H:%M}"
+
+
+def _format_pixel_report_tariff(snapshot: dict) -> str:
+    tariff_amount = snapshot.get("tariff_amount")
+    if tariff_amount is None:
+        return "-"
+    remaining = int(snapshot.get("remaining") or 0)
+    used = int(tariff_amount) - remaining
+    return f"{_format_notification_number(used)}/{_format_notification_number(int(tariff_amount))}"
+
+
+def _pixel_report_chat_id(snapshot: dict) -> str:
+    client_chat_id = str(snapshot.get("telegram_chat_id") or "").strip()
+    if client_chat_id:
+        return client_chat_id
+    return str(settings.get("TELEGRAM_CHAT_ID") or "").strip()
+
+
+def _build_pixel_hourly_report_message(snapshot: dict, *, period_start: datetime, period_end: datetime) -> str:
+    client_name = html.escape(str(snapshot.get("client_name") or ""))
+    period_label = html.escape(_format_pixel_report_period(period_start, period_end))
+    checkpoint_label = html.escape(f"{period_end:%H:%M}")
+    return (
+        f"Клиент: {client_name}\n"
+        f"Загружено новых идентификаторов за {period_label}: "
+        f"{_format_notification_number(int(snapshot.get('period_count') or 0))}\n"
+        f"Всего за сегодня на {checkpoint_label}: "
+        f"{_format_notification_number(int(snapshot.get('total_count') or 0))}\n"
+        f"Тариф: {html.escape(_format_pixel_report_tariff(snapshot))}\n"
+        f"Остаток: {_format_notification_number(int(snapshot.get('remaining') or 0))}"
+    )
+
+
+def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> str:
+    client_name = html.escape(str(snapshot.get("client_name") or ""))
+    text = (
+        f"Ежедневный отчет поступления данных за {report_date:%d.%m.%Y}:\n\n"
+        f"Клиент: {client_name}\n"
+        f"Тариф: {html.escape(_format_pixel_report_tariff(snapshot))}\n"
+        f"Выдано за день: {_format_notification_number(int(snapshot.get('period_count') or 0))}"
+    )
+    tail_count = int(snapshot.get("tail_count") or 0)
+    if tail_count > 0:
+        text += f"\nПосле 17:30 поступило: {_format_notification_number(tail_count)}"
+    text += f"\nОстаток: {_format_notification_number(int(snapshot.get('remaining') or 0))}"
+    return text
+
+
+def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> int:
+    checkpoint = _latest_pixel_hourly_checkpoint(now_local)
+    if checkpoint is None:
+        return 0
+    day_start, _day_end = _pixel_report_day_bounds(checkpoint.date(), checkpoint.tzinfo)
+    period_end = _local_naive(checkpoint)
+    if checkpoint.hour == 8:
+        period_start = day_start
+    else:
+        period_start = _local_naive(checkpoint - timedelta(hours=1))
+
+    snapshots = crud.list_pixel_telegram_report_snapshots(
+        db_sess,
+        period_start=period_start,
+        period_end=period_end,
+        total_start=day_start,
+        total_end=period_end,
+    )
+    queued = 0
+    for snapshot in snapshots:
+        if int(snapshot.get("period_count") or 0) <= 0:
+            continue
+        chat_id = _pixel_report_chat_id(snapshot)
+        if not chat_id:
+            continue
+        row = crud.queue_unique_pixel_telegram_report(
+            db_sess,
+            kind=crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
+            client_id=int(snapshot["client_id"]),
+            period_start=period_start,
+            period_end=period_end,
+            chat_id=chat_id,
+            text=_build_pixel_hourly_report_message(snapshot, period_start=period_start, period_end=period_end),
+            parse_mode="HTML",
+            metadata={
+                "kind": crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
+                "client_id": int(snapshot["client_id"]),
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+                "period_count": int(snapshot.get("period_count") or 0),
+                "total_count": int(snapshot.get("total_count") or 0),
+            },
+        )
+        if row is not None:
+            queued += 1
+    return queued
+
+
+def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> int:
+    daily_checkpoint = now_local.replace(hour=8, minute=0, second=0, microsecond=0)
+    if now_local < daily_checkpoint:
+        return 0
+
+    report_day = (now_local - timedelta(days=1)).date()
+    period_start, period_end = _pixel_report_day_bounds(report_day, now_local.tzinfo)
+    tail_start = _local_naive(datetime(report_day.year, report_day.month, report_day.day, 17, 30, 0, tzinfo=now_local.tzinfo))
+    snapshots = crud.list_pixel_telegram_report_snapshots(
+        db_sess,
+        period_start=period_start,
+        period_end=period_end,
+        tail_start=tail_start,
+        tail_end=period_end,
+    )
+    queued = 0
+    for snapshot in snapshots:
+        if int(snapshot.get("period_count") or 0) <= 0:
+            continue
+        chat_id = _pixel_report_chat_id(snapshot)
+        if not chat_id:
+            continue
+        row = crud.queue_unique_pixel_telegram_report(
+            db_sess,
+            kind=crud.PIXEL_TELEGRAM_REPORT_KIND_DAILY_FINAL,
+            client_id=int(snapshot["client_id"]),
+            period_start=period_start,
+            period_end=period_end,
+            chat_id=chat_id,
+            text=_build_pixel_daily_final_report_message(snapshot, report_date=report_day),
+            parse_mode="HTML",
+            metadata={
+                "kind": crud.PIXEL_TELEGRAM_REPORT_KIND_DAILY_FINAL,
+                "client_id": int(snapshot["client_id"]),
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+                "period_count": int(snapshot.get("period_count") or 0),
+                "tail_count": int(snapshot.get("tail_count") or 0),
+            },
+        )
+        if row is not None:
+            queued += 1
+    return queued
+
+
+def run_pixel_telegram_reports_loop(SessionLocal, sleep_seconds: int = 60) -> None:
+    while True:
+        try:
+            if _env_flag("NOTIFICATIONS_TELEGRAM_ENABLED", default=True):
+                now_local = datetime.now(_get_msk_tz())
+                with SessionLocal() as s:  # type: Session
+                    daily_queued = _queue_pixel_daily_final_reports(s, now_local)
+                    hourly_queued = _queue_pixel_hourly_reports(s, now_local)
+                if daily_queued or hourly_queued:
+                    logging.getLogger("app").info(
+                        "Queued Pixel Telegram reports: daily=%s hourly=%s",
+                        daily_queued,
+                        hourly_queued,
+                    )
+        except Exception:
+            logging.getLogger("app").warning("pixel telegram reports loop failed", exc_info=True)
+        time.sleep(max(30, int(sleep_seconds)))
 
 
 def _seconds_until_next_operator_block_check() -> int:

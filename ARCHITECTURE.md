@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 ## 1) System At A Glance
 
@@ -19,6 +19,7 @@ Last updated: 2026-06-15
 - **Дневной лимит проекта:** периодическая проверка в фоновом цикле; при 100% лимита за сегодня — Telegram в общий чат; дедуп по `daily_limit_reached_notified_limit`.
 - **Импорт лидов провайдера из XLSX:** админский UI (двухшаговый preview → commit) и служебный CLI; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
 - **Пиксель:** отдельный локальный источник сбора `collectionSource = "Пиксель"` без Prostats; production webhook `POST /api/pixel-webhook/{PIXEL_WEBHOOK_SECRET}` пишет строки в общий `provider_leads` с `lead_source = "pixel"`.
+- **Telegram-отчёты по Пикселю:** отдельный backend thread агрегирует Pixel-лиды по клиентам и ставит сообщения в `telegram_notifications`; дедуп отчётов хранится в `pixel_telegram_report_states`.
 
 ## 2) Source Of Truth
 
@@ -33,6 +34,7 @@ Last updated: 2026-06-15
 - Админский дашборд: backend `crud.admin_dashboard` + admin-only endpoint `GET /admin/dashboard`; frontend `my-app-vite/src/components/AdminDashboard.tsx`
 - Сводка клиентов manager-зоны: backend `crud.admin_clients_summary` + manager endpoint `GET /admin/clients/summary`; frontend `my-app-vite/src/components/AdminClientsScreen.tsx`
 - График проекта: backend `crud.project_leads_chart` + endpoints `GET /projects/{project_id}/chart`, `GET /admin/projects/{project_id}/chart`; frontend `my-app-vite/src/components/ProjectChartModal.tsx`
+- Telegram-отчёты по Пикселю: backend `models.PixelTelegramReportState` + `crud.list_pixel_telegram_report_snapshots` / `crud.queue_unique_pixel_telegram_report` + thread `run_pixel_telegram_reports_loop` в `backend/app/main.py`
 - Запуск/команды: `README.md`
 
 ## 3) Critical Invariants
@@ -72,6 +74,7 @@ Last updated: 2026-06-15
 33. Pixel webhook использует отдельный `PIXEL_WEBHOOK_SECRET`; неверный/пустой secret возвращает `404`. Endpoint принимает JSON/form/raw, но production-логика пишет в БД только при корректных `vid`, `site`, `phones` и однозначном Пиксель-проекте по домену.
 34. Пиксель-лиды хранятся в общей таблице `provider_leads`: `lead_source = "pixel"`, `pixel_url = page`, `prov_chanel = NULL`. Дедуп Пикселя независим от provider-лидов и идёт по `lead_source = "pixel" AND vid + phone`.
 35. Уникальность `provider_leads`: provider-контур — `vid` только при `lead_source = "provider"`; pixel-контур — пара `vid + phone` только при `lead_source = "pixel"`. XLSX-импорт остаётся в контуре `lead_source = "provider"`.
+36. Telegram-отчёты по Пикселю не отправляются из Pixel webhook. Они считаются фоновым циклом по `provider_leads.imported_at` в `SHEETS_TZ`, только для `lead_source = "pixel"` и проектов `collectionSource = "Пиксель"`, группируются по клиенту, а не по проекту. Если у клиента заполнен `telegram_notifications_chat_id`, отчёт уходит туда независимо от `telegram_auto_pause_enabled`; иначе используется общий `TELEGRAM_CHAT_ID`. Дедуп периода делается через `pixel_telegram_report_states`, а не через `telegram_notifications.metadata`.
 
 ## 4) Key Domain Objects
 
@@ -84,6 +87,7 @@ Last updated: 2026-06-15
 - `ClientTariff`
 - `ClientTariffOperation`
 - `ClientProjectPauseSnapshot`
+- `TelegramNotification` / `PixelTelegramReportState`
 
 Важно:
 - `User` теперь хранит не только данные авторизации, но и роль/иерархию доступа: `display_name`, `role`, `owner_agent_id`, `is_disabled`, а также пер-клиентные флаги, в т.ч. `auto_limit_control_enabled`, Telegram-настройки и `unique_project_names_enabled`. Для Telegram-сигналов тарифа у клиента также хранится последний уже отправленный уровень сигнала, чтобы повторно слать alert только после восстановления остатка выше порога.
@@ -93,6 +97,7 @@ Last updated: 2026-06-15
 - `AuditEvent` хранит успешные изменения проектов/ЧС и участвует в админской очереди необработанных изменений; `ProjectOperationEvent` хранит только неудачные попытки `create` / `update` / `delete` проектов и не попадает в эту очередь.
 - `ClientBalanceOperation` остаётся старым контуром баланса клиента: он участвует в расчёте `remaining`, лимит-контроле и автопаузе проектов. Агентский баланс теперь не хранится отдельно, а агрегируется из текущих остатков клиентов агента.
 - `ClientTariff` и `ClientTariffOperation` — тарифный контур клиента. Каждая тарифная операция зеркалится в `ClientBalanceOperation`, поэтому тарифы влияют на `remaining`, лимит-контроль и автопаузу. У тарифа есть обязательные пороги `signal1` / `signal2` и необязательный повторный критический порог `signal3` для Telegram-уведомлений по остатку клиента. Тариф назначается только клиенту; изменять тарифы может только админ, агенту доступен только просмотр тарифов и их истории у своих клиентов.
+- `TelegramNotification` — общий outbox Telegram; внешний `telegram_worker.py` отправляет сообщения и возвращает результат. `PixelTelegramReportState` фиксирует уже поставленные Pixel-отчёты по `kind + client_id + period_start + period_end`, чтобы backend restart/повтор цикла не дублировал отчёты.
 
 Смотри `backend/app/models.py`.
 
@@ -132,6 +137,32 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 - Пиксель не запускает лимит-контроль синхронно, как и обычный provider webhook.
 
 Тестовый диагностический сервис `pixel_webhook_test.py` оставлен отдельно: он только логирует реальные payload в UTF-8 и не пишет в БД.
+
+### B3) Pixel Telegram Reports
+На старте backend запускает `pixel-telegram-reports-thread`. Thread раз в минуту проверяет расписание в `SHEETS_TZ` и ставит Telegram outbox-сообщения по Pixel-лидам.
+
+Что считается:
+- только привязанные лиды `provider_leads.lead_source = "pixel"` через проекты `collectionSource = "Пиксель"`;
+- дата отчёта — `provider_leads.imported_at`, как в ЛК/отчётах;
+- группировка — по клиенту, без разбивки по Pixel-проектам/доменам;
+- имя клиента: `client_profiles.name` -> `users.display_name` -> `users.login`;
+- `Тариф` в сообщении: `использовано / currentAmount` последнего тарифа, где `использовано = currentAmount - remaining`; если тарифа нет, показывается `-`.
+
+Расписание:
+- финальный ежедневный отчёт в `08:00` за полный предыдущий день `00:00-24:00`; если после `17:30` были данные, добавляется строка «После 17:30 поступило»;
+- оперативные сообщения: `08:30` за `00:00-08:30`, затем `09:30`...`17:30` за предыдущий час;
+- если за период у клиента `0` Pixel-лидов, сообщение не создаётся;
+- если backend пропустил несколько оперативных checkpoint-ов, отправляется только последний уже наступивший checkpoint, без пачки старых часов.
+
+Маршрут:
+- если у клиента заполнен `telegram_notifications_chat_id`, Pixel-отчёт уходит туда;
+- `telegram_auto_pause_enabled` для Pixel-отчётов не учитывается;
+- если клиентский chat id пустой, используется общий `TELEGRAM_CHAT_ID`.
+
+Дедуп:
+- постановка отчёта и запись `pixel_telegram_report_states` выполняются в одной транзакции;
+- unique по `kind + client_id + period_start + period_end` предотвращает повтор после restart/backend-loop retry;
+- `telegram_notifications` отвечает только за доставку/retry worker-ом, не за бизнес-дедуп отчётов.
 
 ### C) Notifications Worker
 На старте backend запускает `notify_worker` -> воркер закрывает debounce-очередь по `audit_events` и помечает события как обработанные для отправки.
@@ -336,6 +367,7 @@ Frontend:
 - Сводка клиента по источникам / средним / графику 30 дней: backend `backend/app/schemas.py` + `backend/app/crud.py` (`admin_clients_summary`) + manager endpoint `GET /admin/clients/summary` в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminClientsScreen.tsx` + `my-app-vite/src/components/DashboardDailyChart.tsx` + `my-app-vite/src/App.css`
 - График проекта: backend `backend/app/crud.py` (`project_leads_chart`) + endpoints в `backend/app/main.py`; frontend `my-app-vite/src/api.ts` + `my-app-vite/src/components/ProjectChartModal.tsx` + `ProjectsTable.tsx` + `AdminClientProjects.tsx`
 - Дневной лимит проекта (фильтр списка + Telegram): backend `backend/app/models.py` + `backend/app/crud.py` (`list_daily_limit_reached_*`, `_apply_daily_limit_reached_filter`) + `backend/app/main.py` (`_run_project_daily_limit_notifications`); frontend `dailyLimitReached` в `AdminClientProjects.tsx`
+- Telegram-отчёты по Pixel-лидам: backend `backend/app/models.py` (`PixelTelegramReportState`) + `backend/app/crud.py` (`list_pixel_telegram_report_snapshots`, `queue_unique_pixel_telegram_report`) + `backend/app/main.py` (`run_pixel_telegram_reports_loop`, формат сообщений и расписание); frontend/API не менять
 - Понятные ошибки недоступности сервиса на frontend: `my-app-vite/src/api.ts`
 - Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
 - Экспорт provider leads и `lk_id`: `backend/app/provider_lead_ids.py` + `tool_export_provider_leads.py` + `/leads/export` в `backend/app/main.py`

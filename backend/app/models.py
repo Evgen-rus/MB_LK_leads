@@ -231,6 +231,28 @@ class TelegramNotification(Base):
     payload_metadata = Column("metadata", JSON, nullable=True)
 
 
+class PixelTelegramReportState(Base):
+    __tablename__ = "pixel_telegram_report_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "kind",
+            "client_id",
+            "period_start",
+            "period_end",
+            name="uq_pixel_telegram_report_state_period",
+        ),
+        Index("ix_pixel_telegram_report_states_client", "client_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    kind = Column(String, nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    period_start = Column(DateTime, nullable=False, index=True)
+    period_end = Column(DateTime, nullable=False, index=True)
+    queued_notification_id = Column(Integer, ForeignKey("telegram_notifications.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+
+
 class ProviderLead(Base):
     __tablename__ = "provider_leads"
 

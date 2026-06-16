@@ -16,6 +16,7 @@ import string
 from urllib.parse import urlparse
 
 from sqlalchemy import String, cast, select, func, or_, and_, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models, schemas, auth
@@ -70,6 +71,8 @@ TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS = 5
 TELEGRAM_NOTIFICATION_LOCK_SECONDS = 120
 TELEGRAM_NOTIFICATION_SENT_RETENTION_DAYS = 30
 TELEGRAM_NOTIFICATION_FAILED_RETENTION_DAYS = 60
+PIXEL_TELEGRAM_REPORT_KIND_HOURLY = "pixel_hourly"
+PIXEL_TELEGRAM_REPORT_KIND_DAILY_FINAL = "pixel_daily_final"
 
 
 def _telegram_retry_delay_seconds(attempt_count: int) -> int:
@@ -269,6 +272,72 @@ def cleanup_old_telegram_notifications(db: Session) -> int:
         db.delete(row)
     db.commit()
     return count
+
+
+def queue_unique_pixel_telegram_report(
+    db: Session,
+    *,
+    kind: str,
+    client_id: int,
+    period_start: datetime,
+    period_end: datetime,
+    chat_id: str,
+    text: str,
+    parse_mode: Optional[str] = "HTML",
+    metadata: Optional[Dict[str, Any]] = None,
+    max_attempts: int = TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS,
+) -> Optional[models.TelegramNotification]:
+    chat_id_value = str(chat_id or "").strip()
+    text_value = str(text or "")
+    kind_value = str(kind or "").strip()
+    if not chat_id_value or not text_value or not kind_value:
+        return None
+
+    existing = db.execute(
+        select(models.PixelTelegramReportState.id).where(
+            models.PixelTelegramReportState.kind == kind_value,
+            models.PixelTelegramReportState.client_id == int(client_id),
+            models.PixelTelegramReportState.period_start == period_start,
+            models.PixelTelegramReportState.period_end == period_end,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return None
+
+    now = now_msk_naive()
+    row = models.TelegramNotification(
+        kind=kind_value,
+        chat_id=chat_id_value,
+        text=text_value,
+        parse_mode=(str(parse_mode).strip() if parse_mode is not None else None),
+        status=TELEGRAM_NOTIFICATION_STATUS_PENDING,
+        attempt_count=0,
+        max_attempts=max(1, int(max_attempts or TELEGRAM_NOTIFICATION_DEFAULT_MAX_ATTEMPTS)),
+        next_attempt_at=now,
+        locked_until=None,
+        locked_by=None,
+        created_at=now,
+        updated_at=now,
+        payload_metadata=metadata or None,
+    )
+    db.add(row)
+    try:
+        db.flush()
+        state = models.PixelTelegramReportState(
+            kind=kind_value,
+            client_id=int(client_id),
+            period_start=period_start,
+            period_end=period_end,
+            queued_notification_id=int(row.id),
+            created_at=now,
+        )
+        db.add(state)
+        db.commit()
+        db.refresh(row)
+        return row
+    except IntegrityError:
+        db.rollback()
+        return None
 
 
 def get_user_role(user: Optional[models.User]) -> str:
@@ -5276,6 +5345,134 @@ def _get_client_remaining_map(db: Session, client_ids: List[int]) -> Dict[int, i
         used_total = used_total_map.get(client_id, 0)
         remaining_map[client_id] = credited - debited - used_total
     return remaining_map
+
+
+def _get_pixel_lead_counts_by_client(
+    db: Session,
+    *,
+    start_local: datetime,
+    end_local: datetime,
+    client_ids: Optional[List[int]] = None,
+) -> Dict[int, int]:
+    ts_col = _provider_lead_ts_col()
+    stmt = (
+        select(models.Project.user_id, func.count(models.ProviderLead.id))
+        .select_from(models.ProviderLead)
+        .join(models.Project, models.Project.id == models.ProviderLead.project_id)
+        .join(models.User, models.User.id == models.Project.user_id)
+        .where(
+            models.ProviderLead.lead_source == LEAD_SOURCE_PIXEL,
+            models.Project.collection_source == COLLECTION_SOURCE_PIXEL,
+            models.Project.user_id.is_not(None),
+            models.User.id != 1,
+            models.User.role == ROLE_CLIENT,
+            ts_col >= start_local,
+            ts_col < end_local,
+        )
+        .group_by(models.Project.user_id)
+    )
+    if client_ids:
+        normalized_ids = [int(client_id) for client_id in client_ids if client_id is not None]
+        if not normalized_ids:
+            return {}
+        stmt = stmt.where(models.Project.user_id.in_(normalized_ids))
+    rows = db.execute(stmt).all()
+    return {int(client_id): int(total or 0) for client_id, total in rows if client_id is not None}
+
+
+def list_pixel_telegram_report_snapshots(
+    db: Session,
+    *,
+    period_start: datetime,
+    period_end: datetime,
+    total_start: Optional[datetime] = None,
+    total_end: Optional[datetime] = None,
+    tail_start: Optional[datetime] = None,
+    tail_end: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    period_counts = _get_pixel_lead_counts_by_client(
+        db,
+        start_local=period_start,
+        end_local=period_end,
+    )
+    client_ids = sorted(period_counts.keys())
+    if not client_ids:
+        return []
+
+    total_counts: Dict[int, int] = {}
+    if total_start is not None and total_end is not None:
+        total_counts = _get_pixel_lead_counts_by_client(
+            db,
+            start_local=total_start,
+            end_local=total_end,
+            client_ids=client_ids,
+        )
+
+    tail_counts: Dict[int, int] = {}
+    if tail_start is not None and tail_end is not None:
+        tail_counts = _get_pixel_lead_counts_by_client(
+            db,
+            start_local=tail_start,
+            end_local=tail_end,
+            client_ids=client_ids,
+        )
+
+    user_rows = db.execute(
+        select(
+            models.User.id,
+            models.User.login,
+            models.User.display_name,
+            models.User.telegram_notifications_chat_id,
+            models.ClientProfile.name,
+        )
+        .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.User.id)
+        .where(models.User.id.in_(client_ids))
+    ).all()
+    user_map: Dict[int, Dict[str, Any]] = {}
+    for user_id, login, display_name, chat_id, profile_name in user_rows:
+        name = str(profile_name or display_name or login or "").strip()
+        user_map[int(user_id)] = {
+            "client_id": int(user_id),
+            "client_name": name,
+            "telegram_chat_id": str(chat_id or "").strip(),
+        }
+
+    remaining_map = _get_client_remaining_map(db, client_ids)
+    tariff_rows = db.execute(
+        select(models.ClientTariff)
+        .where(models.ClientTariff.client_id.in_(client_ids))
+        .order_by(models.ClientTariff.client_id.asc(), models.ClientTariff.created_at.desc(), models.ClientTariff.id.desc())
+    ).scalars().all()
+    latest_tariff_by_client: Dict[int, models.ClientTariff] = {}
+    for tariff in tariff_rows:
+        cid = int(tariff.client_id)
+        if cid not in latest_tariff_by_client:
+            latest_tariff_by_client[cid] = tariff
+    tariff_ids = [int(tariff.id) for tariff in latest_tariff_by_client.values()]
+    adjustments_map = _get_tariff_adjustment_map(db, tariff_ids)
+
+    snapshots: List[Dict[str, Any]] = []
+    for client_id in client_ids:
+        user_info = user_map.get(client_id)
+        if not user_info:
+            continue
+        remaining = int(remaining_map.get(client_id, 0))
+        tariff = latest_tariff_by_client.get(client_id)
+        tariff_amount: Optional[int] = None
+        if tariff is not None:
+            adjustment = adjustments_map.get(int(tariff.id), {"credit": 0, "debit": 0})
+            tariff_amount = int(tariff.base_amount or 0) + int(adjustment.get("credit", 0)) - int(adjustment.get("debit", 0))
+        snapshots.append(
+            {
+                **user_info,
+                "period_count": int(period_counts.get(client_id, 0)),
+                "total_count": int(total_counts.get(client_id, period_counts.get(client_id, 0))),
+                "tail_count": int(tail_counts.get(client_id, 0)),
+                "remaining": remaining,
+                "tariff_amount": tariff_amount,
+            }
+        )
+    return snapshots
 
 
 def get_client_active_projects_limit_sum(
