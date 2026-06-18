@@ -37,6 +37,7 @@ MIN_REQUEST_INTERVAL_SEC = 0.5
 RETRY_DELAYS_SEC = [5, 15, 45]
 SHEET_COLUMNS_COUNT = 21  # A:U
 SHEET_ROW_RESERVE = 500
+DROPDOWN_COLUMN_INDEX = 2  # C, zero-based Google Sheets API index
 MONTH_NAMES_RU = {
     1: "Январь",
     2: "Февраль",
@@ -324,6 +325,63 @@ def _ensure_rows(service, spreadsheet_id: str, sheet_id: int, required_rows: int
     return to_add
 
 
+def _parse_updated_rows(updated_range: str) -> Optional[Tuple[int, int]]:
+    a1_range = str(updated_range or "").rsplit("!", 1)[-1]
+    rows = [int(value) for value in re.findall(r"[A-Z]+(\d+)", a1_range)]
+    if not rows:
+        return None
+    start_row = rows[0]
+    end_row = rows[-1]
+    if end_row < start_row:
+        start_row, end_row = end_row, start_row
+    return start_row, end_row
+
+
+def _copy_dropdown_validation_to_rows(
+    service,
+    spreadsheet_id: str,
+    sheet_id: int,
+    start_row: int,
+    end_row: int,
+) -> None:
+    if start_row <= 1:
+        logging.getLogger("pixel.client_sheet_export").warning(
+            "Dropdown validation copy skipped: no previous row for spreadsheet_id=%s sheet_id=%s rows=%s:%s",
+            spreadsheet_id,
+            sheet_id,
+            start_row,
+            end_row,
+        )
+        return
+
+    body = {
+        "requests": [
+            {
+                "copyPaste": {
+                    "source": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": start_row - 2,
+                        "endRowIndex": start_row - 1,
+                        "startColumnIndex": DROPDOWN_COLUMN_INDEX,
+                        "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
+                    },
+                    "destination": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": start_row - 1,
+                        "endRowIndex": end_row,
+                        "startColumnIndex": DROPDOWN_COLUMN_INDEX,
+                        "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
+                    },
+                    "pasteType": "PASTE_DATA_VALIDATION",
+                }
+            }
+        ]
+    }
+    _safe_google_call(
+        lambda: service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
+    )
+
+
 def _ensure_db_columns(engine) -> None:
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -493,7 +551,7 @@ def export_pixel_leads_to_client_sheets() -> None:
             _ensure_rows(service, spreadsheet_id, sheet_id, required_rows, current_row_count)
 
             body = {"values": [_row_values(row) for row in rows_to_insert]}
-            _safe_google_call(
+            append_resp = _safe_google_call(
                 lambda: service.spreadsheets()
                 .values()
                 .append(
@@ -505,6 +563,24 @@ def export_pixel_leads_to_client_sheets() -> None:
                 )
                 .execute()
             )
+            updated_rows = _parse_updated_rows((append_resp or {}).get("updates", {}).get("updatedRange", ""))
+            if updated_rows is None:
+                start_row = max(1, existing_count) + 1
+                end_row = start_row + len(rows_to_insert) - 1
+            else:
+                start_row, end_row = updated_rows
+
+            try:
+                _copy_dropdown_validation_to_rows(service, spreadsheet_id, sheet_id, start_row, end_row)
+            except Exception:
+                log.exception(
+                    "Не удалось скопировать dropdown validation в колонку C: spreadsheet_id=%s sheet=%s rows=%d:%d",
+                    spreadsheet_id,
+                    sheet_name,
+                    start_row,
+                    end_row,
+                )
+
             inserted_count += len(rows_to_insert)
             marked_count += _mark_exported(SessionLocal, [row.id for row in rows_to_insert])
         except Exception:
