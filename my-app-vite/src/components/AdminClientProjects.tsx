@@ -177,12 +177,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tableColSpan = canUseAdminProjectActions ? 14 : 13;
   const selectableRows = useMemo(
-    () => rows.filter((row) => row.status !== 'Удалён' && row.status !== OPERATOR_BLOCK_STATUS),
+    () => rows.filter((row) => row.status !== 'Удалён'),
     [rows],
   );
   const selectedRows = useMemo(
     () => rows.filter((row) => selectedIds.includes(row.id)),
     [rows, selectedIds],
+  );
+  const selectedOperatorBlockedCount = useMemo(
+    () => selectedRows.filter((row) => row.status === OPERATOR_BLOCK_STATUS).length,
+    [selectedRows],
   );
   const allSelectableOnPageSelected =
     selectableRows.length > 0 && selectableRows.every((row) => selectedIds.includes(row.id));
@@ -324,6 +328,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   function openBulkAction(action: BulkActionType) {
+    if (selectedOperatorBlockedCount > 0 && action !== 'status' && action !== 'delete') {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: 'В выделении есть проекты со статусом «Блокировка оператора». Для них доступны только массовые действия «Статус проекта» и «Удалить проекты». Для остальных действий снимите выделение с заблокированных проектов.',
+      }));
+      setBulkMenuOpen(false);
+      return;
+    }
     setBulkMenuOpen(false);
     setActiveBulkAction(action);
   }
@@ -652,6 +663,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           }}
         >
           <span className="badge badge--gray">Выбрано: {selectedRows.length}</span>
+          {selectedOperatorBlockedCount > 0 && (
+            <span className="badge badge--red">Блокировка оператора: {selectedOperatorBlockedCount}</span>
+          )}
           <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkSaving}>
             Снять выделение
           </button>
@@ -810,12 +824,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(row.id)}
-                        disabled={row.status === 'Удалён' || row.status === OPERATOR_BLOCK_STATUS || bulkSaving}
+                        disabled={row.status === 'Удалён' || bulkSaving}
                         title={
                           row.status === 'Удалён'
                             ? 'Удалённые проекты нельзя редактировать'
                             : row.status === OPERATOR_BLOCK_STATUS
-                              ? 'Проекты с блокировкой оператора не участвуют в массовых действиях'
+                              ? 'Можно выбрать для массовой смены статуса или удаления'
                               : 'Выбрать проект'
                         }
                         onChange={() => toggleRowSelection(row.id)}
