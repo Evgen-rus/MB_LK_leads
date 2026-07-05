@@ -1649,9 +1649,12 @@ def _schedule_debounce_in_new_session(minutes: int) -> None:
         crud.schedule_debounce(s, minutes=minutes)
 
 
+TARIFF_ZERO_SIGNAL_LEVEL = 4
+
+
 def _normalize_tariff_signal_level(value: Any) -> int:
     try:
-        return max(0, min(3, int(value or 0)))
+        return max(0, min(TARIFF_ZERO_SIGNAL_LEVEL, int(value or 0)))
     except (TypeError, ValueError):
         return 0
 
@@ -1659,6 +1662,8 @@ def _normalize_tariff_signal_level(value: Any) -> int:
 def _resolve_tariff_signal_level(remaining: int, tariff: Optional[schemas.ClientTariffOut]) -> Optional[int]:
     if not tariff:
         return None
+    if int(remaining) <= 0:
+        return TARIFF_ZERO_SIGNAL_LEVEL
     if tariff.signal1 is None or tariff.signal2 is None:
         return None
     signal1 = int(tariff.signal1)
@@ -1697,6 +1702,7 @@ def _build_client_tariff_signal_message(
         1: _build_client_tariff_signal_1_message,
         2: _build_client_tariff_signal_2_message,
         3: _build_client_tariff_signal_3_message,
+        TARIFF_ZERO_SIGNAL_LEVEL: _build_client_tariff_zero_message,
     }
     builder = builders.get(signal_level)
     if not builder:
@@ -1762,11 +1768,22 @@ def _build_client_tariff_signal_3_message(*, remaining: int, usage_last_7_days: 
     )
 
 
+def _build_client_tariff_zero_message(*, remaining: int, usage_last_7_days: int, client_name: str = "") -> str:
+    _ = usage_last_7_days
+    return (
+        "<b>Уведомление: тариф закончился</b>\n\n"
+        f"{_format_client_tariff_signal_client_line(client_name)}"
+        f"По вашему тарифу осталось {_format_notification_number(remaining)} идентификаций.\n\n"
+        "Работа проектов может быть остановлена. Рекомендуем оперативно продлить тариф."
+    )
+
+
 def _build_admin_tariff_signal_message(user_snapshot: dict, remaining: int, signal_level: int) -> str:
     level_labels = {
         1: "предупреждение",
         2: "критический",
         3: "критический повторный",
+        TARIFF_ZERO_SIGNAL_LEVEL: "тариф закончился",
     }
     return (
         "<b>[ЛК | Остаток клиента]</b>\n\n"
@@ -1797,7 +1814,10 @@ def _sync_client_tariff_signal_alert(
         _set_client_tariff_signal_level(int(user_snapshot["id"]), next_level)
         return next_level
 
-    personal_chat_id = _get_client_personal_telegram_chat_id(user_snapshot)
+    if next_level == TARIFF_ZERO_SIGNAL_LEVEL:
+        personal_chat_id = _get_client_configured_telegram_chat_id(user_snapshot)
+    else:
+        personal_chat_id = _get_client_personal_telegram_chat_id(user_snapshot)
     chat_id = _resolve_notification_chat_id(bool(personal_chat_id), personal_chat_id)
     if not chat_id or not latest_tariff:
         return None
@@ -1897,6 +1917,12 @@ def _get_client_telegram_chat_id_for_notifications(user: models.User) -> str:
     """
     client_chat_id = _get_client_personal_telegram_chat_id(user)
     return _resolve_notification_chat_id(bool(client_chat_id), client_chat_id)
+
+
+def _get_client_configured_telegram_chat_id(user: Any) -> str:
+    if isinstance(user, dict):
+        return str(user.get("telegram_notifications_chat_id", "") or "").strip()
+    return str(getattr(user, "telegram_notifications_chat_id", "") or "").strip()
 
 
 def _get_client_personal_telegram_chat_id(user: Any) -> str:
