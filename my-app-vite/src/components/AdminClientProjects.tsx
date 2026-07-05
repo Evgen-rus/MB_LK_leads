@@ -1133,6 +1133,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           project={editing}
           readOnly={editingReadOnly}
           allowDelete={canUseAdminProjectActions}
+          regionSourceProjects={rows}
           onClose={() => {
             setEditing(null);
             setEditingReadOnly(false);
@@ -1181,6 +1182,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'regions' && (
         <BulkEditRegionsModal
           selectedProjects={selectedRows}
+          regionSourceProjects={rows}
           submitting={bulkSaving}
           progress={bulkProgress}
           onClose={closeBulkAction}

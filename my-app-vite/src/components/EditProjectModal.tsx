@@ -13,6 +13,7 @@ import {
   toDisplaySourceCode,
   type RawSourceCode,
 } from '../utils/sourceCodeDisplay';
+import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -34,6 +35,7 @@ type EditProjectModalProps = {
   onClose: () => void;
   onSubmit?: (update: SubmitUpdate) => Promise<void>;
   readOnly?: boolean;
+  regionSourceProjects?: RegionSourceProject[];
 };
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -44,7 +46,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return formatSourceTextForDisplay(fallback);
 }
 
-function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: EditProjectModalProps) {
+function EditProjectModal({ project, onClose, onSubmit, readOnly = false, regionSourceProjects = [] }: EditProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState(formatProjectNameForDisplay(project.name));
@@ -500,6 +502,13 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false }: Edit
                     ? `Итог: Вся РФ, исключая: ${regions.map(regionLabelByCode).join(', ')}`
                     : `Итог: Только: ${regions.map(regionLabelByCode).join(', ')}`}
               </div>
+              <RegionQuickTools
+                selectedRegions={regions}
+                onChange={setRegions}
+                sourceProjects={regionSourceProjects}
+                currentProjectId={project.id}
+                disabled={readOnly}
+              />
             </div>
 
             <label style={{ display: 'grid', gap: 6 }}>

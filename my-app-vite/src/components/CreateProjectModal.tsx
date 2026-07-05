@@ -8,6 +8,7 @@ import {
   formatSourceTextForDisplay,
   toDisplaySourceCode,
 } from '../utils/sourceCodeDisplay';
+import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type ProjectDataSourceCode = 'B1' | 'B2' | 'B3' | 'B4' | 'UNMAPPED';
 
@@ -31,6 +32,7 @@ type CreateProjectModalProps = {
   onSubmit?: (payloads: SubmitItem[]) => Promise<string | null> | string | null | void;
   uniqueProjectNamesEnabled?: boolean;
   pixelProjectsEnabled?: boolean;
+  regionSourceProjects?: RegionSourceProject[];
 };
 
 // Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
@@ -55,6 +57,7 @@ function CreateProjectModal({
   onSubmit,
   uniqueProjectNamesEnabled = false,
   pixelProjectsEnabled = false,
+  regionSourceProjects = [],
 }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -595,6 +598,11 @@ function CreateProjectModal({
                     ? `Итог: Вся РФ, исключая: ${regions.map(regionLabelByCode).join(', ')}`
                     : `Итог: Только: ${regions.map(regionLabelByCode).join(', ')}`}
               </div>
+              <RegionQuickTools
+                selectedRegions={regions}
+                onChange={setRegions}
+                sourceProjects={regionSourceProjects}
+              />
               </div>
 
               <label style={{ display: 'grid', gap: 6 }}>

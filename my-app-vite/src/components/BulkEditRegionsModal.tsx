@@ -4,11 +4,13 @@ import type { Project } from '../types/project';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
 import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 import BulkEditModalFrame from './BulkEditModalFrame';
+import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type RegionMode = 'include' | 'exclude';
 
 type BulkEditRegionsModalProps = {
   selectedProjects: Project[];
+  regionSourceProjects?: RegionSourceProject[];
   submitting?: boolean;
   progress?: BulkProgress | null;
   onClose: () => void;
@@ -17,6 +19,7 @@ type BulkEditRegionsModalProps = {
 
 function BulkEditRegionsModal({
   selectedProjects,
+  regionSourceProjects = [],
   submitting = false,
   progress = null,
   onClose,
@@ -143,6 +146,12 @@ function BulkEditRegionsModal({
       <div className="sub" style={{ color: '#666' }}>
         Выбрано регионов: {selectedRegions.length}
       </div>
+      <RegionQuickTools
+        selectedRegions={selectedRegions}
+        onChange={setSelectedRegions}
+        sourceProjects={regionSourceProjects}
+        disabled={submitting}
+      />
     </BulkEditModalFrame>
   );
 }

@@ -1091,6 +1091,7 @@ function ProjectsTable({
       {activeBulkAction === 'regions' && (
         <BulkEditRegionsModal
           selectedProjects={selectedRows}
+          regionSourceProjects={rows}
           submitting={bulkSaving}
           progress={bulkProgress}
           onClose={closeBulkAction}

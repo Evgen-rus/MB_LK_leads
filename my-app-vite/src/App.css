@@ -552,6 +552,39 @@
 @keyframes project-status-spin {
   to { transform: rotate(360deg); }
 }
+.region-quick-tools {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #ececf2;
+  border-radius: 10px;
+  background: #fbfbfe;
+}
+.region-quick-tools__block {
+  display: grid;
+  gap: 6px;
+}
+.region-quick-tools textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #dcdce6;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+}
+.region-quick-tools__actions,
+.region-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.region-copy-row select {
+  min-width: 260px;
+  flex: 1 1 260px;
+}
 .operator-block-info {
   display: inline-flex;
   align-items: center;

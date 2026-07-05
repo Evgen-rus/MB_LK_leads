@@ -793,6 +793,7 @@ function App() {
         <CreateProjectModal
           uniqueProjectNamesEnabled={uniqueProjectNamesEnabled}
           pixelProjectsEnabled={pixelProjectsEnabled}
+          regionSourceProjects={rows}
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (items) => {
             try {
@@ -817,6 +818,7 @@ function App() {
         <EditProjectModal
           project={editing}
           readOnly={projectsMutationLocked}
+          regionSourceProjects={rows}
           onClose={() => setEditing(null)}
           onSubmit={async (u: ProjectUpdatePayload) => {
             const result = await apiUpdate(editing.id, u);
