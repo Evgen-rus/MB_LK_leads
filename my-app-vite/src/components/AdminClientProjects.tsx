@@ -108,6 +108,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [chartFor, setChartFor] = useState<AdminProject | null>(null);
   const [topSavingIds, setTopSavingIds] = useState<Set<number>>(() => new Set());
+  const [statusSavingIds, setStatusSavingIds] = useState<Set<number>>(() => new Set());
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const canUseAdminProjectActions = managerRole === 'admin';
@@ -242,9 +243,18 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
-    if (project.status === 'Удалён') return;
+    if (project.status === 'Удалён' || statusSavingIds.has(project.id)) return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
-    await applyUpdate(project, { status: nextStatus });
+    setStatusSavingIds((prev) => new Set(prev).add(project.id));
+    try {
+      await applyUpdate(project, { status: nextStatus });
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(project.id);
+        return next;
+      });
+    }
   }
 
   async function handleToggleTop(project: AdminProject) {
@@ -918,7 +928,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                   <td>
                     <span className="project-status-inline">
                       <span
-                        className={
+                        className={`${
                           row.status === 'Активен'
                             ? 'badge badge--green'
                             : row.status === 'На паузе'
@@ -926,17 +936,27 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                               : row.status === OPERATOR_BLOCK_STATUS
                                 ? 'badge badge--red'
                                 : 'badge badge--gray'
-                        }
-                        style={{ whiteSpace: 'nowrap', cursor: row.status === 'Удалён' ? 'default' : 'pointer' }}
+                        }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
+                        style={{
+                          whiteSpace: 'nowrap',
+                          cursor: row.status === 'Удалён'
+                            ? 'default'
+                            : statusSavingIds.has(row.id)
+                              ? 'wait'
+                              : 'pointer',
+                        }}
+                        aria-busy={statusSavingIds.has(row.id)}
                         title={
-                          row.status === 'Удалён'
+                          statusSavingIds.has(row.id)
+                            ? 'Статус обновляется...'
+                            : row.status === 'Удалён'
                             ? 'Проект помечен как удалённый'
                             : row.status === OPERATOR_BLOCK_STATUS
                               ? 'Нажмите, чтобы перезапустить проект'
                               : 'Нажмите, чтобы переключить статус проекта'
                         }
                         onClick={() => {
-                          if (row.status === 'Удалён') return;
+                          if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
                           handleToggleStatus(row);
                         }}
                       >

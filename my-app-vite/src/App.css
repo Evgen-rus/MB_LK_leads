@@ -520,6 +520,38 @@
   white-space: nowrap;
   vertical-align: middle;
 }
+.project-status-badge--saving {
+  position: relative;
+  overflow: hidden;
+  padding-right: 24px;
+  opacity: 0.86;
+  cursor: wait !important;
+}
+.project-status-badge--saving::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.58) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: project-status-shimmer 1.1s linear infinite;
+}
+.project-status-badge--saving::after {
+  content: "";
+  position: absolute;
+  right: 7px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: project-status-spin 0.75s linear infinite;
+}
+@keyframes project-status-shimmer {
+  to { transform: translateX(100%); }
+}
+@keyframes project-status-spin {
+  to { transform: rotate(360deg); }
+}
 .operator-block-info {
   display: inline-flex;
   align-items: center;

@@ -100,6 +100,7 @@ function ProjectsTable({
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [chartFor, setChartFor] = useState<Project | null>(null);
   const [topSavingIds, setTopSavingIds] = useState<Set<number>>(() => new Set());
+  const [statusSavingIds, setStatusSavingIds] = useState<Set<number>>(() => new Set());
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -422,12 +423,13 @@ function ProjectsTable({
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
-    if (row.status === 'Удалён') return;
+    if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
     if (projectsMutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
       return;
     }
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
+    setStatusSavingIds((prev) => new Set(prev).add(row.id));
     try {
       const payload = buildUpdatePayloadFromProject(row, { status: nextStatus });
       const result = await apiUpdateProject(row.id, payload);
@@ -451,6 +453,12 @@ function ProjectsTable({
         ? e.message
         : 'Не удалось изменить статус проекта.';
       window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
     }
   }
 
@@ -901,7 +909,7 @@ function ProjectsTable({
               <td>
                 <span className="project-status-inline">
                   <span
-                    className={
+                    className={`${
                       row.status === 'Активен'
                         ? 'badge badge--green'
                         : row.status === 'На паузе'
@@ -909,17 +917,22 @@ function ProjectsTable({
                           : row.status === OPERATOR_BLOCK_STATUS
                             ? 'badge badge--red'
                             : 'badge badge--gray'
-                    }
+                    }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
                     style={{
                       whiteSpace: 'nowrap',
                       cursor:
                         projectsMutationLocked || row.status === 'Удалён'
                           ? 'default'
+                          : statusSavingIds.has(row.id)
+                            ? 'wait'
                           : 'pointer',
                     }}
+                    aria-busy={statusSavingIds.has(row.id)}
                     title={
                       projectsMutationLocked
                         ? projectsMutationLockMessage
+                        : statusSavingIds.has(row.id)
+                          ? 'Статус обновляется...'
                         : row.status === 'Удалён'
                           ? 'Проект помечен как удалённый'
                           : row.status === OPERATOR_BLOCK_STATUS
@@ -931,7 +944,7 @@ function ProjectsTable({
                         window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
                         return;
                       }
-                      if (row.status === 'Удалён') return;
+                      if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
                       handleToggleStatus(row);
                     }}
                   >
