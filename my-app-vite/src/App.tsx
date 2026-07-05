@@ -794,6 +794,7 @@ function App() {
           uniqueProjectNamesEnabled={uniqueProjectNamesEnabled}
           pixelProjectsEnabled={pixelProjectsEnabled}
           regionSourceProjects={rows}
+          settingsStorageKey={`create-project-settings:${currentUserId ?? 'client'}`}
           onClose={() => setIsCreateOpen(false)}
           onSubmit={async (items) => {
             try {

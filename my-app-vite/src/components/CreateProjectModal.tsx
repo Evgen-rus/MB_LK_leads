@@ -33,6 +33,7 @@ type CreateProjectModalProps = {
   uniqueProjectNamesEnabled?: boolean;
   pixelProjectsEnabled?: boolean;
   regionSourceProjects?: RegionSourceProject[];
+  settingsStorageKey?: string;
 };
 
 // Временное ограничение выбора источников сбора в ЛК. Убрать ограничение после согласования с Prostats.
@@ -52,30 +53,95 @@ const ALL_COLLECTION_SOURCES: CollectionSource[] = [
   'Пересечение',
 ];
 
+type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
+
+type CreateProjectSavedSettings = {
+  collectionSource?: CollectionSource;
+  dataLimit?: number;
+  status?: ProjectMutableStatus;
+  regionMode?: 'include' | 'exclude';
+  regions?: string[];
+  days?: DayAbbrev[];
+  b1?: boolean;
+  b2?: boolean;
+  b3?: boolean;
+  b4?: boolean;
+};
+
+const DEFAULT_CREATE_PROJECT_SETTINGS: Required<CreateProjectSavedSettings> = {
+  collectionSource: 'Звонки',
+  dataLimit: 100,
+  status: 'Активен',
+  regionMode: 'include',
+  regions: [],
+  days: ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'],
+  b1: true,
+  b2: true,
+  b3: true,
+  b4: true,
+};
+
+const DAY_VALUES: DayAbbrev[] = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+function isCollectionSource(value: unknown): value is CollectionSource {
+  return typeof value === 'string' && ALL_COLLECTION_SOURCES.includes(value as CollectionSource);
+}
+
+function isMutableStatus(value: unknown): value is ProjectMutableStatus {
+  return value === 'Активен' || value === 'На паузе' || value === 'Удалён';
+}
+
+function readSavedSettings(storageKey?: string): Required<CreateProjectSavedSettings> {
+  if (!storageKey) return DEFAULT_CREATE_PROJECT_SETTINGS;
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return DEFAULT_CREATE_PROJECT_SETTINGS;
+    const parsed = JSON.parse(raw) as CreateProjectSavedSettings;
+    return {
+      collectionSource: isCollectionSource(parsed.collectionSource) ? parsed.collectionSource : DEFAULT_CREATE_PROJECT_SETTINGS.collectionSource,
+      dataLimit: Number.isFinite(parsed.dataLimit) ? Number(parsed.dataLimit) : DEFAULT_CREATE_PROJECT_SETTINGS.dataLimit,
+      status: isMutableStatus(parsed.status) && parsed.status !== 'Удалён' ? parsed.status : DEFAULT_CREATE_PROJECT_SETTINGS.status,
+      regionMode: parsed.regionMode === 'exclude' ? 'exclude' : 'include',
+      regions: normalizeRegionValues(parsed.regions || []),
+      days: Array.isArray(parsed.days)
+        ? parsed.days.filter((day): day is DayAbbrev => DAY_VALUES.includes(day as DayAbbrev))
+        : DEFAULT_CREATE_PROJECT_SETTINGS.days,
+      b1: typeof parsed.b1 === 'boolean' ? parsed.b1 : DEFAULT_CREATE_PROJECT_SETTINGS.b1,
+      b2: typeof parsed.b2 === 'boolean' ? parsed.b2 : DEFAULT_CREATE_PROJECT_SETTINGS.b2,
+      b3: typeof parsed.b3 === 'boolean' ? parsed.b3 : DEFAULT_CREATE_PROJECT_SETTINGS.b3,
+      b4: typeof parsed.b4 === 'boolean' ? parsed.b4 : DEFAULT_CREATE_PROJECT_SETTINGS.b4,
+    };
+  } catch {
+    return DEFAULT_CREATE_PROJECT_SETTINGS;
+  }
+}
+
 function CreateProjectModal({
   onClose,
   onSubmit,
   uniqueProjectNamesEnabled = false,
   pixelProjectsEnabled = false,
   regionSourceProjects = [],
+  settingsStorageKey,
 }: CreateProjectModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const initialSettingsRef = useRef<Required<CreateProjectSavedSettings>>(readSavedSettings(settingsStorageKey));
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [name, setName] = useState('');
-  const [collectionSource, setCollectionSource] = useState<CollectionSource>('Звонки');
-  const [dataLimit, setDataLimit] = useState<number>(100);
-  const [status, setStatus] = useState<ProjectMutableStatus>('Активен');
+  const [collectionSource, setCollectionSource] = useState<CollectionSource>(initialSettingsRef.current.collectionSource);
+  const [dataLimit, setDataLimit] = useState<number>(initialSettingsRef.current.dataLimit);
+  const [status, setStatus] = useState<ProjectMutableStatus>(initialSettingsRef.current.status);
 
-  const [b1, setB1] = useState(true);
-  const [b2, setB2] = useState(true);
-  const [b3, setB3] = useState(true);
-  const [b4, setB4] = useState(true);
+  const [b1, setB1] = useState(initialSettingsRef.current.b1);
+  const [b2, setB2] = useState(initialSettingsRef.current.b2);
+  const [b3, setB3] = useState(initialSettingsRef.current.b3);
+  const [b4, setB4] = useState(initialSettingsRef.current.b4);
 
-  const [regionMode, setRegionMode] = useState<'include'|'exclude'>('include');
+  const [regionMode, setRegionMode] = useState<'include'|'exclude'>(initialSettingsRef.current.regionMode);
   const [regionQuery, setRegionQuery] = useState('');
-  const [regions, setRegions] = useState<string[]>([]);
+  const [regions, setRegions] = useState<string[]>(initialSettingsRef.current.regions);
   const [regionsOpen, setRegionsOpen] = useState(false);
 
   const [sitesText, setSitesText] = useState('');
@@ -83,7 +149,7 @@ function CreateProjectModal({
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState('');
 
-  const [days, setDays] = useState<('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[]>(['Пн','Вт','Ср','Чт','Пт','Сб','Вс']);
+  const [days, setDays] = useState<DayAbbrev[]>(initialSettingsRef.current.days);
 
   // Закрытие по Esc и по клику вне отключено: закрываем только кнопками
 
@@ -100,9 +166,81 @@ function CreateProjectModal({
     ))
   ), [pixelProjectsEnabled]);
 
+  function applySourceDefaults(src: CollectionSource) {
+    if (src === 'Звонки' || src === 'Сайты') {
+      setB1(true);
+      setB2(true);
+      setB3(true);
+      setB4(true);
+    } else if (src === 'СМС') {
+      setB1(false);
+      setB2(true);
+      setB3(true);
+      setB4(false);
+    } else if (src === 'Пиксель') {
+      setB1(false);
+      setB2(false);
+      setB3(false);
+      setB4(false);
+    } else {
+      setB1(false);
+      setB2(true);
+      setB3(false);
+      setB4(false);
+    }
+  }
+
+  function changeCollectionSource(src: CollectionSource) {
+    setCollectionSource(src);
+    applySourceDefaults(src);
+  }
+
+  function resetSavedSettings() {
+    try {
+      if (settingsStorageKey) localStorage.removeItem(settingsStorageKey);
+    } catch {
+      /* ignore */
+    }
+    setCollectionSource(DEFAULT_CREATE_PROJECT_SETTINGS.collectionSource);
+    setDataLimit(DEFAULT_CREATE_PROJECT_SETTINGS.dataLimit);
+    setStatus(DEFAULT_CREATE_PROJECT_SETTINGS.status);
+    setB1(DEFAULT_CREATE_PROJECT_SETTINGS.b1);
+    setB2(DEFAULT_CREATE_PROJECT_SETTINGS.b2);
+    setB3(DEFAULT_CREATE_PROJECT_SETTINGS.b3);
+    setB4(DEFAULT_CREATE_PROJECT_SETTINGS.b4);
+    setRegionMode(DEFAULT_CREATE_PROJECT_SETTINGS.regionMode);
+    setRegions(DEFAULT_CREATE_PROJECT_SETTINGS.regions);
+    setRegionQuery('');
+    setRegionsOpen(false);
+    setDays(DEFAULT_CREATE_PROJECT_SETTINGS.days);
+  }
+
+  function saveCurrentSettings() {
+    if (!settingsStorageKey) return;
+    const settings: Required<CreateProjectSavedSettings> = {
+      collectionSource,
+      dataLimit: Number.isFinite(dataLimit) ? dataLimit : DEFAULT_CREATE_PROJECT_SETTINGS.dataLimit,
+      status,
+      regionMode,
+      regions: normalizeRegionValues(regions),
+      days,
+      b1,
+      b2,
+      b3,
+      b4,
+    };
+    try {
+      localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+    } catch {
+      /* ignore */
+    }
+  }
+
   useEffect(() => {
     if (!availableSources.includes(collectionSource)) {
-      setCollectionSource(availableSources[0] || 'Звонки');
+      const nextSource = availableSources[0] || 'Звонки';
+      setCollectionSource(nextSource);
+      applySourceDefaults(nextSource);
     }
   }, [collectionSource, availableSources]);
 
@@ -132,35 +270,6 @@ function CreateProjectModal({
     });
     return list;
   }, [filteredRegions, regions, baseRegionIndex]);
-
-  useEffect(() => {
-    // Ограничения по B-кодам в зависимости от источника сбора
-    if (collectionSource === 'Звонки') {
-      setB1(true);
-      setB2(true);
-      setB3(true);
-      setB4(true);
-    } else if (collectionSource === 'СМС') {
-      setB1(false);
-      setB2(true);
-      setB3(true);
-      setB4(false);
-    } else if (collectionSource === 'Пиксель') {
-      setB1(false);
-      setB2(false);
-      setB3(false);
-      setB4(false);
-    } else if (
-      collectionSource === 'Ретросайты' ||
-      collectionSource === 'Ретрозвонки' ||
-      collectionSource === 'Пересечение'
-    ) {
-      setB1(false);
-      setB2(true);
-      setB3(false);
-      setB4(false);
-    }
-  }, [collectionSource]);
 
   function isLikelyPhone(input: string) {
     const digits = input.replace(/\D+/g, '');
@@ -264,6 +373,7 @@ function CreateProjectModal({
           setSubmitError(result);
           return;
         }
+        saveCurrentSettings();
         onClose();
       } finally {
         setIsSubmitting(false);
@@ -336,6 +446,7 @@ function CreateProjectModal({
         setSubmitError(result);
         return;
       }
+      saveCurrentSettings();
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -437,7 +548,7 @@ function CreateProjectModal({
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span style={{ fontSize: '0.75rem', color: '#666' }}>Источник сбора</span>
-                  <select value={collectionSource} onChange={(e) => setCollectionSource(e.target.value as CollectionSource)}>
+                  <select value={collectionSource} onChange={(e) => changeCollectionSource(e.target.value as CollectionSource)}>
                     {availableSources.map((src) => (
                       <option key={src} value={src}>{src}</option>
                     ))}
@@ -630,6 +741,9 @@ function CreateProjectModal({
           </div>
 
           <div style={{ position: 'sticky', bottom: 0, background: '#fff', paddingTop: 12, borderTop: '1px solid #eee', display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button type="button" className="btn btn--ghost" onClick={resetSavedSettings} disabled={isSubmitting}>
+              Сбросить настройки
+            </button>
             <button type="button" className="btn" onClick={onClose} disabled={isSubmitting}>Отмена</button>
             <button
               type="submit"
