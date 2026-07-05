@@ -379,6 +379,7 @@ export async function fetchProjects(params?: {
   includeDeleted?: boolean;
   projectStatus?: ProjectStatus;
   dailyLimitReached?: boolean;
+  isTop?: boolean;
   sortBy?: ProjectSortBy;
   sortDir?: SortDir;
 }): Promise<ProjectListResp> {
@@ -393,6 +394,7 @@ export async function fetchProjects(params?: {
   if (params?.includeDeleted) q.set('includeDeleted', 'true');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   if (params?.dailyLimitReached) q.set('dailyLimitReached', 'true');
+  if (params?.isTop) q.set('isTop', 'true');
   if (params?.sortBy) q.set('sortBy', params.sortBy);
   if (params?.sortDir) q.set('sortDir', params.sortDir);
   const qs = q.toString();
@@ -894,6 +896,7 @@ export async function fetchAdminProjects(params?: {
   includeDeleted?: boolean;
   projectStatus?: ProjectStatus;
   dailyLimitReached?: boolean;
+  isTop?: boolean;
   sortBy?: ProjectSortBy;
   sortDir?: SortDir;
 }): Promise<AdminProjectListResp> {
@@ -909,6 +912,7 @@ export async function fetchAdminProjects(params?: {
   q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   if (params?.dailyLimitReached) q.set('dailyLimitReached', 'true');
+  if (params?.isTop) q.set('isTop', 'true');
   if (params?.sortBy) q.set('sortBy', params.sortBy);
   if (params?.sortDir) q.set('sortDir', params.sortDir);
   const qs = q.toString();

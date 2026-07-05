@@ -90,6 +90,7 @@ function ProjectsTable({
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
+  const [topOnly, setTopOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
@@ -116,6 +117,7 @@ function ProjectsTable({
       sortField = sortBy,
       direction = sortDir,
       limitReached = dailyLimitReached,
+      topFilter = topOnly,
       sources = selectedSources,
       collectionSources = selectedCollectionSources,
     ) => {
@@ -131,13 +133,14 @@ function ProjectsTable({
         includeDeleted: withDeleted,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
         dailyLimitReached: limitReached,
+        isTop: topFilter,
         sortBy: sortField,
         sortDir: direction,
       });
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources],
+    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources],
   );
 
   useEffect(() => {
@@ -151,10 +154,10 @@ function ProjectsTable({
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, selectedSources, selectedCollectionSources]);
+  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -583,7 +586,6 @@ function ProjectsTable({
               setFromDate(from);
               setToDate(to);
               setPage(1);
-              load(1, pageSize, search, from, to, includeDeleted, statusFilter);
             }}
           />
 
@@ -599,7 +601,6 @@ function ProjectsTable({
               const nextStatus = e.target.value as ProjectStatusFilter;
               setStatusFilter(nextStatus);
               setPage(1);
-              load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
             }}
           >
             <option value="Все">Все статусы проекта</option>
@@ -608,20 +609,34 @@ function ProjectsTable({
             <option value="Удалён">Удалён</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
-          <button
-            type="button"
-            className={dailyLimitReached ? 'btn btn--primary' : 'btn btn--secondary'}
-            aria-pressed={dailyLimitReached}
-            title="Показать проекты, где за выбранный период получено данных не меньше дневного лимита"
-            onClick={() => {
-              const nextValue = !dailyLimitReached;
-              setDailyLimitReached(nextValue);
-              setPage(1);
-              load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, nextValue);
-            }}
-          >
-            100%
-          </button>
+          <div className="project-quick-filters">
+            <button
+              type="button"
+              className={`btn project-filter-toggle ${dailyLimitReached ? 'btn--primary' : 'btn--secondary'}`}
+              aria-pressed={dailyLimitReached}
+              title="Показать проекты, где за выбранный период получено данных не меньше дневного лимита"
+              onClick={() => {
+                const nextValue = !dailyLimitReached;
+                setDailyLimitReached(nextValue);
+                setPage(1);
+              }}
+            >
+              100%
+            </button>
+            <button
+              type="button"
+              className={`btn project-filter-toggle project-filter-toggle--icon ${topOnly ? 'btn--primary' : 'btn--secondary'}`}
+              aria-pressed={topOnly}
+              title={topOnly ? 'Показать все проекты' : 'Только топ-проекты'}
+              onClick={() => {
+                const nextValue = !topOnly;
+                setTopOnly(nextValue);
+                setPage(1);
+              }}
+            >
+              ★
+            </button>
+          </div>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
               type="checkbox"
@@ -630,7 +645,6 @@ function ProjectsTable({
                 const val = e.target.checked;
                 setIncludeDeleted(val);
                 setPage(1);
-                load(1, pageSize, search, fromDate, toDate, val, statusFilter);
               }}
             />
             Показывать удалённые

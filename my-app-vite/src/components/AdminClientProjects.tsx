@@ -98,6 +98,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
+  const [topOnly, setTopOnly] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -122,6 +123,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     sortField = sortBy,
     direction = sortDir,
     limitReached = dailyLimitReached,
+    topFilter = topOnly,
   ) {
     try {
       setLoading(true);
@@ -137,6 +139,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
         includeDeleted: withDeleted,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
         dailyLimitReached: limitReached,
+        isTop: topFilter,
         sortBy: sortField,
         sortDir: direction,
       });
@@ -159,16 +162,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }, [search]);
 
   useEffect(() => {
-    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached);
+    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
+  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
 
   useEffect(() => {
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached]);
+  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tableColSpan = canUseAdminProjectActions ? 14 : 13;
@@ -568,7 +571,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
               const nextStatus = e.target.value as ProjectStatusFilter;
               setStatusFilter(nextStatus);
               setPage(1);
-              load(1, pageSize, search, fromDate, toDate, includeDeleted, nextStatus);
             }}
           >
             <option value="Все">Все статусы проекта</option>
@@ -577,20 +579,34 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             <option value="Удалён">Удалён</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
-          <button
-            type="button"
-            className={dailyLimitReached ? 'btn btn--primary' : 'btn btn--secondary'}
-            aria-pressed={dailyLimitReached}
-            title="Показать проекты, где за выбранный период получено данных не меньше дневного лимита"
-            onClick={() => {
-              const nextValue = !dailyLimitReached;
-              setDailyLimitReached(nextValue);
-              setPage(1);
-              load(1, pageSize, search, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, nextValue);
-            }}
-          >
-            100%
-          </button>
+          <div className="project-quick-filters">
+            <button
+              type="button"
+              className={`btn project-filter-toggle ${dailyLimitReached ? 'btn--primary' : 'btn--secondary'}`}
+              aria-pressed={dailyLimitReached}
+              title="Показать проекты, где за выбранный период получено данных не меньше дневного лимита"
+              onClick={() => {
+                const nextValue = !dailyLimitReached;
+                setDailyLimitReached(nextValue);
+                setPage(1);
+              }}
+            >
+              100%
+            </button>
+            <button
+              type="button"
+              className={`btn project-filter-toggle project-filter-toggle--icon ${topOnly ? 'btn--primary' : 'btn--secondary'}`}
+              aria-pressed={topOnly}
+              title={topOnly ? 'Показать все проекты' : 'Только топ-проекты'}
+              onClick={() => {
+                const nextValue = !topOnly;
+                setTopOnly(nextValue);
+                setPage(1);
+              }}
+            >
+              ★
+            </button>
+          </div>
           <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <input
               type="checkbox"
@@ -599,7 +615,6 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                 const val = e.target.checked;
                 setIncludeDeleted(val);
                 setPage(1);
-                load(1, pageSize, search, fromDate, toDate, val, statusFilter);
               }}
             />
             Показывать удалённые

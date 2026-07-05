@@ -1150,6 +1150,7 @@ def list_projects_paginated(
     include_deleted: bool = False,
     project_status: Optional[schemas.ProjectStatus] = None,
     daily_limit_reached: bool = False,
+    is_top: bool = False,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = None,
 ) -> schemas.ProjectListOut:
@@ -1167,6 +1168,8 @@ def list_projects_paginated(
         project_source_conditions.append(models.Project.collection_source.in_(collection_source_filter))
     if project_source_conditions:
         stmt = stmt.where(or_(*project_source_conditions))
+    if is_top:
+        stmt = stmt.where(models.Project.is_top == True)  # noqa: E712
     if q:
         q = q.strip()
         if q:
@@ -6325,6 +6328,7 @@ def admin_list_all_projects(
     include_deleted: bool = True,
     project_status: Optional[schemas.ProjectStatus] = None,
     daily_limit_reached: bool = False,
+    is_top: bool = False,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = None,
 ) -> schemas.AdminProjectListOut:
@@ -6353,6 +6357,8 @@ def admin_list_all_projects(
         project_source_conditions.append(models.Project.collection_source.in_(collection_source_filter))
     if project_source_conditions:
         stmt = stmt.where(or_(*project_source_conditions))
+    if is_top:
+        stmt = stmt.where(models.Project.is_top == True)  # noqa: E712
 
     # Текстовый поиск
     if q:
