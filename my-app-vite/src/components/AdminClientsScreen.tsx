@@ -1,6 +1,6 @@
 // Экран «Клиенты» для админа: список клиентов с агрегированной статистикой по проектам
 // Логика максимально простая и прозрачная, без лишних сущностей.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   fetchAdminClientsSummary,
@@ -201,6 +201,7 @@ function AdminClientsScreen({
   });
   const [pageSize, setPageSize] = useState(25);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const pendingCreatedClientIdRef = useRef<number | null>(null);
   const [selectedSummarySources, setSelectedSummarySources] = useState<string[]>(() => [...RAW_SOURCE_CODES]);
   const [range, setRange] = useState<DateRange>(() => getTodayRange());
   const [createOpen, setCreateOpen] = useState(false);
@@ -314,10 +315,15 @@ function AdminClientsScreen({
           return row;
         });
         setBaseClients(rows);
+        const pendingCreatedClientId = pendingCreatedClientIdRef.current;
+        if (pendingCreatedClientId != null && rows.some((row) => row.id === pendingCreatedClientId)) {
+          pendingCreatedClientIdRef.current = null;
+          setSelectedClientId(pendingCreatedClientId);
+        }
         try {
           const focusIdRaw = localStorage.getItem('admin_clients_focus_id');
           const focusId = focusIdRaw ? Number(focusIdRaw) : null;
-          if (focusId && rows.some((row) => row.id === focusId)) {
+          if (pendingCreatedClientId == null && focusId && rows.some((row) => row.id === focusId)) {
             setSelectedClientId(focusId);
             localStorage.removeItem('admin_clients_focus_id');
           }
@@ -391,6 +397,7 @@ function AdminClientsScreen({
   useEffect(() => {
     if (selectedClientId == null) return;
     if (clients.some((client) => client.id === selectedClientId)) return;
+    if (pendingCreatedClientIdRef.current === selectedClientId) return;
     setSelectedClientId(clients[0]?.id ?? null);
   }, [clients, selectedClientId]);
 
@@ -504,6 +511,13 @@ function AdminClientsScreen({
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
       ? (env.VITE_CLIENT_PORTAL_URL as string)
       : '/';
+
+  function handleClientCreated(created: { user: { id: number } }) {
+    pendingCreatedClientIdRef.current = created.user.id;
+    setRefreshKey((x) => x + 1);
+    setCreateOpen(false);
+    setSelectedClientId(created.user.id);
+  }
 
   async function handleOpenClientCabinet(clientId: number) {
     if (!clientId) return;
@@ -1477,11 +1491,7 @@ function AdminClientsScreen({
           <AdminCreateClientModal
             managerRole={managerRole}
             onClose={() => setCreateOpen(false)}
-            onCreated={(created) => {
-              setRefreshKey((x) => x + 1);
-              setCreateOpen(false);
-              setSelectedClientId(created.user.id);
-            }}
+            onCreated={handleClientCreated}
           />
         )}
         {cardClientId && cardClientData && (
@@ -2202,11 +2212,7 @@ function AdminClientsScreen({
       <AdminCreateClientModal
         managerRole={managerRole}
         onClose={() => setCreateOpen(false)}
-        onCreated={(created) => {
-          setRefreshKey((x) => x + 1);
-          setCreateOpen(false);
-          setSelectedClientId(created.user.id);
-        }}
+        onCreated={handleClientCreated}
       />
     )}
     {cardClientId && cardClientData && (
