@@ -38,6 +38,7 @@ RETRY_DELAYS_SEC = [5, 15, 45]
 SHEET_COLUMNS_COUNT = 21  # A:U
 SHEET_ROW_RESERVE = 500
 DROPDOWN_COLUMN_INDEX = 2  # C, zero-based Google Sheets API index
+DROPDOWN_TEMPLATE_ROW_INDEX = 1  # C2, zero-based Google Sheets API index
 MONTH_NAMES_RU = {
     1: "Январь",
     2: "Февраль",
@@ -344,24 +345,14 @@ def _copy_dropdown_validation_to_rows(
     start_row: int,
     end_row: int,
 ) -> None:
-    if start_row <= 1:
-        logging.getLogger("pixel.client_sheet_export").warning(
-            "Dropdown validation copy skipped: no previous row for spreadsheet_id=%s sheet_id=%s rows=%s:%s",
-            spreadsheet_id,
-            sheet_id,
-            start_row,
-            end_row,
-        )
-        return
-
     body = {
         "requests": [
             {
                 "copyPaste": {
                     "source": {
                         "sheetId": sheet_id,
-                        "startRowIndex": start_row - 2,
-                        "endRowIndex": start_row - 1,
+                        "startRowIndex": DROPDOWN_TEMPLATE_ROW_INDEX,
+                        "endRowIndex": DROPDOWN_TEMPLATE_ROW_INDEX + 1,
                         "startColumnIndex": DROPDOWN_COLUMN_INDEX,
                         "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
                     },
