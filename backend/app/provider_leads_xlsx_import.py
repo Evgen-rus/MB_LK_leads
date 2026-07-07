@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -25,9 +26,11 @@ from .time_utils import now_msk
 
 
 REQUIRED_HEADERS = ["id", "Проект", "Телефон", "Создано", "Комментарий"]
+PIXEL_REQUIRED_HEADERS = ["id", "Domain", "Phone", "Created", "Referer"]
 PREVIEW_TTL_SECONDS = int(os.getenv("PROVIDER_LEADS_IMPORT_PREVIEW_TTL_SECONDS", "3600"))
 MAX_UPLOAD_SIZE_BYTES = int(os.getenv("PROVIDER_LEADS_IMPORT_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
 PREVIEW_STORE_DIR = Path(tempfile.gettempdir()) / "mb_lk_provider_leads_import_previews"
+PIXEL_PREVIEW_STORE_DIR = Path(tempfile.gettempdir()) / "mb_lk_pixel_leads_import_previews"
 ALLOWED_SUFFIXES = {".xlsx"}
 
 
@@ -43,17 +46,35 @@ def _ensure_preview_store_dir() -> Path:
     return PREVIEW_STORE_DIR
 
 
+def _ensure_pixel_preview_store_dir() -> Path:
+    PIXEL_PREVIEW_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    return PIXEL_PREVIEW_STORE_DIR
+
+
 def _preview_dir(preview_id: str) -> Path:
     return _ensure_preview_store_dir() / preview_id
+
+
+def _pixel_preview_dir(preview_id: str) -> Path:
+    return _ensure_pixel_preview_store_dir() / preview_id
 
 
 def _preview_state_path(preview_id: str) -> Path:
     return _preview_dir(preview_id) / "preview_state.json"
 
 
+def _pixel_preview_state_path(preview_id: str) -> Path:
+    return _pixel_preview_dir(preview_id) / "preview_state.json"
+
+
 def _preview_upload_path(preview_id: str, file_name: str) -> Path:
     suffix = Path(file_name).suffix or ".xlsx"
     return _preview_dir(preview_id) / f"source{suffix}"
+
+
+def _pixel_preview_upload_path(preview_id: str, file_name: str) -> Path:
+    suffix = Path(file_name).suffix or ".xlsx"
+    return _pixel_preview_dir(preview_id) / f"source{suffix}"
 
 
 def _now_utc() -> datetime:
@@ -66,6 +87,15 @@ def _parse_created_at_utc(value: str) -> datetime:
 
 def cleanup_expired_previews() -> None:
     root = _ensure_preview_store_dir()
+    _cleanup_expired_preview_root(root)
+
+
+def cleanup_expired_pixel_previews() -> None:
+    root = _ensure_pixel_preview_store_dir()
+    _cleanup_expired_preview_root(root)
+
+
+def _cleanup_expired_preview_root(root: Path) -> None:
     expire_before = _now_utc() - timedelta(seconds=max(60, PREVIEW_TTL_SECONDS))
 
     for child in root.iterdir():
@@ -119,6 +149,8 @@ def normalize_phone(value: Any) -> Optional[str]:
 
 
 def parse_created_at(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None), None
     text = clean_scalar(value)
     if not text:
         return None, "empty_created_at"
@@ -126,6 +158,8 @@ def parse_created_at(value: Any) -> Tuple[Optional[datetime], Optional[str]]:
     formats = (
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
         "%d.%m.%Y %H:%M:%S",
         "%d.%m.%Y %H:%M",
     )
@@ -155,6 +189,13 @@ def validate_required_headers(headers: List[str]) -> None:
         raise ProviderLeadsImportError(f"В XLSX нет обязательных колонок: {missing_str}", status_code=400)
 
 
+def validate_pixel_required_headers(headers: List[str]) -> None:
+    missing = [name for name in PIXEL_REQUIRED_HEADERS if name not in headers]
+    if missing:
+        missing_str = ", ".join(missing)
+        raise ProviderLeadsImportError(f"В Pixel XLSX нет обязательных колонок: {missing_str}", status_code=400)
+
+
 def load_xlsx_rows(file_path: str, limit: int = 0) -> Tuple[List[str], List[Dict[str, Any]]]:
     workbook = load_workbook(file_path, read_only=True, data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
@@ -167,6 +208,32 @@ def load_xlsx_rows(file_path: str, limit: int = 0) -> Tuple[List[str], List[Dict
 
     headers = [str(cell).strip() if cell is not None else "" for cell in header_row]
     validate_required_headers(headers)
+
+    rows: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows_iter, start=2):
+        if not any(cell is not None for cell in row):
+            continue
+        item = {headers[col_idx]: cell for col_idx, cell in enumerate(row) if col_idx < len(headers)}
+        item["_xlsx_row_number"] = idx
+        rows.append(item)
+        if limit > 0 and len(rows) >= limit:
+            break
+
+    return headers, rows
+
+
+def load_pixel_xlsx_rows(file_path: str, limit: int = 0) -> Tuple[List[str], List[Dict[str, Any]]]:
+    workbook = load_workbook(file_path, read_only=True, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    rows_iter = sheet.iter_rows(values_only=True)
+
+    try:
+        header_row = next(rows_iter)
+    except StopIteration as exc:
+        raise ProviderLeadsImportError("XLSX файл пуст.", status_code=400) from exc
+
+    headers = [str(cell).strip() if cell is not None else "" for cell in header_row]
+    validate_pixel_required_headers(headers)
 
     rows: List[Dict[str, Any]] = []
     for idx, row in enumerate(rows_iter, start=2):
@@ -215,6 +282,48 @@ def normalize_xlsx_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def normalize_pixel_phone(value: Any) -> Optional[str]:
+    text = clean_scalar(value)
+    if not text:
+        return None
+    # Если поставщик когда-нибудь положит несколько телефонов в одну ячейку,
+    # импорт берёт только первый, как договорились для ручной загрузки Pixel.
+    first = re.split(r"[;,\r\n]+", text, maxsplit=1)[0]
+    return "".join(first.split()) or None
+
+
+def normalize_pixel_xlsx_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    vid = clean_scalar(row.get("id"))
+    domain = crud.normalize_pixel_domain(clean_scalar(row.get("Domain")))
+    phone = normalize_pixel_phone(row.get("Phone"))
+    created_at, created_at_error = parse_created_at(row.get("Created"))
+    pixel_url = clean_scalar(row.get("Referer"))
+    phones_raw = [phone] if phone else None
+
+    errors: List[str] = []
+    if not vid:
+        errors.append("empty_vid")
+    if not domain:
+        errors.append("empty_domain")
+    if not phone:
+        errors.append("empty_phone")
+    if created_at_error:
+        errors.append(created_at_error)
+
+    return {
+        "xlsx_row_number": row.get("_xlsx_row_number"),
+        "raw": row,
+        "vid": vid,
+        "domain": domain,
+        "project_name": domain,
+        "phone": phone,
+        "phones_raw": phones_raw,
+        "prov_created_at": created_at,
+        "pixel_url": pixel_url,
+        "errors": errors,
+    }
+
+
 def chunked(values: List[str], size: int = 500) -> Iterable[List[str]]:
     for start in range(0, len(values), size):
         yield values[start:start + size]
@@ -237,6 +346,24 @@ def get_existing_vids(db_sess, vids: List[str]) -> Set[str]:
     return existing
 
 
+def get_existing_pixel_vid_phones(db_sess, pairs: List[Tuple[str, str]]) -> Set[Tuple[str, str]]:
+    if not pairs:
+        return set()
+    existing: Set[Tuple[str, str]] = set()
+    vids = sorted({vid for vid, _phone in pairs if vid})
+    for chunk in chunked(vids, size=500):
+        rows = db_sess.execute(
+            select(models.ProviderLead.vid, models.ProviderLead.phone).where(
+                models.ProviderLead.vid.in_(chunk),
+                models.ProviderLead.lead_source == crud.LEAD_SOURCE_PIXEL,
+            )
+        ).all()
+        for vid, phone in rows:
+            if vid is not None and phone is not None:
+                existing.add((str(vid), str(phone)))
+    return existing
+
+
 def build_row_preview(normalized_row: Dict[str, Any], note: str) -> Dict[str, Any]:
     return {
         "xlsxRowNumber": normalized_row.get("xlsx_row_number"),
@@ -244,6 +371,8 @@ def build_row_preview(normalized_row: Dict[str, Any], note: str) -> Dict[str, An
         "projectName": normalized_row.get("project_name"),
         "phone": normalized_row.get("phone"),
         "subdomain": normalized_row.get("subdomain"),
+        "domain": normalized_row.get("domain"),
+        "pixelUrl": normalized_row.get("pixel_url"),
         "note": note,
     }
 
@@ -329,6 +458,94 @@ def analyze_rows(db_sess, normalized_rows: List[Dict[str, Any]]) -> Tuple[Dict[s
     return report, rows_to_import
 
 
+def analyze_pixel_rows(db_sess, normalized_rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    report: Dict[str, Any] = {
+        "totalRows": len(normalized_rows),
+        "validRows": 0,
+        "duplicatesInFile": 0,
+        "duplicatesInDb": 0,
+        "newRows": 0,
+        "readyToImport": 0,
+        "matchedProjects": 0,
+        "notFoundProjects": 0,
+        "ambiguousProjects": 0,
+        "rowsWithErrors": 0,
+        "errorsBreakdown": {},
+        "samples": {
+            "duplicatesInFile": [],
+            "duplicatesInDb": [],
+            "notFoundProjects": [],
+            "ambiguousProjects": [],
+            "rowsWithErrors": [],
+        },
+    }
+
+    seen_pairs: Set[Tuple[str, str]] = set()
+    candidate_pairs = [
+        (str(row["vid"]), str(row["phone"]))
+        for row in normalized_rows
+        if row.get("vid") and row.get("phone")
+    ]
+    existing_pairs = get_existing_pixel_vid_phones(db_sess, candidate_pairs)
+    rows_to_import: List[Dict[str, Any]] = []
+
+    for row in normalized_rows:
+        errors = list(row.get("errors") or [])
+        vid = row.get("vid")
+        phone = row.get("phone")
+
+        if errors:
+            report["rowsWithErrors"] += 1
+            for error_code in errors:
+                report["errorsBreakdown"][error_code] = report["errorsBreakdown"].get(error_code, 0) + 1
+            if len(report["samples"]["rowsWithErrors"]) < 10:
+                report["samples"]["rowsWithErrors"].append(build_row_preview(row, ", ".join(errors)))
+            continue
+
+        report["validRows"] += 1
+        pair = (str(vid), str(phone))
+
+        if pair in seen_pairs:
+            report["duplicatesInFile"] += 1
+            if len(report["samples"]["duplicatesInFile"]) < 10:
+                report["samples"]["duplicatesInFile"].append(build_row_preview(row, "duplicate_vid_phone_in_file"))
+            continue
+        seen_pairs.add(pair)
+
+        if pair in existing_pairs:
+            report["duplicatesInDb"] += 1
+            if len(report["samples"]["duplicatesInDb"]) < 10:
+                report["samples"]["duplicatesInDb"].append(build_row_preview(row, "duplicate_vid_phone_in_db"))
+            continue
+
+        project, match_status, matched_projects = crud.resolve_pixel_project_by_domain(
+            db_sess,
+            str(row["domain"]),
+        )
+        row["project_id"] = int(project.id) if project is not None else None
+        row["project_match_status"] = match_status
+        row["matched_project_ids"] = [int(project.id) for project in matched_projects]
+
+        if match_status == "matched":
+            report["matchedProjects"] += 1
+            report["newRows"] += 1
+            rows_to_import.append(row)
+            continue
+
+        if match_status == "not_found":
+            report["notFoundProjects"] += 1
+            if len(report["samples"]["notFoundProjects"]) < 10:
+                report["samples"]["notFoundProjects"].append(build_row_preview(row, "pixel_project_not_found"))
+        else:
+            report["ambiguousProjects"] += 1
+            if len(report["samples"]["ambiguousProjects"]) < 10:
+                note = f"ambiguous_pixel_project_ids={row['matched_project_ids']}"
+                report["samples"]["ambiguousProjects"].append(build_row_preview(row, note))
+
+    report["readyToImport"] = len(rows_to_import)
+    return report, rows_to_import
+
+
 def build_provider_lead_model(row: Dict[str, Any]) -> models.ProviderLead:
     return models.ProviderLead(
         vid=str(row["vid"]),
@@ -345,10 +562,36 @@ def build_provider_lead_model(row: Dict[str, Any]) -> models.ProviderLead:
     )
 
 
+def build_pixel_provider_lead_model(row: Dict[str, Any]) -> models.ProviderLead:
+    return models.ProviderLead(
+        vid=str(row["vid"]),
+        lead_source=crud.LEAD_SOURCE_PIXEL,
+        phone=row.get("phone"),
+        phones_raw=row.get("phones_raw"),
+        project_name=row.get("project_name"),
+        prov_created_at=row.get("prov_created_at"),
+        prov_chanel=None,
+        prov_source=None,
+        subdomain=None,
+        pixel_url=row.get("pixel_url"),
+        project_id=row.get("project_id"),
+        imported_at=now_msk(),
+    )
+
+
 def insert_provider_leads(db_sess, rows_to_import: List[Dict[str, Any]]) -> int:
     if not rows_to_import:
         return 0
     models_to_insert = [build_provider_lead_model(row) for row in rows_to_import]
+    db_sess.add_all(models_to_insert)
+    db_sess.commit()
+    return len(models_to_insert)
+
+
+def insert_pixel_provider_leads(db_sess, rows_to_import: List[Dict[str, Any]]) -> int:
+    if not rows_to_import:
+        return 0
+    models_to_insert = [build_pixel_provider_lead_model(row) for row in rows_to_import]
     db_sess.add_all(models_to_insert)
     db_sess.commit()
     return len(models_to_insert)
@@ -368,6 +611,8 @@ def _serialize_import_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "project_id": row.get("project_id"),
         "project_match_status": row.get("project_match_status"),
         "matched_project_ids": row.get("matched_project_ids") or [],
+        "domain": row.get("domain"),
+        "pixel_url": row.get("pixel_url"),
     }
 
 
@@ -386,6 +631,8 @@ def _deserialize_import_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "project_id": row.get("project_id"),
         "project_match_status": row.get("project_match_status"),
         "matched_project_ids": row.get("matched_project_ids") or [],
+        "domain": row.get("domain"),
+        "pixel_url": row.get("pixel_url"),
     }
 
 
@@ -393,6 +640,15 @@ def _save_preview_state(preview_id: str, payload: Dict[str, Any]) -> None:
     preview_dir = _preview_dir(preview_id)
     preview_dir.mkdir(parents=True, exist_ok=True)
     _preview_state_path(preview_id).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _save_pixel_preview_state(preview_id: str, payload: Dict[str, Any]) -> None:
+    preview_dir = _pixel_preview_dir(preview_id)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    _pixel_preview_state_path(preview_id).write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -408,8 +664,22 @@ def _load_preview_state(preview_id: str) -> Dict[str, Any]:
         raise ProviderLeadsImportError("Повреждён preview import-сессии.", status_code=500) from exc
 
 
+def _load_pixel_preview_state(preview_id: str) -> Dict[str, Any]:
+    state_path = _pixel_preview_state_path(preview_id)
+    if not state_path.exists():
+        raise ProviderLeadsImportError("Pixel preview не найден или уже истёк.", status_code=404)
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ProviderLeadsImportError("Повреждён preview import-сессии Pixel.", status_code=500) from exc
+
+
 def _delete_preview_state(preview_id: str) -> None:
     shutil.rmtree(_preview_dir(preview_id), ignore_errors=True)
+
+
+def _delete_pixel_preview_state(preview_id: str) -> None:
+    shutil.rmtree(_pixel_preview_dir(preview_id), ignore_errors=True)
 
 
 def create_preview(
@@ -488,6 +758,94 @@ def commit_preview(
     skipped_duplicates_in_db = len(rows_to_import) - len(fresh_rows)
 
     _delete_preview_state(preview_id)
+    return {
+        "previewId": preview_id,
+        "fileName": str(state.get("file_name") or ""),
+        "insertedRows": inserted_rows,
+        "skippedDuplicatesInDb": skipped_duplicates_in_db,
+    }
+
+
+def create_pixel_preview(
+    db_sess,
+    *,
+    admin_user_id: int,
+    file_name: str,
+    file_bytes: bytes,
+    limit: int = 0,
+) -> Dict[str, Any]:
+    cleanup_expired_pixel_previews()
+    _validate_file_name(file_name)
+    _validate_file_size(file_bytes)
+
+    preview_id = uuid.uuid4().hex
+    preview_dir = _pixel_preview_dir(preview_id)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = _pixel_preview_upload_path(preview_id, file_name)
+    upload_path.write_bytes(file_bytes)
+
+    headers, raw_rows = load_pixel_xlsx_rows(str(upload_path), limit=max(0, int(limit or 0)))
+    normalized_rows = [normalize_pixel_xlsx_row(row) for row in raw_rows]
+    report, rows_to_import = analyze_pixel_rows(db_sess, normalized_rows)
+
+    state_payload = {
+        "preview_id": preview_id,
+        "admin_user_id": int(admin_user_id),
+        "file_name": file_name,
+        "created_at": _now_utc().isoformat(),
+        "headers": headers,
+        "summary": report,
+        "rows_to_import": [_serialize_import_row(row) for row in rows_to_import],
+    }
+    _save_pixel_preview_state(preview_id, state_payload)
+
+    return {
+        "previewId": preview_id,
+        "fileName": file_name,
+        **report,
+    }
+
+
+def commit_pixel_preview(
+    db_sess,
+    *,
+    preview_id: str,
+    admin_user_id: int,
+) -> Dict[str, Any]:
+    cleanup_expired_pixel_previews()
+    state = _load_pixel_preview_state(preview_id)
+
+    if int(state.get("admin_user_id") or 0) != int(admin_user_id):
+        raise ProviderLeadsImportError("Эта Pixel preview-сессия принадлежит другому админу.", status_code=403)
+
+    created_at_raw = str(state.get("created_at") or "").strip()
+    if not created_at_raw:
+        raise ProviderLeadsImportError("Pixel preview невалиден: нет created_at.", status_code=500)
+    created_at = _parse_created_at_utc(created_at_raw)
+    if created_at < (_now_utc() - timedelta(seconds=max(60, PREVIEW_TTL_SECONDS))):
+        _delete_pixel_preview_state(preview_id)
+        raise ProviderLeadsImportError("Pixel preview истёк. Загрузите файл заново.", status_code=404)
+
+    stored_rows = state.get("rows_to_import") or []
+    rows_to_import = [_deserialize_import_row(row) for row in stored_rows]
+    existing_pairs = get_existing_pixel_vid_phones(
+        db_sess,
+        [
+            (str(row.get("vid")), str(row.get("phone")))
+            for row in rows_to_import
+            if row.get("vid") and row.get("phone")
+        ],
+    )
+    fresh_rows = [
+        row
+        for row in rows_to_import
+        if (str(row.get("vid")), str(row.get("phone"))) not in existing_pairs
+    ]
+
+    inserted_rows = insert_pixel_provider_leads(db_sess, fresh_rows)
+    skipped_duplicates_in_db = len(rows_to_import) - len(fresh_rows)
+
+    _delete_pixel_preview_state(preview_id)
     return {
         "previewId": preview_id,
         "fileName": str(state.get("file_name") or ""),

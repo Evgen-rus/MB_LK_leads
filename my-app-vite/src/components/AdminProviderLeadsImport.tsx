@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
+  commitAdminPixelLeadsImport,
   commitAdminProviderLeadsImport,
+  previewAdminPixelLeadsImport,
   previewAdminProviderLeadsImport,
   type AdminProviderLeadsImportCommitResp,
   type AdminProviderLeadsImportPreviewResp,
@@ -20,8 +22,19 @@ const SAMPLE_LABELS: Record<string, string> = {
   rowsWithErrors: 'Ошибки в строках',
   duplicatesInFile: 'Дубли внутри файла',
   duplicatesInDb: 'Дубли уже в БД',
-  notFoundProjects: 'Проекты не найдены',
-  ambiguousProjects: 'Неоднозначные проекты',
+  notFoundProjects: 'Проекты/домены не найдены',
+  ambiguousProjects: 'Неоднозначные проекты/домены',
+};
+
+type ImportKind = 'provider' | 'pixel';
+
+type ImportCardConfig = {
+  kind: ImportKind;
+  title: string;
+  description: string;
+  requirements: string;
+  previewFile: (file: File) => Promise<AdminProviderLeadsImportPreviewResp>;
+  commitPreview: (previewId: string) => Promise<AdminProviderLeadsImportCommitResp>;
 };
 
 type SummaryItemProps = {
@@ -52,17 +65,17 @@ function SummaryItem({ label, value, tone = 'default' }: SummaryItemProps) {
   );
 }
 
-function SampleTable({ items }: { items: AdminProviderLeadsImportPreviewSample[] }) {
+function SampleTable({ items, kind }: { items: AdminProviderLeadsImportPreviewSample[]; kind: ImportKind }) {
   return (
     <div className="table-scroll">
-      <table className="table" style={{ minWidth: 700 }}>
+      <table className="table" style={{ minWidth: kind === 'pixel' ? 900 : 700 }}>
         <thead>
           <tr>
             <th>Строка XLSX</th>
             <th>VID</th>
-            <th>Проект</th>
+            <th>{kind === 'pixel' ? 'Домен' : 'Проект'}</th>
             <th>Телефон</th>
-            <th>Subdomain</th>
+            {kind === 'pixel' ? <th>Referer</th> : <th>Subdomain</th>}
             <th>Примечание</th>
           </tr>
         </thead>
@@ -71,9 +84,15 @@ function SampleTable({ items }: { items: AdminProviderLeadsImportPreviewSample[]
             <tr key={`${item.vid || 'no-vid'}-${idx}`}>
               <td>{item.xlsxRowNumber ?? '—'}</td>
               <td>{item.vid || '—'}</td>
-              <td>{item.projectName ? formatProjectNameForDisplay(item.projectName) : '—'}</td>
+              <td>
+                {kind === 'pixel'
+                  ? item.domain || item.projectName || '—'
+                  : item.projectName
+                    ? formatProjectNameForDisplay(item.projectName)
+                    : '—'}
+              </td>
               <td>{item.phone || '—'}</td>
-              <td>{item.subdomain || '—'}</td>
+              <td>{kind === 'pixel' ? item.pixelUrl || '—' : item.subdomain || '—'}</td>
               <td>{item.note}</td>
             </tr>
           ))}
@@ -83,7 +102,7 @@ function SampleTable({ items }: { items: AdminProviderLeadsImportPreviewSample[]
   );
 }
 
-function AdminProviderLeadsImport() {
+function ImportCard({ config }: { config: ImportCardConfig }) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<AdminProviderLeadsImportPreviewResp | null>(null);
   const [importResult, setImportResult] = useState<AdminProviderLeadsImportCommitResp | null>(null);
@@ -94,10 +113,12 @@ function AdminProviderLeadsImport() {
   const canImport = useMemo(() => {
     if (!preview) return false;
     if (preview.readyToImport <= 0) return false;
-    if (preview.notFoundProjects > 0) return false;
-    if (preview.ambiguousProjects > 0) return false;
+    if (config.kind === 'provider') {
+      if (preview.notFoundProjects > 0) return false;
+      if (preview.ambiguousProjects > 0) return false;
+    }
     return true;
-  }, [preview]);
+  }, [config.kind, preview]);
 
   const sampleEntries = useMemo(() => {
     if (!preview) return [];
@@ -113,7 +134,7 @@ function AdminProviderLeadsImport() {
       setLoadingPreview(true);
       setError(null);
       setImportResult(null);
-      const result = await previewAdminProviderLeadsImport(file);
+      const result = await config.previewFile(file);
       setPreview(result);
     } catch (err: unknown) {
       console.error(err);
@@ -137,7 +158,7 @@ function AdminProviderLeadsImport() {
     try {
       setLoadingImport(true);
       setError(null);
-      const result = await commitAdminProviderLeadsImport(preview.previewId);
+      const result = await config.commitPreview(preview.previewId);
       setImportResult(result);
     } catch (err: unknown) {
       console.error(err);
@@ -149,81 +170,80 @@ function AdminProviderLeadsImport() {
   }
 
   return (
-    <div className="table-card">
-      <div className="table-toolbar toolbar-split">
-        <div className="toolbar-left" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
-          <div style={{ fontWeight: 600 }}>Ручной импорт лидов из XLSX</div>
-          <div className="sub" style={{ maxWidth: 820 }}>
-            Экран доступен только администратору. Сначала выполняется preview файла без записи в БД,
-            затем отдельным действием подтверждается импорт.
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div
+        className="provider-import-card"
+        style={{
+          border: '1px solid #ececf2',
+          borderRadius: 12,
+          padding: 16,
+          background: '#fff',
+          display: 'grid',
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 700 }}>{config.title}</div>
+          <div className="sub" style={{ marginTop: 4, maxWidth: 920 }}>
+            {config.description}
+          </div>
+          <div className="sub" style={{ marginTop: 4, maxWidth: 920 }}>
+            {config.requirements}
           </div>
         </div>
+
+        <div className="provider-import-controls">
+          <input
+            className="provider-import-file-input"
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              const nextFile = e.target.files?.[0] || null;
+              setFile(nextFile);
+              setPreview(null);
+              setImportResult(null);
+              setError(null);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn--primary provider-import-action"
+            disabled={!file || loadingPreview}
+            onClick={() => {
+              void handlePreview();
+            }}
+          >
+            {loadingPreview ? 'Проверяем…' : 'Проверить файл'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary provider-import-action"
+            disabled={!canImport || loadingImport}
+            onClick={() => {
+              void handleImport();
+            }}
+          >
+            {loadingImport ? 'Импортируем…' : 'Импортировать'}
+          </button>
+        </div>
+
+        <div className="sub">
+          {file ? `Выбран файл: ${file.name}` : 'Файл ещё не выбран.'}
+        </div>
+
+        {error && (
+          <div style={{ color: '#b42318', background: '#fff1f3', borderRadius: 10, padding: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {importResult && (
+          <div style={{ color: '#176b2c', background: '#eefbf0', borderRadius: 10, padding: 12 }}>
+            Импорт завершён. Добавлено строк: {importResult.insertedRows}. Пропущено как новые дубли в БД:{' '}
+            {importResult.skippedDuplicatesInDb}.
+          </div>
+        )}
       </div>
-
-      <div style={{ padding: 16, display: 'grid', gap: 16 }}>
-        <div
-          className="provider-import-card"
-          style={{
-            border: '1px solid #ececf2',
-            borderRadius: 12,
-            padding: 16,
-            background: '#fff',
-            display: 'grid',
-            gap: 12,
-          }}
-        >
-          <div className="provider-import-controls">
-            <input
-              className="provider-import-file-input"
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => {
-                const nextFile = e.target.files?.[0] || null;
-                setFile(nextFile);
-                setPreview(null);
-                setImportResult(null);
-                setError(null);
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn--primary provider-import-action"
-              disabled={!file || loadingPreview}
-              onClick={() => {
-                void handlePreview();
-              }}
-            >
-              {loadingPreview ? 'Проверяем…' : 'Проверить файл'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--secondary provider-import-action"
-              disabled={!canImport || loadingImport}
-              onClick={() => {
-                void handleImport();
-              }}
-            >
-              {loadingImport ? 'Импортируем…' : 'Импортировать'}
-            </button>
-          </div>
-
-          <div className="sub">
-            {file ? `Выбран файл: ${file.name}` : 'Файл ещё не выбран.'}
-          </div>
-
-          {error && (
-            <div style={{ color: '#b42318', background: '#fff1f3', borderRadius: 10, padding: 12 }}>
-              {error}
-            </div>
-          )}
-
-          {importResult && (
-            <div style={{ color: '#176b2c', background: '#eefbf0', borderRadius: 10, padding: 12 }}>
-              Импорт завершён. Добавлено строк: {importResult.insertedRows}. Пропущено как новые дубли в БД:{' '}
-              {importResult.skippedDuplicatesInDb}.
-            </div>
-          )}
-        </div>
 
         {preview && (
           <>
@@ -261,7 +281,14 @@ function AdminProviderLeadsImport() {
               <div className="sub">Preview ID: {preview.previewId}</div>
               {!canImport && (
                 <div style={{ color: '#8a4b00' }}>
-                  Кнопка импорта заблокирована, пока есть неразрешённые проблемы с проектами или нет строк для импорта.
+                  {config.kind === 'provider'
+                    ? 'Кнопка импорта заблокирована, пока есть неразрешённые проблемы с проектами или нет строк для импорта.'
+                    : 'Кнопка импорта заблокирована, потому что нет строк, готовых к импорту.'}
+                </div>
+              )}
+              {config.kind === 'pixel' && (preview.notFoundProjects > 0 || preview.ambiguousProjects > 0) && (
+                <div style={{ color: '#8a4b00' }}>
+                  Строки с ненайденным или неоднозначным Pixel-доменом будут пропущены. Готовые строки можно импортировать.
                 </div>
               )}
             </div>
@@ -292,11 +319,53 @@ function AdminProviderLeadsImport() {
                   <div style={{ fontWeight: 600 }}>{SAMPLE_LABELS[groupKey] || groupKey}</div>
                   <div className="sub">Показаны первые {items.length} строк</div>
                 </div>
-                <SampleTable items={items} />
+                <SampleTable items={items} kind={config.kind} />
               </div>
             ))}
           </>
         )}
+    </div>
+  );
+}
+
+const IMPORT_CONFIGS: ImportCardConfig[] = [
+  {
+    kind: 'provider',
+    title: 'Обычные данные provider',
+    description:
+      'Для стандартной выгрузки поставщика. Preview проверяет файл без записи в БД, commit записывает только после подтверждения.',
+    requirements: 'Ожидаемые колонки: id, Проект, Телефон, Создано, Комментарий.',
+    previewFile: previewAdminProviderLeadsImport,
+    commitPreview: commitAdminProviderLeadsImport,
+  },
+  {
+    kind: 'pixel',
+    title: 'Данные Пикселя',
+    description:
+      'Для Pixel-выгрузки. Проект ищется по домену среди проектов с источником «Пиксель», дата в ЛК будет моментом импорта.',
+    requirements: 'Ожидаемые колонки: id, Domain, Phone, Created, Referer. Если в Phone окажется несколько номеров, берётся первый.',
+    previewFile: previewAdminPixelLeadsImport,
+    commitPreview: commitAdminPixelLeadsImport,
+  },
+];
+
+function AdminProviderLeadsImport() {
+  return (
+    <div className="table-card">
+      <div className="table-toolbar toolbar-split">
+        <div className="toolbar-left" style={{ alignItems: 'flex-start', flexDirection: 'column' }}>
+          <div style={{ fontWeight: 600 }}>Ручной импорт лидов из XLSX</div>
+          <div className="sub" style={{ maxWidth: 920 }}>
+            Экран доступен только администратору. Сначала выполняется preview файла без записи в БД,
+            затем отдельным действием подтверждается импорт.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: 16, display: 'grid', gap: 20 }}>
+        {IMPORT_CONFIGS.map((config) => (
+          <ImportCard key={config.kind} config={config} />
+        ))}
       </div>
     </div>
   );

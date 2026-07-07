@@ -4728,6 +4728,45 @@ def admin_commit_provider_leads_import(
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
+@app.post("/admin/pixel-leads-import/preview", response_model=schemas.AdminProviderLeadsImportPreviewOut)
+async def admin_preview_pixel_leads_import(
+    file: UploadFile = File(...),
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Файл не выбран")
+
+    try:
+        file_bytes = await file.read()
+        result = provider_leads_import.create_pixel_preview(
+            db_sess,
+            admin_user_id=int(current_admin.id),
+            file_name=filename,
+            file_bytes=file_bytes,
+        )
+        return result
+    except provider_leads_import.ProviderLeadsImportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@app.post("/admin/pixel-leads-import/commit", response_model=schemas.AdminProviderLeadsImportCommitOut)
+def admin_commit_pixel_leads_import(
+    payload: schemas.AdminProviderLeadsImportCommitIn,
+    current_admin: models.User = Depends(require_admin),
+    db_sess: Session = Depends(get_db),
+):
+    try:
+        return provider_leads_import.commit_pixel_preview(
+            db_sess,
+            preview_id=payload.previewId,
+            admin_user_id=int(current_admin.id),
+        )
+    except provider_leads_import.ProviderLeadsImportError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
 def create_impersonation_token(
     target_user_id: int,
     impersonator_user_id: int,

@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-07-05
+Last updated: 2026-07-07
 
 ## 1) System At A Glance
 
@@ -17,7 +17,7 @@ Last updated: 2026-07-05
 - **Сводка клиента в «Клиенты»:** агрегаты по источникам, средним за рабочие дни и графику за 30 дней приходят с manager-endpoint `GET /admin/clients/summary`; endpoint доступен админу и агенту, агент получает только своих клиентов, frontend только фильтрует готовые поля по A/B/C/D.
 - **Графики проектов:** `GET /projects/{id}/chart` и `GET /admin/projects/{id}/chart`; UI — `ProjectChartModal.tsx` + общий `DashboardDailyChart.tsx` (админ и клиентский ЛК).
 - **Дневной лимит проекта:** периодическая проверка в фоновом цикле; при 100% лимита за сегодня — Telegram в общий чат; дедуп по `daily_limit_reached_notified_limit`.
-- **Импорт лидов провайдера из XLSX:** админский UI (двухшаговый preview → commit) и служебный CLI; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
+- **Импорт лидов из XLSX:** админский UI (двухшаговый preview → commit) для обычных provider-лидов и Pixel-лидов; provider-CLI остаётся служебным сценарием; общая логика в `backend/app/provider_leads_xlsx_import.py`; для upload-эндпоинтов нужен **`python-multipart`**
 - **Пиксель:** отдельный локальный источник сбора `collectionSource = "Пиксель"` без Prostats; production webhook `POST /api/pixel-webhook/{PIXEL_WEBHOOK_SECRET}` пишет строки в общий `provider_leads` с `lead_source = "pixel"`.
 - **Telegram-отчёты по Пикселю:** отдельный backend thread агрегирует Pixel-лиды по клиентам и ставит сообщения в `telegram_notifications`; дедуп отчётов хранится в `pixel_telegram_report_states`.
 
@@ -26,7 +26,7 @@ Last updated: 2026-07-05
 Если есть конфликт между документами и кодом, доверять коду:
 
 - API endpoints: `backend/app/main.py`
-- Импорт лидов из XLSX (preview/commit, парсинг, валидация): `backend/app/provider_leads_xlsx_import.py`
+- Импорт лидов из XLSX (provider и Pixel preview/commit, парсинг, валидация): `backend/app/provider_leads_xlsx_import.py`
 - Бизнес-логика: `backend/app/crud.py`
 - Модели БД: `backend/app/models.py`
 - Схемы API: `backend/app/schemas.py`
@@ -49,7 +49,7 @@ Last updated: 2026-07-05
 8. Во frontend действует display-mapping кодов источника: пользователю показываются `A` / `B` / `C` / `D`, но source-of-truth в API, БД, webhook, XLSX и Prostats остаётся `B1` / `B2` / `B3` / `B4`; для имён provider-проектов UI тоже показывает display-вид, а перед submit отправляет raw-вид. Пиксель не получает display/raw-код A-D и фильтруется отдельно по `collectionSource = "Пиксель"`.
 9. Фильтры дат и отчёты завязаны на `SHEETS_TZ` (по умолчанию `Europe/Moscow`). Для `provider_leads` операционная дата в ЛК — `imported_at` (момент записи в БД); `prov_created_at` хранит время события у провайдера и используется для webhook/XLSX/служебных скриптов, но не для фильтров, отчётов, дашборда и расхода за период.
 10. Вебхук провайдера не запускает автоконтроль лимитов по событию: лимит-контроль работает только периодическим фоновым циклом.
-11. **Админский импорт лидов из XLSX:** запись в БД только через **commit** по существующему `previewId`; сессия preview привязана к **тому же** админу, что и commit; при строках без однозначного проекта или с **неоднозначным** матчингом проекта commit **запрещён**; при записи учитываются дубли по **`vid`** (как у вебхука). Парсинг `prov_chanel` / `prov_source` и привязка к проекту согласованы с вебхук-потоком.
+11. **Админский импорт provider-лидов из XLSX:** запись в БД только через **commit** по существующему `previewId`; сессия preview привязана к **тому же** админу, что и commit; при строках без однозначного проекта или с **неоднозначным** матчингом проекта commit **запрещён**; при записи учитываются дубли по **`vid`** (как у вебхука). Парсинг `prov_chanel` / `prov_source` и привязка к проекту согласованы с вебхук-потоком.
 12. Роли в системе теперь три: `admin`, `agent`, `client`. Для admin-only доступа source-of-truth остаётся `user.id == 1` через `require_admin`; роль `admin` хранится для общей модели ролей и совместимости, но сама по себе не даёт admin-only доступ.
 13. Клиент может быть либо прямым клиентом админа, либо клиентом агента через `users.owner_agent_id`.
 14. Агентский баланс больше не является отдельным учётным контуром. В manager-зоне он считается как сумма текущих `remaining` всех клиентов, закреплённых за агентом через `users.owner_agent_id`.
@@ -73,8 +73,9 @@ Last updated: 2026-07-05
 32. Пиксель-проект: `collectionSource = "Пиксель"`, `dataSourceCode = "UNMAPPED"`, `provider_project_id = NULL`, `sites[0] = домен`, `name = домен`. После создания название и домен не редактируются; для нового домена создаётся новый проект.
 33. Pixel webhook использует отдельный `PIXEL_WEBHOOK_SECRET`; неверный/пустой secret возвращает `404`. Endpoint принимает JSON/form/raw, но production-логика пишет в БД только при корректных `vid`, `site`, `phones` и однозначном Пиксель-проекте по домену.
 34. Пиксель-лиды хранятся в общей таблице `provider_leads`: `lead_source = "pixel"`, `pixel_url = page`, `prov_chanel = NULL`. Дедуп Пикселя независим от provider-лидов и идёт по `lead_source = "pixel" AND vid + phone`.
-35. Уникальность `provider_leads`: provider-контур — `vid` только при `lead_source = "provider"`; pixel-контур — пара `vid + phone` только при `lead_source = "pixel"`. XLSX-импорт остаётся в контуре `lead_source = "provider"`.
-36. Telegram-отчёты по Пикселю не отправляются из Pixel webhook. Они считаются фоновым циклом по `provider_leads.imported_at` в `SHEETS_TZ`, только для `lead_source = "pixel"` и проектов `collectionSource = "Пиксель"`, группируются по клиенту, а не по проекту. Если у клиента заполнен `telegram_notifications_chat_id`, отчёт уходит туда независимо от `telegram_auto_pause_enabled`; иначе используется общий `TELEGRAM_CHAT_ID`. Дедуп периода делается через `pixel_telegram_report_states`, а не через `telegram_notifications.metadata`.
+35. Уникальность `provider_leads`: provider-контур — `vid` только при `lead_source = "provider"`; pixel-контур — пара `vid + phone` только при `lead_source = "pixel"`. Provider XLSX пишет `lead_source = "provider"`, Pixel XLSX пишет `lead_source = "pixel"`.
+36. **Админский импорт Pixel-лидов из XLSX:** отдельные endpoints `/admin/pixel-leads-import/preview` и `/admin/pixel-leads-import/commit`; ожидаемые колонки файла `id`, `Domain`, `Phone`, `Created`, `Referer`; `id` становится `vid`, `Domain` нормализуется до домена и матчит Pixel-проект, `Phone` берётся один первый номер, `Referer` пишется в `pixel_url`. Строки с ошибками, дублями, ненайденным или неоднозначным доменом не блокируют весь commit, а пропускаются; импортируются только готовые строки.
+37. Telegram-отчёты по Пикселю не отправляются из Pixel webhook. Они считаются фоновым циклом по `provider_leads.imported_at` в `SHEETS_TZ`, только для `lead_source = "pixel"` и проектов `collectionSource = "Пиксель"`, группируются по клиенту, а не по проекту. Если у клиента заполнен `telegram_notifications_chat_id`, отчёт уходит туда независимо от `telegram_auto_pause_enabled`; иначе используется общий `TELEGRAM_CHAT_ID`. Дедуп периода делается через `pixel_telegram_report_states`, а не через `telegram_notifications.metadata`.
 
 ## 4) Key Domain Objects
 
@@ -261,6 +262,24 @@ Backend не отправляет Telegram напрямую: отдельные 
 
 Та же бизнес-логика строк вызывается из **CLI**: `tool_import_provider_leads_from_xlsx.py` (обход UI, для служебных сценариев).
 
+### G2) Admin Pixel Leads XLSX (preview / commit)
+Админский UI на том же экране «Импорт лидов» отправляет Pixel-файл (**multipart** / `FormData`) -> `POST /admin/pixel-leads-import/preview` -> `require_admin` -> `provider_leads_xlsx_import.create_pixel_preview`: проверка `.xlsx`, лимита размера и колонок `id`, `Domain`, `Phone`, `Created`, `Referer` -> временная preview-сессия на диске -> summary без записи в БД.
+
+Нормализация строки:
+- `id` -> `provider_leads.vid`;
+- `Domain` -> нормализованный домен для поиска проекта `collectionSource = "Пиксель"`;
+- `Phone` -> один первый телефон; если поставщик положит несколько номеров в ячейку, остальные игнорируются;
+- `Created` -> `provider_leads.prov_created_at`; поддерживаются форматы с `-`, `/` и `dd.mm.yyyy`;
+- `Referer` -> `provider_leads.pixel_url`.
+
+`POST /admin/pixel-leads-import/commit` с тем же `previewId` -> снова `require_admin` и проверка владельца preview -> запись только готовых строк с `lead_source = "pixel"`, `prov_chanel = NULL`, `prov_source = NULL`, `subdomain = NULL`, `project_name = домен`, `imported_at = now_msk()`.
+
+Поведение отличается от provider XLSX:
+- дубли считаются по паре `vid + phone` при `lead_source = "pixel"`;
+- строки с ошибками, дублями, ненайденным Pixel-проектом или неоднозначным доменом пропускаются и показываются в preview;
+- commit не блокируется из-за проблемных строк, если есть хотя бы одна готовая строка;
+- отдельного CLI для Pixel XLSX сейчас нет.
+
 ### H) Project Create With Client Internal Id
 Для клиентов с `unique_project_names_enabled=true` backend перед созданием нового проекта берёт `client_profiles.internal_client_id`.
 
@@ -370,7 +389,8 @@ Frontend:
 - Дневной лимит проекта (фильтр списка + Telegram): backend `backend/app/models.py` + `backend/app/crud.py` (`list_daily_limit_reached_*`, `_apply_daily_limit_reached_filter`) + `backend/app/main.py` (`_run_project_daily_limit_notifications`); frontend `dailyLimitReached` в `AdminClientProjects.tsx`
 - Telegram-отчёты по Pixel-лидам: backend `backend/app/models.py` (`PixelTelegramReportState`) + `backend/app/crud.py` (`list_pixel_telegram_report_snapshots`, `queue_unique_pixel_telegram_report`) + `backend/app/main.py` (`run_pixel_telegram_reports_loop`, формат сообщений и расписание); frontend/API не менять
 - Понятные ошибки недоступности сервиса на frontend: `my-app-vite/src/api.ts`
-- Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts`; CLI: `tool_import_provider_leads_from_xlsx.py`
+- Импорт provider leads из XLSX (админ preview/commit + общая логика с CLI): `backend/app/provider_leads_xlsx_import.py` + эндпоинты в `main.py`; фронт: `httpForm` / методы в `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminProviderLeadsImport.tsx`; CLI: `tool_import_provider_leads_from_xlsx.py`
+- Импорт Pixel leads из XLSX (админ preview/commit без CLI): `backend/app/provider_leads_xlsx_import.py` + endpoints `/admin/pixel-leads-import/preview|commit` в `backend/app/main.py`; схемы `backend/app/schemas.py`; фронт `my-app-vite/src/api.ts` + `my-app-vite/src/components/AdminProviderLeadsImport.tsx`
 - Экспорт provider leads и `lk_id`: `backend/app/provider_lead_ids.py` + `tool_export_provider_leads.py` + `/leads/export` в `backend/app/main.py`
 - Пиксель-проекты и Pixel webhook: backend `backend/app/models.py` (`ProviderLead.lead_source`, `pixel_url`) + `backend/app/schemas.py` (`Пиксель`, `UNMAPPED`) + `backend/app/crud.py` + `backend/app/main.py` (`POST /api/pixel-webhook/{secret}`); frontend `my-app-vite/src/api.ts` + `CreateProjectModal.tsx` + `EditProjectModal.tsx` + `AdminEditProjectModal.tsx` + `ProjectsTable.tsx` + `LeadsTable.tsx` + `AdminLeadsTable.tsx`; диагностический сервис `pixel_webhook_test.py`
 - Проблемы времени/дат: `backend/app/time_utils.py` и места фильтрации в `main.py`

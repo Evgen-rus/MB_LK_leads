@@ -332,6 +332,8 @@ class AdminProviderLeadsImportPreviewSampleOut(BaseModel):
     projectName: Optional[str] = None
     phone: Optional[str] = None
     subdomain: Optional[str] = None
+    domain: Optional[str] = None
+    pixelUrl: Optional[str] = None
     note: str
 
 

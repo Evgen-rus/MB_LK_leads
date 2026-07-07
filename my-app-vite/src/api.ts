@@ -1247,6 +1247,8 @@ export type AdminProviderLeadsImportPreviewSample = {
   projectName?: string | null;
   phone?: string | null;
   subdomain?: string | null;
+  domain?: string | null;
+  pixelUrl?: string | null;
   note: string;
 };
 
@@ -1282,6 +1284,19 @@ export async function previewAdminProviderLeadsImport(file: File): Promise<Admin
 
 export async function commitAdminProviderLeadsImport(previewId: string): Promise<AdminProviderLeadsImportCommitResp> {
   return http<AdminProviderLeadsImportCommitResp>('/admin/provider-leads-import/commit', {
+    method: 'POST',
+    body: JSON.stringify({ previewId }),
+  });
+}
+
+export async function previewAdminPixelLeadsImport(file: File): Promise<AdminProviderLeadsImportPreviewResp> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return httpForm<AdminProviderLeadsImportPreviewResp>('/admin/pixel-leads-import/preview', formData);
+}
+
+export async function commitAdminPixelLeadsImport(previewId: string): Promise<AdminProviderLeadsImportCommitResp> {
+  return http<AdminProviderLeadsImportCommitResp>('/admin/pixel-leads-import/commit', {
     method: 'POST',
     body: JSON.stringify({ previewId }),
   });
