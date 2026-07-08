@@ -1255,7 +1255,7 @@ def _build_pixel_hourly_report_message(snapshot: dict, *, period_start: datetime
     period_label = html.escape(_format_pixel_report_period(period_start, period_end))
     checkpoint_label = html.escape(f"{period_end:%H:%M}")
     return (
-        f"Проект: {client_name}\n"
+        f"Клиент: {client_name}\n"
         f"Загружено новых идентификаторов за {period_label}: "
         f"{_format_notification_number(int(snapshot.get('period_count') or 0))}\n"
         f"Всего за сегодня на {checkpoint_label}: "
@@ -1269,7 +1269,6 @@ def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> s
     text = (
         f"Ежедневный отчет поступления данных за {report_date:%d.%m.%Y}:\n\n"
         f"Клиент: {client_name}\n"
-        f"Тариф: {html.escape(_format_pixel_report_tariff(snapshot))}\n"
         f"Выдано за день: {_format_notification_number(int(snapshot.get('period_count') or 0))}"
     )
     tail_count = int(snapshot.get("tail_count") or 0)
