@@ -1213,7 +1213,7 @@ def _pixel_report_day_bounds(day, tz) -> tuple[datetime, datetime]:
     return _local_naive(start), _local_naive(start + timedelta(days=1))
 
 
-def _latest_pixel_hourly_checkpoint(now_local: datetime) -> Optional[datetime]:
+def _due_pixel_hourly_checkpoints(now_local: datetime) -> List[datetime]:
     checkpoints = [
         now_local.replace(hour=8, minute=30, second=0, microsecond=0),
         now_local.replace(hour=9, minute=30, second=0, microsecond=0),
@@ -1226,8 +1226,7 @@ def _latest_pixel_hourly_checkpoint(now_local: datetime) -> Optional[datetime]:
         now_local.replace(hour=16, minute=30, second=0, microsecond=0),
         now_local.replace(hour=17, minute=30, second=0, microsecond=0),
     ]
-    due = [checkpoint for checkpoint in checkpoints if now_local >= checkpoint]
-    return max(due) if due else None
+    return [checkpoint for checkpoint in checkpoints if now_local >= checkpoint]
 
 
 def _format_pixel_report_period(start_local: datetime, end_local: datetime) -> str:
@@ -1278,52 +1277,52 @@ def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> s
     return text
 
 
-def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> int:
-    checkpoint = _latest_pixel_hourly_checkpoint(now_local)
-    if checkpoint is None:
-        return 0
-    day_start, _day_end = _pixel_report_day_bounds(checkpoint.date(), checkpoint.tzinfo)
-    period_end = _local_naive(checkpoint)
-    if checkpoint.hour == 8:
-        period_start = day_start
-    else:
-        period_start = _local_naive(checkpoint - timedelta(hours=1))
-
-    snapshots = crud.list_pixel_telegram_report_snapshots(
-        db_sess,
-        period_start=period_start,
-        period_end=period_end,
-        total_start=day_start,
-        total_end=period_end,
-    )
+def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[int, int]:
     queued = 0
-    for snapshot in snapshots:
-        if int(snapshot.get("period_count") or 0) <= 0:
-            continue
-        chat_id = _pixel_report_chat_id(snapshot)
-        if not chat_id:
-            continue
-        row = crud.queue_unique_pixel_telegram_report(
+    checked = 0
+    for checkpoint in _due_pixel_hourly_checkpoints(now_local):
+        checked += 1
+        day_start, _day_end = _pixel_report_day_bounds(checkpoint.date(), checkpoint.tzinfo)
+        period_end = _local_naive(checkpoint)
+        if checkpoint.hour == 8:
+            period_start = day_start
+        else:
+            period_start = _local_naive(checkpoint - timedelta(hours=1))
+
+        snapshots = crud.list_pixel_telegram_report_snapshots(
             db_sess,
-            kind=crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
-            client_id=int(snapshot["client_id"]),
             period_start=period_start,
             period_end=period_end,
-            chat_id=chat_id,
-            text=_build_pixel_hourly_report_message(snapshot, period_start=period_start, period_end=period_end),
-            parse_mode="HTML",
-            metadata={
-                "kind": crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
-                "client_id": int(snapshot["client_id"]),
-                "period_start": period_start.isoformat(),
-                "period_end": period_end.isoformat(),
-                "period_count": int(snapshot.get("period_count") or 0),
-                "total_count": int(snapshot.get("total_count") or 0),
-            },
+            total_start=day_start,
+            total_end=period_end,
         )
-        if row is not None:
-            queued += 1
-    return queued
+        for snapshot in snapshots:
+            if int(snapshot.get("period_count") or 0) <= 0:
+                continue
+            chat_id = _pixel_report_chat_id(snapshot)
+            if not chat_id:
+                continue
+            row = crud.queue_unique_pixel_telegram_report(
+                db_sess,
+                kind=crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
+                client_id=int(snapshot["client_id"]),
+                period_start=period_start,
+                period_end=period_end,
+                chat_id=chat_id,
+                text=_build_pixel_hourly_report_message(snapshot, period_start=period_start, period_end=period_end),
+                parse_mode="HTML",
+                metadata={
+                    "kind": crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
+                    "client_id": int(snapshot["client_id"]),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                    "period_count": int(snapshot.get("period_count") or 0),
+                    "total_count": int(snapshot.get("total_count") or 0),
+                },
+            )
+            if row is not None:
+                queued += 1
+    return queued, checked
 
 
 def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> int:
@@ -1374,17 +1373,21 @@ def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> i
 def run_pixel_telegram_reports_loop(SessionLocal, sleep_seconds: int = 60) -> None:
     while True:
         try:
+            logger = logging.getLogger("app")
             if _env_flag("NOTIFICATIONS_TELEGRAM_ENABLED", default=True):
                 now_local = datetime.now(_get_msk_tz())
                 with SessionLocal() as s:  # type: Session
                     daily_queued = _queue_pixel_daily_final_reports(s, now_local)
-                    hourly_queued = _queue_pixel_hourly_reports(s, now_local)
-                if daily_queued or hourly_queued:
-                    logging.getLogger("app").info(
-                        "Queued Pixel Telegram reports: daily=%s hourly=%s",
-                        daily_queued,
-                        hourly_queued,
-                    )
+                    hourly_queued, hourly_checked = _queue_pixel_hourly_reports(s, now_local)
+                logger.info(
+                    "Pixel Telegram reports heartbeat: enabled=true now=%s daily_queued=%s hourly_queued=%s hourly_checkpoints_checked=%s",
+                    now_local.isoformat(),
+                    daily_queued,
+                    hourly_queued,
+                    hourly_checked,
+                )
+            else:
+                logger.info("Pixel Telegram reports heartbeat: enabled=false")
         except Exception:
             logging.getLogger("app").warning("pixel telegram reports loop failed", exc_info=True)
         time.sleep(max(30, int(sleep_seconds)))
