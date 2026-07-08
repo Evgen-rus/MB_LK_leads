@@ -5356,6 +5356,8 @@ def _get_pixel_lead_counts_by_client(
     start_local: datetime,
     end_local: datetime,
     client_ids: Optional[List[int]] = None,
+    exported_only: bool = False,
+    pending_export_only: bool = False,
 ) -> Dict[int, int]:
     ts_col = _provider_lead_ts_col()
     stmt = (
@@ -5374,6 +5376,10 @@ def _get_pixel_lead_counts_by_client(
         )
         .group_by(models.Project.user_id)
     )
+    if exported_only:
+        stmt = stmt.where(models.ProviderLead.client_sheet_exported_at.is_not(None))
+    if pending_export_only:
+        stmt = stmt.where(models.ProviderLead.client_sheet_exported_at.is_(None))
     if client_ids:
         normalized_ids = [int(client_id) for client_id in client_ids if client_id is not None]
         if not normalized_ids:
@@ -5397,8 +5403,15 @@ def list_pixel_telegram_report_snapshots(
         db,
         start_local=period_start,
         end_local=period_end,
+        exported_only=True,
     )
-    client_ids = sorted(period_counts.keys())
+    pending_export_counts = _get_pixel_lead_counts_by_client(
+        db,
+        start_local=period_start,
+        end_local=period_end,
+        pending_export_only=True,
+    )
+    client_ids = sorted(set(period_counts.keys()) | set(pending_export_counts.keys()))
     if not client_ids:
         return []
 
@@ -5409,6 +5422,7 @@ def list_pixel_telegram_report_snapshots(
             start_local=total_start,
             end_local=total_end,
             client_ids=client_ids,
+            exported_only=True,
         )
 
     tail_counts: Dict[int, int] = {}
@@ -5418,6 +5432,7 @@ def list_pixel_telegram_report_snapshots(
             start_local=tail_start,
             end_local=tail_end,
             client_ids=client_ids,
+            exported_only=True,
         )
 
     user_rows = db.execute(
@@ -5469,6 +5484,7 @@ def list_pixel_telegram_report_snapshots(
             {
                 **user_info,
                 "period_count": int(period_counts.get(client_id, 0)),
+                "pending_export_count": int(pending_export_counts.get(client_id, 0)),
                 "total_count": int(total_counts.get(client_id, period_counts.get(client_id, 0))),
                 "tail_count": int(tail_counts.get(client_id, 0)),
                 "remaining": remaining,

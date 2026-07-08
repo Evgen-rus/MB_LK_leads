@@ -1277,9 +1277,11 @@ def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> s
     return text
 
 
-def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[int, int]:
+def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[int, int, int, int]:
     queued = 0
     checked = 0
+    skipped_pending = 0
+    pending_leads = 0
     for checkpoint in _due_pixel_hourly_checkpoints(now_local):
         checked += 1
         day_start, _day_end = _pixel_report_day_bounds(checkpoint.date(), checkpoint.tzinfo)
@@ -1297,6 +1299,11 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
             total_end=period_end,
         )
         for snapshot in snapshots:
+            pending_export_count = int(snapshot.get("pending_export_count") or 0)
+            if pending_export_count > 0:
+                skipped_pending += 1
+                pending_leads += pending_export_count
+                continue
             if int(snapshot.get("period_count") or 0) <= 0:
                 continue
             chat_id = _pixel_report_chat_id(snapshot)
@@ -1322,13 +1329,13 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
             )
             if row is not None:
                 queued += 1
-    return queued, checked
+    return queued, checked, skipped_pending, pending_leads
 
 
-def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> int:
+def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> tuple[int, int, int]:
     daily_checkpoint = now_local.replace(hour=8, minute=0, second=0, microsecond=0)
     if now_local < daily_checkpoint:
-        return 0
+        return 0, 0, 0
 
     report_day = (now_local - timedelta(days=1)).date()
     period_start, period_end = _pixel_report_day_bounds(report_day, now_local.tzinfo)
@@ -1341,7 +1348,14 @@ def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> i
         tail_end=period_end,
     )
     queued = 0
+    skipped_pending = 0
+    pending_leads = 0
     for snapshot in snapshots:
+        pending_export_count = int(snapshot.get("pending_export_count") or 0)
+        if pending_export_count > 0:
+            skipped_pending += 1
+            pending_leads += pending_export_count
+            continue
         if int(snapshot.get("period_count") or 0) <= 0:
             continue
         chat_id = _pixel_report_chat_id(snapshot)
@@ -1367,7 +1381,7 @@ def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> i
         )
         if row is not None:
             queued += 1
-    return queued
+    return queued, skipped_pending, pending_leads
 
 
 def run_pixel_telegram_reports_loop(SessionLocal, sleep_seconds: int = 60) -> None:
@@ -1377,14 +1391,30 @@ def run_pixel_telegram_reports_loop(SessionLocal, sleep_seconds: int = 60) -> No
             if _env_flag("NOTIFICATIONS_TELEGRAM_ENABLED", default=True):
                 now_local = datetime.now(_get_msk_tz())
                 with SessionLocal() as s:  # type: Session
-                    daily_queued = _queue_pixel_daily_final_reports(s, now_local)
-                    hourly_queued, hourly_checked = _queue_pixel_hourly_reports(s, now_local)
+                    (
+                        daily_queued,
+                        daily_skipped_pending,
+                        daily_pending_leads,
+                    ) = _queue_pixel_daily_final_reports(s, now_local)
+                    (
+                        hourly_queued,
+                        hourly_checked,
+                        hourly_skipped_pending,
+                        hourly_pending_leads,
+                    ) = _queue_pixel_hourly_reports(s, now_local)
                 logger.info(
-                    "Pixel Telegram reports heartbeat: enabled=true now=%s daily_queued=%s hourly_queued=%s hourly_checkpoints_checked=%s",
+                    "Pixel Telegram reports heartbeat: enabled=true now=%s "
+                    "daily_queued=%s daily_skipped_pending=%s daily_pending_leads=%s "
+                    "hourly_queued=%s hourly_checkpoints_checked=%s "
+                    "hourly_skipped_pending=%s hourly_pending_leads=%s",
                     now_local.isoformat(),
                     daily_queued,
+                    daily_skipped_pending,
+                    daily_pending_leads,
                     hourly_queued,
                     hourly_checked,
+                    hourly_skipped_pending,
+                    hourly_pending_leads,
                 )
             else:
                 logger.info("Pixel Telegram reports heartbeat: enabled=false")
