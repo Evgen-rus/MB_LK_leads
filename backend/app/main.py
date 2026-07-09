@@ -1215,6 +1215,8 @@ def _pixel_report_day_bounds(day, tz) -> tuple[datetime, datetime]:
 
 def _due_pixel_hourly_checkpoints(now_local: datetime) -> List[datetime]:
     checkpoints = [
+        now_local.replace(hour=6, minute=15, second=0, microsecond=0),
+        now_local.replace(hour=7, minute=15, second=0, microsecond=0),
         now_local.replace(hour=8, minute=15, second=0, microsecond=0),
         now_local.replace(hour=9, minute=15, second=0, microsecond=0),
         now_local.replace(hour=10, minute=15, second=0, microsecond=0),
@@ -1223,8 +1225,6 @@ def _due_pixel_hourly_checkpoints(now_local: datetime) -> List[datetime]:
         now_local.replace(hour=13, minute=15, second=0, microsecond=0),
         now_local.replace(hour=14, minute=15, second=0, microsecond=0),
         now_local.replace(hour=15, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=16, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=17, minute=15, second=0, microsecond=0),
     ]
     return [checkpoint for checkpoint in checkpoints if now_local >= checkpoint]
 
@@ -1272,7 +1272,7 @@ def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> s
     )
     tail_count = int(snapshot.get("tail_count") or 0)
     if tail_count > 0:
-        text += f"\nПосле 17:15 поступило: {_format_notification_number(tail_count)}"
+        text += f"\nПосле 19:15 поступило: {_format_notification_number(tail_count)}"
     return text
 
 
@@ -1332,7 +1332,7 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
 
 
 def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> tuple[int, int, int]:
-    daily_checkpoint = now_local.replace(hour=8, minute=0, second=0, microsecond=0)
+    daily_checkpoint = now_local.replace(hour=4, minute=0, second=0, microsecond=0)
     if now_local < daily_checkpoint:
         return 0, 0, 0
 
