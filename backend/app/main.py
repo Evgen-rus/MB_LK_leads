@@ -1271,7 +1271,7 @@ def _build_pixel_hourly_report_message(snapshot: dict, *, period_start: datetime
 def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> str:
     client_name = html.escape(str(snapshot.get("client_name") or ""))
     text = (
-        f"Отчёт за {report_date:%d.%m.%Y}\n\n"
+        f"Отчёт за вчера {report_date:%d.%m.%Y}\n\n"
         f"{client_name}\n"
         f"Получено за день: {_format_notification_number(int(snapshot.get('period_count') or 0))}"
     )
