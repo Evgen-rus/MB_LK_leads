@@ -570,7 +570,13 @@ def normalize_pixel_domain(value: Optional[str]) -> str:
     host = str(host or "").strip().lower().rstrip(".")
     if host.startswith("www."):
         host = host[4:]
-    return host
+    try:
+        # Храним и сравниваем домены в едином ASCII-виде: кириллическое имя
+        # проекта и Punycode из Pixel webhook должны обозначать один домен.
+        return host.encode("idna").decode("ascii")
+    except UnicodeError:
+        # Некорректный домен останется в исходном виде и не совпадёт с проектом.
+        return host
 
 
 def pixel_domain_from_project_name(value: Optional[str]) -> str:
