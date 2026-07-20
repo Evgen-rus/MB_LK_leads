@@ -1258,28 +1258,28 @@ def _pixel_report_chat_id(snapshot: dict) -> str:
 def _build_pixel_hourly_report_message(snapshot: dict, *, period_start: datetime, period_end: datetime) -> str:
     client_name = html.escape(str(snapshot.get("client_name") or ""))
     period_label = html.escape(_format_pixel_report_period(period_start, period_end))
-    checkpoint_label = html.escape(f"{period_end:%H:%M}")
     return (
-        f"{client_name}\n"
-        f"Загружено новых идентификаторов за {period_label}: "
+        f"{client_name}\n\n"
+        f"Новые идентификации за {period_label} МСК: "
         f"{_format_notification_number(int(snapshot.get('period_count') or 0))}\n"
-        f"Всего за сегодня на {checkpoint_label}: "
+        f"Всего сегодня: "
         f"{_format_notification_number(int(snapshot.get('total_count') or 0))}\n"
-        f"Остаток: {_format_notification_number(int(snapshot.get('remaining') or 0))}"
+        f"Остаток по тарифу: {_format_notification_number(int(snapshot.get('remaining') or 0))}"
     )
 
 
 def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> str:
     client_name = html.escape(str(snapshot.get("client_name") or ""))
     text = (
-        f"Отчет поступления данных за вчера {report_date:%d.%m.%Y}:\n\n"
+        f"Отчёт за {report_date:%d.%m.%Y}\n\n"
         f"{client_name}\n"
-        f"Выдано: {_format_notification_number(int(snapshot.get('period_count') or 0))}"
+        f"Получено за день: {_format_notification_number(int(snapshot.get('period_count') or 0))}"
     )
     tail_count = int(snapshot.get("tail_count") or 0)
     if tail_count > 0:
         tail_label = f"{PIXEL_REPORT_LAST_HOUR_MSK:02d}:{PIXEL_REPORT_MINUTE_MSK:02d}"
-        text += f"\nПосле {tail_label} поступило: {_format_notification_number(tail_count)}"
+        text += f"\nПосле {tail_label} МСК: {_format_notification_number(tail_count)}"
+    text += f"\nОстаток по тарифу: {_format_notification_number(int(snapshot.get('remaining') or 0))}"
     return text
 
 
