@@ -1204,27 +1204,33 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def _local_naive(dt: datetime) -> datetime:
-    return dt.replace(tzinfo=None)
+PIXEL_REPORT_FIRST_HOUR_MSK = 6
+PIXEL_REPORT_LAST_HOUR_MSK = 19
+PIXEL_REPORT_MINUTE_MSK = 15
+PIXEL_DAILY_REPORT_HOUR_MSK = 6
+
+
+def _pixel_db_naive(dt: datetime) -> datetime:
+    """Переводит aware-время отчёта в UTC без tzinfo для сравнения с БД."""
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.replace(tzinfo=None)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _pixel_report_day_bounds(day, tz) -> tuple[datetime, datetime]:
     start = datetime(day.year, day.month, day.day, 0, 0, 0, tzinfo=tz)
-    return _local_naive(start), _local_naive(start + timedelta(days=1))
+    return _pixel_db_naive(start), _pixel_db_naive(start + timedelta(days=1))
 
 
 def _due_pixel_hourly_checkpoints(now_local: datetime) -> List[datetime]:
     checkpoints = [
-        now_local.replace(hour=6, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=7, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=8, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=9, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=10, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=11, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=12, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=13, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=14, minute=15, second=0, microsecond=0),
-        now_local.replace(hour=15, minute=15, second=0, microsecond=0),
+        now_local.replace(
+            hour=hour,
+            minute=PIXEL_REPORT_MINUTE_MSK,
+            second=0,
+            microsecond=0,
+        )
+        for hour in range(PIXEL_REPORT_FIRST_HOUR_MSK, PIXEL_REPORT_LAST_HOUR_MSK + 1)
     ]
     return [checkpoint for checkpoint in checkpoints if now_local >= checkpoint]
 
@@ -1272,7 +1278,8 @@ def _build_pixel_daily_final_report_message(snapshot: dict, *, report_date) -> s
     )
     tail_count = int(snapshot.get("tail_count") or 0)
     if tail_count > 0:
-        text += f"\nПосле 19:15 поступило: {_format_notification_number(tail_count)}"
+        tail_label = f"{PIXEL_REPORT_LAST_HOUR_MSK:02d}:{PIXEL_REPORT_MINUTE_MSK:02d}"
+        text += f"\nПосле {tail_label} поступило: {_format_notification_number(tail_count)}"
     return text
 
 
@@ -1284,11 +1291,14 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
     for checkpoint in _due_pixel_hourly_checkpoints(now_local):
         checked += 1
         day_start, _day_end = _pixel_report_day_bounds(checkpoint.date(), checkpoint.tzinfo)
-        period_end = _local_naive(checkpoint)
-        if checkpoint.hour == 8:
+        period_end = _pixel_db_naive(checkpoint)
+        if checkpoint.hour == PIXEL_REPORT_FIRST_HOUR_MSK:
             period_start = day_start
+            period_start_label = checkpoint.replace(hour=0, minute=0)
         else:
-            period_start = _local_naive(checkpoint - timedelta(hours=1))
+            period_start_local = checkpoint - timedelta(hours=1)
+            period_start = _pixel_db_naive(period_start_local)
+            period_start_label = period_start_local
 
         snapshots = crud.list_pixel_telegram_report_snapshots(
             db_sess,
@@ -1315,7 +1325,11 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
                 period_start=period_start,
                 period_end=period_end,
                 chat_id=chat_id,
-                text=_build_pixel_hourly_report_message(snapshot, period_start=period_start, period_end=period_end),
+                text=_build_pixel_hourly_report_message(
+                    snapshot,
+                    period_start=period_start_label,
+                    period_end=checkpoint,
+                ),
                 parse_mode="HTML",
                 metadata={
                     "kind": crud.PIXEL_TELEGRAM_REPORT_KIND_HOURLY,
@@ -1332,13 +1346,28 @@ def _queue_pixel_hourly_reports(db_sess: Session, now_local: datetime) -> tuple[
 
 
 def _queue_pixel_daily_final_reports(db_sess: Session, now_local: datetime) -> tuple[int, int, int]:
-    daily_checkpoint = now_local.replace(hour=4, minute=0, second=0, microsecond=0)
+    daily_checkpoint = now_local.replace(
+        hour=PIXEL_DAILY_REPORT_HOUR_MSK,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
     if now_local < daily_checkpoint:
         return 0, 0, 0
 
     report_day = (now_local - timedelta(days=1)).date()
     period_start, period_end = _pixel_report_day_bounds(report_day, now_local.tzinfo)
-    tail_start = _local_naive(datetime(report_day.year, report_day.month, report_day.day, 17, 15, 0, tzinfo=now_local.tzinfo))
+    tail_start = _pixel_db_naive(
+        datetime(
+            report_day.year,
+            report_day.month,
+            report_day.day,
+            PIXEL_REPORT_LAST_HOUR_MSK,
+            PIXEL_REPORT_MINUTE_MSK,
+            0,
+            tzinfo=now_local.tzinfo,
+        )
+    )
     snapshots = crud.list_pixel_telegram_report_snapshots(
         db_sess,
         period_start=period_start,

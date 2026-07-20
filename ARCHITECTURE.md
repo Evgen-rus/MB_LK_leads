@@ -3,7 +3,7 @@
 Короткий контекст проекта для старта нового чата с ИИ.
 Цель: быстро дать модели рабочую карту проекта без перегруза деталями.
 
-Last updated: 2026-07-07
+Last updated: 2026-07-20
 
 ## 1) System At A Glance
 
@@ -71,11 +71,11 @@ Last updated: 2026-07-07
 30. «Среднее за N рабочих дней» (`averageWorkday7`, `averageWorkday3`) — это **Вт–Сб** (weekday `1..5` в Python) от текущей даты в `SHEETS_TZ`, а не календарные 7/3 суток подряд.
 31. Тарифные сигналы в общий `TELEGRAM_CHAT_ID` включают **имя клиента** (`client_profiles.name` → `users.display_name`), чтобы отличать клиентов в общем чате.
 32. Пиксель-проект: `collectionSource = "Пиксель"`, `dataSourceCode = "UNMAPPED"`, `provider_project_id = NULL`, `sites[0] = домен`, `name = домен`. После создания название и домен не редактируются; для нового домена создаётся новый проект.
-33. Pixel webhook использует отдельный `PIXEL_WEBHOOK_SECRET`; неверный/пустой secret возвращает `404`. Endpoint принимает JSON/form/raw, но production-логика пишет в БД только при корректных `vid`, `site`, `phones` и однозначном Пиксель-проекте по домену.
+33. Pixel webhook использует отдельный `PIXEL_WEBHOOK_SECRET`; неверный/пустой secret возвращает `404`. Production endpoint принимает в обработку только JSON-object; form/raw возвращают `200` с `stored = 0` и `reason = "invalid_format"`. Запись в БД выполняется только при корректных `vid`, `site`, `phones` и однозначном Пиксель-проекте по домену. Кириллические домены и Punycode перед сравнением приводятся к единому IDNA/Punycode-виду.
 34. Пиксель-лиды хранятся в общей таблице `provider_leads`: `lead_source = "pixel"`, `pixel_url = page`, `prov_chanel = NULL`. Дедуп Пикселя независим от provider-лидов и идёт по `lead_source = "pixel" AND vid + phone`.
 35. Уникальность `provider_leads`: provider-контур — `vid` только при `lead_source = "provider"`; pixel-контур — пара `vid + phone` только при `lead_source = "pixel"`. Provider XLSX пишет `lead_source = "provider"`, Pixel XLSX пишет `lead_source = "pixel"`.
 36. **Админский импорт Pixel-лидов из XLSX:** отдельные endpoints `/admin/pixel-leads-import/preview` и `/admin/pixel-leads-import/commit`; ожидаемые колонки файла `id`, `Domain`, `Phone`, `Created`, `Referer`; `id` становится `vid`, `Domain` нормализуется до домена и матчит Pixel-проект, `Phone` берётся один первый номер, `Referer` пишется в `pixel_url`. Строки с ошибками, дублями, ненайденным или неоднозначным доменом не блокируют весь commit, а пропускаются; импортируются только готовые строки.
-37. Telegram-отчёты по Пикселю не отправляются из Pixel webhook. Они считаются фоновым циклом по `provider_leads.imported_at` в `SHEETS_TZ`, только для `lead_source = "pixel"` и проектов `collectionSource = "Пиксель"`, группируются по клиенту, а не по проекту. Если у клиента заполнен `telegram_notifications_chat_id`, отчёт уходит туда независимо от `telegram_auto_pause_enabled`; иначе используется общий `TELEGRAM_CHAT_ID`. Дедуп периода делается через `pixel_telegram_report_states`, а не через `telegram_notifications.metadata`.
+37. Telegram-отчёты по Пикселю не отправляются из Pixel webhook. Они считаются фоновым циклом по `provider_leads.imported_at` в `SHEETS_TZ`, только для уже выгруженных клиенту строк (`client_sheet_exported_at IS NOT NULL`) с `lead_source = "pixel"` и проектов `collectionSource = "Пиксель"`, группируются по клиенту, а не по проекту. Наличие pending-строк клиента за период блокирует постановку его отчёта до завершения выгрузки. Если у клиента заполнен `telegram_notifications_chat_id`, отчёт уходит туда независимо от `telegram_auto_pause_enabled`; иначе используется общий `TELEGRAM_CHAT_ID`. Дедуп периода делается через `pixel_telegram_report_states`, а не через `telegram_notifications.metadata`.
 
 ## 4) Key Domain Objects
 
@@ -128,11 +128,13 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 - удаление проекта во фронте и удаление у провайдера происходят сразу, но локальная привязка хвостовых лидов к уже удалённому проекту сохраняется ещё `48h`.
 
 ### B2) Pixel Webhook
-Пиксель вызывает `POST /api/pixel-webhook/{PIXEL_WEBHOOK_SECRET}` -> backend проверяет secret -> парсит JSON/form/raw -> нормализует `site` до домена -> ищет один неудалённый проект с `collectionSource = "Пиксель"` и таким доменом в `sites[0]`/имени проекта -> для каждого телефона пишет строку `provider_leads` с `lead_source = "pixel"` и `pixel_url = page`.
+Пиксель вызывает `POST /api/pixel-webhook/{PIXEL_WEBHOOK_SECRET}` -> backend проверяет secret -> принимает JSON-object -> нормализует `site` до домена и приводит Unicode/Punycode к единому IDNA-виду -> сначала ищет один неудалённый проект с `collectionSource = "Пиксель"` и таким доменом в `sites[0]`/имени проекта -> если среди неудалённых совпадений нет, делает fallback к удалённым Pixel-проектам без ограничения по grace-периоду -> для каждого телефона пишет строку `provider_leads` с `lead_source = "pixel"` и `pixel_url = page`.
 
 Поведение:
 - корректный secret всегда получает `200`, даже если запись не выполнена; в ответе есть `stored`, `duplicates`, `reason`;
+- form/raw и любой не-JSON payload не записываются: `stored = 0`, `reason = "invalid_format"`;
 - `domain_not_found`, `domain_ambiguous`, `no_phones` не создают строки и не списывают баланс;
+- один неудалённый проект имеет приоритет над удалёнными; при отсутствии неудалённого один совпавший удалённый проект считается валидным матчем, а несколько совпавших удалённых дают `domain_ambiguous`;
 - дедуп: повтор той же пары `vid + phone` при `lead_source = "pixel"` считается дублем; другой телефон с тем же `vid` создаёт отдельную строку;
 - `prov_chanel = NULL`, поэтому в UI канал Пикселя показывается как `—`;
 - Пиксель не запускает лимит-контроль синхронно, как и обычный provider webhook.
@@ -143,17 +145,21 @@ Frontend вызывает API -> backend проверяет auth/roles -> `crud.
 На старте backend запускает `pixel-telegram-reports-thread`. Thread раз в минуту проверяет расписание в `SHEETS_TZ` и ставит Telegram outbox-сообщения по Pixel-лидам.
 
 Что считается:
-- только привязанные лиды `provider_leads.lead_source = "pixel"` через проекты `collectionSource = "Пиксель"`;
+- только привязанные и уже выгруженные клиенту лиды `provider_leads.lead_source = "pixel"` с `client_sheet_exported_at IS NOT NULL` через проекты `collectionSource = "Пиксель"`;
+- если у клиента за отчётный период остаётся хотя бы одна строка с `client_sheet_exported_at IS NULL`, его отчёт за этот период пока не ставится в outbox;
 - дата отчёта — `provider_leads.imported_at`, как в ЛК/отчётах;
 - группировка — по клиенту, без разбивки по Pixel-проектам/доменам;
 - имя клиента: `client_profiles.name` -> `users.display_name` -> `users.login`;
-- `Тариф` в сообщении: `использовано / currentAmount` последнего тарифа, где `использовано = currentAmount - remaining`; если тарифа нет, показывается `-`.
+- оперативное сообщение содержит число выгруженных идентификаций за период, итог за текущий день и текущий остаток клиента; финальное — число выданных идентификаций за предыдущий день и при наличии хвоста отдельную строку.
 
 Расписание:
-- финальный ежедневный отчёт в `08:00` за полный предыдущий день `00:00-24:00`; если после `17:30` были данные, добавляется строка «После 17:30 поступило»;
-- оперативные сообщения: `08:30` за `00:00-08:30`, затем `09:30`...`17:30` за предыдущий час;
+- всё расписание и подписи периодов задаются в `SHEETS_TZ` (`Europe/Moscow` по умолчанию), а перед запросом границы переводятся в UTC naive для сравнения с фактически хранящимся в PostgreSQL `provider_leads.imported_at`;
+- финальный ежедневный отчёт становится доступен к постановке с `06:00` за полный предыдущий день `00:00-24:00`;
+- хвост финального отчёта считается за период `19:15-24:00` и показывается строкой «После 19:15 поступило»;
+- оперативные checkpoint-ы: каждый час в `06:15`...`19:15`;
+- первый checkpoint `06:15` считает период `00:00-06:15`, остальные checkpoint-ы считают интервал после предыдущего отчёта продолжительностью один час;
 - если за период у клиента `0` Pixel-лидов, сообщение не создаётся;
-- если backend пропустил несколько оперативных checkpoint-ов, отправляется только последний уже наступивший checkpoint, без пачки старых часов.
+- каждый проход перебирает все уже наступившие checkpoint-ы; поэтому после простоя backend может поставить несколько ранее пропущенных отчётов, если для их периодов ещё нет записей дедупа.
 
 Маршрут:
 - если у клиента заполнен `telegram_notifications_chat_id`, Pixel-отчёт уходит туда;
