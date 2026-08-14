@@ -199,7 +199,7 @@ function AdminClientsScreen({
       return true;
     }
   });
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(100);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const pendingCreatedClientIdRef = useRef<number | null>(null);
   const [selectedSummarySources, setSelectedSummarySources] = useState<string[]>(() => [...RAW_SOURCE_CODES]);
