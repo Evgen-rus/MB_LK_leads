@@ -26,6 +26,7 @@ import {
 type ProjectsTableProps = {
   onEdit?: (row: Project) => void;
   onCreate?: () => void;
+  onBulkCreate?: () => void;
   onHistory?: (row: Project) => void;
   onOpenLeads?: (params: { projectId: number; fromDate: string; toDate: string }) => void;
   projectsMutationLocked?: boolean;
@@ -72,6 +73,7 @@ function buildLimitControlBlockedMessage(rawReason?: string): string {
 function ProjectsTable({
   onEdit,
   onCreate,
+  onBulkCreate,
   onHistory,
   onOpenLeads,
   projectsMutationLocked = false,
@@ -688,7 +690,7 @@ function ProjectsTable({
             Пиксель
           </button>
         </div>
-        <div className="actions">
+        <div className="actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             className="btn btn--primary"
             onClick={onCreate}
@@ -696,6 +698,14 @@ function ProjectsTable({
             title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
           >
             + Добавить проект
+          </button>
+          <button
+            className="btn btn--secondary"
+            onClick={onBulkCreate}
+            disabled={projectsMutationLocked}
+            title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
+          >
+            Массовое создание
           </button>
         </div>
       </div>

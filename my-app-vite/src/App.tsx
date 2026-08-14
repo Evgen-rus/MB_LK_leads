@@ -14,6 +14,7 @@ import NotificationBell from './components/NotificationBell';
 import AdminActivityBell from './components/AdminActivityBell';
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import CreateProjectModal from './components/CreateProjectModal';
+import BulkCreateProjectModal from './components/BulkCreateProjectModal';
 import EditProjectModal from './components/EditProjectModal';
 import ProjectHistoryModal from './components/ProjectHistoryModal';
 import type { Project } from './types/project';
@@ -94,6 +95,7 @@ class ChunkLoadErrorBoundary extends Component<
 function App() {
   type UserRole = 'admin' | 'agent' | 'client';
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isBulkCreateOpen, setIsBulkCreateOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [rows, setRows] = useState<Project[]>([]);
   const [editing, setEditing] = useState<Project | null>(null);
@@ -738,6 +740,17 @@ function App() {
                     }
                     setIsCreateOpen(true);
                   }}
+                  onBulkCreate={() => {
+                    if (projectsMutationLocked) {
+                      window.dispatchEvent(
+                        new CustomEvent('app-toast', {
+                          detail: projectsMutationLockReason || 'Изменение проектов временно заблокировано администратором.',
+                        }),
+                      );
+                      return;
+                    }
+                    setIsBulkCreateOpen(true);
+                  }}
                   onEdit={(row) => {
                     setEditing(row);
                   }}
@@ -812,6 +825,22 @@ function App() {
               }
               return 'Не удалось создать проект. Проверьте введенные данные и попробуйте еще раз.';
             }
+          }}
+        />
+      )}
+      {isBulkCreateOpen && (
+        <BulkCreateProjectModal
+          uniqueProjectNamesEnabled={uniqueProjectNamesEnabled}
+          regionSourceProjects={rows}
+          settingsStorageKey={`create-project-settings:${currentUserId ?? 'client'}`}
+          onClose={() => setIsBulkCreateOpen(false)}
+          onCreateBatch={async (items) => {
+            const result = await apiCreate(items);
+            if (result.items.length > 0) {
+              setRows((prev) => [...result.items, ...prev]);
+              window.dispatchEvent(new CustomEvent('projects-refresh'));
+            }
+            return result;
           }}
         />
       )}
