@@ -377,6 +377,7 @@ export async function fetchProjects(params?: {
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
+  includeArchived?: boolean;
   projectStatus?: ProjectStatus;
   dailyLimitReached?: boolean;
   isTop?: boolean;
@@ -392,6 +393,7 @@ export async function fetchProjects(params?: {
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   if (params?.includeDeleted) q.set('includeDeleted', 'true');
+  if (params?.includeArchived) q.set('includeArchived', 'true');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   if (params?.dailyLimitReached) q.set('dailyLimitReached', 'true');
   if (params?.isTop) q.set('isTop', 'true');
@@ -894,6 +896,7 @@ export async function fetchAdminProjects(params?: {
   fromDate?: string;
   toDate?: string;
   includeDeleted?: boolean;
+  includeArchived?: boolean;
   projectStatus?: ProjectStatus;
   dailyLimitReached?: boolean;
   isTop?: boolean;
@@ -910,6 +913,7 @@ export async function fetchAdminProjects(params?: {
   if (params?.fromDate) q.set('fromDate', params.fromDate);
   if (params?.toDate) q.set('toDate', params.toDate);
   q.set('includeDeleted', params?.includeDeleted ? 'true' : 'false');
+  q.set('includeArchived', params?.includeArchived ? 'true' : 'false');
   if (params?.projectStatus) q.set('projectStatus', params.projectStatus);
   if (params?.dailyLimitReached) q.set('dailyLimitReached', 'true');
   if (params?.isTop) q.set('isTop', 'true');

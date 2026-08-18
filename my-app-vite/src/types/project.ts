@@ -1,5 +1,5 @@
 // Типы и интерфейсы данных проектов (страница «Проекты и каналы»)
-export type ProjectMutableStatus = 'Активен' | 'На паузе' | 'Удалён';
+export type ProjectMutableStatus = 'Активен' | 'На паузе' | 'Удалён' | 'Архив';
 export type ProjectStatus = ProjectMutableStatus | 'Блокировка оператора';
 export type DeliveryStatus = 'Активна' | 'На модерации' | 'Отключена';
 export type CollectionSource =

@@ -46,12 +46,13 @@ function formatDateInput(d: Date) {
 }
 
 type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'delete';
-type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора';
+type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Архив' | 'Блокировка оператора';
 
 const CALLS_SOURCES = new Set(['Звонки', 'Ретрозвонки', 'Пересечение']);
 const SITES_SOURCES = new Set(['Сайты', 'Ретросайты', 'Пересечение']);
 const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
+const ARCHIVE_STATUS = 'Архив';
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 const SOURCE_OPTIONS = getSourceCodeFilterOptions(RAW_SOURCE_CODES);
 const PIXEL_COLLECTION_SOURCE = 'Пиксель';
@@ -91,6 +92,7 @@ function ProjectsTable({
   const [pageSize, setPageSize] = useState(100);
   const [total, setTotal] = useState(0);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -123,6 +125,7 @@ function ProjectsTable({
       topFilter = topOnly,
       sources = selectedSources,
       collectionSources = selectedCollectionSources,
+      withArchived = includeArchived,
     ) => {
       const offset = (p - 1) * s;
       const resp = await fetchProjects({
@@ -134,6 +137,7 @@ function ProjectsTable({
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
+        includeArchived: withArchived,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
         dailyLimitReached: limitReached,
         isTop: topFilter,
@@ -143,7 +147,7 @@ function ProjectsTable({
       setRows(resp.items);
       setTotal(resp.total);
     },
-    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources],
+    [pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources],
   );
 
   useEffect(() => {
@@ -157,10 +161,10 @@ function ProjectsTable({
   useEffect(() => { load(1); }, [load]);
   useEffect(() => {
     // Внешний сигнал обновить список
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources, includeArchived);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
-  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources]);
+  }, [load, page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources]);
 
   useEffect(() => {
     if (openProjectMenuId == null) return;
@@ -436,7 +440,7 @@ function ProjectsTable({
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
-    if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
+    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
     if (projectsMutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
       return;
@@ -465,6 +469,69 @@ function ProjectsTable({
       const message = e instanceof Error && e.message
         ? e.message
         : 'Не удалось изменить статус проекта.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleArchive(row: Project) {
+    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
+    setStatusSavingIds((prev) => new Set(prev).add(row.id));
+    try {
+      const payload = buildUpdatePayloadFromProject(row, { status: ARCHIVE_STATUS });
+      const result = await apiUpdateProject(row.id, payload);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? result.project : p)));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Проект перенесён в архив.' }));
+      if (result.warning) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
+      }
+    } catch (e) {
+      console.error(e);
+      const err = e as ApiError;
+      const message = e instanceof Error && e.message
+        ? e.message
+        : 'Не удалось перенести проект в архив.';
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(err?.message || message) }));
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleUnarchive(row: Project) {
+    if (row.status !== ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+    if (projectsMutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+      return;
+    }
+    setStatusSavingIds((prev) => new Set(prev).add(row.id));
+    try {
+      const payload = buildUpdatePayloadFromProject(row, { status: 'На паузе' });
+      const result = await apiUpdateProject(row.id, payload);
+      setRows((prev) => prev.map((p) => (p.id === row.id ? result.project : p)));
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Проект возвращён из архива на паузу.' }));
+      if (result.warning) {
+        window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
+      }
+    } catch (e) {
+      console.error(e);
+      const message = e instanceof Error && e.message
+        ? e.message
+        : 'Не удалось вернуть проект из архива.';
       window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(message) }));
     } finally {
       setStatusSavingIds((prev) => {
@@ -628,6 +695,7 @@ function ProjectsTable({
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
             <option value="Удалён">Удалён</option>
+            <option value="Архив">Архив</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
           <div className="project-quick-filters">
@@ -669,6 +737,18 @@ function ProjectsTable({
               }}
             />
             Показывать удалённые
+          </label>
+          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => {
+                const val = e.target.checked;
+                setIncludeArchived(val);
+                setPage(1);
+              }}
+            />
+            Показывать архивные
           </label>
         </div>
         <div className="project-source-filters">
@@ -909,6 +989,24 @@ function ProjectsTable({
                         label: 'История изменений',
                         onSelect: () => onHistory?.(row),
                       },
+                      ...(row.status !== 'Удалён' && row.status !== ARCHIVE_STATUS
+                        ? [{
+                            key: 'archive',
+                            label: 'В архив',
+                            onSelect: () => handleArchive(row),
+                            disabled: projectsMutationLocked,
+                            title: projectsMutationLocked ? projectsMutationLockMessage : 'Перенести проект в архив',
+                          }]
+                        : []),
+                      ...(row.status === ARCHIVE_STATUS
+                        ? [{
+                            key: 'unarchive',
+                            label: 'Достать из архива',
+                            onSelect: () => handleUnarchive(row),
+                            disabled: projectsMutationLocked,
+                            title: projectsMutationLocked ? projectsMutationLockMessage : 'Вернуть проект из архива на паузу',
+                          }]
+                        : []),
                       {
                         key: 'delete',
                         label: 'Удаление проекта',
@@ -940,12 +1038,14 @@ function ProjectsTable({
                           ? 'badge badge--orange'
                           : row.status === OPERATOR_BLOCK_STATUS
                             ? 'badge badge--red'
-                            : 'badge badge--gray'
+                            : row.status === ARCHIVE_STATUS
+                              ? 'badge badge--info'
+                              : 'badge badge--gray'
                     }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
                     style={{
                       whiteSpace: 'nowrap',
                       cursor:
-                        projectsMutationLocked || row.status === 'Удалён'
+                        projectsMutationLocked || row.status === 'Удалён' || row.status === ARCHIVE_STATUS
                           ? 'default'
                           : statusSavingIds.has(row.id)
                             ? 'wait'
@@ -957,8 +1057,10 @@ function ProjectsTable({
                         ? projectsMutationLockMessage
                         : statusSavingIds.has(row.id)
                           ? 'Статус обновляется...'
-                        : row.status === 'Удалён'
-                          ? 'Проект помечен как удалённый'
+                          : row.status === 'Удалён'
+                            ? 'Проект помечен как удалённый'
+                            : row.status === ARCHIVE_STATUS
+                              ? 'Проект в архиве'
                           : row.status === OPERATOR_BLOCK_STATUS
                             ? 'Нажмите, чтобы перезапустить проект'
                             : 'Нажмите, чтобы переключить статус проекта'
@@ -968,7 +1070,7 @@ function ProjectsTable({
                         window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
                         return;
                       }
-                      if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
+                      if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
                       handleToggleStatus(row);
                     }}
                   >

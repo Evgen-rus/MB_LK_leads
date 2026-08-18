@@ -39,6 +39,7 @@ function BulkEditStatusModal({
         >
           <option value="Активен">Активен</option>
           <option value="На паузе">На паузе</option>
+          <option value="Архив">Архив</option>
         </select>
       </label>
       <div className="hint">Статус «Удалён» в массовом редактировании недоступен.</div>

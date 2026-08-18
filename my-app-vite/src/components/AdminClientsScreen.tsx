@@ -1348,6 +1348,8 @@ function AdminClientsScreen({
                               ? 'badge badge--green'
                               : project.status === 'На паузе'
                                 ? 'badge badge--orange'
+                                : project.status === 'Архив'
+                                  ? 'badge badge--info'
                                 : 'badge badge--gray'
                           }
                         >
@@ -2165,6 +2167,8 @@ function AdminClientsScreen({
                               ? 'badge badge--green'
                               : project.status === 'На паузе'
                                 ? 'badge badge--orange'
+                                : project.status === 'Архив'
+                                  ? 'badge badge--info'
                                 : 'badge badge--gray'
                           }
                         >

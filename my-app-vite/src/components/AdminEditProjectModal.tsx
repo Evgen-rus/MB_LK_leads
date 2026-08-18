@@ -2,7 +2,7 @@
 // Включает возможность изменять deliveryStatus
 import { useMemo, useRef, useState } from 'react';
 import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
-import type { ProjectStatus, CollectionSource } from '../types/project';
+import type { ProjectStatus, ProjectMutableStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
@@ -288,14 +288,14 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
     }
 
     if (status === 'Блокировка оператора') {
-      setError('Чтобы сохранить изменения, выберите статус «Активен» или «На паузе».');
+      setError('Чтобы сохранить изменения, выберите статус «Активен», «На паузе» или «Архив».');
       return;
     }
 
     const payload: AdminProjectUpdate = {
       name: isPixelProject ? project.name : formatProjectNameForSubmit(normalizedName),
       tag: project.tag,
-      status,
+      status: status as ProjectMutableStatus,
       // Статус отгрузки больше не редактируем в модалке — отправляем текущее значение
       deliveryStatus: project.deliveryStatus,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
@@ -507,6 +507,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
                 )}
                 <option value="Активен">Активен</option>
                 <option value="На паузе">На паузе</option>
+                <option value="Архив">Архив</option>
                 {allowDelete && <option value="Удалён">Удалён</option>}
               </select>
             </label>

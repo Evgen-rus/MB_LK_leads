@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
-ProjectMutableStatus = Literal['Активен', 'На паузе', 'Удалён']
-ProjectStatus = Literal['Активен', 'На паузе', 'Удалён', 'Блокировка оператора']
+CreateProjectStatus = Literal['Активен', 'На паузе']
+ProjectMutableStatus = Literal['Активен', 'На паузе', 'Удалён', 'Архив']
+ProjectStatus = Literal['Активен', 'На паузе', 'Удалён', 'Архив', 'Блокировка оператора']
 DeliveryStatus = Literal['Активна', 'На модерации', 'Отключена']
 CollectionSource = Literal['Сайты','Звонки','СМС','Ретросайты','Ретрозвонки','Пересечение','Пиксель']
 DataSourceCode = Literal['B1','B2','B3','B4','UNMAPPED']
@@ -50,7 +51,7 @@ class CreateProjectItem(BaseModel):
     collectionSource: CollectionSource
     dataSourceCode: DataSourceCode
     dataLimit: int
-    status: ProjectMutableStatus
+    status: CreateProjectStatus
     regionMode: Optional[Literal['include','exclude']] = None
     regions: List[str] = []
     sites: Optional[List[str]] = None

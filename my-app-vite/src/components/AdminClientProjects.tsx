@@ -45,7 +45,7 @@ type AdminClientProjectsProps = {
     toDate: string;
   }) => void;
 };
-type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Блокировка оператора';
+type ProjectStatusFilter = 'Все' | 'Активен' | 'На паузе' | 'Удалён' | 'Архив' | 'Блокировка оператора';
 type BulkActionType = 'days' | 'limit' | 'contacts' | 'regions' | 'status' | 'delete';
 
 // Для режима "за всё время" нам всё равно нужен диапазон,
@@ -54,6 +54,7 @@ const ALL_TIME_FROM_DATE = '1970-01-01';
 const ALL_TIME_TO_DATE = '2099-12-31';
 const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
+const ARCHIVE_STATUS = 'Архив';
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -83,6 +84,11 @@ function parseProjectDays(project: AdminProject): Day[] {
   return days.length > 0 ? days : ALL_DAYS;
 }
 
+function toMutableProjectStatus(status: AdminProject['status']): ProjectMutableStatus {
+  if (status === OPERATOR_BLOCK_STATUS) return 'Активен';
+  return status;
+}
+
 function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRole, onOpenLeads }: AdminClientProjectsProps) {
   const [rows, setRows] = useState<AdminProject[]>([]);
   const [search, setSearch] = useState('');
@@ -97,6 +103,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [editingReadOnly, setEditingReadOnly] = useState(false);
   const [historyFor, setHistoryFor] = useState<AdminProject | null>(null);
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
@@ -120,6 +127,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     from = fromDate,
     to = toDate,
     withDeleted = includeDeleted,
+    withArchived = includeArchived,
     projectStatus = statusFilter,
     sortField = sortBy,
     direction = sortDir,
@@ -138,6 +146,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
+        includeArchived: withArchived,
         projectStatus: projectStatus === 'Все' ? undefined : projectStatus,
         dailyLimitReached: limitReached,
         isTop: topFilter,
@@ -163,16 +172,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }, [search]);
 
   useEffect(() => {
-    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
+    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
+  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
 
   useEffect(() => {
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
+  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tableColSpan = canUseAdminProjectActions ? 14 : 13;
@@ -218,12 +227,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }, [openProjectMenuId]);
 
   // Обновление проекта без открытия модалки (если потребуется)
-  async function applyUpdate(project: AdminProject, patch: Partial<AdminProjectUpdate>) {
+  async function applyUpdate(project: AdminProject, patch: Partial<AdminProjectUpdate>): Promise<boolean> {
     try {
       const payload: AdminProjectUpdate = {
         name: project.name,
         tag: project.tag,
-        status: patch.status ?? (project.status === OPERATOR_BLOCK_STATUS ? 'Активен' : project.status),
+        status: patch.status ?? toMutableProjectStatus(project.status),
         deliveryStatus: project.deliveryStatus,
         dataLimit: project.dataLimit,
         regionMode: project.regionMode || 'include',
@@ -239,19 +248,55 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       if (result.warning) {
         window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(result.warning) }));
       }
+      return true;
     } catch (err: unknown) {
       console.error(err);
       setError(getErrorMessage(err, 'Не удалось обновить проект'));
+      return false;
     }
   }
 
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
-    if (project.status === 'Удалён' || statusSavingIds.has(project.id)) return;
+    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
       await applyUpdate(project, { status: nextStatus });
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(project.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleArchive(project: AdminProject) {
+    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    setStatusSavingIds((prev) => new Set(prev).add(project.id));
+    try {
+      const ok = await applyUpdate(project, { status: ARCHIVE_STATUS });
+      if (!ok) return;
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Проект перенесён в архив.' }));
+    } finally {
+      setStatusSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(project.id);
+        return next;
+      });
+    }
+  }
+
+  async function handleUnarchive(project: AdminProject) {
+    if (project.status !== ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    setStatusSavingIds((prev) => new Set(prev).add(project.id));
+    try {
+      const ok = await applyUpdate(project, { status: 'На паузе' });
+      if (!ok) return;
+      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Проект возвращён из архива на паузу.' }));
     } finally {
       setStatusSavingIds((prev) => {
         const next = new Set(prev);
@@ -349,7 +394,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     return {
       name: project.name,
       tag: project.tag,
-      status: patch.status ?? (project.status === OPERATOR_BLOCK_STATUS ? 'Активен' : project.status),
+      status: patch.status ?? toMutableProjectStatus(project.status),
       deliveryStatus: project.deliveryStatus,
       dataLimit: project.dataLimit,
       regionMode: project.regionMode || 'include',
@@ -598,6 +643,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             <option value="Активен">Активен</option>
             <option value="На паузе">На паузе</option>
             <option value="Удалён">Удалён</option>
+            <option value="Архив">Архив</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
           <div className="project-quick-filters">
@@ -639,6 +685,18 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
               }}
             />
             Показывать удалённые
+          </label>
+          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => {
+                const val = e.target.checked;
+                setIncludeArchived(val);
+                setPage(1);
+              }}
+            />
+            Показывать архивные
           </label>
         </div>
         <div className="actions">
@@ -917,6 +975,20 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                           label: 'История изменений',
                           onSelect: () => setHistoryFor(row),
                         },
+                        ...(row.status !== 'Удалён' && row.status !== ARCHIVE_STATUS
+                          ? [{
+                              key: 'archive',
+                              label: 'В архив',
+                              onSelect: () => handleArchive(row),
+                            }]
+                          : []),
+                        ...(row.status === ARCHIVE_STATUS
+                          ? [{
+                              key: 'unarchive',
+                              label: 'Достать из архива',
+                              onSelect: () => handleUnarchive(row),
+                            }]
+                          : []),
                         ...(canUseAdminProjectActions
                           ? [
                               {
@@ -949,11 +1021,13 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                               ? 'badge badge--orange'
                               : row.status === OPERATOR_BLOCK_STATUS
                                 ? 'badge badge--red'
-                                : 'badge badge--gray'
+                                : row.status === ARCHIVE_STATUS
+                                  ? 'badge badge--info'
+                                  : 'badge badge--gray'
                         }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
                         style={{
                           whiteSpace: 'nowrap',
-                          cursor: row.status === 'Удалён'
+                          cursor: row.status === 'Удалён' || row.status === ARCHIVE_STATUS
                             ? 'default'
                             : statusSavingIds.has(row.id)
                               ? 'wait'
@@ -965,12 +1039,14 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                             ? 'Статус обновляется...'
                             : row.status === 'Удалён'
                             ? 'Проект помечен как удалённый'
+                            : row.status === ARCHIVE_STATUS
+                              ? 'Проект в архиве'
                             : row.status === OPERATOR_BLOCK_STATUS
                               ? 'Нажмите, чтобы перезапустить проект'
                               : 'Нажмите, чтобы переключить статус проекта'
                         }
                         onClick={() => {
-                          if (row.status === 'Удалён' || statusSavingIds.has(row.id)) return;
+                          if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
                           handleToggleStatus(row);
                         }}
                       >
@@ -1142,6 +1218,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             setRows((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
             setEditing(null);
             setEditingReadOnly(false);
+            window.dispatchEvent(new CustomEvent('projects-refresh'));
           }}
         />
       )}

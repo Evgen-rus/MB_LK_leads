@@ -25,6 +25,8 @@ from . import models, schemas, auth
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
 PROJECT_NAME_UNAVAILABLE_MESSAGE = "Название проекта не доступно. Выберите другое название."
 PROJECT_STATUS_OPERATOR_BLOCK = "Блокировка оператора"
+PROJECT_STATUS_ARCHIVE = "Архив"
+PROJECT_PAUSED_LIKE_STATUSES = {"На паузе", PROJECT_STATUS_ARCHIVE}
 COLLECTION_SOURCE_PIXEL = "Пиксель"
 LEAD_SOURCE_PROVIDER = "provider"
 LEAD_SOURCE_PIXEL = "pixel"
@@ -595,23 +597,38 @@ def _calc_sources_count(sites: Optional[List[str]], phones: Optional[List[str]],
 
 
 def _normalize_project_status(value: Any) -> schemas.ProjectStatus:
-    if value in ("Активен", "На паузе", "Удалён", PROJECT_STATUS_OPERATOR_BLOCK):
+    if value in ("Активен", "На паузе", "Удалён", PROJECT_STATUS_ARCHIVE, PROJECT_STATUS_OPERATOR_BLOCK):
         return value  # type: ignore[return-value]
     return "Удалён"
 
 
-def _apply_project_status_filter(stmt, *, project_status: Optional[schemas.ProjectStatus], include_deleted: bool):
+def _dashboard_status_bucket(value: Any) -> str:
+    status = str(value or "")
+    if status == PROJECT_STATUS_ARCHIVE:
+        return "На паузе"
+    return status
+
+
+def _apply_project_status_filter(
+    stmt,
+    *,
+    project_status: Optional[schemas.ProjectStatus],
+    include_deleted: bool,
+    include_archived: bool = False,
+):
     """
     Применяет единое правило фильтрации статуса для списков проектов.
 
-    Если статус задан явно, он имеет приоритет над include_deleted.
-    Это позволяет корректно получать выборку "только удалённые" даже при
-    стандартном include_deleted=False.
+    Если статус задан явно, он имеет приоритет над include_deleted и include_archived.
+    Это позволяет корректно получать выборку "только удалённые" или "только архивные"
+    даже при стандартных include_deleted=False / include_archived=False.
     """
     if project_status is not None:
         return stmt.where(models.Project.status == project_status)
     if not include_deleted:
-        return stmt.where(models.Project.status != 'Удалён')
+        stmt = stmt.where(models.Project.status != 'Удалён')
+    if not include_archived:
+        stmt = stmt.where(models.Project.status != PROJECT_STATUS_ARCHIVE)
     return stmt
 
 
@@ -1154,6 +1171,7 @@ def list_projects_paginated(
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = False,
+    include_archived: bool = False,
     project_status: Optional[schemas.ProjectStatus] = None,
     daily_limit_reached: bool = False,
     is_top: bool = False,
@@ -1165,6 +1183,7 @@ def list_projects_paginated(
         stmt,
         project_status=project_status,
         include_deleted=include_deleted,
+        include_archived=include_archived,
     )
     collection_source_filter = _normalize_collection_source_filter(collection_sources)
     project_source_conditions = []
@@ -4351,13 +4370,14 @@ def client_dashboard(
     project_ids = list(project_by_id.keys())
 
     active_projects = sum(1 for project in project_rows if project.status == "Активен")
-    paused_projects = sum(1 for project in project_rows if project.status == "На паузе")
+    paused_projects = sum(1 for project in project_rows if project.status in PROJECT_PAUSED_LIKE_STATUSES)
     blocked_projects = sum(1 for project in project_rows if project.status == PROJECT_STATUS_OPERATOR_BLOCK)
 
     status_order = ["Активен", "На паузе", PROJECT_STATUS_OPERATOR_BLOCK]
     status_counts: Dict[str, int] = {status: 0 for status in status_order}
     for project in project_rows:
-        status_counts[str(project.status or "")] = status_counts.get(str(project.status or ""), 0) + 1
+        status = _dashboard_status_bucket(project.status)
+        status_counts[status] = status_counts.get(status, 0) + 1
     status_breakdown = [
         schemas.AdminDashboardBreakdownItemOut(key=status, label=status, value=int(status_counts.get(status, 0)))
         for status in status_order
@@ -4639,7 +4659,7 @@ def admin_dashboard(
     project_rows = db.execute(scoped_project_stmt(include_deleted=False)).scalars().all()
     projects_count = len(project_rows)
     active_projects = sum(1 for p in project_rows if p.status == "Активен")
-    paused_projects = sum(1 for p in project_rows if p.status == "На паузе")
+    paused_projects = sum(1 for p in project_rows if p.status in PROJECT_PAUSED_LIKE_STATUSES)
     blocked_projects = sum(1 for p in project_rows if p.status == PROJECT_STATUS_OPERATOR_BLOCK)
 
     status_order = ["Активен", "На паузе", PROJECT_STATUS_OPERATOR_BLOCK, "Удалён"]
@@ -4655,7 +4675,8 @@ def admin_dashboard(
         status_stmt = status_stmt.where(models.Project.data_source_code.in_(source_filter))
     all_project_status_rows = db.execute(status_stmt).all()
     for status, count_value in all_project_status_rows:
-        status_counts[str(status or "")] = int(count_value or 0)
+        key = _dashboard_status_bucket(status)
+        status_counts[key] = status_counts.get(key, 0) + int(count_value or 0)
     status_breakdown = [
         schemas.AdminDashboardBreakdownItemOut(key=key, label=key, value=int(status_counts.get(key, 0)))
         for key in status_order
@@ -6348,6 +6369,7 @@ def admin_list_all_projects(
     start_local: Optional[datetime] = None,
     end_local: Optional[datetime] = None,
     include_deleted: bool = True,
+    include_archived: bool = False,
     project_status: Optional[schemas.ProjectStatus] = None,
     daily_limit_reached: bool = False,
     is_top: bool = False,
@@ -6364,11 +6386,12 @@ def admin_list_all_projects(
     if user_id_filter is not None:
         stmt = stmt.where(models.Project.user_id == user_id_filter)
 
-    # По умолчанию админ видит всё, но можно скрыть удалённые
+    # По умолчанию архивные скрыты, как и удалённые при include_deleted=False.
     stmt = _apply_project_status_filter(
         stmt,
         project_status=project_status,
         include_deleted=include_deleted,
+        include_archived=include_archived,
     )
 
     collection_source_filter = _normalize_collection_source_filter(collection_sources)

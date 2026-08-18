@@ -1120,6 +1120,8 @@ function AdminAgentsScreen({
                                 ? 'badge badge--green'
                                 : project.status === 'На паузе'
                                   ? 'badge badge--orange'
+                                  : project.status === 'Архив'
+                                    ? 'badge badge--info'
                                   : 'badge badge--gray'
                             }
                           >
@@ -1858,13 +1860,15 @@ function AdminAgentsScreen({
                                               >
                                                 <span>{formatProjectNameForDisplay(project.name)} (id: {project.id})</span>
                                                 <span
-                                                  className={
-                                                    project.status === 'Активен'
-                                                      ? 'badge badge--green'
-                                                      : project.status === 'На паузе'
-                                                        ? 'badge badge--orange'
-                                                        : 'badge badge--gray'
-                                                  }
+                                                    className={
+                                                      project.status === 'Активен'
+                                                        ? 'badge badge--green'
+                                                        : project.status === 'На паузе'
+                                                          ? 'badge badge--orange'
+                                                          : project.status === 'Архив'
+                                                            ? 'badge badge--info'
+                                                          : 'badge badge--gray'
+                                                    }
                                                 >
                                                   {project.status}
                                                 </span>

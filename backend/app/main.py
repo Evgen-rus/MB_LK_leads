@@ -3055,6 +3055,7 @@ def list_projects(
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
+    includeArchived: bool = False,
     projectStatus: Optional[schemas.ProjectStatus] = None,
     dailyLimitReached: bool = False,
     isTop: bool = False,
@@ -3112,6 +3113,7 @@ def list_projects(
         start_local=start_naive,
         end_local=end_naive,
         include_deleted=includeDeleted,
+        include_archived=includeArchived,
         project_status=projectStatus,
         daily_limit_reached=dailyLimitReached,
         is_top=isTop,
@@ -5238,6 +5240,7 @@ def admin_list_projects(
     fromDate: Optional[str] = None,  # YYYY-MM-DD
     toDate: Optional[str] = None,    # YYYY-MM-DD
     includeDeleted: bool = False,
+    includeArchived: bool = False,
     projectStatus: Optional[schemas.ProjectStatus] = None,
     dailyLimitReached: bool = False,
     isTop: bool = False,
@@ -5300,6 +5303,7 @@ def admin_list_projects(
         start_local=start_naive,
         end_local=end_naive,
         include_deleted=includeDeleted,
+        include_archived=includeArchived,
         project_status=projectStatus,
         daily_limit_reached=dailyLimitReached,
         is_top=isTop,

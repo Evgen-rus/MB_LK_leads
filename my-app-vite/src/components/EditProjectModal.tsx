@@ -303,7 +303,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
     }
     const rawName = isPixelProject ? project.name : formatProjectNameForSubmit(normalizedName);
     if (status === 'Блокировка оператора') {
-      setError('Чтобы сохранить изменения, выберите статус «Активен» или «На паузе».');
+      setError('Чтобы сохранить изменения, выберите статус «Активен», «На паузе» или «Архив».');
       return;
     }
     const update: SubmitUpdate = {
@@ -311,7 +311,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
       // tag пользователь не редактирует в модалке — сохраняем текущий tag проекта.
       // Это предотвращает "ложные изменения" при нажатии Сохранить без правок.
       tag: project.tag,
-      status,
+      status: status as ProjectMutableStatus,
       dataLimit: Number.isFinite(dataLimit) ? dataLimit : 0,
       regionMode,
       regions: normalizeRegionValues(regions),
@@ -524,6 +524,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
                   )}
                   <option value="Активен">Активен</option>
                   <option value="На паузе">На паузе</option>
+                  <option value="Архив">Архив</option>
                   <option value="Удалён">Удалён</option>
                 </select>
               )}

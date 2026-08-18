@@ -88,7 +88,7 @@ function isCollectionSource(value: unknown): value is CollectionSource {
 }
 
 function isMutableStatus(value: unknown): value is ProjectMutableStatus {
-  return value === 'Активен' || value === 'На паузе' || value === 'Удалён';
+  return value === 'Активен' || value === 'На паузе' || value === 'Удалён' || value === 'Архив';
 }
 
 function readSavedSettings(storageKey?: string): Required<CreateProjectSavedSettings> {
@@ -100,7 +100,7 @@ function readSavedSettings(storageKey?: string): Required<CreateProjectSavedSett
     return {
       collectionSource: isCollectionSource(parsed.collectionSource) ? parsed.collectionSource : DEFAULT_CREATE_PROJECT_SETTINGS.collectionSource,
       dataLimit: Number.isFinite(parsed.dataLimit) ? Number(parsed.dataLimit) : DEFAULT_CREATE_PROJECT_SETTINGS.dataLimit,
-      status: isMutableStatus(parsed.status) && parsed.status !== 'Удалён' ? parsed.status : DEFAULT_CREATE_PROJECT_SETTINGS.status,
+      status: isMutableStatus(parsed.status) && parsed.status !== 'Удалён' && parsed.status !== 'Архив' ? parsed.status : DEFAULT_CREATE_PROJECT_SETTINGS.status,
       regionMode: parsed.regionMode === 'exclude' ? 'exclude' : 'include',
       regions: normalizeRegionValues(parsed.regions || []),
       days: Array.isArray(parsed.days)

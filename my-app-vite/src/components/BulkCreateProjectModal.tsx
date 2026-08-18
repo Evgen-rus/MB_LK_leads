@@ -51,7 +51,7 @@ type BulkCreateProjectModalProps = {
 };
 
 function isMutableStatus(value: unknown): value is ProjectMutableStatus {
-  return value === 'Активен' || value === 'На паузе' || value === 'Удалён';
+  return value === 'Активен' || value === 'На паузе' || value === 'Удалён' || value === 'Архив';
 }
 
 function readSavedSettings(storageKey?: string): Required<SavedSettings> {
@@ -62,7 +62,7 @@ function readSavedSettings(storageKey?: string): Required<SavedSettings> {
     const parsed = JSON.parse(raw) as SavedSettings;
     return {
       dataLimit: Number.isFinite(parsed.dataLimit) ? Number(parsed.dataLimit) : DEFAULT_SETTINGS.dataLimit,
-      status: isMutableStatus(parsed.status) && parsed.status !== 'Удалён' ? parsed.status : DEFAULT_SETTINGS.status,
+      status: isMutableStatus(parsed.status) && parsed.status !== 'Удалён' && parsed.status !== 'Архив' ? parsed.status : DEFAULT_SETTINGS.status,
       regionMode: parsed.regionMode === 'exclude' ? 'exclude' : 'include',
       regions: normalizeRegionValues(parsed.regions || []),
       days: Array.isArray(parsed.days)
