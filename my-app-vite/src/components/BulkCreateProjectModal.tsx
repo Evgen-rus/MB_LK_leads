@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CreateProjectItem, CreateProjectsResp } from '../api';
-import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
+import { normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { ProjectMutableStatus } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { parseBulkProjectLines, BULK_CREATE_MAX_LINES } from '../utils/bulkProjectLines';
@@ -10,6 +10,7 @@ import {
   toDisplaySourceCode,
 } from '../utils/sourceCodeDisplay';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
+import RegionPicker from './RegionPicker';
 import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type DayAbbrev = 'Пн' | 'Вт' | 'Ср' | 'Чт' | 'Пт' | 'Сб' | 'Вс';
@@ -113,27 +114,6 @@ function BulkCreateProjectModal({
   const hasValidList = parsed.errors.length === 0 && parsed.lines.length > 0 && selectedCodes.length > 0;
   const plannedCount = parsed.lines.length * selectedCodes.length;
   const perProjectLimit = Number.isFinite(dataLimit) ? dataLimit : 0;
-
-  const baseRegionIndex = useMemo(() => {
-    const m = new Map<string, number>();
-    allRegions.forEach((r, i) => m.set(r.code, i));
-    return m;
-  }, []);
-
-  const displayRegions = useMemo(() => {
-    const q = regionQuery.trim().toLowerCase();
-    const filtered = q
-      ? allRegions.filter((r) => r.name.toLowerCase().includes(q) || r.code.includes(q))
-      : allRegions;
-    const list = filtered.slice();
-    list.sort((a, b) => {
-      const aSel = regions.includes(a.code) ? 1 : 0;
-      const bSel = regions.includes(b.code) ? 1 : 0;
-      if (aSel !== bSel) return bSel - aSel;
-      return (baseRegionIndex.get(a.code) ?? 0) - (baseRegionIndex.get(b.code) ?? 0);
-    });
-    return list;
-  }, [regionQuery, regions, baseRegionIndex]);
 
   const progressPercent =
     progress && progress.total > 0
@@ -443,7 +423,7 @@ function BulkCreateProjectModal({
                 <label><input type="radio" name="bulkRegionMode" checked={regionMode === 'exclude'} onChange={() => setRegionMode('exclude')} /> Исключить</label>
                 <input
                   type="search"
-                  placeholder="Поиск по регионам"
+                  placeholder="Поиск по регионам и округам"
                   value={regionQuery}
                   onFocus={() => setRegionsOpen(true)}
                   onClick={() => setRegionsOpen(true)}
@@ -454,17 +434,11 @@ function BulkCreateProjectModal({
                 />
               </div>
               {regionsOpen ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                  {displayRegions.map((r) => (
-                    <label key={r.code} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={regions.includes(r.code)}
-                        onChange={(e) => setRegions((prev) => (e.target.checked ? [...prev, r.code] : prev.filter((x) => x !== r.code)))}
-                      /> {r.name}
-                    </label>
-                  ))}
-                </div>
+                <RegionPicker
+                  selectedRegions={regions}
+                  onChange={setRegions}
+                  query={regionQuery}
+                />
               ) : (
                 <div className="hint" style={{ color: '#666' }}>Список скрыт. Нажмите в поле поиска, чтобы открыть.</div>
               )}

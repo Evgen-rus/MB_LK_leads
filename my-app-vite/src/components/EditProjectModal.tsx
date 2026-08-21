@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { regions as allRegions, normalizeRegionValues, regionLabelByCode } from '../data/regions';
+import { normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { Project, ProjectMutableStatus, ProjectStatus, CollectionSource } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
 import { normalizePhonesMultiline } from '../utils/phones';
@@ -13,6 +13,7 @@ import {
   toDisplaySourceCode,
   type RawSourceCode,
 } from '../utils/sourceCodeDisplay';
+import RegionPicker from './RegionPicker';
 import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
@@ -115,31 +116,6 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
       setPhonesError(null);
     }
   }
-
-  const baseRegionIndex = useMemo(() => {
-    const m = new Map<string, number>();
-    allRegions.forEach((r, i) => m.set(r.code, i));
-    return m;
-  }, []);
-  const filteredRegions = useMemo(() => {
-    const q = regionQuery.trim().toLowerCase();
-    if (!q) return allRegions;
-    return allRegions.filter((r) => (
-      r.name.toLowerCase().includes(q) || r.code.includes(q)
-    ));
-  }, [regionQuery]);
-  const displayRegions = useMemo(() => {
-    const list = filteredRegions.slice();
-    list.sort((a, b) => {
-      const aSel = regions.includes(a.code) ? 1 : 0;
-      const bSel = regions.includes(b.code) ? 1 : 0;
-      if (aSel !== bSel) return bSel - aSel;
-      const ai = baseRegionIndex.get(a.code) ?? 0;
-      const bi = baseRegionIndex.get(b.code) ?? 0;
-      return ai - bi;
-    });
-    return list;
-  }, [filteredRegions, regions, baseRegionIndex]);
 
   function toggleDay(day: DayAbbrev) {
     setDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
@@ -465,7 +441,7 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
                 <label><input type="radio" name="regionMode" checked={regionMode==='exclude'} disabled /> Исключить</label>
                 <input
                   type="search"
-                  placeholder="Поиск по регионам"
+                  placeholder="Поиск по регионам и округам"
                   value={regionQuery}
                   onFocus={() => setRegionsOpen(true)}
                   onClick={() => setRegionsOpen(true)}
@@ -480,18 +456,12 @@ function EditProjectModal({ project, onClose, onSubmit, readOnly = false, region
                 Менять можно список регионов. Режим (включить/исключить) - только при создании проекта.
               </div>
               {regionsOpen ? (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 160, overflow: 'auto', padding: 6, border: '1px solid #eee', borderRadius: 8 }}>
-                  {displayRegions.map((r) => (
-                    <label key={r.code} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input
-                        type="checkbox"
-                        checked={regions.includes(r.code)}
-                        onChange={(e) => setRegions((prev) => e.target.checked ? [...prev, r.code] : prev.filter(x => x !== r.code))}
-                        disabled={readOnly}
-                      /> {r.name}
-                    </label>
-                  ))}
-                </div>
+                <RegionPicker
+                  selectedRegions={regions}
+                  onChange={setRegions}
+                  query={regionQuery}
+                  disabled={readOnly}
+                />
               ) : (
                 <div className="hint" style={{ color: '#666' }}>Список скрыт. Нажмите в поле поиска, чтобы открыть.</div>
               )}

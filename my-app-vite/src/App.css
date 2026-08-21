@@ -552,6 +552,55 @@
 @keyframes project-status-spin {
   to { transform: rotate(360deg); }
 }
+.region-picker {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+.region-picker__district {
+  display: grid;
+  gap: 4px;
+}
+.region-picker__district-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #f7f7fb;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.region-picker__short {
+  color: #6b6b78;
+  font-weight: 500;
+}
+.region-picker__count {
+  margin-left: auto;
+  color: #888;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.region-picker__regions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 4px 4px 22px;
+}
+.region-picker__region {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .region-quick-tools {
   display: grid;
   gap: 10px;

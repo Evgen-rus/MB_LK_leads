@@ -83,6 +83,73 @@ export const regions: RegionOption[] = [
   { code: '87', name: 'Чукотский АО' },
 ];
 
+export type FederalDistrict = {
+  id: string;
+  name: string;
+  shortName: string;
+  codes: string[];
+};
+
+// Только регионы из справочника Prostats выше. Официальные субъекты, которых нет в каталоге, в округа не входят.
+export const federalDistricts: FederalDistrict[] = [
+  {
+    id: 'cfo',
+    name: 'Центральный ФО',
+    shortName: 'ЦФО',
+    codes: ['31', '32', '33', '36', '37', '40', '44', '46', '48', '57', '62', '67', '68', '69', '71', '76', '77'],
+  },
+  {
+    id: 'szfo',
+    name: 'Северо-Западный ФО',
+    shortName: 'СЗФО',
+    codes: ['10', '11', '29', '35', '39', '51', '53', '60', '78'],
+  },
+  {
+    id: 'ufo',
+    name: 'Южный ФО',
+    shortName: 'ЮФО',
+    codes: ['1', '8', '23', '30', '34', '61'],
+  },
+  {
+    id: 'skfo',
+    name: 'Северо-Кавказский ФО',
+    shortName: 'СКФО',
+    codes: ['5', '6', '7', '9', '15', '20', '26'],
+  },
+  {
+    id: 'pfo',
+    name: 'Приволжский ФО',
+    shortName: 'ПФО',
+    codes: ['2', '12', '13', '16', '18', '21', '43', '52', '56', '58', '59', '63', '64', '73'],
+  },
+  {
+    id: 'urfo',
+    name: 'Уральский ФО',
+    shortName: 'УрФО',
+    codes: ['45', '66', '72', '74', '86'],
+  },
+  {
+    id: 'sfo',
+    name: 'Сибирский ФО',
+    shortName: 'СФО',
+    codes: ['4', '17', '19', '22', '24', '38', '42', '54', '55', '70'],
+  },
+  {
+    id: 'dfo',
+    name: 'Дальневосточный ФО',
+    shortName: 'ДФО',
+    codes: ['14', '25', '27', '28', '41', '49', '65', '79', '87'],
+  },
+];
+
+const regionOptionByCode = new Map<string, RegionOption>(regions.map((r) => [r.code, r]));
+
+export function regionsInDistrict(district: FederalDistrict): RegionOption[] {
+  return district.codes
+    .map((code) => regionOptionByCode.get(code))
+    .filter((region): region is RegionOption => Boolean(region));
+}
+
 const regionNameByCode = new Map<string, string>(regions.map((r) => [r.code, r.name]));
 const regionCodeByName = new Map<string, string>(regions.map((r) => [r.name, r.code]));
 

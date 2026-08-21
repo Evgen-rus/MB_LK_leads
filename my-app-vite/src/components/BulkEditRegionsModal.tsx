@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { regions as allRegions, normalizeRegionValues } from '../data/regions';
+import { normalizeRegionValues } from '../data/regions';
 import type { Project } from '../types/project';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
 import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 import BulkEditModalFrame from './BulkEditModalFrame';
+import RegionPicker from './RegionPicker';
 import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
 
 type RegionMode = 'include' | 'exclude';
@@ -42,14 +43,6 @@ function BulkEditRegionsModal({
   const mixedModes = includeProjects.length > 0 && excludeProjects.length > 0;
   const targetProjects = targetMode === 'include' ? includeProjects : excludeProjects;
   const skippedProjects = targetMode === 'include' ? excludeProjects : includeProjects;
-
-  const filteredRegions = useMemo(() => {
-    const q = regionQuery.trim().toLowerCase();
-    if (!q) return allRegions;
-    return allRegions.filter(
-      (item) => item.name.toLowerCase().includes(q) || item.code.includes(q),
-    );
-  }, [regionQuery]);
 
   return (
     <BulkEditModalFrame
@@ -108,41 +101,17 @@ function BulkEditRegionsModal({
       )}
       <input
         type="search"
-        placeholder="Поиск по регионам"
+        placeholder="Поиск по регионам и округам"
         value={regionQuery}
         onChange={(e) => setRegionQuery(e.target.value)}
         disabled={submitting}
       />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: 6,
-          maxHeight: 220,
-          overflow: 'auto',
-          padding: 6,
-          border: '1px solid #eee',
-          borderRadius: 8,
-        }}
-      >
-        {filteredRegions.map((item) => (
-          <label key={item.code} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={selectedRegions.includes(item.code)}
-              disabled={submitting}
-              onChange={(e) =>
-                setSelectedRegions((prev) =>
-                  e.target.checked
-                    ? [...prev, item.code]
-                    : prev.filter((code) => code !== item.code),
-                )
-              }
-            />
-            {item.name}
-          </label>
-        ))}
-      </div>
+      <RegionPicker
+        selectedRegions={selectedRegions}
+        onChange={setSelectedRegions}
+        query={regionQuery}
+        disabled={submitting}
+      />
       <div className="sub" style={{ color: '#666' }}>
         Выбрано регионов: {selectedRegions.length}
       </div>
