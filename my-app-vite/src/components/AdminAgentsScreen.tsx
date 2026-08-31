@@ -18,6 +18,7 @@ import {
   impersonateClient,
   pauseAdminClientProjects,
   resumeAdminClientProjects,
+  type ProjectOperation,
   transferAdminClientOwner,
   updateAdminClient,
   updateAdminClientWorkStatus,
@@ -29,6 +30,12 @@ import {
   type ClientFinanceStatus,
 } from '../api';
 import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
+import {
+  getProjectOperationStatusLabel,
+  getProjectOperationUserMessage,
+  isProjectOperationActive,
+  useProjectOperation,
+} from '../utils/useProjectOperation';
 
 type AdminAgentsScreenProps = {
   onOpenClientProjects?: (clientId: number, clientName: string) => void;
@@ -198,11 +205,34 @@ function AdminAgentsScreen({
   const [collectionState, setCollectionState] = useState<AdminClientCollectionState | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [collectionActionLoading, setCollectionActionLoading] = useState(false);
+  const [collectionRefreshKey, setCollectionRefreshKey] = useState(0);
   const [collectionRunInfo, setCollectionRunInfo] = useState<{ mode: 'pause' | 'resume'; total: number } | null>(null);
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
   const [isMobile, setIsMobile] = useState(false);
+
+  function handleProjectOperationTerminal(operation: ProjectOperation) {
+    const completed = operation.completedCount || operation.successCount + operation.failedCount;
+    setCollectionActionLoading(false);
+    setCollectionRunInfo(null);
+    setCollectionLastInfo(
+      `Выполнено: ${completed}/${operation.totalCount}. Успешно: ${operation.successCount}. Ошибок: ${operation.failedCount}.`,
+    );
+    setCollectionRefreshKey((value) => value + 1);
+    window.dispatchEvent(new CustomEvent('app-toast', {
+      detail: `${getProjectOperationUserMessage(operation, { isAdmin: true })}\nСтатус: ${getProjectOperationStatusLabel(operation.status)}.\nВыполнено: ${completed}/${operation.totalCount}. Успешно: ${operation.successCount}. Ошибок: ${operation.failedCount}.`,
+    }));
+  }
+
+  const projectOperationTracker = useProjectOperation({
+    clientId: selectedClientId ?? undefined,
+    enabled: selectedClientId != null,
+    onTerminal: handleProjectOperationTerminal,
+  });
+  const projectOperation = projectOperationTracker.operation;
+  const operationActive = isProjectOperationActive(projectOperation);
+  const collectionBusy = collectionActionLoading || operationActive;
   const clientCabinetBase =
     typeof env.VITE_CLIENT_PORTAL_URL === 'string' && env.VITE_CLIENT_PORTAL_URL
       ? (env.VITE_CLIENT_PORTAL_URL as string)
@@ -378,7 +408,7 @@ function AdminAgentsScreen({
     return () => {
       cancelled = true;
     };
-  }, [selectedClientId]);
+  }, [selectedClientId, collectionRefreshKey]);
 
   useEffect(() => {
     setCollectionLastInfo(null);
@@ -466,6 +496,7 @@ function AdminAgentsScreen({
   async function handleToggleCollection() {
     if (!selectedClient) return;
     if (!collectionState) return;
+    if (collectionBusy) return;
 
     const isPause = collectionState.action === 'pause';
     const confirmText = isPause
@@ -483,31 +514,17 @@ function AdminAgentsScreen({
       const resp = isPause
         ? await pauseAdminClientProjects(selectedClient.id)
         : await resumeAdminClientProjects(selectedClient.id);
-      setCollectionState(resp.state);
-      const successCount = isPause ? resp.pausedCount : resp.resumedCount;
-      const processedCount = successCount + resp.skippedCount + resp.failedCount;
-      setCollectionLastInfo(
-        `Выполнено: ${successCount}/${processedCount || 0}. Пропущено: ${resp.skippedCount}. Ошибок: ${resp.failedCount}.`,
-      );
-
-      const lines: string[] = [resp.message];
-      if (resp.failedCount > 0 || resp.skippedCount > 0) {
-        lines.push(
-          `Детали: успешно ${isPause ? resp.pausedCount : resp.resumedCount}, пропущено ${resp.skippedCount}, ошибок ${resp.failedCount}.`,
-        );
-      }
-      if (resp.errors.length > 0) {
-        lines.push(resp.errors.slice(0, 5).join('\n'));
-        if (resp.errors.length > 5) {
-          lines.push(`... и ещё ${resp.errors.length - 5}`);
-        }
-      }
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+      projectOperationTracker.start(resp.operation);
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: 'Операция сохранена и продолжится автоматически. Можно закрыть вкладку.',
+      }));
     } catch (err: unknown) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим сбора данных') }));
     } finally {
-      setCollectionActionLoading(false);
-      setCollectionRunInfo(null);
+      if (!projectOperationTracker.operation || !isProjectOperationActive(projectOperationTracker.operation)) {
+        setCollectionActionLoading(false);
+        setCollectionRunInfo(null);
+      }
     }
   }
 
@@ -985,7 +1002,7 @@ function AdminAgentsScreen({
                         className="btn btn--secondary client-summary__button--stacked"
                         disabled={
                           collectionLoading
-                          || collectionActionLoading
+                          || collectionBusy
                           || !collectionState
                           || !collectionState.actionEnabled
                         }
@@ -995,7 +1012,7 @@ function AdminAgentsScreen({
                         title={collectionState?.actionDisabledReason || undefined}
                       >
                         <span>
-                          {collectionActionLoading
+                          {collectionBusy
                             ? 'Выполняем…'
                             : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
                         </span>
@@ -1041,13 +1058,18 @@ function AdminAgentsScreen({
                           {collectionState.actionDisabledReason}
                         </span>
                       )}
-                      {collectionActionLoading && collectionRunInfo && (
+                      {collectionBusy && collectionRunInfo && (
                         <span className="sub">
                           {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
                           {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
                         </span>
                       )}
-                      {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
+                      {operationActive && projectOperation && (
+                        <span className="sub" style={{ color: '#6b4ce6' }}>
+                          {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
+                        </span>
+                      )}
+                      {!collectionBusy && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
                         <span className="sub">{collectionLastInfo}</span>
                       )}
                     </div>
@@ -1730,7 +1752,7 @@ function AdminAgentsScreen({
                                             className="btn btn--secondary client-summary__button--stacked"
                                             disabled={
                                               collectionLoading
-                                              || collectionActionLoading
+                                              || collectionBusy
                                               || !collectionState
                                               || !collectionState.actionEnabled
                                             }
@@ -1740,7 +1762,7 @@ function AdminAgentsScreen({
                                             title={collectionState?.actionDisabledReason || undefined}
                                           >
                                             <span>
-                                              {collectionActionLoading
+                                              {collectionBusy
                                                 ? 'Выполняем…'
                                                 : (collectionState?.actionLabel || 'Поставить проекты на паузу')}
                                             </span>
@@ -1786,13 +1808,18 @@ function AdminAgentsScreen({
                                               {collectionState.actionDisabledReason}
                                             </span>
                                           )}
-                                          {collectionActionLoading && collectionRunInfo && (
+                                          {collectionBusy && collectionRunInfo && (
                                             <span className="sub">
                                               {collectionRunInfo.mode === 'pause' ? 'Обрабатываем паузу' : 'Обрабатываем восстановление'}
                                               {collectionRunInfo.total > 0 ? `: 0/${collectionRunInfo.total}` : '...'}
                                             </span>
                                           )}
-                                          {!collectionActionLoading && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
+                                          {operationActive && projectOperation && (
+                                            <span className="sub" style={{ color: '#6b4ce6' }}>
+                                              {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
+                                            </span>
+                                          )}
+                                          {!collectionBusy && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
                                             <span className="sub">{collectionLastInfo}</span>
                                           )}
                                         </div>

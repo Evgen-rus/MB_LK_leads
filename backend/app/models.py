@@ -6,7 +6,7 @@ from datetime import datetime
 from .time_utils import now_msk
 from typing import Optional
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, BigInteger, UniqueConstraint, ForeignKey, Index, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
 
@@ -196,6 +196,86 @@ class ProjectOperationEvent(Base):
     error_code = Column(String, nullable=True)
     via_impersonation = Column(Boolean, nullable=True)
     created_at = Column(DateTime, default=now_msk, nullable=False)
+
+
+class ProjectOperationJob(Base):
+    """
+    Долговечная массовая операция над provider-проектами.
+
+    Job и его items намеренно отделены от ``project_operation_events``:
+    событие истории фиксирует отдельный неуспешный запрос, а job хранит
+    прогресс и состояние продолжающейся фоновой операции.  Pixel-проекты в
+    эту очередь не попадают на уровне вызывающего контура.
+    """
+    __tablename__ = "project_operation_jobs"
+    __table_args__ = (
+        Index("ix_project_operation_jobs_claim", "status", "next_attempt_at", "created_at"),
+        Index("ix_project_operation_jobs_client", "client_id", "created_at"),
+        # Защищает от двух активных операций одного клиента на PostgreSQL и
+        # SQLite.  CRUD также делает предварительную проверку для понятной
+        # ошибки; индекс остаётся последней линией защиты от гонки.
+        Index(
+            "uq_project_operation_jobs_active_client",
+            "client_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running', 'waiting_retry')"),
+            postgresql_where=text("status IN ('queued', 'running', 'waiting_retry')"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    operation_type = Column(String, nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_role = Column(String, nullable=True)
+    # Снимок параметров операции.  Не перечитываем изменившийся UI payload
+    # при возобновлении после перезапуска.
+    payload_snapshot = Column(JSON, nullable=True)
+    status = Column(String, nullable=False, default="queued", index=True)
+    total_count = Column(Integer, nullable=False, default=0)
+    completed_count = Column(Integer, nullable=False, default=0)
+    success_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    waiting_count = Column(Integer, nullable=False, default=0)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
+    lease_until = Column(DateTime, nullable=True, index=True)
+    leased_by = Column(String, nullable=True)
+    last_error = Column(String, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
+
+
+class ProjectOperationItem(Base):
+    """Один зафиксированный проект внутри ``ProjectOperationJob``."""
+    __tablename__ = "project_operation_items"
+    __table_args__ = (
+        UniqueConstraint("operation_id", "project_id", name="uq_project_operation_item_project"),
+        Index("ix_project_operation_items_claim", "operation_id", "status", "next_attempt_at"),
+        Index("ix_project_operation_items_lease", "status", "lease_until"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    operation_id = Column(Integer, ForeignKey("project_operation_jobs.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    # Provider id/name и исходное состояние сохраняются до внешнего вызова.
+    provider_project_id = Column(String, nullable=True)
+    project_name_snapshot = Column(String, nullable=True)
+    state_snapshot = Column(JSON, nullable=True)
+    payload_snapshot = Column(JSON, nullable=True)
+    status = Column(String, nullable=False, default="queued", index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime, nullable=True, index=True)
+    lease_until = Column(DateTime, nullable=True, index=True)
+    leased_by = Column(String, nullable=True)
+    last_error = Column(String, nullable=True)
+    result_snapshot = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
 
 
 class NotifyState(Base):

@@ -856,15 +856,77 @@ export type AdminClientCollectionState = {
   snapshotProjects: AdminCollectionProjectItem[];
 };
 
-export type AdminClientCollectionActionResp = {
-  state: AdminClientCollectionState;
-  message: string;
-  pausedCount: number;
-  resumedCount: number;
-  skippedCount: number;
+export type ProjectOperationStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_retry'
+  | 'completed'
+  | 'needs_attention'
+  | 'failed'
+  | string;
+
+export type ProjectOperation = {
+  id: number;
+  clientId: number;
+  type: string;
+  status: ProjectOperationStatus;
+  totalCount: number;
+  completedCount: number;
+  successCount: number;
   failedCount: number;
-  errors: string[];
+  waitingCount: number;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+  nextAttemptAt?: string | null;
+  message: string;
+  technicalError?: string | null;
 };
+
+export type ProjectOperationResponse = { operation: ProjectOperation };
+
+export type ProjectBulkOperationPayload = {
+  projectIds: number[];
+  action: 'update' | 'delete';
+  patch?: Record<string, unknown>;
+};
+
+export async function createProjectBulkOperation(
+  payload: ProjectBulkOperationPayload,
+): Promise<ProjectOperationResponse> {
+  return http<ProjectOperationResponse>('/project-operations/bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAdminProjectBulkOperation(
+  payload: ProjectBulkOperationPayload,
+): Promise<ProjectOperationResponse> {
+  return http<ProjectOperationResponse>('/admin/project-operations/bulk', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchProjectOperation(id: number): Promise<ProjectOperation> {
+  return http<ProjectOperation>(`/project-operations/${id}`);
+}
+
+export async function fetchActiveProjectOperation(clientId?: number): Promise<ProjectOperation | null> {
+  const q = clientId == null ? '' : `?clientId=${encodeURIComponent(String(clientId))}`;
+  try {
+    const response = await http<ProjectOperation | { operation?: ProjectOperation | null }>(`/project-operations/active${q}`);
+    if (response && typeof response === 'object' && 'operation' in response) {
+      return response.operation ?? null;
+    }
+    return response as ProjectOperation | null;
+  } catch (err: unknown) {
+    if ((err as HttpError | null)?.status === 404) return null;
+    throw err;
+  }
+}
 
 export type OperatorBlockCheckResp = {
   checked: number;
@@ -1180,14 +1242,14 @@ export async function fetchAdminClientCollectionState(clientId: number): Promise
   return http<AdminClientCollectionState>(`/admin/clients/${clientId}/collection-state`);
 }
 
-export async function pauseAdminClientProjects(clientId: number): Promise<AdminClientCollectionActionResp> {
-  return http<AdminClientCollectionActionResp>(`/admin/clients/${clientId}/collection/pause`, {
+export async function pauseAdminClientProjects(clientId: number): Promise<ProjectOperationResponse> {
+  return http<ProjectOperationResponse>(`/admin/clients/${clientId}/collection/pause`, {
     method: 'POST',
   });
 }
 
-export async function resumeAdminClientProjects(clientId: number): Promise<AdminClientCollectionActionResp> {
-  return http<AdminClientCollectionActionResp>(`/admin/clients/${clientId}/collection/resume`, {
+export async function resumeAdminClientProjects(clientId: number): Promise<ProjectOperationResponse> {
+  return http<ProjectOperationResponse>(`/admin/clients/${clientId}/collection/resume`, {
     method: 'POST',
   });
 }

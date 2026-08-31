@@ -126,6 +126,59 @@ class ProjectListOut(BaseModel):
     total: int
 
 
+# -------- Долговечные операции над provider-проектами --------
+ProjectOperationStatus = Literal['queued', 'running', 'waiting_retry', 'completed', 'needs_attention']
+ProjectOperationItemStatus = ProjectOperationStatus
+
+
+class ProjectOperationItemOut(BaseModel):
+    id: int
+    projectId: int
+    projectName: Optional[str] = None
+    status: ProjectOperationItemStatus
+    attemptCount: int
+    nextAttemptAt: Optional[datetime] = None
+    finishedAt: Optional[datetime] = None
+    message: str
+    # Заполняется только для администратора. Для клиента/агента всегда None.
+    technicalError: Optional[str] = None
+
+
+class ProjectOperationOut(BaseModel):
+    """Состояние фоновой операции; техническая причина role-aware."""
+    id: int
+    clientId: int
+    type: str
+    status: ProjectOperationStatus
+    totalCount: int
+    completedCount: int
+    successCount: int
+    failedCount: int
+    waitingCount: int
+    createdAt: datetime
+    startedAt: Optional[datetime] = None
+    finishedAt: Optional[datetime] = None
+    updatedAt: datetime
+    nextAttemptAt: Optional[datetime] = None
+    message: str
+    # Админ может получить техническую ошибку поставщика; клиент и агент — нет.
+    technicalError: Optional[str] = None
+
+
+class ProjectOperationLaunchOut(BaseModel):
+    operation: ProjectOperationOut
+
+
+class ProjectBulkOperationIn(BaseModel):
+    projectIds: List[int] = Field(min_length=1)
+    action: Literal['update', 'delete']
+    patch: Dict[str, Any] = Field(default_factory=dict)
+
+
+# Явное имя для endpoint-контрактов; Out оставлен в стиле существующих схем.
+ProjectOperationLaunchResponse = ProjectOperationLaunchOut
+
+
 # -------- Админские схемы (все клиенты) --------
 class UserInfo(BaseModel):
     """Информация о владельце для админских ответов."""

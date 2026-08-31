@@ -27,6 +27,7 @@ from typing import Any, List, Optional
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response, FileResponse
+from pydantic import ValidationError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -36,7 +37,18 @@ from sqlalchemy import inspect, or_, select, text
 from starlette.background import BackgroundTask
 from starlette.requests import ClientDisconnect
 
-from . import db, models, schemas, crud, notify_worker, logging_setup, auth, notifications
+from . import (
+    auth,
+    crud,
+    db,
+    logging_setup,
+    models,
+    notifications,
+    notify_worker,
+    project_operations,
+    project_operations_worker,
+    schemas,
+)
 from . import provider_leads_xlsx_import as provider_leads_import
 from .time_utils import now_msk
 from .providers import prostats
@@ -348,6 +360,15 @@ def _ensure_project_operation_event_columns() -> None:
 
 
 _ensure_project_operation_event_columns()
+
+
+def _ensure_project_operation_tables() -> None:
+    """Новые долговечные job-таблицы создаются целиком через create_all/checkfirst."""
+    models.ProjectOperationJob.__table__.create(bind=engine, checkfirst=True)
+    models.ProjectOperationItem.__table__.create(bind=engine, checkfirst=True)
+
+
+_ensure_project_operation_tables()
 
 
 def _ensure_telegram_notification_columns() -> None:
@@ -1119,6 +1140,18 @@ def startup_event():
     )
     worker.start()
 
+    project_operations_thread = threading.Thread(
+        target=project_operations_worker.run_project_operations_worker,
+        kwargs={
+            "SessionLocal": SessionLocal,
+            "processor": _process_project_operation_item,
+            "poll_seconds": 5,
+        },
+        daemon=True,
+        name="project-operations-worker-thread",
+    )
+    project_operations_thread.start()
+
     # Периодический контроль: тарифные сигналы для всех клиентов,
     # автопауза лимитов только при users.auto_limit_control_enabled.
     limit_worker = threading.Thread(
@@ -1512,6 +1545,10 @@ def _run_limit_control_for_client(
     if not user:
         return {"paused": 0, "errors": [], "skipped": 0}
 
+    # Массовая provider-операция владеет изменениями проектов клиента.
+    # Тарифный сигнал остаётся независимым, а автопауза будет отложена.
+    active_project_operation = crud.get_active_project_operation(db_sess, int(client_id))
+
     user_snapshot = _snapshot_limit_control_user(user, db_sess=db_sess)
     remaining = crud.get_client_remaining_numbers(db_sess, client_id=int(client_id))
     active_projects = db_sess.execute(
@@ -1537,6 +1574,9 @@ def _run_limit_control_for_client(
             user_snapshot=user_snapshot,
             remaining=remaining,
         )
+
+    if active_project_operation is not None:
+        return {"paused": 0, "errors": [], "skipped": 0, "deferred": True}
 
     if not bool(user_snapshot["auto_limit_control_enabled"]):
         return {"paused": 0, "errors": [], "skipped": 0}
@@ -1642,6 +1682,250 @@ def _snapshot_limit_control_project(project: models.Project) -> dict:
 
 def _project_snapshot_for_prostats(project: models.Project) -> SimpleNamespace:
     return SimpleNamespace(**_snapshot_limit_control_project(project))
+
+
+def _project_days_for_operation(project: models.Project) -> List[schemas.Day]:
+    mapping = {"Пн": "Пн", "Вт": "Вт", "Ср": "Ср", "Чт": "Чт", "Пт": "Пт", "Сб": "Сб", "Вс": "Вс"}
+    days: List[schemas.Day] = []
+    for raw in str(getattr(project, "days_received", "") or "").split():
+        normalized = raw.strip().rstrip(".")
+        if normalized in mapping:
+            days.append(mapping[normalized])  # type: ignore[arg-type]
+    return days or ["Вт", "Ср", "Чт", "Пт", "Сб"]
+
+
+def _project_update_data_for_operation(project: models.Project, patch: dict, *, admin: bool) -> dict:
+    current_status = "Активен" if project.status == crud.PROJECT_STATUS_OPERATOR_BLOCK else project.status
+    data = {
+        "name": project.name,
+        "tag": project.tag or project.name,
+        "status": current_status,
+        "dataLimit": int(project.data_limit or 0),
+        "regionMode": project.region_mode or "include",
+        "regions": list(project.regions or []),
+        "sites": list(project.sites or []),
+        "phones": list(project.phones or []),
+        "smsSenderName": project.sms_sender_name,
+        "days": _project_days_for_operation(project),
+    }
+    if admin:
+        data["deliveryStatus"] = project.delivery_status
+    data.update(dict(patch or {}))
+    schema_type = schemas.AdminProjectUpdate if admin else schemas.ProjectUpdate
+    validated = schema_type(**data)
+    return validated.dict()
+
+
+def _project_operation_error_result(exc: prostats.ProstatsError) -> project_operations.ProjectOperationItemResult:
+    technical_error = (
+        f"Prostats: {exc.message} "
+        f"(HTTP {exc.status_code}, kind={exc.kind}, ambiguous={str(exc.ambiguous).lower()})"
+    )
+    if exc.retryable:
+        return project_operations.ProjectOperationItemResult.waiting_retry(error=technical_error)
+    return project_operations.ProjectOperationItemResult.needs_attention(error=technical_error)
+
+
+def _prostats_delete_already_applied(exc: prostats.ProstatsError) -> bool:
+    message = str(exc.message or "").lower()
+    return exc.status_code == 404 or "не найден" in message or "not found" in message
+
+
+def _process_project_operation_item(
+    item: project_operations.ProjectOperationItemContext,
+) -> project_operations.ProjectOperationItemResult:
+    """Выполнить один сохранённый item без удержания request-scoped DB-сессии."""
+    payload_snapshot = dict(item.payload_snapshot or {})
+    action = str(payload_snapshot.get("action") or "").strip()
+    actor_user_id = int(payload_snapshot.get("actorUserId") or item.client_id)
+    admin_update = bool(payload_snapshot.get("adminUpdate"))
+
+    with SessionLocal() as read_sess:  # type: Session
+        project = read_sess.get(models.Project, int(item.project_id))
+        if not project or int(project.user_id or 0) != int(item.client_id):
+            return project_operations.ProjectOperationItemResult.needs_attention(error="Проект не найден.")
+        if _is_pixel_project(project):
+            return project_operations.ProjectOperationItemResult.needs_attention(
+                error="Pixel-проект не поддерживается этой операцией."
+            )
+        project_snapshot = _project_snapshot_for_prostats(project)
+        local_status = str(project.status or "")
+        provider_project_id = str(project.provider_project_id or "").strip()
+
+    if action == "status":
+        desired_status = str(payload_snapshot.get("status") or "")
+        if desired_status not in {"Активен", "На паузе"}:
+            return project_operations.ProjectOperationItemResult.needs_attention(error="Недопустимый статус проекта.")
+        if desired_status == "Активен" and local_status != "Активен":
+            with SessionLocal() as limit_sess:  # type: Session
+                allowed, reason = crud.can_activate_project_under_limit_control(limit_sess, project_id=item.project_id)
+            if not allowed:
+                return project_operations.ProjectOperationItemResult.needs_attention(
+                    error=reason or "Включение проекта ограничено настройками клиента."
+                )
+        skip_provider = _should_skip_provider_sync_for_status_change(project_snapshot, desired_status)
+        if not skip_provider and not provider_project_id:
+            return project_operations.ProjectOperationItemResult.needs_attention(
+                error="Проект не связан с сервисом обработки данных."
+            )
+        try:
+            if not skip_provider:
+                reconciliation = prostats.reconcile_project_status(provider_project_id, desired_status)
+                if not reconciliation.get("already_applied"):
+                    prostats.update_project_status(provider_project_id, project_snapshot, desired_status)  # type: ignore[arg-type]
+        except prostats.ProstatsError as exc:
+            return _project_operation_error_result(exc)
+
+        with SessionLocal() as write_sess:  # type: Session
+            ok = crud.admin_update_project_status_only(
+                write_sess,
+                project_id=item.project_id,
+                status=desired_status,  # type: ignore[arg-type]
+                admin_user_id=actor_user_id,
+            )
+            if not ok:
+                return project_operations.ProjectOperationItemResult.needs_attention(error="Проект не найден.")
+        collection_action = str(payload_snapshot.get("collectionAction") or "")
+        if collection_action == "pause":
+            with SessionLocal() as snapshot_sess:  # type: Session
+                crud.admin_add_pause_snapshot_project(
+                    snapshot_sess,
+                    client_id=item.client_id,
+                    project_id=item.project_id,
+                    admin_user_id=actor_user_id,
+                )
+        elif collection_action == "resume":
+            with SessionLocal() as snapshot_sess:  # type: Session
+                remaining = crud.admin_remove_pause_snapshot_project(
+                    snapshot_sess,
+                    client_id=item.client_id,
+                    project_id=item.project_id,
+                    admin_user_id=actor_user_id,
+                )
+                if remaining is None:
+                    crud.admin_set_client_projects_mutation_lock(
+                        snapshot_sess,
+                        client_id=item.client_id,
+                        locked=False,
+                        admin_user_id=actor_user_id,
+                    )
+        _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+        return project_operations.ProjectOperationItemResult.completed(
+            {"status": desired_status, "providerConfirmed": not skip_provider}
+        )
+
+    if action == "delete":
+        if local_status == "Удалён":
+            return project_operations.ProjectOperationItemResult.completed({"status": "Удалён"})
+        if not provider_project_id:
+            return project_operations.ProjectOperationItemResult.needs_attention(
+                error="Проект не связан с сервисом обработки данных."
+            )
+        try:
+            prostats.delete_project(provider_project_id, project_snapshot)
+        except prostats.ProstatsError as exc:
+            if not _prostats_delete_already_applied(exc):
+                return _project_operation_error_result(exc)
+        with SessionLocal() as write_sess:  # type: Session
+            ok = (
+                crud.admin_delete_project(write_sess, item.project_id, admin_user_id=actor_user_id)
+                if admin_update
+                else crud.delete_project(
+                    write_sess,
+                    item.project_id,
+                    user_id=item.client_id,
+                    actor_user_id=actor_user_id,
+                    via_impersonation=actor_user_id != item.client_id,
+                )
+            )
+            if not ok:
+                return project_operations.ProjectOperationItemResult.needs_attention(error="Проект не найден.")
+        _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+        return project_operations.ProjectOperationItemResult.completed({"status": "Удалён"})
+
+    if action != "update":
+        return project_operations.ProjectOperationItemResult.needs_attention(error="Неизвестный тип операции.")
+
+    try:
+        update_data = dict(payload_snapshot.get("update") or {})
+        update_payload = (
+            schemas.AdminProjectUpdate(**update_data)
+            if admin_update
+            else schemas.ProjectUpdate(**update_data)
+        )
+    except ValidationError as exc:
+        return project_operations.ProjectOperationItemResult.needs_attention(error=str(exc)[:1000])
+
+    if update_payload.status == "Активен" and local_status != "Активен":
+        with SessionLocal() as limit_sess:  # type: Session
+            allowed, reason = crud.can_activate_project_under_limit_control(
+                limit_sess,
+                project_id=item.project_id,
+                projected_data_limit=int(update_payload.dataLimit),
+            )
+        if not allowed:
+            return project_operations.ProjectOperationItemResult.needs_attention(
+                error=reason or "Включение проекта ограничено настройками клиента."
+            )
+
+    skip_provider = _should_skip_provider_sync_for_status_change(project_snapshot, update_payload.status)
+    if not skip_provider and not provider_project_id:
+        return project_operations.ProjectOperationItemResult.needs_attention(
+            error="Проект не связан с сервисом обработки данных."
+        )
+    try:
+        if not skip_provider:
+            result = prostats.update_project(provider_project_id, project_snapshot, update_payload)
+            missing_items = list(result.get("missing_items") or [])
+            target_type = result.get("target_type")
+            if missing_items and target_type == "hosts":
+                update_payload.sites = [value for value in (update_payload.sites or []) if value not in missing_items]
+            elif missing_items and target_type == "calls":
+                update_payload.phones = [value for value in (update_payload.phones or []) if value not in missing_items]
+    except prostats.ProstatsError as exc:
+        return _project_operation_error_result(exc)
+
+    with SessionLocal() as write_sess:  # type: Session
+        try:
+            updated = (
+                crud.admin_update_project(
+                    write_sess,
+                    item.project_id,
+                    update_payload,  # type: ignore[arg-type]
+                    admin_user_id=actor_user_id,
+                )
+                if admin_update
+                else crud.update_project(
+                    write_sess,
+                    item.project_id,
+                    update_payload,  # type: ignore[arg-type]
+                    user_id=item.client_id,
+                    actor_user_id=actor_user_id,
+                    via_impersonation=actor_user_id != item.client_id,
+                )
+            )
+        except IntegrityError as exc:
+            write_sess.rollback()
+            return project_operations.ProjectOperationItemResult.needs_attention(error=str(exc)[:1000])
+        if not updated:
+            return project_operations.ProjectOperationItemResult.needs_attention(error="Проект не найден.")
+    _schedule_debounce_in_new_session(settings["DEBOUNCE_WINDOW_MINUTES"])
+    try:
+        _run_limit_control_for_client_in_new_session(item.client_id, trigger="project_operation_update")
+    except Exception:
+        logging.getLogger("app").warning(
+            "Failed to run limit control after project operation: operation_id=%s project_id=%s",
+            item.operation_id,
+            item.project_id,
+            exc_info=True,
+        )
+    if update_payload.status != "Удалён" and project_snapshot.collection_source == "СМС":
+        _queue_sms_project_notification(
+            project_id=int(item.project_id),
+            action="update",
+            actor_user_id=actor_user_id,
+        )
+    return project_operations.ProjectOperationItemResult.completed({"status": update_payload.status})
 
 
 def _project_field(project: Any, key: str, default: Any = None) -> Any:
@@ -2892,7 +3176,8 @@ def _http_error_code(detail: object) -> Optional[str]:
 
 def _prostats_http_detail(exc: prostats.ProstatsError) -> dict:
     # details может содержать сырой HTML поставщика; наружу отдаём только безопасное сообщение.
-    return {"message": exc.message}
+    message = re.sub(r"(?i)prostats(?:_token)?", "сервис обработки данных", str(exc.message or ""))
+    return {"message": message or "Не удалось выполнить операцию в сервисе обработки данных."}
 
 
 def _project_payload_for_history(payload: object) -> dict:
@@ -2953,6 +3238,190 @@ def _record_failed_project_operation(
             operation,
             exc_info=True,
         )
+
+
+def _project_operation_conflict(exc: project_operations.ActiveProjectOperationError) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "PROJECT_OPERATION_IN_PROGRESS",
+            "message": "Для этого клиента уже выполняется операция с проектами.",
+            "operationId": exc.operation_id,
+        },
+    )
+
+
+def _ensure_project_operation_access(
+    db_sess: Session,
+    current_user: models.User,
+    client_id: int,
+) -> None:
+    if crud.is_admin_user(current_user) or crud.is_agent_user(current_user):
+        _ensure_manager_client_access(db_sess, current_user, int(client_id))
+        return
+    if int(current_user.id) != int(client_id):
+        raise HTTPException(status_code=404, detail="Operation not found")
+
+
+def _launch_bulk_project_operation(
+    db_sess: Session,
+    *,
+    payload: schemas.ProjectBulkOperationIn,
+    current_user: models.User,
+    manager_mode: bool,
+) -> models.ProjectOperationJob:
+    project_ids = list(dict.fromkeys(int(value) for value in payload.projectIds))
+    if manager_mode and payload.action == "delete" and not crud.is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Удаление проектов доступно только администратору.")
+    if payload.action == "update" and str(payload.patch.get("status") or "") == "Удалён":
+        raise HTTPException(
+            status_code=422,
+            detail="Статус «Удалён» выполняется только отдельной операцией удаления.",
+        )
+    rows = db_sess.execute(
+        select(models.Project).where(models.Project.id.in_(project_ids)).order_by(models.Project.id.asc())
+    ).scalars().all()
+    if len(rows) != len(project_ids):
+        raise HTTPException(status_code=404, detail="Один или несколько проектов не найдены.")
+    if any(_is_pixel_project(project) for project in rows):
+        raise HTTPException(status_code=422, detail="Pixel-проекты не поддерживаются этой массовой операцией.")
+    owner_ids = {int(project.user_id or 0) for project in rows}
+    if len(owner_ids) != 1 or 0 in owner_ids:
+        raise HTTPException(status_code=422, detail="Все проекты операции должны принадлежать одному клиенту.")
+    client_id = next(iter(owner_ids))
+    client = db_sess.get(models.User, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if manager_mode:
+        _ensure_manager_client_access(db_sess, current_user, client_id)
+        for project in rows:
+            if not crud.manager_can_access_project(db_sess, current_user, int(project.id)):
+                raise HTTPException(status_code=403, detail="Нет доступа к одному или нескольким проектам.")
+    elif int(current_user.id) != client_id:
+        raise HTTPException(status_code=404, detail="Один или несколько проектов не найдены.")
+    if bool(getattr(client, "projects_mutation_locked", False)):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECTS_LOCKED_BY_ADMIN",
+                "message": "Изменение проектов временно заблокировано администратором.",
+            },
+        )
+
+    actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    items: List[dict] = []
+    for project in rows:
+        if project.status == "Удалён":
+            raise HTTPException(status_code=409, detail=f'Проект {project.id} уже удалён.')
+        item_payload: dict = {
+            "action": payload.action,
+            "actorUserId": actor_user_id,
+            "adminUpdate": bool(manager_mode),
+            "viaImpersonation": via_impersonation,
+        }
+        if payload.action == "update":
+            try:
+                item_payload["update"] = _project_update_data_for_operation(
+                    project,
+                    payload.patch,
+                    admin=manager_mode,
+                )
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        items.append(
+            {
+                "projectId": int(project.id),
+                "providerProjectId": project.provider_project_id,
+                "projectName": project.name,
+                "stateSnapshot": _snapshot_limit_control_project(project),
+                "payloadSnapshot": item_payload,
+            }
+        )
+    try:
+        return crud.create_project_operation(
+            db_sess,
+            client_id=client_id,
+            operation_type=f"bulk_{payload.action}",
+            actor_user_id=actor_user_id,
+            actor_role=crud.get_user_role(current_user),
+            items=items,
+            payload_snapshot={"action": payload.action, "patch": payload.patch},
+        )
+    except project_operations.ActiveProjectOperationError as exc:
+        raise _project_operation_conflict(exc) from exc
+
+
+@app.get("/project-operations/active", response_model=schemas.ProjectOperationOut)
+def active_project_operation(
+    clientId: Optional[int] = None,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    client_id = int(clientId) if clientId is not None else int(current_user.id)
+    _ensure_project_operation_access(db_sess, current_user, client_id)
+    operation = crud.get_active_project_operation(db_sess, client_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail="Active operation not found")
+    return crud.project_operation_to_view(
+        db_sess,
+        operation,
+        include_technical=crud.is_admin_user(current_user),
+    )
+
+
+@app.get("/project-operations/{operation_id}", response_model=schemas.ProjectOperationOut)
+def project_operation_status(
+    operation_id: int,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    operation = crud.get_project_operation(db_sess, operation_id)
+    if not operation:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    _ensure_project_operation_access(db_sess, current_user, int(operation.client_id))
+    return crud.project_operation_to_view(
+        db_sess,
+        operation,
+        include_technical=crud.is_admin_user(current_user),
+    )
+
+
+@app.post("/project-operations/bulk", response_model=schemas.ProjectOperationLaunchOut, status_code=202)
+def create_client_project_operation(
+    payload: schemas.ProjectBulkOperationIn,
+    current_user: models.User = Depends(require_auth),
+    db_sess: Session = Depends(get_db),
+):
+    operation = _launch_bulk_project_operation(
+        db_sess,
+        payload=payload,
+        current_user=current_user,
+        manager_mode=False,
+    )
+    return schemas.ProjectOperationLaunchOut(
+        operation=crud.project_operation_to_view(db_sess, operation, include_technical=False)
+    )
+
+
+@app.post("/admin/project-operations/bulk", response_model=schemas.ProjectOperationLaunchOut, status_code=202)
+def create_admin_project_operation(
+    payload: schemas.ProjectBulkOperationIn,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    operation = _launch_bulk_project_operation(
+        db_sess,
+        payload=payload,
+        current_user=current_manager,
+        manager_mode=True,
+    )
+    return schemas.ProjectOperationLaunchOut(
+        operation=crud.project_operation_to_view(
+            db_sess,
+            operation,
+            include_technical=crud.is_admin_user(current_manager),
+        )
+    )
 
 
 @app.get("/me", response_model=schemas.SelfProfileOut)
@@ -5425,6 +5894,7 @@ def admin_update_project(
     project_row = _ensure_manager_project_access(db_sess, current_manager, project_id)
     operation = "delete" if payload.status == "Удалён" else "update"
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    _assert_manager_project_mutation_allowed(db_sess, owner_user_id)
     if operation == "delete" and not crud.is_admin_user(current_manager):
         raise HTTPException(status_code=403, detail="Удаление проекта доступно только администратору.")
     skip_provider_sync = _should_skip_provider_sync_for_status_change(project_row, payload.status)
@@ -5681,6 +6151,7 @@ def admin_delete_project(
     """Удалить проект (для админа)."""
     project_row = _ensure_manager_project_access(db_sess, current_admin, project_id)
     owner_user_id = int(project_row.user_id) if project_row.user_id else None
+    _assert_manager_project_mutation_allowed(db_sess, owner_user_id)
     if _is_pixel_project(project_row):
         db_sess.rollback()
         with SessionLocal() as write_sess:  # type: Session
@@ -6062,58 +6533,38 @@ def _ensure_admin_client_exists(db_sess: Session, client_id: int) -> models.User
 
 
 def _pause_and_lock_client_projects_by_admin(client_id: int, admin_user_id: int, reason: str) -> None:
-    with SessionLocal() as read_sess:  # type: Session
-        active_projects = read_sess.execute(
-            select(models.Project).where(
-                models.Project.user_id == client_id,
-                models.Project.status == "Активен",
-            ).order_by(models.Project.id.asc())
-        ).scalars().all()
-        active_project_snapshots = [_project_snapshot_for_prostats(project) for project in active_projects]
-
-    paused_ids: List[int] = []
-    for project_snapshot in active_project_snapshots:
-        if project_snapshot.status == "Удалён":
-            continue
-        skip_provider_sync = _should_skip_provider_sync_for_status_change(project_snapshot, "На паузе")
-        if not skip_provider_sync and not project_snapshot.provider_project_id:
-            continue
-        try:
-            if not skip_provider_sync:
-                prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "На паузе")
-            with SessionLocal() as write_sess:  # type: Session
-                ok = crud.admin_update_project_status_only(
-                    write_sess,
-                    project_id=int(project_snapshot.id),
-                    status="На паузе",
-                    admin_user_id=admin_user_id,
-                )
-            if ok:
-                paused_ids.append(int(project_snapshot.id))
-        except prostats.ProstatsError:
-            logging.getLogger("app").warning(
-                "Failed to pause project during agent disable: client_id=%s project_id=%s",
+    with SessionLocal() as operation_sess:  # type: Session
+        admin_user = operation_sess.get(models.User, int(admin_user_id))
+        if not admin_user:
+            logging.getLogger("app").error(
+                "Cannot enqueue pause during agent disable: admin_id=%s client_id=%s",
+                admin_user_id,
                 client_id,
-                getattr(project_snapshot, "id", None),
-                exc_info=True,
             )
+            return
+        try:
+            _launch_collection_project_operation(
+                operation_sess,
+                client_id=int(client_id),
+                action="pause",
+                current_admin=admin_user,
+            )
+        except HTTPException as exc:
+            # Уже заблокированный клиент или существующая job не должны
+            # отменять отключение агента; состояние остаётся видимым админу.
+            logging.getLogger("app").warning(
+                "Cannot enqueue pause during agent disable: client_id=%s detail=%s",
+                client_id,
+                _http_error_message(exc.detail),
+            )
+            return
+        client_user = operation_sess.get(models.User, int(client_id))
+        if client_user:
+            client_user.projects_mutation_lock_reason = reason
+            operation_sess.add(client_user)
+            operation_sess.commit()
 
-    with SessionLocal() as finalize_sess:  # type: Session
-        crud.admin_replace_pause_snapshot(
-            finalize_sess,
-            client_id=client_id,
-            project_ids=paused_ids,
-            admin_user_id=admin_user_id,
-        )
-        crud.admin_set_client_projects_mutation_lock(
-            finalize_sess,
-            client_id=client_id,
-            locked=True,
-            admin_user_id=admin_user_id,
-            reason=reason,
-        )
-        if paused_ids:
-            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
+
 def _assert_projects_mutation_allowed(current_user: models.User) -> None:
     if bool(getattr(current_user, "projects_mutation_locked", False)):
         raise HTTPException(
@@ -6121,6 +6572,41 @@ def _assert_projects_mutation_allowed(current_user: models.User) -> None:
             detail={
                 "code": "PROJECTS_LOCKED_BY_ADMIN",
                 "message": "Изменение проектов временно заблокировано администратором.",
+            },
+        )
+    with SessionLocal() as operation_sess:  # type: Session
+        active = crud.get_active_project_operation(operation_sess, int(current_user.id))
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECT_OPERATION_IN_PROGRESS",
+                "message": "Для этого клиента уже выполняется операция с проектами.",
+                "operationId": int(active.id),
+            },
+        )
+
+
+def _assert_manager_project_mutation_allowed(db_sess: Session, client_id: Optional[int]) -> None:
+    if client_id is None:
+        return
+    client = db_sess.get(models.User, int(client_id))
+    if client and bool(getattr(client, "projects_mutation_locked", False)):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECTS_LOCKED_BY_ADMIN",
+                "message": "Изменение проектов клиента временно заблокировано.",
+            },
+        )
+    active = crud.get_active_project_operation(db_sess, int(client_id))
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECT_OPERATION_IN_PROGRESS",
+                "message": "Для этого клиента уже выполняется операция с проектами.",
+                "operationId": int(active.id),
             },
         )
 
@@ -6135,239 +6621,158 @@ def admin_client_collection_state(
     return crud.admin_get_collection_state(db_sess, client_id=client_id)
 
 
-@app.post("/admin/clients/{client_id}/collection/pause", response_model=schemas.AdminClientCollectionActionOut)
+def _launch_collection_project_operation(
+    db_sess: Session,
+    *,
+    client_id: int,
+    action: str,
+    current_admin: models.User,
+) -> models.ProjectOperationJob:
+    client = _ensure_admin_client_exists(db_sess, client_id)
+    active = crud.get_active_project_operation(db_sess, client_id)
+    if active:
+        raise _project_operation_conflict(
+            project_operations.ActiveProjectOperationError(client_id, active.id)
+        )
+    if action == "pause" and bool(getattr(client, "projects_mutation_locked", False)):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROJECTS_ALREADY_PAUSED",
+                "message": "Проекты клиента уже заблокированы. Используйте возобновление.",
+            },
+        )
+
+    if action == "pause":
+        projects = db_sess.execute(
+            select(models.Project).where(
+                models.Project.user_id == client_id,
+                models.Project.status == "Активен",
+            ).order_by(models.Project.id.asc())
+        ).scalars().all()
+        projects = [project for project in projects if not _is_pixel_project(project)]
+        stale_snapshot = db_sess.execute(
+            select(models.ClientProjectPauseSnapshot).where(
+                models.ClientProjectPauseSnapshot.client_id == client_id
+            )
+        ).scalar_one_or_none()
+        if stale_snapshot:
+            db_sess.delete(stale_snapshot)
+        client.projects_mutation_locked = True
+        client.projects_mutation_locked_at = now_msk()
+        client.projects_mutation_locked_by = int(current_admin.id)
+        client.projects_mutation_lock_reason = "Проекты во временной блокировке"
+        desired_status = "На паузе"
+    elif action == "resume":
+        state = crud.admin_get_collection_state(db_sess, client_id=client_id)
+        snapshot_ids = [int(item.id) for item in state.snapshotProjects]
+        projects = (
+            db_sess.execute(
+                select(models.Project).where(
+                    models.Project.user_id == client_id,
+                    models.Project.id.in_(snapshot_ids),
+                ).order_by(models.Project.id.asc())
+            ).scalars().all()
+            if snapshot_ids
+            else []
+        )
+        projects = [
+            project
+            for project in projects
+            if not _is_pixel_project(project) and project.status != "Удалён"
+        ]
+        valid_snapshot_ids = [int(project.id) for project in projects]
+        snapshot_row = db_sess.execute(
+            select(models.ClientProjectPauseSnapshot).where(
+                models.ClientProjectPauseSnapshot.client_id == client_id
+            )
+        ).scalar_one_or_none()
+        if snapshot_row:
+            if valid_snapshot_ids:
+                snapshot_row.project_ids = valid_snapshot_ids
+                snapshot_row.updated_at = now_msk()
+                db_sess.add(snapshot_row)
+            else:
+                db_sess.delete(snapshot_row)
+        desired_status = "Активен"
+        if not projects:
+            client.projects_mutation_locked = False
+            client.projects_mutation_locked_at = None
+            client.projects_mutation_locked_by = None
+            client.projects_mutation_lock_reason = None
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported collection operation")
+
+    db_sess.add(client)
+    items = [
+        {
+            "projectId": int(project.id),
+            "providerProjectId": project.provider_project_id,
+            "projectName": project.name,
+            "stateSnapshot": _snapshot_limit_control_project(project),
+            "payloadSnapshot": {
+                "action": "status",
+                "status": desired_status,
+                "collectionAction": action,
+                "actorUserId": int(current_admin.id),
+                "adminUpdate": True,
+            },
+        }
+        for project in projects
+    ]
+    try:
+        return crud.create_project_operation(
+            db_sess,
+            client_id=client_id,
+            operation_type=f"collection_{action}",
+            actor_user_id=int(current_admin.id),
+            actor_role="admin",
+            items=items,
+            payload_snapshot={"action": action, "desiredStatus": desired_status},
+        )
+    except project_operations.ActiveProjectOperationError as exc:
+        raise _project_operation_conflict(exc) from exc
+
+
+@app.post(
+    "/admin/clients/{client_id}/collection/pause",
+    response_model=schemas.ProjectOperationLaunchOut,
+    status_code=202,
+)
 def admin_pause_client_projects(
     client_id: int,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_admin_client_exists(db_sess, client_id)
-    prev_state = crud.admin_get_collection_state(db_sess, client_id=client_id)
-    had_snapshot = len(prev_state.snapshotProjects) > 0
-
-    active_projects = db_sess.execute(
-        select(models.Project).where(
-            models.Project.user_id == client_id,
-            models.Project.status == "Активен",
-        ).order_by(models.Project.id.asc())
-    ).scalars().all()
-    active_project_snapshots = [_project_snapshot_for_prostats(project) for project in active_projects]
-
-    paused_ids: List[int] = []
-    skipped_count = 0
-    failed_count = 0
-    errors: List[str] = []
-
-    for p in active_project_snapshots:
-        if p.status == "Удалён":
-            skipped_count += 1
-            continue
-        skip_provider_sync = _should_skip_provider_sync_for_status_change(p, "На паузе")
-        if not skip_provider_sync and not p.provider_project_id:
-            skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
-            continue
-        try:
-            if not skip_provider_sync:
-                db_sess.rollback()
-                prostats.update_project_status(str(p.provider_project_id), p, "На паузе")
-            with SessionLocal() as write_sess:  # type: Session
-                ok = crud.admin_update_project_status_only(
-                    write_sess,
-                    project_id=int(p.id),
-                    status="На паузе",
-                    admin_user_id=current_admin.id,
-                )
-            if ok:
-                paused_ids.append(int(p.id))
-        except prostats.ProstatsError as exc:
-            failed_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
-
-    with SessionLocal() as finalize_sess:  # type: Session
-        crud.admin_replace_pause_snapshot(
-            finalize_sess,
-            client_id=client_id,
-            project_ids=paused_ids,
-            admin_user_id=current_admin.id,
-        )
-        crud.admin_set_client_projects_mutation_lock(
-            finalize_sess,
-            client_id=client_id,
-            locked=True,
-            admin_user_id=current_admin.id,
-            reason="Проекты во временной блокировке",
-        )
-        if paused_ids:
-            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-        state = crud.admin_get_collection_state(finalize_sess, client_id=client_id)
-    if paused_ids and failed_count == 0 and skipped_count == 0:
-        message = "Все активные проекты поставлены на паузу."
-    elif paused_ids:
-        message = (
-            f"Пауза применена частично: поставлено на паузу {len(paused_ids)}, "
-            f"пропущено {skipped_count}, ошибок {failed_count}."
-        )
-    else:
-        message = "Активных синхронизированных проектов для паузы не найдено."
-
-    if had_snapshot:
-        message += " Снимок ранее поставленных на паузу проектов перезаписан."
-
-    return schemas.AdminClientCollectionActionOut(
-        state=state,
-        message=message,
-        pausedCount=len(paused_ids),
-        resumedCount=0,
-        skippedCount=skipped_count,
-        failedCount=failed_count,
-        errors=errors,
+    operation = _launch_collection_project_operation(
+        db_sess,
+        client_id=client_id,
+        action="pause",
+        current_admin=current_admin,
+    )
+    return schemas.ProjectOperationLaunchOut(
+        operation=crud.project_operation_to_view(db_sess, operation, include_technical=True)
     )
 
 
-@app.post("/admin/clients/{client_id}/collection/resume", response_model=schemas.AdminClientCollectionActionOut)
+@app.post(
+    "/admin/clients/{client_id}/collection/resume",
+    response_model=schemas.ProjectOperationLaunchOut,
+    status_code=202,
+)
 def admin_resume_client_projects(
     client_id: int,
     current_admin: models.User = Depends(require_admin),
     db_sess: Session = Depends(get_db),
 ):
-    _ensure_admin_client_exists(db_sess, client_id)
-    prev_state = crud.admin_get_collection_state(db_sess, client_id=client_id)
-    snapshot_ids = [int(item.id) for item in prev_state.snapshotProjects]
-    if not snapshot_ids:
-        crud.admin_set_client_projects_mutation_lock(
-            db_sess,
-            client_id=client_id,
-            locked=False,
-            admin_user_id=current_admin.id,
-            reason=None,
-        )
-        state = crud.admin_get_collection_state(db_sess, client_id=client_id)
-        return schemas.AdminClientCollectionActionOut(
-            state=state,
-            message="Сохранённых проектов для восстановления нет. Блокировка раздела проектов снята.",
-            pausedCount=0,
-            resumedCount=0,
-            skippedCount=0,
-            failedCount=0,
-            errors=[],
-        )
-
-    proj_rows = db_sess.execute(
-        select(models.Project).where(
-            models.Project.user_id == client_id,
-            models.Project.id.in_(snapshot_ids),
-        )
-    ).scalars().all()
-    by_id = {int(p.id): p for p in proj_rows}
-    project_snapshots = {int(p.id): _project_snapshot_for_prostats(p) for p in proj_rows}
-
-    resumed_ids: List[int] = []
-    skipped_count = 0
-    failed_count = 0
-    errors: List[str] = []
-
-    for pid in snapshot_ids:
-        p = by_id.get(pid)
-        if not p:
-            skipped_count += 1
-            errors.append(f"Проект {pid}: не найден, пропущен.")
-            continue
-        if p.status == "Удалён":
-            skipped_count += 1
-            continue
-        skip_provider_sync = _should_skip_provider_sync_for_status_change(p, "Активен")
-        if not skip_provider_sync and not p.provider_project_id:
-            skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": не связан с Prostats, пропущен.')
-            continue
-        if p.status == "Активен":
-            skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": уже активен, пропущен.')
-            continue
-        if p.status != "На паузе":
-            skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": неожиданный статус "{p.status}", пропущен.')
-            continue
-        can_activate, reason = crud.can_activate_project_under_limit_control(db_sess, project_id=int(p.id))
-        if not can_activate:
-            skipped_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": {reason or "ограничение по лимитам клиента"}.')
-            continue
-        try:
-            project_snapshot = project_snapshots[int(p.id)]
-            if not skip_provider_sync:
-                db_sess.rollback()
-                prostats.update_project_status(str(project_snapshot.provider_project_id), project_snapshot, "Активен")
-            with SessionLocal() as write_sess:  # type: Session
-                ok = crud.admin_update_project_status_only(
-                    write_sess,
-                    project_id=int(p.id),
-                    status="Активен",
-                    admin_user_id=current_admin.id,
-                )
-            if ok:
-                resumed_ids.append(int(p.id))
-        except prostats.ProstatsError as exc:
-            failed_count += 1
-            errors.append(f'Проект {p.id} "{p.name}": {exc.message}')
-
-    with SessionLocal() as finalize_sess:  # type: Session
-        fresh_rows = finalize_sess.execute(
-            select(models.Project).where(
-                models.Project.user_id == client_id,
-                models.Project.id.in_(snapshot_ids),
-            )
-        ).scalars().all()
-        fresh_by_id = {int(project.id): project for project in fresh_rows}
-
-        # Оставляем в снимке только те проекты, которые всё ещё на паузе и могут быть восстановлены позже.
-        next_snapshot_ids: List[int] = []
-        for pid in snapshot_ids:
-            p = fresh_by_id.get(pid)
-            if not p:
-                continue
-            if p.status == "Удалён":
-                continue
-            if not p.provider_project_id:
-                continue
-            if p.status != "Активен":
-                next_snapshot_ids.append(int(pid))
-
-        crud.admin_replace_pause_snapshot(
-            finalize_sess,
-            client_id=client_id,
-            project_ids=next_snapshot_ids,
-            admin_user_id=current_admin.id,
-        )
-        crud.admin_set_client_projects_mutation_lock(
-            finalize_sess,
-            client_id=client_id,
-            locked=False,
-            admin_user_id=current_admin.id,
-            reason=None,
-        )
-        if resumed_ids:
-            crud.schedule_debounce(finalize_sess, minutes=settings["DEBOUNCE_WINDOW_MINUTES"])
-        state = crud.admin_get_collection_state(finalize_sess, client_id=client_id)
-    if resumed_ids and failed_count == 0 and skipped_count == 0 and not next_snapshot_ids:
-        message = "Проекты восстановлены."
-    elif resumed_ids:
-        message = (
-            f"Восстановление выполнено частично: включено {len(resumed_ids)}, "
-            f"пропущено {skipped_count}, ошибок {failed_count}."
-        )
-    else:
-        message = "Не удалось восстановить проекты из сохранённого снимка."
-
-    return schemas.AdminClientCollectionActionOut(
-        state=state,
-        message=message,
-        pausedCount=0,
-        resumedCount=len(resumed_ids),
-        skippedCount=skipped_count,
-        failedCount=failed_count,
-        errors=errors,
+    operation = _launch_collection_project_operation(
+        db_sess,
+        client_id=client_id,
+        action="resume",
+        current_admin=current_admin,
+    )
+    return schemas.ProjectOperationLaunchOut(
+        operation=crud.project_operation_to_view(db_sess, operation, include_technical=True)
     )
 
 

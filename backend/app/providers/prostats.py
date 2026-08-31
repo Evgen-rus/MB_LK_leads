@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -11,6 +12,60 @@ API_URL_DEFAULT = "https://prostats.info/api/index.php"
 MIN_DUPLICATE_ID = 4189111
 PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE = (
     "Сервис поставщика временно недоступен. Попробуйте повторить операцию позже."
+)
+PROVIDER_INVALID_RESPONSE_MESSAGE = "Сервис поставщика вернул некорректный ответ."
+
+ERROR_KIND_TRANSIENT = "transient"
+ERROR_KIND_PERMANENT = "permanent"
+ERROR_KIND_UNKNOWN = "unknown"
+TRANSIENT_HTTP_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+PERMANENT_HTTP_STATUS_CODES = frozenset({400, 401, 403, 404, 405, 409, 422})
+
+# Provider error messages are useful for validation feedback, but they must not
+# accidentally turn credentials or a response dump into an API error.  Keep
+# this deliberately small: unknown/non-JSON responses use a generic message.
+_SENSITIVE_MESSAGE_RE = re.compile(
+    r"(?i)(token|authorization|password|secret|api[_ -]?key)\s*[:=]\s*[^,;\s]+"
+)
+_AUTH_ERROR_MARKERS = (
+    "unauthor",
+    "forbidden",
+    "authentication",
+    "access denied",
+    "invalid token",
+    "token expired",
+    "неверн.*токен",
+    "токен.*неверн",
+    "авторизац",
+    "доступ запрещ",
+)
+_VALIDATION_ERROR_MARKERS = (
+    "invalid",
+    "validation",
+    "required",
+    "неверн",
+    "некоррект",
+    "обязатель",
+    "не поддерж",
+    "не найден",
+    "недопустим",
+)
+_TRANSIENT_ERROR_MARKERS = (
+    "timeout",
+    "timed out",
+    "temporary",
+    "temporar",
+    "unavailable",
+    "too many requests",
+    "bad gateway",
+    "gateway",
+    "connection",
+    "connect",
+    "connection reset",
+    "временно",
+    "таймаут",
+    "соедин",
+    "шлюз",
 )
 
 REGION_CODE_BY_NAME: Dict[str, int] = {
@@ -95,11 +150,161 @@ REGION_CODE_BY_NAME: Dict[str, int] = {
 
 
 class ProstatsError(Exception):
-    def __init__(self, message: str, status_code: int = 500, details: Optional[dict] = None):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-        self.details = details or {}
+    """A provider failure with retry and reconciliation metadata.
+
+    ``kind`` is intentionally a string rather than an enum so existing code
+    can keep serialising/recording ``ProstatsError`` without changes.  The
+    ``ambiguous`` flag means a write may have reached the provider although
+    its response did not reach us; callers must reconcile before retrying.
+    ``details`` is metadata only and must never contain a response body or
+    request payload.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+        details: Optional[dict] = None,
+        *,
+        kind: Optional[str] = None,
+        ambiguous: bool = False,
+    ):
+        safe_message = _sanitize_error_message(message)
+        super().__init__(safe_message)
+        self.message = safe_message
+        self.status_code = int(status_code or 500)
+        self.kind = kind or classify_prostats_error(self.status_code, safe_message)
+        self.category = self.kind
+        self.ambiguous = bool(ambiguous)
+        # Defensive copy: callers should not be able to add an unsafe payload
+        # to an exception that may later be returned by an API handler.
+        self.details = _safe_error_details(details)
+
+    @property
+    def is_transient(self) -> bool:
+        return self.kind == ERROR_KIND_TRANSIENT
+
+    @property
+    def is_permanent(self) -> bool:
+        return self.kind == ERROR_KIND_PERMANENT
+
+    @property
+    def is_ambiguous(self) -> bool:
+        return self.ambiguous
+
+    @property
+    def retryable(self) -> bool:
+        return self.is_transient
+
+    @property
+    def requires_reconciliation(self) -> bool:
+        return self.ambiguous
+
+
+def _sanitize_error_message(message: object) -> str:
+    text = str(message or "").strip()
+    if not text:
+        return "Неизвестная ошибка сервиса поставщика."
+    text = _SENSITIVE_MESSAGE_RE.sub(r"\1=[REDACTED]", text)
+    # Keep provider validation messages useful, but cap what can cross the
+    # application boundary.  A raw response body is never used as a message.
+    return text[:500]
+
+
+def _safe_error_details(details: Optional[dict]) -> dict:
+    """Return only scalar diagnostic metadata, never raw provider content."""
+    if not isinstance(details, dict):
+        return {}
+    safe: dict = {}
+    allowed_keys = {
+        "provider_status_code",
+        "response_format",
+        "source",
+        "exception_type",
+        "ambiguous",
+        "category",
+    }
+    for key in allowed_keys:
+        if key not in details:
+            continue
+        value = details.get(key)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            safe[key] = value
+    return safe
+
+
+def _contains_error_marker(text: str, markers: Tuple[str, ...]) -> bool:
+    normalized = str(text or "").strip().lower()
+    return any(re.search(marker, normalized) for marker in markers)
+
+
+def classify_prostats_error(
+    status_code: Optional[int],
+    message: str = "",
+    *,
+    parsed: Optional[dict] = None,
+) -> str:
+    """Classify a failure for a durable worker.
+
+    Transport failures and 429/5xx responses are retryable.  Auth and
+    validation failures are permanent.  A JSON provider-level error usually
+    arrives with HTTP 200, so its message is inspected before falling back to
+    a permanent business error.
+    """
+    try:
+        code = int(status_code or 0)
+    except (TypeError, ValueError):
+        code = 0
+
+    if code in TRANSIENT_HTTP_STATUS_CODES:
+        return ERROR_KIND_TRANSIENT
+    if code in PERMANENT_HTTP_STATUS_CODES:
+        return ERROR_KIND_PERMANENT
+
+    provider_code: Optional[int] = None
+    if isinstance(parsed, dict):
+        candidates = [parsed.get("code"), parsed.get("error_code"), parsed.get("status_code")]
+        provider_message = parsed.get("message")
+        if isinstance(provider_message, dict):
+            candidates.extend(
+                [
+                    provider_message.get("code"),
+                    provider_message.get("status_code"),
+                    provider_message.get("http_code"),
+                ]
+            )
+        for candidate in candidates:
+            try:
+                provider_code = int(candidate)
+                break
+            except (TypeError, ValueError):
+                continue
+    if provider_code in TRANSIENT_HTTP_STATUS_CODES:
+        return ERROR_KIND_TRANSIENT
+    if provider_code in PERMANENT_HTTP_STATUS_CODES:
+        return ERROR_KIND_PERMANENT
+
+    if _contains_error_marker(message, _AUTH_ERROR_MARKERS):
+        return ERROR_KIND_PERMANENT
+    if _contains_error_marker(message, _VALIDATION_ERROR_MARKERS):
+        return ERROR_KIND_PERMANENT
+    if _contains_error_marker(message, _TRANSIENT_ERROR_MARKERS):
+        return ERROR_KIND_TRANSIENT
+
+    # A non-JSON response to an otherwise successful HTTP request is a
+    # protocol/service failure and is safe to retry.  Provider JSON errors
+    # without a recognised code are business failures, not endless retries.
+    if code == 0:
+        return ERROR_KIND_TRANSIENT
+    if code < 400 and parsed is None:
+        return ERROR_KIND_TRANSIENT
+    if code >= 500:
+        return ERROR_KIND_TRANSIENT
+    if 400 <= code < 500:
+        return ERROR_KIND_PERMANENT
+    if parsed is not None:
+        return ERROR_KIND_PERMANENT
+    return ERROR_KIND_UNKNOWN
 
 
 def _get_api_url() -> str:
@@ -109,7 +314,12 @@ def _get_api_url() -> str:
 def _get_token() -> str:
     token = os.getenv("PROSTATS_TOKEN", "").strip()
     if not token:
-        raise ProstatsError("PROSTATS_TOKEN is not set", status_code=500)
+        raise ProstatsError(
+            "PROSTATS_TOKEN is not set",
+            status_code=500,
+            kind=ERROR_KIND_PERMANENT,
+            details={"source": "configuration", "category": ERROR_KIND_PERMANENT},
+        )
     return token
 
 
@@ -125,7 +335,36 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
         raise ProstatsError(
             PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE,
             status_code=504,
-            details={"error": str(exc)},
+            details={
+                "source": "transport",
+                "exception_type": type(exc).__name__,
+                "ambiguous": True,
+                "category": ERROR_KIND_TRANSIENT,
+            },
+            kind=ERROR_KIND_TRANSIENT,
+            ambiguous=True,
+        ) from exc
+    except (
+        requests.exceptions.InvalidURL,
+        requests.exceptions.InvalidSchema,
+        requests.exceptions.MissingSchema,
+    ) as exc:
+        logging.getLogger("app.prostats").error(
+            "Invalid Prostats API URL configuration: command=%s exception_type=%s",
+            payload.get("command"),
+            type(exc).__name__,
+        )
+        raise ProstatsError(
+            "Некорректно настроен адрес сервиса поставщика.",
+            status_code=500,
+            details={
+                "source": "configuration",
+                "exception_type": type(exc).__name__,
+                "ambiguous": False,
+                "category": ERROR_KIND_PERMANENT,
+            },
+            kind=ERROR_KIND_PERMANENT,
+            ambiguous=False,
         ) from exc
     except requests.exceptions.RequestException as exc:
         logging.getLogger("app.prostats").warning(
@@ -136,7 +375,14 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
         raise ProstatsError(
             PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE,
             status_code=502,
-            details={"error": str(exc)},
+            details={
+                "source": "transport",
+                "exception_type": type(exc).__name__,
+                "ambiguous": True,
+                "category": ERROR_KIND_TRANSIENT,
+            },
+            kind=ERROR_KIND_TRANSIENT,
+            ambiguous=True,
         ) from exc
 
     raw_text = response.text
@@ -147,11 +393,12 @@ def _post(payload: dict) -> Tuple[int, str, Optional[dict]]:
         parsed = None
     if response.status_code >= 500 or parsed is None:
         logging.getLogger("app.prostats").warning(
-            "Unexpected Prostats response: command=%s status=%s content_type=%s body=%r",
+            "Unexpected Prostats response: command=%s status=%s content_type=%s body_present=%s body_length=%s",
             payload.get("command"),
             response.status_code,
             response.headers.get("Content-Type"),
-            raw_text[:2000],
+            bool(raw_text),
+            len(raw_text),
         )
     return response.status_code, raw_text, parsed
 
@@ -407,22 +654,49 @@ def _looks_like_html(value: str) -> bool:
 
 
 def _extract_error_message(parsed: Optional[dict], raw_text: str, *, status_code: int) -> str:
-    if status_code in {502, 503, 504} or _looks_like_html(raw_text):
+    if status_code in TRANSIENT_HTTP_STATUS_CODES or (
+        _looks_like_html(raw_text) and status_code not in PERMANENT_HTTP_STATUS_CODES
+    ):
         return PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE
     if not parsed:
-        return raw_text or "Unknown error"
+        return PROVIDER_INVALID_RESPONSE_MESSAGE
     msg = parsed.get("message")
     if isinstance(msg, dict):
-        message = str(msg.get("message") or msg.get("status") or raw_text or "Unknown error")
+        message = str(msg.get("message") or msg.get("status") or "")
     else:
-        message = str(msg or raw_text or "Unknown error")
+        message = str(msg or "")
     if _looks_like_html(message):
         return PROVIDER_TEMPORARILY_UNAVAILABLE_MESSAGE
-    return message
+    return _sanitize_error_message(message) or PROVIDER_INVALID_RESPONSE_MESSAGE
 
 
 def _error_status_code(status_code: int) -> int:
     return status_code if status_code >= 400 else 502
+
+
+def _response_error(
+    status_code: int,
+    raw_text: str,
+    parsed: Optional[dict],
+    *,
+    ambiguous: bool = False,
+) -> ProstatsError:
+    """Build a safe error from a provider response without retaining its body."""
+    message = _extract_error_message(parsed, raw_text, status_code=status_code)
+    kind = classify_prostats_error(status_code, message, parsed=parsed)
+    effective_status_code = _error_status_code(status_code)
+    return ProstatsError(
+        message,
+        status_code=effective_status_code,
+        details={
+            "provider_status_code": status_code,
+            "response_format": "json" if parsed is not None else "unknown",
+            "ambiguous": ambiguous,
+            "category": kind,
+        },
+        kind=kind,
+        ambiguous=ambiguous,
+    )
 
 
 def _should_check_duplicates(error_message: str, target_type: str) -> bool:
@@ -492,6 +766,106 @@ def get_project(provider_id: str) -> Optional[dict]:
     return _get_project(provider_id)
 
 
+def _status_code_from_target(target: object) -> int:
+    """Normalise the only mutable provider statuses supported by this flow."""
+    if isinstance(target, bool):
+        raise ProstatsError(
+            "Недопустимый статус проекта",
+            status_code=400,
+            kind=ERROR_KIND_PERMANENT,
+        )
+    if isinstance(target, int):
+        if target in (0, 1):
+            return target
+    else:
+        normalized = str(target or "").strip()
+        if normalized in ("Активен", "1"):
+            return 1
+        if normalized in ("На паузе", "0"):
+            return 0
+    raise ProstatsError(
+        "Недопустимый статус проекта",
+        status_code=400,
+        kind=ERROR_KIND_PERMANENT,
+    )
+
+
+def _status_code_from_provider(value: object) -> Optional[int]:
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        normalized = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return normalized if normalized in (0, 1) else None
+
+
+def reconcile_project_status(provider_id: str, desired_status: object) -> dict:
+    """Read provider state and report whether a desired status is applied.
+
+    The helper intentionally returns only identifiers and status values, not
+    the provider project payload.  A worker should call it after an ambiguous
+    write (for example a timeout) before deciding whether to retry the write.
+
+    Return contract::
+
+        {
+            "provider_id": str,
+            "current_status": 0 | 1,
+            "desired_status": 0 | 1,
+            "already_applied": bool,
+        }
+
+    Transport/provider read failures raise :class:`ProstatsError`; no raw
+    response body is retained in the exception.
+    """
+    normalized_provider_id = str(provider_id or "").strip()
+    if not normalized_provider_id:
+        raise ProstatsError(
+            "Идентификатор проекта отсутствует",
+            status_code=400,
+            kind=ERROR_KIND_PERMANENT,
+        )
+    desired_code = _status_code_from_target(desired_status)
+    status_code, raw_text, parsed = _post(
+        {"token": _get_token(), "command": "gck_project", "id": normalized_provider_id}
+    )
+    if status_code >= 400 or not parsed or parsed.get("status") != "success":
+        raise _response_error(status_code, raw_text, parsed)
+
+    result = parsed.get("result")
+    # У поставщика пустой успешный result означает выключенное состояние.
+    # Для resume это приведёт к update(status=1), для pause — к подтверждению.
+    if result in (None, "", [], {}):
+        current_code = 0
+    elif isinstance(result, dict):
+        current_code = _status_code_from_provider(result.get("status"))
+    else:
+        current_code = None
+    if current_code is None:
+        raise ProstatsError(
+            PROVIDER_INVALID_RESPONSE_MESSAGE,
+            status_code=502,
+            kind=ERROR_KIND_TRANSIENT,
+            details={
+                "provider_status_code": status_code,
+                "response_format": "json",
+                "category": ERROR_KIND_TRANSIENT,
+            },
+        )
+    return {
+        "provider_id": normalized_provider_id,
+        "current_status": current_code,
+        "desired_status": desired_code,
+        "already_applied": current_code == desired_code,
+    }
+
+
+# Explicit alias for callers that prefer a noun-style name.  Keep one
+# implementation so both names have the same safe response contract.
+get_project_status_reconciliation = reconcile_project_status
+
+
 def _build_partial_warning(
     name: str,
     target_type: str,
@@ -518,8 +892,7 @@ def create_project(item: schemas.CreateProjectItem) -> dict:
     status_code, raw_text, parsed = _post(payload)
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
-        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
+        raise _response_error(status_code, raw_text, parsed)
 
     result = parsed.get("result") or {}
     provider_id = result.get("id")
@@ -554,8 +927,7 @@ def update_project(
     status_code, raw_text, parsed = _post(payload)
 
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
-        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
+        raise _response_error(status_code, raw_text, parsed)
 
     missing_items: List[str] = []
     provider_content = ""
@@ -590,8 +962,7 @@ def delete_project(provider_id: str, project: models.Project) -> dict:
     }
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
-        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
+        raise _response_error(status_code, raw_text, parsed)
     return {"raw": parsed}
 
 
@@ -599,6 +970,5 @@ def update_project_status(provider_id: str, project: models.Project, status: sch
     payload = build_status_only_payload(provider_id, project, status)
     status_code, raw_text, parsed = _post(payload)
     if status_code >= 400 or not parsed or parsed.get("status") != "success":
-        error_message = _extract_error_message(parsed, raw_text, status_code=status_code)
-        raise ProstatsError(error_message, status_code=_error_status_code(status_code), details={"raw": raw_text})
+        raise _response_error(status_code, raw_text, parsed)
     return {"raw": parsed}

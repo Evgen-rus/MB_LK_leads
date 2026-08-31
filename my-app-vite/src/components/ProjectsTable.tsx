@@ -1,7 +1,14 @@
 // Таблица проектов: фильтры, список, метрики и столбец «Настройки»
 import { useEffect, useMemo, useState, useCallback, type CSSProperties } from 'react';
 import type { Day, ProjectSortBy, ProjectUpdatePayload, SortDir } from '../api';
-import { fetchProjects, setProjectTop as apiSetProjectTop, updateProject as apiUpdateProject, deleteProject as apiDeleteProject } from '../api';
+import {
+  createProjectBulkOperation,
+  fetchProjects,
+  setProjectTop as apiSetProjectTop,
+  updateProject as apiUpdateProject,
+  deleteProject as apiDeleteProject,
+  type ProjectOperation,
+} from '../api';
 import type { Project, ProjectMutableStatus } from '../types/project';
 import DateRangeFilter from './DateRangeFilter';
 import BulkEditDaysModal from './BulkEditDaysModal';
@@ -10,7 +17,13 @@ import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkE
 import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
 import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
-import { buildUpdatePayloadFromProject, runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
+import { buildUpdatePayloadFromProject, type BulkProgress } from '../utils/projectBulkUpdate';
+import {
+  getProjectOperationStatusLabel,
+  getProjectOperationUserMessage,
+  isProjectOperationActive,
+  useProjectOperation,
+} from '../utils/useProjectOperation';
 import ProjectActionMenu from './ProjectActionMenu';
 import DateTimeCompact from './DateTimeCompact';
 import ProjectChartModal from './ProjectChartModal';
@@ -109,6 +122,35 @@ function ProjectsTable({
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  function handleProjectOperationTerminal(operation: ProjectOperation) {
+    const completed = operation.completedCount || operation.successCount + operation.failedCount;
+    const lines = [getProjectOperationUserMessage(operation)];
+    lines.push(`Статус: ${getProjectOperationStatusLabel(operation.status)}.`);
+    lines.push(`Выполнено: ${completed}/${operation.totalCount}. Успешно: ${operation.successCount}. Ошибок: ${operation.failedCount}.`);
+    if (operation.waitingCount > 0) lines.push(`Ожидают повторной попытки: ${operation.waitingCount}.`);
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+    window.dispatchEvent(new CustomEvent('projects-refresh'));
+    setBulkSaving(false);
+  }
+
+  const projectOperationTracker = useProjectOperation({ onTerminal: handleProjectOperationTerminal });
+  const projectOperation = projectOperationTracker.operation;
+  const operationActive = isProjectOperationActive(projectOperation);
+  const bulkBusy = bulkSaving || operationActive;
+  const mutationLocked = projectsMutationLocked || operationActive;
+  const mutationLockMessage = operationActive
+    ? 'Операция с проектами выполняется. Дождитесь её завершения.'
+    : projectsMutationLockMessage;
+  const operationProgress: BulkProgress | null = projectOperation
+    ? {
+        total: projectOperation.totalCount,
+        done: projectOperation.completedCount,
+        updated: projectOperation.successCount,
+        skipped: projectOperation.waitingCount,
+        failed: projectOperation.failedCount,
+      }
+    : null;
+
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
   const load = useCallback(
     async (
@@ -181,7 +223,9 @@ function ProjectsTable({
   }, [openProjectMenuId]);
 
   const selectableRows = useMemo(
-    () => rows.filter((row) => row.status !== 'Удалён'),
+    // Pixel-проекты управляются отдельным контуром и не должны попадать
+    // в долговечные provider-операции.
+    () => rows.filter((row) => row.status !== 'Удалён' && row.collectionSource !== PIXEL_COLLECTION_SOURCE),
     [rows],
   );
   const selectedRows = useMemo(
@@ -245,6 +289,7 @@ function ProjectsTable({
   }
 
   function openBulkAction(action: BulkActionType) {
+    if (bulkBusy) return;
     if (selectedOperatorBlockedCount > 0 && action !== 'status' && action !== 'delete') {
       window.dispatchEvent(new CustomEvent('app-toast', {
         detail: 'В выделении есть проекты со статусом «Блокировка оператора». Для них доступны только массовые действия «Статус проекта» и «Удалить проекты». Для остальных действий снимите выделение с заблокированных проектов.',
@@ -257,72 +302,9 @@ function ProjectsTable({
   }
 
   function closeBulkAction() {
-    if (bulkSaving) return;
+    if (bulkBusy) return;
     setActiveBulkAction(null);
     setBulkProgress(null);
-  }
-
-  function applyUpdatedProjects(updated: Project[]) {
-    if (updated.length === 0) return;
-    const map = new Map(updated.map((item) => [item.id, item]));
-    setRows((prev) => prev.map((item) => map.get(item.id) ?? item));
-  }
-
-  function formatBulkItemNames(items: Array<{ id: number; name: string }>, max = 5): string {
-    const preview = items
-      .slice(0, max)
-      .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
-      .join(', ');
-    if (items.length <= max) return preview;
-    return `${preview}, ... и еще ${items.length - max}`;
-  }
-
-  function showBulkResultToast(result: {
-    updatedCount: number;
-    skippedCount: number;
-    failedCount: number;
-    warnings: string[];
-    errors: string[];
-    updatedItems: Array<{ id: number; name: string }>;
-    skippedItems: Array<{ id: number; name: string }>;
-    failedItems: Array<{ id: number; name: string; reason: string }>;
-    skippedReasonLabel?: string;
-  }) {
-    const lines: string[] = [];
-    lines.push(`Обновлено: ${result.updatedCount}.`);
-    if (result.updatedItems.length > 0) {
-      lines.push(`Применено к: ${formatBulkItemNames(result.updatedItems)}.`);
-    }
-    if (result.skippedCount > 0) {
-      lines.push(
-        result.skippedReasonLabel
-          ? `Пропущено: ${result.skippedCount} (${result.skippedReasonLabel}).`
-          : `Пропущено: ${result.skippedCount}.`,
-      );
-    }
-    if (result.skippedItems.length > 0) {
-      lines.push(`Не применено к: ${formatBulkItemNames(result.skippedItems)}.`);
-    }
-    if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
-    if (result.failedItems.length > 0) {
-      const failedPreview = result.failedItems
-        .slice(0, 3)
-        .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
-        .join('\n');
-      lines.push(`Ошибки по проектам:\n${failedPreview}`);
-      if (result.failedItems.length > 3) {
-        lines.push(`... и еще ${result.failedItems.length - 3} проект(ов) с ошибкой.`);
-      }
-    }
-    if (result.warnings.length > 0) lines.push(`Предупреждений: ${result.warnings.length}.`);
-    if (result.errors.length > 0 && result.failedItems.length === 0) {
-      const preview = result.errors.slice(0, 3).join('\n');
-      lines.push(preview);
-      if (result.errors.length > 3) {
-        lines.push(`... и еще ${result.errors.length - 3}`);
-      }
-    }
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
   }
 
   async function runBulkAction(
@@ -330,34 +312,48 @@ function ProjectsTable({
     options?: { skippedReasonLabel?: string },
   ) {
     if (selectedRows.length === 0) return;
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
+    const eligibleRows = selectedRows.filter(
+      (project) => project.collectionSource !== PIXEL_COLLECTION_SOURCE && buildPatch(project) != null,
+    );
+    const skippedCount = selectedRows.length - eligibleRows.length;
+    if (eligibleRows.length === 0) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: 'В выделении нет обычных проектов, доступных для этого действия.',
+      }));
+      return;
+    }
+    const patch = buildPatch(eligibleRows[0]);
+    if (!patch) return;
     setBulkSaving(true);
-    setBulkProgress(null);
     try {
-      const result = await runBulkProjectUpdatesSequential({
-        projects: selectedRows,
-        buildPatch,
-        onProgress: setBulkProgress,
+      const response = await createProjectBulkOperation({
+        projectIds: eligibleRows.map((project) => project.id),
+        action: 'update',
+        patch: patch as Record<string, unknown>,
       });
-      applyUpdatedProjects(result.updated);
-      showBulkResultToast({
-        updatedCount: result.updated.length,
-        skippedCount: result.skipped,
-        failedCount: result.failed,
-        warnings: result.warnings,
-        errors: result.errors,
-        updatedItems: result.updatedItems,
-        skippedItems: result.skippedItems,
-        failedItems: result.failedItems,
-        skippedReasonLabel: options?.skippedReasonLabel,
-      });
-      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      projectOperationTracker.start(response.operation);
+      if (skippedCount > 0) {
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: options?.skippedReasonLabel
+            ? `Операция запущена. Пропущено: ${skippedCount} (${options.skippedReasonLabel}).`
+            : `Операция запущена. Пропущено: ${skippedCount}.`,
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('app-toast', {
+          detail: 'Операция сохранена и продолжится автоматически. Можно закрыть вкладку.',
+        }));
+      }
       setSelectedIds([]);
       setActiveBulkAction(null);
       setBulkProgress(null);
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: formatSourceTextForDisplay(err instanceof Error ? err.message : 'Не удалось запустить операцию.'),
+      }));
     } finally {
       setBulkSaving(false);
     }
@@ -365,73 +361,39 @@ function ProjectsTable({
 
   async function runBulkDeleteAction() {
     if (selectedRows.length === 0) return;
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
-
-    const deletedItems: Array<{ id: number; name: string }> = [];
-    const failedItems: Array<{ id: number; name: string; reason: string }> = [];
-    let done = 0;
-    let failed = 0;
-
+    const projectIds = selectedRows
+      .filter((project) => project.collectionSource !== PIXEL_COLLECTION_SOURCE)
+      .map((project) => project.id);
+    if (projectIds.length === 0) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: 'Pixel-проекты нельзя удалить этой массовой операцией.',
+      }));
+      return;
+    }
     setBulkSaving(true);
-    setBulkProgress({
-      total: selectedRows.length,
-      done,
-      updated: deletedItems.length,
-      skipped: 0,
-      failed,
-    });
-
     try {
-      for (const project of selectedRows) {
-        try {
-          await apiDeleteProject(project.id);
-          deletedItems.push({ id: project.id, name: project.name });
-        } catch (err: unknown) {
-          failed += 1;
-          const reason = err instanceof Error && err.message
-            ? formatSourceTextForDisplay(err.message)
-            : 'Ошибка удаления';
-          failedItems.push({
-            id: project.id,
-            name: formatProjectNameForDisplay(project.name),
-            reason,
-          });
-        } finally {
-          done += 1;
-          setBulkProgress({
-            total: selectedRows.length,
-            done,
-            updated: deletedItems.length,
-            skipped: 0,
-            failed,
-          });
-        }
-      }
-
-      const lines: string[] = [`Удалено: ${deletedItems.length}.`];
-      if (deletedItems.length > 0) {
-        lines.push(`Удалены: ${formatBulkItemNames(deletedItems)}.`);
-      }
-      if (failedItems.length > 0) {
-        lines.push(`Ошибок: ${failedItems.length}.`);
-        const failedPreview = failedItems
-          .slice(0, 3)
-          .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
-          .join('\n');
-        lines.push(`Ошибки по проектам:\n${failedPreview}`);
-        if (failedItems.length > 3) {
-          lines.push(`... и еще ${failedItems.length - 3} проект(ов) с ошибкой.`);
-        }
-      }
-
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
-      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      const response = await createProjectBulkOperation({
+        projectIds,
+        action: 'delete',
+      });
+      projectOperationTracker.start(response.operation);
+      const skippedCount = selectedRows.length - projectIds.length;
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: skippedCount > 0
+          ? `Операция удаления запущена. Pixel-проектов пропущено: ${skippedCount}.`
+          : 'Операция удаления сохранена и продолжится автоматически. Можно закрыть вкладку.',
+      }));
       setSelectedIds([]);
       setActiveBulkAction(null);
       setBulkProgress(null);
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: formatSourceTextForDisplay(err instanceof Error ? err.message : 'Не удалось запустить удаление проектов.'),
+      }));
     } finally {
       setBulkSaving(false);
     }
@@ -441,8 +403,8 @@ function ProjectsTable({
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
     if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
     const nextStatus = row.status === 'Активен' ? 'На паузе' : 'Активен';
@@ -481,8 +443,8 @@ function ProjectsTable({
 
   async function handleArchive(row: Project) {
     if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
     setStatusSavingIds((prev) => new Set(prev).add(row.id));
@@ -513,8 +475,8 @@ function ProjectsTable({
 
   async function handleUnarchive(row: Project) {
     if (row.status !== ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
     setStatusSavingIds((prev) => new Set(prev).add(row.id));
@@ -567,8 +529,8 @@ function ProjectsTable({
   }
 
   async function handleSoftDelete(row: Project) {
-    if (projectsMutationLocked) {
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+    if (mutationLocked) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
     }
     if (!window.confirm(`Удалить проект ${formatProjectNameForDisplay(row.name)} (id: ${row.id}) навсегда?`)) return;
@@ -662,6 +624,24 @@ function ProjectsTable({
           }}
         >
           {projectsMutationLockMessage}
+        </div>
+      )}
+      {projectOperation && (
+        <div
+          style={{
+            margin: '12px',
+            padding: '10px 12px',
+            border: '1px solid #d9d0ff',
+            background: '#f7f4ff',
+            borderRadius: 10,
+            color: '#4d3b9b',
+          }}
+        >
+          <div>{getProjectOperationUserMessage(projectOperation)}</div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            {getProjectOperationStatusLabel(projectOperation.status)} · Выполнено: {operationProgress?.done ?? 0}/{operationProgress?.total ?? 0} · Успешно: {operationProgress?.updated ?? 0} · Ошибок: {operationProgress?.failed ?? 0}
+            {projectOperation.nextAttemptAt ? ` · Следующая попытка: ${new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU')}` : ''}
+          </div>
         </div>
       )}
       <div className="table-toolbar">
@@ -774,16 +754,16 @@ function ProjectsTable({
           <button
             className="btn btn--primary"
             onClick={onCreate}
-            disabled={projectsMutationLocked}
-            title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
+            disabled={mutationLocked}
+            title={mutationLocked ? mutationLockMessage : undefined}
           >
             + Добавить проект
           </button>
           <button
             className="btn btn--secondary"
             onClick={onBulkCreate}
-            disabled={projectsMutationLocked}
-            title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
+            disabled={mutationLocked}
+            title={mutationLocked ? mutationLockMessage : undefined}
           >
             Массовое создание
           </button>
@@ -808,15 +788,15 @@ function ProjectsTable({
           {selectedOperatorBlockedCount > 0 && (
             <span className="badge badge--red">Блокировка оператора: {selectedOperatorBlockedCount}</span>
           )}
-          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkSaving}>
+          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy}>
             Снять выделение
           </button>
           <div style={{ position: 'relative' }}>
             <button
               className="btn btn--primary"
               onClick={() => setBulkMenuOpen((prev) => !prev)}
-              disabled={bulkSaving || projectsMutationLocked}
-              title={projectsMutationLocked ? projectsMutationLockMessage : undefined}
+              disabled={bulkBusy || mutationLocked}
+              title={mutationLocked ? mutationLockMessage : undefined}
             >
               Массовые действия
             </button>
@@ -846,9 +826,9 @@ function ProjectsTable({
               </div>
             )}
           </div>
-          {bulkSaving && bulkProgress && (
+          {(bulkSaving && bulkProgress || operationProgress) && (
             <span className="sub" style={{ color: '#6b4ce6' }}>
-              Обработка: {bulkProgress.done}/{bulkProgress.total}
+              Обработка: {(operationProgress ?? bulkProgress)?.done ?? 0}/{(operationProgress ?? bulkProgress)?.total ?? 0}
             </span>
           )}
         </div>
@@ -878,11 +858,12 @@ function ProjectsTable({
         <thead>
           <tr>
             <th className="table-sticky-cell table-sticky-cell--check">
-              <input
-                type="checkbox"
-                checked={allSelectableOnPageSelected}
-                onChange={toggleSelectAllOnPage}
-                title="Выбрать все доступные проекты на странице"
+                  <input
+                    type="checkbox"
+                    checked={allSelectableOnPageSelected}
+                    onChange={toggleSelectAllOnPage}
+                    disabled={mutationLocked}
+                    title="Выбрать все доступные проекты на странице"
               />
             </th>
             {renderSortableHeader('ID', 'id', { width: 20 }, 'table-sticky-cell table-sticky-cell--after-check')}
@@ -907,10 +888,12 @@ function ProjectsTable({
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(row.id)}
-                  disabled={row.status === 'Удалён' || bulkSaving || projectsMutationLocked}
-                  title={
-                    projectsMutationLocked
-                      ? projectsMutationLockMessage
+                        disabled={row.status === 'Удалён' || row.collectionSource === PIXEL_COLLECTION_SOURCE || bulkBusy || mutationLocked}
+                        title={
+                          mutationLocked
+                            ? mutationLockMessage
+                      : row.collectionSource === PIXEL_COLLECTION_SOURCE
+                        ? 'Pixel-проекты нельзя включать в эту массовую операцию'
                       : row.status === 'Удалён'
                       ? 'Удалённые проекты нельзя редактировать'
                       : row.status === OPERATOR_BLOCK_STATUS
@@ -982,7 +965,7 @@ function ProjectsTable({
                         key: 'settings',
                         label: 'Настройки проекта',
                         onSelect: () => onEdit?.(row),
-                        title: projectsMutationLocked ? 'Открыть карточку проекта только для просмотра' : undefined,
+                        title: mutationLocked ? 'Открыть карточку проекта только для просмотра' : undefined,
                       },
                       {
                         key: 'history',
@@ -994,8 +977,8 @@ function ProjectsTable({
                             key: 'archive',
                             label: 'В архив',
                             onSelect: () => handleArchive(row),
-                            disabled: projectsMutationLocked,
-                            title: projectsMutationLocked ? projectsMutationLockMessage : 'Перенести проект в архив',
+                            disabled: mutationLocked,
+                            title: mutationLocked ? mutationLockMessage : 'Перенести проект в архив',
                           }]
                         : []),
                       ...(row.status === ARCHIVE_STATUS
@@ -1003,8 +986,8 @@ function ProjectsTable({
                             key: 'unarchive',
                             label: 'Достать из архива',
                             onSelect: () => handleUnarchive(row),
-                            disabled: projectsMutationLocked,
-                            title: projectsMutationLocked ? projectsMutationLockMessage : 'Вернуть проект из архива на паузу',
+                            disabled: mutationLocked,
+                            title: mutationLocked ? mutationLockMessage : 'Вернуть проект из архива на паузу',
                           }]
                         : []),
                       {
@@ -1014,11 +997,11 @@ function ProjectsTable({
                           if (row.status === 'Удалён') return;
                           handleSoftDelete(row);
                         },
-                        disabled: projectsMutationLocked || row.status === 'Удалён',
+                        disabled: mutationLocked || row.status === 'Удалён',
                         danger: true,
                         title:
-                          projectsMutationLocked
-                            ? projectsMutationLockMessage
+                          mutationLocked
+                            ? mutationLockMessage
                             : row.status === 'Удалён'
                             ? 'Проект уже удален'
                             : 'Удалить проект навсегда',
@@ -1045,7 +1028,7 @@ function ProjectsTable({
                     style={{
                       whiteSpace: 'nowrap',
                       cursor:
-                        projectsMutationLocked || row.status === 'Удалён' || row.status === ARCHIVE_STATUS
+                        mutationLocked || row.status === 'Удалён' || row.status === ARCHIVE_STATUS
                           ? 'default'
                           : statusSavingIds.has(row.id)
                             ? 'wait'
@@ -1053,8 +1036,8 @@ function ProjectsTable({
                     }}
                     aria-busy={statusSavingIds.has(row.id)}
                     title={
-                      projectsMutationLocked
-                        ? projectsMutationLockMessage
+                      mutationLocked
+                        ? mutationLockMessage
                         : statusSavingIds.has(row.id)
                           ? 'Статус обновляется...'
                           : row.status === 'Удалён'
@@ -1066,8 +1049,8 @@ function ProjectsTable({
                             : 'Нажмите, чтобы переключить статус проекта'
                     }
                     onClick={() => {
-                      if (projectsMutationLocked) {
-                        window.dispatchEvent(new CustomEvent('app-toast', { detail: projectsMutationLockMessage }));
+                      if (mutationLocked) {
+                        window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
                         return;
                       }
                       if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
@@ -1135,8 +1118,12 @@ function ProjectsTable({
                   </button>
                   <button
                     className="icon-btn"
-                    title={projectsMutationLocked ? 'Открыть карточку проекта только для просмотра' : 'Настройки'}
-                    onClick={() => onEdit?.(row)}
+                    title={operationActive ? mutationLockMessage : mutationLocked ? 'Открыть карточку проекта только для просмотра' : 'Настройки'}
+                    disabled={operationActive}
+                    onClick={() => {
+                      if (operationActive) return;
+                      onEdit?.(row);
+                    }}
                   >
                     ⚙️
                   </button>
@@ -1176,8 +1163,8 @@ function ProjectsTable({
       {activeBulkAction === 'days' && (
         <BulkEditDaysModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkDaysSubmit}
         />
@@ -1185,8 +1172,8 @@ function ProjectsTable({
       {activeBulkAction === 'limit' && (
         <BulkEditLimitModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkLimitSubmit}
         />
@@ -1194,8 +1181,8 @@ function ProjectsTable({
       {activeBulkAction === 'contacts' && (
         <BulkEditContactsModal
           selectedProjects={selectedRows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkContactsSubmit}
         />
@@ -1204,8 +1191,8 @@ function ProjectsTable({
         <BulkEditRegionsModal
           selectedProjects={selectedRows}
           regionSourceProjects={rows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkRegionsSubmit}
         />
@@ -1213,8 +1200,8 @@ function ProjectsTable({
       {activeBulkAction === 'status' && (
         <BulkEditStatusModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkStatusSubmit}
         />
@@ -1222,8 +1209,8 @@ function ProjectsTable({
       {activeBulkAction === 'delete' && (
         <BulkDeleteProjectsModal
           selectedProjects={selectedRows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={runBulkDeleteAction}
         />

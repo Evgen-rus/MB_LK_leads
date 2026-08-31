@@ -19,7 +19,7 @@ from sqlalchemy import String, cast, select, func, or_, and_, case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import models, schemas, auth
+from . import models, schemas, auth, project_operations
 
 
 PROJECT_PROVIDER_LEADS_GRACE_HOURS = 48
@@ -6985,3 +6985,575 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
     for user, name in rows:
         out.append(_user_info_from_user(user, name=name))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Долговечная очередь операций над provider-проектами
+# ---------------------------------------------------------------------------
+
+PROJECT_OPERATION_DEFAULT_LEASE_SECONDS = 600
+PROJECT_OPERATION_MIN_LEASE_SECONDS = 30
+PROJECT_OPERATION_MAX_LEASE_SECONDS = 3600
+
+
+def _project_operation_retry_delay_seconds(attempt_count: int) -> int:
+    """Небольшой backoff без отдельного scheduler/broker."""
+    delays = (15, 30, 60, 120, 300, 600)
+    index = max(0, min(len(delays) - 1, int(attempt_count or 1) - 1))
+    return delays[index]
+
+
+def _project_operation_error(value: Any) -> Optional[str]:
+    text_value = str(value or "").strip()
+    return text_value[:2000] if text_value else None
+
+
+def _operation_item_field(raw: Dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in raw:
+            return raw[name]
+    return None
+
+
+def _project_operation_item_context(row: models.ProjectOperationItem) -> project_operations.ProjectOperationItemContext:
+    return project_operations.ProjectOperationItemContext(
+        item_id=int(row.id),
+        operation_id=int(row.operation_id),
+        client_id=int(getattr(row, "client_id", 0) or 0),
+        project_id=int(row.project_id),
+        provider_project_id=(str(row.provider_project_id).strip() if row.provider_project_id else None),
+        project_name=row.project_name_snapshot,
+        state_snapshot=row.state_snapshot if isinstance(row.state_snapshot, dict) else None,
+        payload_snapshot=row.payload_snapshot if isinstance(row.payload_snapshot, dict) else None,
+        attempt_count=int(row.attempt_count or 0),
+    )
+
+
+def _project_operation_item_context_with_client(
+    row: models.ProjectOperationItem,
+    client_id: int,
+) -> project_operations.ProjectOperationItemContext:
+    context = _project_operation_item_context(row)
+    return project_operations.ProjectOperationItemContext(
+        item_id=context.item_id,
+        operation_id=context.operation_id,
+        client_id=int(client_id),
+        project_id=context.project_id,
+        provider_project_id=context.provider_project_id,
+        project_name=context.project_name,
+        state_snapshot=context.state_snapshot,
+        payload_snapshot=context.payload_snapshot,
+        attempt_count=context.attempt_count,
+    )
+
+
+def create_project_operation(
+    db: Session,
+    *,
+    client_id: int,
+    operation_type: str,
+    actor_user_id: Optional[int],
+    actor_role: Optional[str],
+    items: Iterable[Dict[str, Any]],
+    payload_snapshot: Optional[Dict[str, Any]] = None,
+) -> models.ProjectOperationJob:
+    """Создать job и неизменяемые snapshots одной транзакцией.
+
+    Уникальный partial index является защитой от гонки. Предварительная
+    выборка нужна, чтобы обычный повторный клик получил понятный конфликт.
+    ``items`` принимает словари с snake_case или camelCase ключами, что
+    позволяет вызывать функцию из обоих backend-контуров без адаптера.
+    """
+    client_value = int(client_id)
+    operation_value = str(operation_type or "").strip()
+    if not operation_value:
+        raise ValueError("operation_type is required")
+
+    raw_items = list(items or [])
+    normalized_items: List[Dict[str, Any]] = []
+    seen_project_ids: set[int] = set()
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise ValueError("project operation item must be an object")
+        project_id_raw = _operation_item_field(raw, "project_id", "projectId")
+        if project_id_raw is None:
+            raise ValueError("project_id is required for project operation item")
+        project_id = int(project_id_raw)
+        if project_id in seen_project_ids:
+            raise ValueError(f"duplicate project_id in operation: {project_id}")
+        seen_project_ids.add(project_id)
+        normalized_items.append(
+            {
+                "project_id": project_id,
+                "provider_project_id": _operation_item_field(raw, "provider_project_id", "providerProjectId"),
+                "project_name": _operation_item_field(raw, "project_name", "projectName", "name"),
+                "state_snapshot": _operation_item_field(raw, "state_snapshot", "stateSnapshot", "state"),
+                "payload_snapshot": _operation_item_field(raw, "payload_snapshot", "payloadSnapshot", "payload"),
+            }
+        )
+
+    active_stmt = (
+        select(models.ProjectOperationJob)
+        .where(
+            models.ProjectOperationJob.client_id == client_value,
+            models.ProjectOperationJob.status.in_(tuple(project_operations.PROJECT_OPERATION_ACTIVE_STATUSES)),
+        )
+        .order_by(models.ProjectOperationJob.created_at.desc(), models.ProjectOperationJob.id.desc())
+        .limit(1)
+    )
+    active = db.execute(active_stmt).scalars().first()
+    if active is not None:
+        raise project_operations.ActiveProjectOperationError(client_value, active.id)
+
+    now = now_msk_naive()
+    initial_status = (
+        project_operations.PROJECT_OPERATION_STATUS_COMPLETED
+        if not normalized_items
+        else project_operations.PROJECT_OPERATION_STATUS_QUEUED
+    )
+    job = models.ProjectOperationJob(
+        client_id=client_value,
+        operation_type=operation_value,
+        actor_user_id=int(actor_user_id) if actor_user_id is not None else None,
+        actor_role=(str(actor_role).strip() if actor_role else None),
+        payload_snapshot=payload_snapshot,
+        status=initial_status,
+        total_count=len(normalized_items),
+        completed_count=0 if normalized_items else 0,
+        success_count=0,
+        failed_count=0,
+        waiting_count=len(normalized_items),
+        attempt_count=0,
+        next_attempt_at=None if not normalized_items else now,
+        created_at=now,
+        started_at=None,
+        finished_at=now if not normalized_items else None,
+        updated_at=now,
+    )
+    db.add(job)
+    try:
+        db.flush()
+        for item_data in normalized_items:
+            db.add(
+                models.ProjectOperationItem(
+                    operation_id=job.id,
+                    project_id=item_data["project_id"],
+                    provider_project_id=(
+                        str(item_data["provider_project_id"]).strip()
+                        if item_data["provider_project_id"] is not None
+                        else None
+                    ),
+                    project_name_snapshot=(
+                        str(item_data["project_name"]).strip()
+                        if item_data["project_name"] is not None
+                        else None
+                    ),
+                    state_snapshot=item_data["state_snapshot"],
+                    payload_snapshot=item_data["payload_snapshot"],
+                    status=project_operations.PROJECT_OPERATION_STATUS_QUEUED,
+                    attempt_count=0,
+                    next_attempt_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        db.commit()
+    except IntegrityError:
+        # Состязательный запуск мог пройти между pre-check и flush. После
+        # rollback пытаемся вернуть id уже существующей активной операции.
+        db.rollback()
+        active = db.execute(active_stmt).scalars().first()
+        if active is not None:
+            raise project_operations.ActiveProjectOperationError(client_value, active.id)
+        raise
+    db.refresh(job)
+    return job
+
+
+def get_project_operation(db: Session, operation_id: int) -> Optional[models.ProjectOperationJob]:
+    return db.get(models.ProjectOperationJob, int(operation_id))
+
+
+def get_active_project_operation(db: Session, client_id: int) -> Optional[models.ProjectOperationJob]:
+    stmt = (
+        select(models.ProjectOperationJob)
+        .where(
+            models.ProjectOperationJob.client_id == int(client_id),
+            models.ProjectOperationJob.status.in_(tuple(project_operations.PROJECT_OPERATION_ACTIVE_STATUSES)),
+        )
+        .order_by(models.ProjectOperationJob.created_at.desc(), models.ProjectOperationJob.id.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def list_project_operation_items(
+    db: Session,
+    *,
+    operation_id: int,
+    include_technical: bool = False,
+) -> List[schemas.ProjectOperationItemOut]:
+    rows = db.execute(
+        select(models.ProjectOperationItem)
+        .where(models.ProjectOperationItem.operation_id == int(operation_id))
+        .order_by(models.ProjectOperationItem.id.asc())
+    ).scalars().all()
+    return [_project_operation_item_to_view(row, include_technical=include_technical) for row in rows]
+
+
+def _project_operation_counts(db: Session, operation_id: int) -> Tuple[int, int, int, int, int]:
+    rows = db.execute(
+        select(models.ProjectOperationItem.status, func.count(models.ProjectOperationItem.id))
+        .where(models.ProjectOperationItem.operation_id == int(operation_id))
+        .group_by(models.ProjectOperationItem.status)
+    ).all()
+    counts = {str(status): int(count) for status, count in rows}
+    total = sum(counts.values())
+    success = counts.get(project_operations.PROJECT_OPERATION_STATUS_COMPLETED, 0)
+    failed = counts.get(project_operations.PROJECT_OPERATION_STATUS_NEEDS_ATTENTION, 0)
+    completed = success + failed
+    waiting = max(0, total - completed)
+    return total, completed, success, failed, waiting
+
+
+def _project_operation_item_message(status: str) -> str:
+    return project_operations.operation_message(status)
+
+
+def _project_operation_item_to_view(
+    row: models.ProjectOperationItem,
+    *,
+    include_technical: bool = False,
+) -> schemas.ProjectOperationItemOut:
+    return schemas.ProjectOperationItemOut(
+        id=int(row.id),
+        projectId=int(row.project_id),
+        projectName=row.project_name_snapshot,
+        status=str(row.status),
+        attemptCount=int(row.attempt_count or 0),
+        nextAttemptAt=row.next_attempt_at,
+        finishedAt=row.finished_at,
+        message=_project_operation_item_message(str(row.status)),
+        technicalError=_project_operation_error(row.last_error) if include_technical else None,
+    )
+
+
+def project_operation_to_view(
+    db: Session,
+    operation: models.ProjectOperationJob,
+    *,
+    include_technical: bool = False,
+) -> schemas.ProjectOperationOut:
+    total, completed, success, failed, waiting = _project_operation_counts(db, operation.id)
+    # Для уже созданной job counters считаются из items, поэтому отображение
+    # после падения процесса не зависит от того, успел ли worker обновить job.
+    return schemas.ProjectOperationOut(
+        id=int(operation.id),
+        clientId=int(operation.client_id),
+        type=str(operation.operation_type),
+        status=str(operation.status),
+        totalCount=total,
+        completedCount=completed,
+        successCount=success,
+        failedCount=failed,
+        waitingCount=waiting,
+        createdAt=operation.created_at,
+        startedAt=operation.started_at,
+        finishedAt=operation.finished_at,
+        updatedAt=operation.updated_at,
+        nextAttemptAt=operation.next_attempt_at,
+        message=project_operations.operation_message(str(operation.status)),
+        technicalError=_project_operation_error(operation.last_error) if include_technical else None,
+    )
+
+
+def _recover_expired_project_operation_leases(db: Session, now: datetime) -> int:
+    """Вернуть записи с протухшей арендой в retryable-состояние."""
+    changed = 0
+    expired_items = db.execute(
+        select(models.ProjectOperationItem).where(
+            models.ProjectOperationItem.status == project_operations.PROJECT_OPERATION_STATUS_RUNNING,
+            models.ProjectOperationItem.lease_until.is_not(None),
+            models.ProjectOperationItem.lease_until <= now,
+        )
+    ).scalars().all()
+    for item in expired_items:
+        item.status = project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY
+        item.next_attempt_at = now
+        item.lease_until = None
+        item.leased_by = None
+        item.updated_at = now
+        changed += 1
+
+    expired_jobs = db.execute(
+        select(models.ProjectOperationJob).where(
+            models.ProjectOperationJob.status == project_operations.PROJECT_OPERATION_STATUS_RUNNING,
+            models.ProjectOperationJob.lease_until.is_not(None),
+            models.ProjectOperationJob.lease_until <= now,
+        )
+    ).scalars().all()
+    for job in expired_jobs:
+        job.status = project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY
+        job.next_attempt_at = now
+        job.lease_until = None
+        job.leased_by = None
+        job.updated_at = now
+        changed += 1
+    return changed
+
+
+def recover_expired_project_operation_leases(db: Session) -> int:
+    now = now_msk_naive()
+    changed = _recover_expired_project_operation_leases(db, now)
+    db.commit()
+    return changed
+
+
+def _bounded_project_operation_lease_seconds(value: int) -> int:
+    return max(
+        PROJECT_OPERATION_MIN_LEASE_SECONDS,
+        min(PROJECT_OPERATION_MAX_LEASE_SECONDS, int(value or PROJECT_OPERATION_DEFAULT_LEASE_SECONDS)),
+    )
+
+
+def claim_project_operation(
+    db: Session,
+    *,
+    worker_id: str,
+    lease_seconds: int = PROJECT_OPERATION_DEFAULT_LEASE_SECONDS,
+) -> Optional[models.ProjectOperationJob]:
+    """Атомарно claim-ить одну job; expired leases поднимаются автоматически."""
+    now = now_msk_naive()
+    _recover_expired_project_operation_leases(db, now)
+    worker = str(worker_id or "").strip() or "project-operations-worker"
+    due = or_(
+        models.ProjectOperationJob.next_attempt_at.is_(None),
+        models.ProjectOperationJob.next_attempt_at <= now,
+    )
+    stmt = (
+        select(models.ProjectOperationJob)
+        .where(
+            models.ProjectOperationJob.status.in_(
+                (
+                    project_operations.PROJECT_OPERATION_STATUS_QUEUED,
+                    project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+                )
+            ),
+            due,
+        )
+        .order_by(models.ProjectOperationJob.created_at.asc(), models.ProjectOperationJob.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+    row = db.execute(stmt).scalars().first()
+    if row is None:
+        db.commit()
+        return None
+    lease_until = now + timedelta(seconds=_bounded_project_operation_lease_seconds(lease_seconds))
+    row.status = project_operations.PROJECT_OPERATION_STATUS_RUNNING
+    row.attempt_count = int(row.attempt_count or 0) + 1
+    row.next_attempt_at = None
+    row.lease_until = lease_until
+    row.leased_by = worker
+    row.started_at = row.started_at or now
+    row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def admin_add_pause_snapshot_project(
+    db: Session,
+    *,
+    client_id: int,
+    project_id: int,
+    admin_user_id: int,
+) -> Optional[models.ClientProjectPauseSnapshot]:
+    """Добавить подтверждённо остановленный проект в snapshot."""
+    row = _get_pause_snapshot_row(db, int(client_id))
+    ids = _normalize_pause_snapshot_ids(row.project_ids if row else [])
+    pid = int(project_id)
+    if pid not in ids:
+        ids.append(pid)
+    return admin_replace_pause_snapshot(db, int(client_id), ids, int(admin_user_id))
+
+
+def admin_remove_pause_snapshot_project(
+    db: Session,
+    *,
+    client_id: int,
+    project_id: int,
+    admin_user_id: int,
+) -> Optional[models.ClientProjectPauseSnapshot]:
+    """Убрать подтверждённо восстановленный проект из snapshot."""
+    row = _get_pause_snapshot_row(db, int(client_id))
+    pid = int(project_id)
+    ids = [item for item in _normalize_pause_snapshot_ids(row.project_ids if row else []) if item != pid]
+    return admin_replace_pause_snapshot(db, int(client_id), ids, int(admin_user_id))
+
+
+def renew_project_operation_lease(
+    db: Session,
+    *,
+    operation_id: int,
+    worker_id: str,
+    lease_seconds: int = PROJECT_OPERATION_DEFAULT_LEASE_SECONDS,
+) -> bool:
+    row = db.get(models.ProjectOperationJob, int(operation_id))
+    if (
+        row is None
+        or row.status != project_operations.PROJECT_OPERATION_STATUS_RUNNING
+        or row.leased_by != str(worker_id or "").strip()
+    ):
+        db.rollback()
+        return False
+    now = now_msk_naive()
+    row.lease_until = now + timedelta(seconds=_bounded_project_operation_lease_seconds(lease_seconds))
+    row.updated_at = now
+    db.commit()
+    return True
+
+
+def claim_next_project_operation_item(
+    db: Session,
+    *,
+    operation_id: int,
+    worker_id: str,
+    lease_seconds: int = PROJECT_OPERATION_DEFAULT_LEASE_SECONDS,
+) -> Optional[project_operations.ProjectOperationItemContext]:
+    """Claim-ить ровно один item; вызывающий worker обрабатывает их последовательно."""
+    operation = db.get(models.ProjectOperationJob, int(operation_id))
+    if operation is None or operation.status != project_operations.PROJECT_OPERATION_STATUS_RUNNING:
+        db.rollback()
+        return None
+    now = now_msk_naive()
+    due = or_(
+        models.ProjectOperationItem.next_attempt_at.is_(None),
+        models.ProjectOperationItem.next_attempt_at <= now,
+    )
+    stmt = (
+        select(models.ProjectOperationItem)
+        .where(
+            models.ProjectOperationItem.operation_id == int(operation_id),
+            models.ProjectOperationItem.status.in_(
+                (
+                    project_operations.PROJECT_OPERATION_STATUS_QUEUED,
+                    project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+                )
+            ),
+            due,
+        )
+        .order_by(models.ProjectOperationItem.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+    row = db.execute(stmt).scalars().first()
+    if row is None:
+        db.commit()
+        return None
+    row.status = project_operations.PROJECT_OPERATION_STATUS_RUNNING
+    row.attempt_count = int(row.attempt_count or 0) + 1
+    row.next_attempt_at = None
+    row.lease_until = now + timedelta(seconds=_bounded_project_operation_lease_seconds(lease_seconds))
+    row.leased_by = str(worker_id or "").strip() or "project-operations-worker"
+    row.started_at = row.started_at or now
+    row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return _project_operation_item_context_with_client(row, operation.client_id)
+
+
+def finish_project_operation_item(
+    db: Session,
+    *,
+    item_id: int,
+    worker_id: str,
+    result: project_operations.ProjectOperationItemResult,
+) -> Optional[models.ProjectOperationItem]:
+    """Сохранить результат item и пересчитать состояние job."""
+    allowed = {
+        project_operations.PROJECT_OPERATION_STATUS_COMPLETED,
+        project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+        project_operations.PROJECT_OPERATION_STATUS_NEEDS_ATTENTION,
+    }
+    if result.status not in allowed:
+        raise ValueError(f"unsupported project operation item result: {result.status}")
+    row = db.get(models.ProjectOperationItem, int(item_id))
+    if row is None:
+        db.rollback()
+        return None
+    worker = str(worker_id or "").strip() or "project-operations-worker"
+    if row.status != project_operations.PROJECT_OPERATION_STATUS_RUNNING or row.leased_by != worker:
+        db.rollback()
+        return None
+    now = now_msk_naive()
+    row.status = result.status
+    row.last_error = _project_operation_error(result.error)
+    row.result_snapshot = result.result_snapshot
+    row.lease_until = None
+    row.leased_by = None
+    row.next_attempt_at = (
+        result.next_attempt_at
+        if result.status == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY
+        else None
+    )
+    if result.status == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY and row.next_attempt_at is None:
+        row.next_attempt_at = now + timedelta(seconds=_project_operation_retry_delay_seconds(row.attempt_count))
+    row.finished_at = now if result.status in project_operations.PROJECT_OPERATION_TERMINAL_STATUSES else None
+    row.updated_at = now
+    db.add(row)
+
+    job = db.get(models.ProjectOperationJob, int(row.operation_id))
+    if job is None:
+        db.rollback()
+        return None
+    # В проекте SessionLocal настроен с autoflush=False; status item должен
+    # попасть в агрегат до его расчёта.
+    db.flush()
+    total, completed, success, failed, waiting = _project_operation_counts(db, job.id)
+    job.total_count = total
+    job.completed_count = completed
+    job.success_count = success
+    job.failed_count = failed
+    job.waiting_count = waiting
+    if row.last_error:
+        job.last_error = row.last_error
+    if waiting > 0:
+        if result.status == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY:
+            job.status = project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY
+            job.next_attempt_at = row.next_attempt_at
+        else:
+            job.status = project_operations.PROJECT_OPERATION_STATUS_RUNNING
+            job.next_attempt_at = None
+        job.finished_at = None
+    else:
+        job.status = (
+            project_operations.PROJECT_OPERATION_STATUS_NEEDS_ATTENTION
+            if failed
+            else project_operations.PROJECT_OPERATION_STATUS_COMPLETED
+        )
+        job.next_attempt_at = None
+        job.lease_until = None
+        job.leased_by = None
+        job.finished_at = now
+        if not failed:
+            job.last_error = None
+    # The worker owns this lease while it processes the item.  If there are
+    # more items, keep the job lease and running state; otherwise release it.
+    if waiting > 0 and job.status == project_operations.PROJECT_OPERATION_STATUS_RUNNING:
+        job.lease_until = now + timedelta(seconds=PROJECT_OPERATION_DEFAULT_LEASE_SECONDS)
+    elif waiting > 0:
+        job.lease_until = None
+        job.leased_by = None
+    job.updated_at = now
+    db.add(job)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+# Синонимы оставлены для читабельности endpoint-кода и постепенного перехода
+# от общего термина operation к явному job в новых consumers.
+create_project_operation_job = create_project_operation
+claim_project_operation_job = claim_project_operation
+claim_project_operation_item = claim_next_project_operation_item

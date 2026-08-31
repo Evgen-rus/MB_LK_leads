@@ -2,6 +2,7 @@
 // Показывает проекты только выбранного клиента в стиле обычной вкладки «Проекты».
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
+  createAdminProjectBulkOperation,
   deleteAdminProject,
   fetchAdminProjects,
   setAdminProjectTop,
@@ -11,6 +12,7 @@ import {
   type Day,
   type ProjectSortBy,
   type SortDir,
+  type ProjectOperation,
 } from '../api';
 import AdminEditProjectModal from './AdminEditProjectModal';
 import AdminProjectHistoryModal from './AdminProjectHistoryModal';
@@ -22,7 +24,13 @@ import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkE
 import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
 import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
-import { runBulkProjectUpdatesSequential, type BulkProgress } from '../utils/projectBulkUpdate';
+import type { BulkProgress } from '../utils/projectBulkUpdate';
+import {
+  getProjectOperationStatusLabel,
+  getProjectOperationUserMessage,
+  isProjectOperationActive,
+  useProjectOperation,
+} from '../utils/useProjectOperation';
 import type { ProjectMutableStatus } from '../types/project';
 import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 import ProjectChartModal from './ProjectChartModal';
@@ -55,6 +63,7 @@ const ALL_TIME_TO_DATE = '2099-12-31';
 const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
 const ARCHIVE_STATUS = 'Архив';
+const PIXEL_COLLECTION_SOURCE = 'Пиксель';
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -119,6 +128,34 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [sortBy, setSortBy] = useState<ProjectSortBy>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const canUseAdminProjectActions = managerRole === 'admin';
+
+  function handleProjectOperationTerminal(operation: ProjectOperation) {
+    const completed = operation.completedCount || operation.successCount + operation.failedCount;
+    const lines = [getProjectOperationUserMessage(operation, { isAdmin: canUseAdminProjectActions })];
+    lines.push(`Статус: ${getProjectOperationStatusLabel(operation.status)}.`);
+    lines.push(`Выполнено: ${completed}/${operation.totalCount}. Успешно: ${operation.successCount}. Ошибок: ${operation.failedCount}.`);
+    if (operation.waitingCount > 0) lines.push(`Ожидают повторной попытки: ${operation.waitingCount}.`);
+    window.dispatchEvent(new CustomEvent('app-toast', { detail: lines.join('\n') }));
+    window.dispatchEvent(new CustomEvent('projects-refresh'));
+    setBulkSaving(false);
+  }
+
+  const projectOperationTracker = useProjectOperation({
+    clientId,
+    onTerminal: handleProjectOperationTerminal,
+  });
+  const projectOperation = projectOperationTracker.operation;
+  const operationActive = isProjectOperationActive(projectOperation);
+  const bulkBusy = bulkSaving || operationActive;
+  const operationProgress: BulkProgress | null = projectOperation
+    ? {
+        total: projectOperation.totalCount,
+        done: projectOperation.completedCount,
+        updated: projectOperation.successCount,
+        skipped: projectOperation.waitingCount,
+        failed: projectOperation.failedCount,
+      }
+    : null;
 
   async function load(
     p = page,
@@ -186,7 +223,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tableColSpan = canUseAdminProjectActions ? 14 : 13;
   const selectableRows = useMemo(
-    () => rows.filter((row) => row.status !== 'Удалён'),
+    () => rows.filter((row) => row.status !== 'Удалён' && row.collectionSource !== PIXEL_COLLECTION_SOURCE),
     [rows],
   );
   const selectedRows = useMemo(
@@ -259,6 +296,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
     if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (operationActive) return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
@@ -274,6 +312,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   async function handleArchive(project: AdminProject) {
     if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (operationActive) return;
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
       const ok = await applyUpdate(project, { status: ARCHIVE_STATUS });
@@ -291,6 +330,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   async function handleUnarchive(project: AdminProject) {
     if (project.status !== ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (operationActive) return;
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
       const ok = await applyUpdate(project, { status: 'На паузе' });
@@ -373,6 +413,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   function openBulkAction(action: BulkActionType) {
+    if (bulkBusy) return;
     if (selectedOperatorBlockedCount > 0 && action !== 'status' && action !== 'delete') {
       window.dispatchEvent(new CustomEvent('app-toast', {
         detail: 'В выделении есть проекты со статусом «Блокировка оператора». Для них доступны только массовые действия «Статус проекта» и «Удалить проекты». Для остальных действий снимите выделение с заблокированных проектов.',
@@ -385,82 +426,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   function closeBulkAction() {
-    if (bulkSaving) return;
+    if (bulkBusy) return;
     setActiveBulkAction(null);
     setBulkProgress(null);
-  }
-
-  function buildAdminUpdatePayload(project: AdminProject, patch: Partial<AdminProjectUpdate>): AdminProjectUpdate {
-    return {
-      name: project.name,
-      tag: project.tag,
-      status: patch.status ?? toMutableProjectStatus(project.status),
-      deliveryStatus: project.deliveryStatus,
-      dataLimit: project.dataLimit,
-      regionMode: project.regionMode || 'include',
-      regions: project.regions || [],
-      sites: project.sites || undefined,
-      phones: project.phones || undefined,
-      smsSenderName: project.smsSenderName || undefined,
-      days: parseProjectDays(project),
-      ...patch,
-    };
-  }
-
-  function formatBulkItemNames(items: Array<{ id: number; name: string }>, max = 5): string {
-    const preview = items
-      .slice(0, max)
-      .map((item) => `${formatProjectNameForDisplay(item.name)} (id: ${item.id})`)
-      .join(', ');
-    if (items.length <= max) return preview;
-    return `${preview}, ... и еще ${items.length - max}`;
-  }
-
-  function showBulkResultToast(result: {
-    updatedCount: number;
-    skippedCount: number;
-    failedCount: number;
-    warnings: string[];
-    errors: string[];
-    updatedItems: Array<{ id: number; name: string }>;
-    skippedItems: Array<{ id: number; name: string }>;
-    failedItems: Array<{ id: number; name: string; reason: string }>;
-    skippedReasonLabel?: string;
-  }) {
-    const lines: string[] = [`Обновлено: ${result.updatedCount}.`];
-    if (result.updatedItems.length > 0) {
-      lines.push(`Применено к: ${formatBulkItemNames(result.updatedItems)}.`);
-    }
-    if (result.skippedCount > 0) {
-      lines.push(
-        result.skippedReasonLabel
-          ? `Пропущено: ${result.skippedCount} (${result.skippedReasonLabel}).`
-          : `Пропущено: ${result.skippedCount}.`,
-      );
-    }
-    if (result.skippedItems.length > 0) {
-      lines.push(`Не применено к: ${formatBulkItemNames(result.skippedItems)}.`);
-    }
-    if (result.failedCount > 0) lines.push(`Ошибок: ${result.failedCount}.`);
-    if (result.failedItems.length > 0) {
-      const failedPreview = result.failedItems
-        .slice(0, 3)
-        .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
-        .join('\n');
-      lines.push(`Ошибки по проектам:\n${failedPreview}`);
-      if (result.failedItems.length > 3) {
-        lines.push(`... и еще ${result.failedItems.length - 3} проект(ов) с ошибкой.`);
-      }
-    }
-    if (result.warnings.length > 0) lines.push(`Предупреждений: ${result.warnings.length}.`);
-    if (result.errors.length > 0 && result.failedItems.length === 0) {
-      const preview = result.errors.slice(0, 3).join('\n');
-      lines.push(preview);
-      if (result.errors.length > 3) {
-        lines.push(`... и еще ${result.errors.length - 3}`);
-      }
-    }
-    window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
   }
 
   async function runBulkAction(
@@ -468,35 +436,38 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     options?: { skippedReasonLabel?: string },
   ) {
     if (!canUseAdminProjectActions || selectedRows.length === 0) return;
+    if (operationActive) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Операция с проектами выполняется. Дождитесь её завершения.' }));
+      return;
+    }
+    const eligibleRows = selectedRows.filter(
+      (project) => project.collectionSource !== PIXEL_COLLECTION_SOURCE && buildPatch(project) != null,
+    );
+    const skippedCount = selectedRows.length - eligibleRows.length;
+    if (eligibleRows.length === 0) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'В выделении нет обычных проектов, доступных для этого действия.' }));
+      return;
+    }
+    const patch = buildPatch(eligibleRows[0]);
+    if (!patch) return;
     setBulkSaving(true);
-    setBulkProgress(null);
     try {
-      const result = await runBulkProjectUpdatesSequential<AdminProject, AdminProjectUpdate>({
-        projects: selectedRows,
-        buildPatch,
-        buildPayload: buildAdminUpdatePayload,
-        updateProjectFn: updateAdminProject,
-        onProgress: setBulkProgress,
+      const response = await createAdminProjectBulkOperation({
+        projectIds: eligibleRows.map((project) => project.id),
+        action: 'update',
+        patch: patch as Record<string, unknown>,
       });
-      setRows((prev) => {
-        const updatedMap = new Map(result.updated.map((item) => [item.id, item]));
-        return prev.map((item) => updatedMap.get(item.id) ?? item);
-      });
-      showBulkResultToast({
-        updatedCount: result.updated.length,
-        skippedCount: result.skipped,
-        failedCount: result.failed,
-        warnings: result.warnings,
-        errors: result.errors,
-        updatedItems: result.updatedItems,
-        skippedItems: result.skippedItems,
-        failedItems: result.failedItems,
-        skippedReasonLabel: options?.skippedReasonLabel,
-      });
-      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      projectOperationTracker.start(response.operation);
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: skippedCount > 0
+          ? `Операция запущена. Пропущено: ${skippedCount}${options?.skippedReasonLabel ? ` (${options.skippedReasonLabel})` : ''}.`
+          : 'Операция сохранена и продолжится автоматически. Можно закрыть вкладку.',
+      }));
       setSelectedIds([]);
       setActiveBulkAction(null);
       setBulkProgress(null);
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось запустить операцию.') }));
     } finally {
       setBulkSaving(false);
     }
@@ -504,69 +475,33 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   async function runBulkDeleteAction() {
     if (!canUseAdminProjectActions || selectedRows.length === 0) return;
-
-    const deletedItems: Array<{ id: number; name: string }> = [];
-    const failedItems: Array<{ id: number; name: string; reason: string }> = [];
-    let done = 0;
-    let failed = 0;
+    if (operationActive) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Операция с проектами выполняется. Дождитесь её завершения.' }));
+      return;
+    }
+    const projectIds = selectedRows
+      .filter((project) => project.collectionSource !== PIXEL_COLLECTION_SOURCE)
+      .map((project) => project.id);
+    if (projectIds.length === 0) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: 'Pixel-проекты нельзя удалить этой массовой операцией.' }));
+      return;
+    }
 
     setBulkSaving(true);
-    setBulkProgress({
-      total: selectedRows.length,
-      done,
-      updated: deletedItems.length,
-      skipped: 0,
-      failed,
-    });
-
     try {
-      for (const project of selectedRows) {
-        try {
-          await deleteAdminProject(project.id);
-          deletedItems.push({ id: project.id, name: project.name });
-        } catch (err: unknown) {
-          failed += 1;
-          const reason = err instanceof Error && err.message
-            ? formatSourceTextForDisplay(err.message)
-            : 'Ошибка удаления';
-          failedItems.push({
-            id: project.id,
-            name: formatProjectNameForDisplay(project.name),
-            reason,
-          });
-        } finally {
-          done += 1;
-          setBulkProgress({
-            total: selectedRows.length,
-            done,
-            updated: deletedItems.length,
-            skipped: 0,
-            failed,
-          });
-        }
-      }
-
-      const lines: string[] = [`Удалено: ${deletedItems.length}.`];
-      if (deletedItems.length > 0) {
-        lines.push(`Удалены: ${formatBulkItemNames(deletedItems)}.`);
-      }
-      if (failedItems.length > 0) {
-        lines.push(`Ошибок: ${failedItems.length}.`);
-        const failedPreview = failedItems
-          .slice(0, 3)
-          .map((item) => `${item.name} (id: ${item.id}) - ${item.reason}`)
-          .join('\n');
-        lines.push(`Ошибки по проектам:\n${failedPreview}`);
-        if (failedItems.length > 3) {
-          lines.push(`... и еще ${failedItems.length - 3} проект(ов) с ошибкой.`);
-        }
-      }
-
-      window.dispatchEvent(new CustomEvent('app-toast', { detail: formatSourceTextForDisplay(lines.join('\n')) }));
-      window.dispatchEvent(new CustomEvent('projects-refresh'));
+      const response = await createAdminProjectBulkOperation({ projectIds, action: 'delete' });
+      projectOperationTracker.start(response.operation);
+      const skippedCount = selectedRows.length - projectIds.length;
+      window.dispatchEvent(new CustomEvent('app-toast', {
+        detail: skippedCount > 0
+          ? `Операция удаления запущена. Pixel-проектов пропущено: ${skippedCount}.`
+          : 'Операция удаления сохранена и продолжится автоматически. Можно закрыть вкладку.',
+      }));
       setSelectedIds([]);
       setActiveBulkAction(null);
       setBulkProgress(null);
+    } catch (err: unknown) {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось запустить удаление проектов.') }));
     } finally {
       setBulkSaving(false);
     }
@@ -574,6 +509,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   async function handleSoftDelete(project: AdminProject) {
     if (!canUseAdminProjectActions || project.status === 'Удалён') return;
+    if (operationActive) return;
     if (!window.confirm(`Удалить проект ${formatProjectNameForDisplay(project.name)} (id: ${project.id}) навсегда?`)) return;
     try {
       await deleteAdminProject(project.id);
@@ -705,6 +641,24 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           </span>
         </div>
       </div>
+      {projectOperation && (
+        <div
+          style={{
+            margin: '12px',
+            padding: '10px 12px',
+            border: '1px solid #d9d0ff',
+            background: '#f7f4ff',
+            borderRadius: 10,
+            color: '#4d3b9b',
+          }}
+        >
+          <div>{getProjectOperationUserMessage(projectOperation, { isAdmin: canUseAdminProjectActions })}</div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            {getProjectOperationStatusLabel(projectOperation.status)} · Выполнено: {operationProgress?.done ?? 0}/{operationProgress?.total ?? 0} · Успешно: {operationProgress?.updated ?? 0} · Ошибок: {operationProgress?.failed ?? 0}
+            {projectOperation.nextAttemptAt ? ` · Следующая попытка: ${new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU')}` : ''}
+          </div>
+        </div>
+      )}
       {canUseAdminProjectActions && selectedRows.length > 0 && (
         <div
           style={{
@@ -724,14 +678,14 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           {selectedOperatorBlockedCount > 0 && (
             <span className="badge badge--red">Блокировка оператора: {selectedOperatorBlockedCount}</span>
           )}
-          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkSaving}>
+          <button className="btn btn--ghost" onClick={() => setSelectedIds([])} disabled={bulkBusy}>
             Снять выделение
           </button>
           <div style={{ position: 'relative' }}>
             <button
               className="btn btn--primary"
               onClick={() => setBulkMenuOpen((prev) => !prev)}
-              disabled={bulkSaving}
+              disabled={bulkBusy}
             >
               Массовые действия
             </button>
@@ -761,9 +715,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
               </div>
             )}
           </div>
-          {bulkSaving && bulkProgress && (
+          {(bulkSaving && bulkProgress || operationProgress) && (
             <span className="sub" style={{ color: '#6b4ce6' }}>
-              Обработка: {bulkProgress.done}/{bulkProgress.total}
+              Обработка: {(operationProgress ?? bulkProgress)?.done ?? 0}/{(operationProgress ?? bulkProgress)?.total ?? 0}
             </span>
           )}
         </div>
@@ -825,6 +779,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                     type="checkbox"
                     checked={allSelectableOnPageSelected}
                     onChange={toggleSelectAllOnPage}
+                    disabled={bulkBusy}
                     title="Выбрать все доступные проекты на странице"
                   />
                 </th>
@@ -882,10 +837,12 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(row.id)}
-                        disabled={row.status === 'Удалён' || bulkSaving}
+                        disabled={row.status === 'Удалён' || row.collectionSource === PIXEL_COLLECTION_SOURCE || bulkBusy}
                         title={
                           row.status === 'Удалён'
                             ? 'Удалённые проекты нельзя редактировать'
+                            : row.collectionSource === PIXEL_COLLECTION_SOURCE
+                              ? 'Pixel-проекты нельзя включать в эту массовую операцию'
                             : row.status === OPERATOR_BLOCK_STATUS
                               ? 'Можно выбрать для массовой смены статуса или удаления'
                               : 'Выбрать проект'
@@ -980,6 +937,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                               key: 'archive',
                               label: 'В архив',
                               onSelect: () => handleArchive(row),
+                              disabled: operationActive,
                             }]
                           : []),
                         ...(row.status === ARCHIVE_STATUS
@@ -987,6 +945,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                               key: 'unarchive',
                               label: 'Достать из архива',
                               onSelect: () => handleUnarchive(row),
+                              disabled: operationActive,
                             }]
                           : []),
                         ...(canUseAdminProjectActions
@@ -998,7 +957,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                                   if (row.status === 'Удалён') return;
                                   handleSoftDelete(row);
                                 },
-                                disabled: row.status === 'Удалён',
+                                disabled: operationActive || row.status === 'Удалён',
                                 danger: true,
                                 title: row.status === 'Удалён'
                                   ? 'Проект уже удален'
@@ -1117,13 +1076,15 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                           <button
                             className="icon-btn"
                             title={
-                              canEdit
+                              operationActive
+                                ? 'Операция с проектами выполняется. Дождитесь её завершения.'
+                                : canEdit
                                 ? 'Редактировать проект'
                                 : 'Только просмотр (редактировать свои или через ЛК клиента)'
                             }
                             onClick={() => {
                               setEditing(row);
-                              setEditingReadOnly(!canEdit);
+                              setEditingReadOnly(!canEdit || operationActive);
                             }}
                           >
                             ⚙️
@@ -1232,8 +1193,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'days' && (
         <BulkEditDaysModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkDaysSubmit}
         />
@@ -1241,8 +1202,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'limit' && (
         <BulkEditLimitModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkLimitSubmit}
         />
@@ -1250,8 +1211,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'contacts' && (
         <BulkEditContactsModal
           selectedProjects={selectedRows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkContactsSubmit}
         />
@@ -1260,8 +1221,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
         <BulkEditRegionsModal
           selectedProjects={selectedRows}
           regionSourceProjects={rows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkRegionsSubmit}
         />
@@ -1269,8 +1230,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'status' && (
         <BulkEditStatusModal
           selectedCount={selectedRows.length}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={handleBulkStatusSubmit}
         />
@@ -1278,8 +1239,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       {canUseAdminProjectActions && activeBulkAction === 'delete' && (
         <BulkDeleteProjectsModal
           selectedProjects={selectedRows}
-          submitting={bulkSaving}
-          progress={bulkProgress}
+          submitting={bulkBusy}
+          progress={operationProgress ?? bulkProgress}
           onClose={closeBulkAction}
           onSubmit={runBulkDeleteAction}
         />
