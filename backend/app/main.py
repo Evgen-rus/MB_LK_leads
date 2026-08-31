@@ -127,6 +127,7 @@ def get_settings():
         "DB_MAX_OVERFLOW": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "DB_POOL_TIMEOUT": int(os.getenv("DB_POOL_TIMEOUT", "30")),
         "DB_POOL_RECYCLE": int(os.getenv("DB_POOL_RECYCLE", "1800")),
+        "PROJECT_OPERATIONS_CONCURRENCY": int(os.getenv("PROJECT_OPERATIONS_CONCURRENCY", "3")),
         "TELEGRAM_CHAT_ID": os.getenv("TELEGRAM_CHAT_ID", ""),
         "TELEGRAM_WORKER_API_TOKEN": os.getenv("TELEGRAM_WORKER_API_TOKEN", ""),
         "SHEETS_TZ": os.getenv("SHEETS_TZ", "Europe/Moscow"),
@@ -1146,6 +1147,7 @@ def startup_event():
             "SessionLocal": SessionLocal,
             "processor": _process_project_operation_item,
             "poll_seconds": 5,
+            "concurrency": settings["PROJECT_OPERATIONS_CONCURRENCY"],
         },
         daemon=True,
         name="project-operations-worker-thread",
@@ -1726,6 +1728,41 @@ def _project_operation_error_result(exc: prostats.ProstatsError) -> project_oper
     return project_operations.ProjectOperationItemResult.needs_attention(error=technical_error)
 
 
+PROJECT_STATUS_READBACK_ATTEMPTS = 3
+PROJECT_STATUS_READBACK_DELAY_SECONDS = 0.25
+
+
+def _confirm_project_status_after_write(
+    provider_project_id: str,
+    desired_status: schemas.ProjectMutableStatus,
+) -> dict:
+    """Коротко подтвердить статус после успешной записи у поставщика.
+
+    Prostats может вернуть успешный ответ на запись раньше, чем новый статус
+    станет виден чтению. Ограниченные повторные GET позволяют пережить такую
+    короткую задержку, но не превращают worker в долгую блокирующую проверку.
+    Ошибки чтения намеренно проходят к вызывающему коду как
+    :class:`ProstatsError`, чтобы обычный retry-контур обработал timeout или
+    неоднозначный транспортный результат.
+    """
+    last_reconciliation: Optional[dict] = None
+    attempts = max(1, int(PROJECT_STATUS_READBACK_ATTEMPTS))
+    for attempt in range(attempts):
+        last_reconciliation = prostats.reconcile_project_status(
+            provider_project_id,
+            desired_status,
+        )
+        if last_reconciliation.get("already_applied"):
+            return last_reconciliation
+        if attempt + 1 < attempts:
+            time.sleep(max(0.0, float(PROJECT_STATUS_READBACK_DELAY_SECONDS)))
+    return last_reconciliation or {
+        "provider_id": str(provider_project_id),
+        "desired_status": desired_status,
+        "already_applied": False,
+    }
+
+
 def _prostats_delete_already_applied(exc: prostats.ProstatsError) -> bool:
     message = str(exc.message or "").lower()
     return exc.status_code == 404 or "не найден" in message or "not found" in message
@@ -1773,6 +1810,25 @@ def _process_project_operation_item(
                 reconciliation = prostats.reconcile_project_status(provider_project_id, desired_status)
                 if not reconciliation.get("already_applied"):
                     prostats.update_project_status(provider_project_id, project_snapshot, desired_status)  # type: ignore[arg-type]
+                    confirmation = _confirm_project_status_after_write(
+                        provider_project_id,
+                        desired_status,  # type: ignore[arg-type]
+                    )
+                    if not confirmation.get("already_applied"):
+                        logging.getLogger("app").warning(
+                            "Provider status readback mismatch: operation_id=%s project_id=%s provider_project_id=%s desired_status=%s current_status=%s",
+                            item.operation_id,
+                            item.project_id,
+                            provider_project_id,
+                            desired_status,
+                            confirmation.get("current_status"),
+                        )
+                        return project_operations.ProjectOperationItemResult.waiting_retry(
+                            error=(
+                                "Prostats: статус проекта пока не подтверждён "
+                                f"(ожидался {desired_status})."
+                            ),
+                        )
         except prostats.ProstatsError as exc:
             return _project_operation_error_result(exc)
 
@@ -3309,6 +3365,12 @@ def _launch_bulk_project_operation(
         )
 
     actor_user_id, via_impersonation = _audit_actor_context(current_user)
+    status_only_value = (
+        str(payload.patch.get("status") or "").strip()
+        if payload.action == "update" and set(payload.patch.keys()) == {"status"}
+        else ""
+    )
+    status_only_operation = status_only_value in {"Активен", "На паузе"}
     items: List[dict] = []
     for project in rows:
         if project.status == "Удалён":
@@ -3319,7 +3381,18 @@ def _launch_bulk_project_operation(
             "adminUpdate": bool(manager_mode),
             "viaImpersonation": via_impersonation,
         }
-        if payload.action == "update":
+        provider_status_only = (
+            status_only_operation
+            and str(getattr(project, "collection_source", "") or "").strip() != "СМС"
+        )
+        if provider_status_only:
+            item_payload["action"] = "status"
+            item_payload["status"] = status_only_value
+            item_payload["parallelSafe"] = (
+                status_only_value == "На паузе"
+                or not bool(getattr(client, "auto_limit_control_enabled", False))
+            )
+        elif payload.action == "update":
             try:
                 item_payload["update"] = _project_update_data_for_operation(
                     project,
@@ -6657,7 +6730,23 @@ def _launch_collection_project_operation(
             )
         ).scalar_one_or_none()
         if stale_snapshot:
-            db_sess.delete(stale_snapshot)
+            stale_snapshot.project_ids = []
+            stale_snapshot.paused_by = int(current_admin.id)
+            stale_snapshot.updated_at = now_msk()
+            db_sess.add(stale_snapshot)
+        else:
+            # Пустая строка создаётся до запуска worker. Параллельно
+            # подтвердившиеся items затем сериализуют добавление id через
+            # SELECT FOR UPDATE и не теряют изменения общего JSON snapshot.
+            db_sess.add(
+                models.ClientProjectPauseSnapshot(
+                    client_id=int(client_id),
+                    project_ids=[],
+                    paused_by=int(current_admin.id),
+                    created_at=now_msk(),
+                    updated_at=now_msk(),
+                )
+            )
         client.projects_mutation_locked = True
         client.projects_mutation_locked_at = now_msk()
         client.projects_mutation_locked_by = int(current_admin.id)
@@ -6716,6 +6805,10 @@ def _launch_collection_project_operation(
                 "collectionAction": action,
                 "actorUserId": int(current_admin.id),
                 "adminUpdate": True,
+                "parallelSafe": (
+                    desired_status == "На паузе"
+                    or not bool(getattr(client, "auto_limit_control_enabled", False))
+                ),
             },
         }
         for project in projects

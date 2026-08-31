@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from .time_utils import as_local_naive, now_msk, now_msk_naive
 from .provider_lead_ids import format_provider_lead_lk_id
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
+from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import html
 import os
 import re
@@ -5145,6 +5145,23 @@ def _get_pause_snapshot_row(db: Session, client_id: int) -> Optional[models.Clie
     ).scalar_one_or_none()
 
 
+def _get_pause_snapshot_row_for_update(
+    db: Session,
+    client_id: int,
+) -> Optional[models.ClientProjectPauseSnapshot]:
+    """Заблокировать snapshot клиента на время read-modify-write.
+
+    Status items одной collection-job могут подтверждаться параллельно. В
+    PostgreSQL row lock не даёт двум потокам потерять id друг друга при
+    обновлении общего JSON-списка.
+    """
+    return db.execute(
+        select(models.ClientProjectPauseSnapshot)
+        .where(models.ClientProjectPauseSnapshot.client_id == int(client_id))
+        .with_for_update()
+    ).scalar_one_or_none()
+
+
 def admin_replace_pause_snapshot(
     db: Session,
     client_id: int,
@@ -7330,6 +7347,10 @@ def claim_project_operation(
         models.ProjectOperationJob.next_attempt_at.is_(None),
         models.ProjectOperationJob.next_attempt_at <= now,
     )
+    lease_available = or_(
+        models.ProjectOperationJob.lease_until.is_(None),
+        models.ProjectOperationJob.lease_until <= now,
+    )
     stmt = (
         select(models.ProjectOperationJob)
         .where(
@@ -7340,6 +7361,7 @@ def claim_project_operation(
                 )
             ),
             due,
+            lease_available,
         )
         .order_by(models.ProjectOperationJob.created_at.asc(), models.ProjectOperationJob.id.asc())
         .limit(1)
@@ -7370,12 +7392,28 @@ def admin_add_pause_snapshot_project(
     admin_user_id: int,
 ) -> Optional[models.ClientProjectPauseSnapshot]:
     """Добавить подтверждённо остановленный проект в snapshot."""
-    row = _get_pause_snapshot_row(db, int(client_id))
+    row = _get_pause_snapshot_row_for_update(db, int(client_id))
     ids = _normalize_pause_snapshot_ids(row.project_ids if row else [])
     pid = int(project_id)
     if pid not in ids:
         ids.append(pid)
-    return admin_replace_pause_snapshot(db, int(client_id), ids, int(admin_user_id))
+    now = now_msk()
+    if row is None:
+        row = models.ClientProjectPauseSnapshot(
+            client_id=int(client_id),
+            project_ids=ids,
+            paused_by=int(admin_user_id),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.project_ids = ids
+        row.paused_by = int(admin_user_id)
+        row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 def admin_remove_pause_snapshot_project(
@@ -7386,10 +7424,22 @@ def admin_remove_pause_snapshot_project(
     admin_user_id: int,
 ) -> Optional[models.ClientProjectPauseSnapshot]:
     """Убрать подтверждённо восстановленный проект из snapshot."""
-    row = _get_pause_snapshot_row(db, int(client_id))
+    row = _get_pause_snapshot_row_for_update(db, int(client_id))
+    if row is None:
+        db.rollback()
+        return None
     pid = int(project_id)
-    ids = [item for item in _normalize_pause_snapshot_ids(row.project_ids if row else []) if item != pid]
-    return admin_replace_pause_snapshot(db, int(client_id), ids, int(admin_user_id))
+    ids = [item for item in _normalize_pause_snapshot_ids(row.project_ids) if item != pid]
+    if not ids:
+        db.delete(row)
+        db.commit()
+        return None
+    row.project_ids = ids
+    row.paused_by = int(admin_user_id)
+    row.updated_at = now_msk()
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 def renew_project_operation_lease(
@@ -7463,6 +7513,93 @@ def claim_next_project_operation_item(
     return _project_operation_item_context_with_client(row, operation.client_id)
 
 
+def claim_project_operation_item_batch(
+    db: Session,
+    *,
+    operation_id: int,
+    worker_id: str,
+    lease_seconds: int = PROJECT_OPERATION_DEFAULT_LEASE_SECONDS,
+    limit: int = 1,
+    predicate: Optional[Callable[[models.ProjectOperationItem], bool]] = None,
+) -> List[project_operations.ProjectOperationItemContext]:
+    """Atomically claim up to ``limit`` eligible items with row locks.
+
+    The query runs in one short transaction and uses PostgreSQL
+    ``FOR UPDATE SKIP LOCKED``.  A Python predicate is intentionally applied
+    while rows are locked: project-operation payloads are JSON and the worker
+    must conservatively leave non-provider/SMS/Pixel items queued.  Rows not
+    selected by the predicate are never mutated and their locks are released
+    on commit.
+    """
+    operation = db.get(models.ProjectOperationJob, int(operation_id))
+    if operation is None or operation.status != project_operations.PROJECT_OPERATION_STATUS_RUNNING:
+        db.rollback()
+        return []
+    try:
+        requested = max(1, int(limit))
+    except (TypeError, ValueError):
+        requested = 1
+    scan_limit = max(requested, min(100, requested * 4))
+    now = now_msk_naive()
+    due = or_(
+        models.ProjectOperationItem.next_attempt_at.is_(None),
+        models.ProjectOperationItem.next_attempt_at <= now,
+    )
+    rows = db.execute(
+        select(models.ProjectOperationItem)
+        .where(
+            models.ProjectOperationItem.operation_id == int(operation_id),
+            models.ProjectOperationItem.status.in_(
+                (
+                    project_operations.PROJECT_OPERATION_STATUS_QUEUED,
+                    project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+                )
+            ),
+            due,
+        )
+        .order_by(models.ProjectOperationItem.id.asc())
+        .limit(scan_limit)
+        .with_for_update(skip_locked=True)
+    ).scalars().all()
+    worker = str(worker_id or "").strip() or "project-operations-worker"
+    claimed: List[models.ProjectOperationItem] = []
+    for row in rows:
+        if len(claimed) >= requested:
+            break
+        if predicate is not None and not predicate(row):
+            continue
+        row.status = project_operations.PROJECT_OPERATION_STATUS_RUNNING
+        row.attempt_count = int(row.attempt_count or 0) + 1
+        row.next_attempt_at = None
+        row.lease_until = now + timedelta(seconds=_bounded_project_operation_lease_seconds(lease_seconds))
+        row.leased_by = worker
+        row.started_at = row.started_at or now
+        row.updated_at = now
+        claimed.append(row)
+    db.commit()
+    for row in claimed:
+        db.refresh(row)
+    return [
+        _project_operation_item_context_with_client(row, operation.client_id)
+        for row in claimed
+    ]
+
+
+def project_operation_has_waiting_retry_items(db: Session, *, operation_id: int) -> bool:
+    """Return whether an operation needs a conservative serial retry pass."""
+    return bool(
+        db.execute(
+            select(models.ProjectOperationItem.id)
+            .where(
+                models.ProjectOperationItem.operation_id == int(operation_id),
+                models.ProjectOperationItem.status
+                == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+            )
+            .limit(1)
+        ).scalar()
+    )
+
+
 def finish_project_operation_item(
     db: Session,
     *,
@@ -7519,9 +7656,26 @@ def finish_project_operation_item(
     if row.last_error:
         job.last_error = row.last_error
     if waiting > 0:
-        if result.status == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY:
+        waiting_retry_count = int(
+            db.execute(
+                select(func.count(models.ProjectOperationItem.id)).where(
+                    models.ProjectOperationItem.operation_id == int(job.id),
+                    models.ProjectOperationItem.status
+                    == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+                )
+            ).scalar()
+            or 0
+        )
+        if waiting_retry_count > 0:
             job.status = project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY
-            job.next_attempt_at = row.next_attempt_at
+            next_retry_at = db.execute(
+                select(func.min(models.ProjectOperationItem.next_attempt_at)).where(
+                    models.ProjectOperationItem.operation_id == int(job.id),
+                    models.ProjectOperationItem.status
+                    == project_operations.PROJECT_OPERATION_STATUS_WAITING_RETRY,
+                )
+            ).scalar()
+            job.next_attempt_at = next_retry_at
         else:
             job.status = project_operations.PROJECT_OPERATION_STATUS_RUNNING
             job.next_attempt_at = None
@@ -7540,9 +7694,19 @@ def finish_project_operation_item(
             job.last_error = None
     # The worker owns this lease while it processes the item.  If there are
     # more items, keep the job lease and running state; otherwise release it.
+    running_count = int(
+        db.execute(
+            select(func.count(models.ProjectOperationItem.id)).where(
+                models.ProjectOperationItem.operation_id == int(job.id),
+                models.ProjectOperationItem.status
+                == project_operations.PROJECT_OPERATION_STATUS_RUNNING,
+            )
+        ).scalar()
+        or 0
+    )
     if waiting > 0 and job.status == project_operations.PROJECT_OPERATION_STATUS_RUNNING:
         job.lease_until = now + timedelta(seconds=PROJECT_OPERATION_DEFAULT_LEASE_SECONDS)
-    elif waiting > 0:
+    elif waiting > 0 and running_count == 0:
         job.lease_until = None
         job.leased_by = None
     job.updated_at = now
