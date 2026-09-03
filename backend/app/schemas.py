@@ -163,6 +163,8 @@ class ProjectOperationOut(BaseModel):
     message: str
     # Админ может получить техническую ошибку поставщика; клиент и агент — нет.
     technicalError: Optional[str] = None
+    # Снимок items нужен UI, чтобы показать крутилку именно на участвующих проектах.
+    items: List[ProjectOperationItemOut] = Field(default_factory=list)
 
 
 class ProjectOperationLaunchOut(BaseModel):

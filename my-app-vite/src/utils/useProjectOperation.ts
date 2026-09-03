@@ -14,6 +14,15 @@ export function isProjectOperationActive(operation: ProjectOperation | null): bo
     || operation.status === 'waiting_retry';
 }
 
+/**
+ * ID проектов, которые входят в активную массовую операцию.
+ * По ним UI показывает ту же крутилку статуса, что и у одиночного сохранения.
+ */
+export function getProjectOperationBusyIds(operation: ProjectOperation | null): Set<number> {
+  if (!operation || !isProjectOperationActive(operation)) return new Set();
+  return new Set((operation.items ?? []).map((item) => item.projectId));
+}
+
 export function getProjectOperationStatusLabel(status: string): string {
   if (status === 'queued') return 'В очереди';
   if (status === 'running') return 'Выполняется';
@@ -80,12 +89,19 @@ export function useProjectOperation({
   onTerminalRef.current = onTerminal;
 
   const updateOperation = useCallback((next: ProjectOperation | null) => {
+    // Завершённую операцию в state не держим: баннер должен сразу пропасть,
+    // а итог уже уходит в toast через onTerminal.
+    if (next && !isProjectOperationActive(next)) {
+      if (terminalHandledRef.current !== next.id) {
+        terminalHandledRef.current = next.id;
+        onTerminalRef.current?.(next);
+      }
+      operationRef.current = null;
+      setOperation(null);
+      return;
+    }
     operationRef.current = next;
     setOperation(next);
-    if (next && !isProjectOperationActive(next) && terminalHandledRef.current !== next.id) {
-      terminalHandledRef.current = next.id;
-      onTerminalRef.current?.(next);
-    }
   }, []);
 
   const refresh = useCallback(async (): Promise<ProjectOperation | null> => {

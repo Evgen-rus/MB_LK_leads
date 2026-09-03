@@ -7262,6 +7262,11 @@ def project_operation_to_view(
     include_technical: bool = False,
 ) -> schemas.ProjectOperationOut:
     total, completed, success, failed, waiting = _project_operation_counts(db, operation.id)
+    items = list_project_operation_items(
+        db,
+        operation_id=operation.id,
+        include_technical=include_technical,
+    )
     # Для уже созданной job counters считаются из items, поэтому отображение
     # после падения процесса не зависит от того, успел ли worker обновить job.
     return schemas.ProjectOperationOut(
@@ -7281,6 +7286,7 @@ def project_operation_to_view(
         nextAttemptAt=operation.next_attempt_at,
         message=project_operations.operation_message(str(operation.status)),
         technicalError=_project_operation_error(operation.last_error) if include_technical else None,
+        items=items,
     )
 
 

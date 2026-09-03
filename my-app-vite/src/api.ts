@@ -865,6 +865,18 @@ export type ProjectOperationStatus =
   | 'failed'
   | string;
 
+export type ProjectOperationItem = {
+  id: number;
+  projectId: number;
+  projectName?: string | null;
+  status: ProjectOperationStatus;
+  attemptCount: number;
+  nextAttemptAt?: string | null;
+  finishedAt?: string | null;
+  message: string;
+  technicalError?: string | null;
+};
+
 export type ProjectOperation = {
   id: number;
   clientId: number;
@@ -882,6 +894,7 @@ export type ProjectOperation = {
   nextAttemptAt?: string | null;
   message: string;
   technicalError?: string | null;
+  items?: ProjectOperationItem[];
 };
 
 export type ProjectOperationResponse = { operation: ProjectOperation };

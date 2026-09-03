@@ -20,6 +20,7 @@ import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
 import { BulkProgressBar } from './BulkEditModalFrame';
 import { buildUpdatePayloadFromProject, type BulkProgress } from '../utils/projectBulkUpdate';
 import {
+  getProjectOperationBusyIds,
   getProjectOperationStatusLabel,
   getProjectOperationUserMessage,
   isProjectOperationActive,
@@ -142,7 +143,7 @@ function ProjectsTable({
   const mutationLockMessage = operationActive
     ? 'Операция с проектами выполняется. Дождитесь её завершения.'
     : projectsMutationLockMessage;
-  const operationProgress: BulkProgress | null = projectOperation
+  const operationProgress: BulkProgress | null = operationActive && projectOperation
     ? {
         total: projectOperation.totalCount,
         done: projectOperation.completedCount,
@@ -151,6 +152,8 @@ function ProjectsTable({
         failed: projectOperation.failedCount,
       }
     : null;
+  const operationBusyIds = getProjectOperationBusyIds(projectOperation);
+  const isStatusBusy = (projectId: number) => statusSavingIds.has(projectId) || operationBusyIds.has(projectId);
 
   // Не завязываем на state page/pageSize, чтобы клики пагинации не вызывали load(1)
   const load = useCallback(
@@ -403,7 +406,7 @@ function ProjectsTable({
   // Переключение статуса проекта (Активен <-> На паузе) для клиентского ЛК.
   // Это реальный PATCH на бэк; при ошибке статус визуально не меняется.
   async function handleToggleStatus(row: Project) {
-    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || isStatusBusy(row.id)) return;
     if (mutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
@@ -443,7 +446,7 @@ function ProjectsTable({
   }
 
   async function handleArchive(row: Project) {
-    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+    if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || isStatusBusy(row.id)) return;
     if (mutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
@@ -475,7 +478,7 @@ function ProjectsTable({
   }
 
   async function handleUnarchive(row: Project) {
-    if (row.status !== ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+    if (row.status !== ARCHIVE_STATUS || isStatusBusy(row.id)) return;
     if (mutationLocked) {
       window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
       return;
@@ -627,7 +630,7 @@ function ProjectsTable({
           {projectsMutationLockMessage}
         </div>
       )}
-      {projectOperation && (
+      {operationActive && projectOperation && (
         <div
           style={{
             margin: '12px',
@@ -1030,23 +1033,25 @@ function ProjectsTable({
                             : row.status === ARCHIVE_STATUS
                               ? 'badge badge--info'
                               : 'badge badge--gray'
-                    }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
+                    }${isStatusBusy(row.id) ? ' project-status-badge--saving' : ''}`}
                     style={{
                       whiteSpace: 'nowrap',
                       cursor:
-                        mutationLocked || row.status === 'Удалён' || row.status === ARCHIVE_STATUS
-                          ? 'default'
-                          : statusSavingIds.has(row.id)
-                            ? 'wait'
-                          : 'pointer',
+                        isStatusBusy(row.id)
+                          ? 'wait'
+                          : mutationLocked || row.status === 'Удалён' || row.status === ARCHIVE_STATUS
+                            ? 'default'
+                            : 'pointer',
                     }}
-                    aria-busy={statusSavingIds.has(row.id)}
+                    aria-busy={isStatusBusy(row.id)}
                     title={
-                      mutationLocked
-                        ? mutationLockMessage
+                      operationBusyIds.has(row.id)
+                        ? 'Проект участвует в массовой операции и сейчас обрабатывается.'
                         : statusSavingIds.has(row.id)
                           ? 'Статус обновляется...'
-                          : row.status === 'Удалён'
+                          : mutationLocked
+                            ? mutationLockMessage
+                            : row.status === 'Удалён'
                             ? 'Проект помечен как удалённый'
                             : row.status === ARCHIVE_STATUS
                               ? 'Проект в архиве'
@@ -1059,7 +1064,7 @@ function ProjectsTable({
                         window.dispatchEvent(new CustomEvent('app-toast', { detail: mutationLockMessage }));
                         return;
                       }
-                      if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+                      if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || isStatusBusy(row.id)) return;
                       handleToggleStatus(row);
                     }}
                   >

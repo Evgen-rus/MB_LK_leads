@@ -27,6 +27,7 @@ import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
 import { BulkProgressBar } from './BulkEditModalFrame';
 import type { BulkProgress } from '../utils/projectBulkUpdate';
 import {
+  getProjectOperationBusyIds,
   getProjectOperationStatusLabel,
   getProjectOperationUserMessage,
   isProjectOperationActive,
@@ -148,7 +149,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const projectOperation = projectOperationTracker.operation;
   const operationActive = isProjectOperationActive(projectOperation);
   const bulkBusy = bulkSaving || operationActive;
-  const operationProgress: BulkProgress | null = projectOperation
+  const operationProgress: BulkProgress | null = operationActive && projectOperation
     ? {
         total: projectOperation.totalCount,
         done: projectOperation.completedCount,
@@ -157,6 +158,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
         failed: projectOperation.failedCount,
       }
     : null;
+  const operationBusyIds = getProjectOperationBusyIds(projectOperation);
+  const isStatusBusy = (projectId: number) => statusSavingIds.has(projectId) || operationBusyIds.has(projectId);
 
   async function load(
     p = page,
@@ -296,7 +299,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
 
   // Переключение статуса проекта (Активен <-> На паузе) для админского экрана «Проекты клиента».
   async function handleToggleStatus(project: AdminProject) {
-    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || isStatusBusy(project.id)) return;
     if (operationActive) return;
     const nextStatus = project.status === 'Активен' ? 'На паузе' : 'Активен';
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
@@ -312,7 +315,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   async function handleArchive(project: AdminProject) {
-    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (project.status === 'Удалён' || project.status === ARCHIVE_STATUS || isStatusBusy(project.id)) return;
     if (operationActive) return;
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
@@ -330,7 +333,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   async function handleUnarchive(project: AdminProject) {
-    if (project.status !== ARCHIVE_STATUS || statusSavingIds.has(project.id)) return;
+    if (project.status !== ARCHIVE_STATUS || isStatusBusy(project.id)) return;
     if (operationActive) return;
     setStatusSavingIds((prev) => new Set(prev).add(project.id));
     try {
@@ -642,7 +645,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           </span>
         </div>
       </div>
-      {projectOperation && (
+      {operationActive && projectOperation && (
         <div
           style={{
             margin: '12px',
@@ -989,18 +992,20 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                                 : row.status === ARCHIVE_STATUS
                                   ? 'badge badge--info'
                                   : 'badge badge--gray'
-                        }${statusSavingIds.has(row.id) ? ' project-status-badge--saving' : ''}`}
+                        }${isStatusBusy(row.id) ? ' project-status-badge--saving' : ''}`}
                         style={{
                           whiteSpace: 'nowrap',
-                          cursor: row.status === 'Удалён' || row.status === ARCHIVE_STATUS
-                            ? 'default'
-                            : statusSavingIds.has(row.id)
-                              ? 'wait'
+                          cursor: isStatusBusy(row.id)
+                            ? 'wait'
+                            : row.status === 'Удалён' || row.status === ARCHIVE_STATUS || operationActive
+                              ? 'default'
                               : 'pointer',
                         }}
-                        aria-busy={statusSavingIds.has(row.id)}
+                        aria-busy={isStatusBusy(row.id)}
                         title={
-                          statusSavingIds.has(row.id)
+                          operationBusyIds.has(row.id)
+                            ? 'Проект участвует в массовой операции и сейчас обрабатывается.'
+                            : statusSavingIds.has(row.id)
                             ? 'Статус обновляется...'
                             : row.status === 'Удалён'
                             ? 'Проект помечен как удалённый'
@@ -1011,7 +1016,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                               : 'Нажмите, чтобы переключить статус проекта'
                         }
                         onClick={() => {
-                          if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || statusSavingIds.has(row.id)) return;
+                          if (row.status === 'Удалён' || row.status === ARCHIVE_STATUS || isStatusBusy(row.id) || operationActive) return;
                           handleToggleStatus(row);
                         }}
                       >
