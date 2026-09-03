@@ -871,6 +871,7 @@
   transform: translateX(-100%);
   animation: bulkProgressShimmer 1.4s linear infinite;
 }
+.bulk-progress-card__bar-fill--complete::after { animation: none; }
 .bulk-progress-card__meta {
   display: flex;
   align-items: center;

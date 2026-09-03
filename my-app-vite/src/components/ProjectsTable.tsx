@@ -17,6 +17,7 @@ import BulkEditContactsModal, { type BulkEditContactsModalSubmit } from './BulkE
 import BulkEditRegionsModal from './BulkEditRegionsModal';
 import BulkEditStatusModal from './BulkEditStatusModal';
 import BulkDeleteProjectsModal from './BulkDeleteProjectsModal';
+import { BulkProgressBar } from './BulkEditModalFrame';
 import { buildUpdatePayloadFromProject, type BulkProgress } from '../utils/projectBulkUpdate';
 import {
   getProjectOperationStatusLabel,
@@ -642,6 +643,11 @@ function ProjectsTable({
             {getProjectOperationStatusLabel(projectOperation.status)} · Выполнено: {operationProgress?.done ?? 0}/{operationProgress?.total ?? 0} · Успешно: {operationProgress?.updated ?? 0} · Ошибок: {operationProgress?.failed ?? 0}
             {projectOperation.nextAttemptAt ? ` · Следующая попытка: ${new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU')}` : ''}
           </div>
+          {operationProgress && (
+            <div style={{ marginTop: 10 }}>
+              <BulkProgressBar progress={operationProgress} active={operationActive} />
+            </div>
+          )}
         </div>
       )}
       <div className="table-toolbar">

@@ -36,6 +36,7 @@ import {
 } from '../utils/useProjectOperation';
 import DateRangeFilter from './DateRangeFilter';
 import DateRangeCompact from './DateRangeCompact';
+import { BulkProgressBar } from './BulkEditModalFrame';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
 import TariffManagerModal from './TariffManagerModal';
@@ -1319,9 +1320,14 @@ function AdminClientsScreen({
                     </span>
                   )}
                   {operationActive && projectOperation && (
-                    <span className="sub" style={{ color: '#6b4ce6' }}>
-                      {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
-                    </span>
+                    <>
+                      <span className="sub" style={{ color: '#6b4ce6' }}>
+                        {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
+                      </span>
+                      <BulkProgressBar
+                        progress={{ total: projectOperation.totalCount, done: projectOperation.completedCount }}
+                      />
+                    </>
                   )}
                   {!collectionBusy && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
                     <span className="sub">{collectionLastInfo}</span>
@@ -2116,9 +2122,14 @@ function AdminClientsScreen({
                       </span>
                     )}
                     {operationActive && projectOperation && (
-                      <span className="sub" style={{ color: '#6b4ce6' }}>
-                        {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
-                      </span>
+                      <>
+                        <span className="sub" style={{ color: '#6b4ce6' }}>
+                          {getProjectOperationUserMessage(projectOperation, { isAdmin: true })} Выполнено: {projectOperation.completedCount}/{projectOperation.totalCount}. Следующая попытка: {projectOperation.nextAttemptAt ? new Date(projectOperation.nextAttemptAt).toLocaleTimeString('ru-RU') : 'скоро'}.
+                        </span>
+                        <BulkProgressBar
+                          progress={{ total: projectOperation.totalCount, done: projectOperation.completedCount }}
+                        />
+                      </>
                     )}
                     {!collectionBusy && !!collectionLastInfo && !/Выполнено:\s*0\/0\.\s*Пропущено:\s*0\.\s*Ошибок:\s*0\./.test(collectionLastInfo) && (
                       <span className="sub">{collectionLastInfo}</span>

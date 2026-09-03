@@ -14,6 +14,32 @@ type BulkEditModalFrameProps = {
   progressUpdatedLabel?: string;
 };
 
+type BulkProgressBarProps = {
+  progress: Pick<BulkProgress, 'total' | 'done'>;
+  active?: boolean;
+};
+
+export function BulkProgressBar({ progress, active = true }: BulkProgressBarProps) {
+  const progressPercent =
+    progress.total > 0 ? Math.max(0, Math.min(100, Math.round((progress.done / progress.total) * 100))) : 0;
+
+  return (
+    <div
+      className="bulk-progress-card__bar"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={progress.total}
+      aria-valuenow={progress.done}
+      aria-valuetext={`${progress.done} из ${progress.total}`}
+    >
+      <div
+        className={`bulk-progress-card__bar-fill${active ? '' : ' bulk-progress-card__bar-fill--complete'}`}
+        style={{ width: `${progressPercent}%` }}
+      />
+    </div>
+  );
+}
+
 function BulkEditModalFrame({
   selectedCount,
   title = 'Массовое редактирование',
@@ -72,19 +98,7 @@ function BulkEditModalFrame({
                   {progress.done}/{progress.total}
                 </div>
               </div>
-              <div
-                className="bulk-progress-card__bar"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={progress.total}
-                aria-valuenow={progress.done}
-                aria-valuetext={`${progress.done} из ${progress.total}`}
-              >
-                <div
-                  className="bulk-progress-card__bar-fill"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
+              <BulkProgressBar progress={progress} />
               <div className="bulk-progress-card__meta">
                 <span>{progressPercent}% выполнено</span>
                 <span>{progressUpdatedLabel}: {progress.updated}</span>
