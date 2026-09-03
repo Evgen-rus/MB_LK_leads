@@ -15,7 +15,7 @@ import secrets
 import string
 from urllib.parse import urlparse
 
-from sqlalchemy import String, cast, select, func, or_, and_, case
+from sqlalchemy import String, cast, select, func, or_, and_, case, exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -254,6 +254,11 @@ def cleanup_old_telegram_notifications(db: Session) -> int:
     now = now_msk_naive()
     sent_threshold = now - timedelta(days=TELEGRAM_NOTIFICATION_SENT_RETENTION_DAYS)
     failed_threshold = now - timedelta(days=TELEGRAM_NOTIFICATION_FAILED_RETENTION_DAYS)
+    # Pixel-state держит FK на outbox. Связанные письма пропускаем:
+    # иначе DELETE падает и откатывает всю порцию, включая несвязанные.
+    pixel_linked = exists().where(
+        models.PixelTelegramReportState.queued_notification_id == models.TelegramNotification.id
+    )
     rows = db.execute(
         select(models.TelegramNotification).where(
             or_(
@@ -266,7 +271,8 @@ def cleanup_old_telegram_notifications(db: Session) -> int:
                     models.TelegramNotification.status == TELEGRAM_NOTIFICATION_STATUS_FAILED,
                     models.TelegramNotification.updated_at < failed_threshold,
                 ),
-            )
+            ),
+            ~pixel_linked,
         )
     ).scalars().all()
     count = len(rows)
