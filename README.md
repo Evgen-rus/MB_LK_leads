@@ -17,9 +17,8 @@ python -m uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
 cd my-app-vite
 npm ci
 npm run dev
-npm run dev -- --host 127.0.0.1 --port 5174
 ```
 
-Frontend доступен по `http://localhost:5173`, API — по `http://localhost:8000`, health-check — `http://localhost:8000/health`.
+`npm run dev` слушает `127.0.0.1:5173`, поэтому страница открывается и по `http://127.0.0.1:5173`, и через туннель на этот адрес. API — `http://127.0.0.1:8000`, health-check — `http://127.0.0.1:8000/health`.
 
 Правила работы с репозиторием: [AGENTS.md](AGENTS.md). Архитектурный контекст: [ARCHITECTURE.md](ARCHITECTURE.md).

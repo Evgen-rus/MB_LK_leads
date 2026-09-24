@@ -1109,7 +1109,10 @@ def client_errors(payload: schemas.ClientErrorIn, request: Request):
 
 
 # Разрешенные источники для CORS (для cookie нужен конкретный список, не "*")
-cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if o.strip()]
+for _local_origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+    if _local_origin not in cors_origins:
+        cors_origins.append(_local_origin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,

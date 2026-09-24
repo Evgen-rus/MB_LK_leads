@@ -23,8 +23,9 @@ const API_BASE =
   (typeof env.VITE_API_BASE === 'string' ? env.VITE_API_BASE : undefined) ||
   // 2) Если мы на прод-домене — всегда ходим через /api (через Nginx)
   (RUNTIME_HOST === 'leadrecordwh.ru' ? '/api' : undefined) ||
-  // 3) Фолбэк для локальной разработки
-  'http://localhost:8000';
+  // 3) Фолбэк для локальной разработки. Хост страницы и API совпадают,
+  // иначе вход с http://127.0.0.1:5173 не доходит до backend на localhost.
+  (RUNTIME_HOST === '127.0.0.1' ? 'http://127.0.0.1:8000' : 'http://localhost:8000');
 
 const PROJECT_PROVIDER_UNAVAILABLE_MESSAGE =
   'Сервис поставщика временно недоступен. Создание и редактирование проектов временно не работает. Попробуйте повторить через 15 минут.';
