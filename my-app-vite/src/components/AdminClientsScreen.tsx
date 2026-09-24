@@ -1412,6 +1412,7 @@ function AdminClientsScreen({
                 />
                 <input
                   type="search"
+                  className="admin-clients-search"
                   placeholder="Поиск по имени / ID клиента"
                   value={search}
                   onChange={(e) => {
@@ -1423,7 +1424,6 @@ function AdminClientsScreen({
                       resetClientPages();
                     }
                   }}
-                  style={{ minWidth: 220, flex: 1 }}
                 />
               </div>
               <div className="actions toolbar-right">

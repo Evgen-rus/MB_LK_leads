@@ -38,6 +38,13 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
     return () => mq.removeEventListener('change', handle);
   }, []);
 
+  function navigate(view: ViewType) {
+    onNavigate(view);
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setCollapsed(true);
+    }
+  }
+
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar__top">
@@ -60,7 +67,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
           <>
             <div className="nav-section">Администратор</div>
             <ul>
-              <li className={active === 'admin-dashboard' ? 'active' : ''} onClick={() => onNavigate('admin-dashboard')}>
+              <li className={active === 'admin-dashboard' ? 'active' : ''} onClick={() => navigate('admin-dashboard')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -72,7 +79,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
                 </span>
                 <span className="nav-label">Дашборд</span>
               </li>
-              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => onNavigate('admin-clients')}>
+              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => navigate('admin-clients')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -83,7 +90,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
                 </span>
                 <span className="nav-label">Клиенты</span>
               </li>
-              <li className={active === 'agents' ? 'active' : ''} onClick={() => onNavigate('agents')}>
+              <li className={active === 'agents' ? 'active' : ''} onClick={() => navigate('agents')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5Z" />
@@ -94,7 +101,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
                 </span>
                 <span className="nav-label">Агенты</span>
               </li>
-              <li className={active === 'admin-provider-import' ? 'active' : ''} onClick={() => onNavigate('admin-provider-import')}>
+              <li className={active === 'admin-provider-import' ? 'active' : ''} onClick={() => navigate('admin-provider-import')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 3v12" />
@@ -111,7 +118,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
           <>
             <div className="nav-section">Управление</div>
             <ul>
-              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => onNavigate('admin-clients')}>
+              <li className={active === 'admin-clients' ? 'active' : ''} onClick={() => navigate('admin-clients')}>
                 <span className="nav-icon" aria-hidden>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -128,7 +135,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
         <div className="nav-section">Основное</div>
         <ul>
           {!isAdmin && !isAgent && (
-            <li className={active === 'client-dashboard' ? 'active' : ''} onClick={() => onNavigate('client-dashboard')}>
+            <li className={active === 'client-dashboard' ? 'active' : ''} onClick={() => navigate('client-dashboard')}>
               <span className="nav-icon" aria-hidden>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -141,7 +148,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
               <span className="nav-label">Дашборд</span>
             </li>
           )}
-          <li className={active === 'projects' ? 'active' : ''} onClick={() => onNavigate('projects')}>
+          <li className={active === 'projects' ? 'active' : ''} onClick={() => navigate('projects')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -152,7 +159,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Проекты</span>
           </li>
-          <li className={active === 'leads' ? 'active' : ''} onClick={() => onNavigate('leads')}>
+          <li className={active === 'leads' ? 'active' : ''} onClick={() => navigate('leads')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
@@ -161,7 +168,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Идентификации</span>
           </li>
-          <li className={active === 'reports' ? 'active' : ''} onClick={() => onNavigate('reports')}>
+          <li className={active === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="4" y="10" width="3" height="8" />
@@ -172,7 +179,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             <span className="nav-label">Отчеты</span>
           </li>
           {(isAdmin || isAgent) && (
-            <li className={active === 'activity' ? 'active' : ''} onClick={() => onNavigate('activity')}>
+            <li className={active === 'activity' ? 'active' : ''} onClick={() => navigate('activity')}>
               <span className="nav-icon" aria-hidden>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M3 12a9 9 0 1 0 3-6.7" />
@@ -184,7 +191,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </li>
           )}
           {!isAgent && (
-            <li className={active === 'balance' ? 'active' : ''} onClick={() => onNavigate('balance')}>
+            <li className={active === 'balance' ? 'active' : ''} onClick={() => navigate('balance')}>
               <span className="nav-icon" aria-hidden>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="6" width="18" height="12" rx="2" />
@@ -194,7 +201,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
               <span className="nav-label">Баланс</span>
             </li>
           )}
-          <li className={active === 'blacklist' ? 'active' : ''} onClick={() => onNavigate('blacklist')}>
+          <li className={active === 'blacklist' ? 'active' : ''} onClick={() => navigate('blacklist')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
@@ -206,7 +213,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
         </ul>
         <div className="nav-section">Помощь</div>
         <ul>
-          <li className={active === 'support' ? 'active' : ''} onClick={() => onNavigate('support')}>
+          <li className={active === 'support' ? 'active' : ''} onClick={() => navigate('support')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 6.5C4 5.12 5.12 4 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7A2.5 2.5 0 0 1 17.5 16H10l-3.5 3.5V16H6.5A2.5 2.5 0 0 1 4 13.5v-7Z" />
@@ -217,7 +224,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Техподдержка</span>
           </li>
-          <li className={active === 'integrations' ? 'active' : ''} onClick={() => onNavigate('integrations')}>
+          <li className={active === 'integrations' ? 'active' : ''} onClick={() => navigate('integrations')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M7 7l10 10" />
@@ -227,7 +234,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Интеграции</span>
           </li>
-          <li className={active === 'education' ? 'active' : ''} onClick={() => onNavigate('education')}>
+          <li className={active === 'education' ? 'active' : ''} onClick={() => navigate('education')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 19V7a2 2 0 0 1 2-2h6" />
@@ -237,7 +244,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Обучение</span>
           </li>
-          <li className={active === 'onboarding' ? 'active' : ''} onClick={() => onNavigate('onboarding')}>
+          <li className={active === 'onboarding' ? 'active' : ''} onClick={() => navigate('onboarding')}>
             <span className="nav-icon" aria-hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12h16l-3 6H7l-3-6Z" />

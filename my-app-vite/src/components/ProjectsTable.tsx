@@ -653,8 +653,8 @@ function ProjectsTable({
           )}
         </div>
       )}
-      <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div className="table-toolbar client-projects-toolbar">
+        <div className="filters">
           {/* Период для пересчёта показателей проектов */}
           <DateRangeFilter
             from={fromDate}
@@ -687,6 +687,7 @@ function ProjectsTable({
             <option value="Архив">Архив</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
+          <div className="project-filter-row">
           <div className="project-quick-filters">
             <button
               type="button"
@@ -715,7 +716,8 @@ function ProjectsTable({
               ★
             </button>
           </div>
-          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div className="project-visibility-filters">
+          <label className="sub">
             <input
               type="checkbox"
               checked={includeDeleted}
@@ -727,7 +729,7 @@ function ProjectsTable({
             />
             Показывать удалённые
           </label>
-          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <label className="sub">
             <input
               type="checkbox"
               checked={includeArchived}
@@ -739,6 +741,8 @@ function ProjectsTable({
             />
             Показывать архивные
           </label>
+          </div>
+          </div>
         </div>
         <div className="project-source-filters">
           {SOURCE_OPTIONS.map((option) => (
@@ -759,7 +763,7 @@ function ProjectsTable({
             Пиксель
           </button>
         </div>
-        <div className="actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="actions client-projects-toolbar__actions">
           <button
             className="btn btn--primary"
             onClick={onCreate}

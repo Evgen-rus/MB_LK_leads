@@ -34,7 +34,7 @@ import {
   useProjectOperation,
 } from '../utils/useProjectOperation';
 import type { ProjectMutableStatus } from '../types/project';
-import { formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
+import { RAW_SOURCE_CODES, formatProjectNameForDisplay, formatProjectNameForSubmit, formatSourceTextForDisplay, getSourceCodeFilterOptions, toDisplaySourceCode } from '../utils/sourceCodeDisplay';
 import ProjectChartModal from './ProjectChartModal';
 
 type AdminClientProjectsProps = {
@@ -66,6 +66,7 @@ const SEARCH_DEBOUNCE_MS = 400;
 const OPERATOR_BLOCK_STATUS = 'Блокировка оператора';
 const ARCHIVE_STATUS = 'Архив';
 const PIXEL_COLLECTION_SOURCE = 'Пиксель';
+const SOURCE_OPTIONS = getSourceCodeFilterOptions(RAW_SOURCE_CODES);
 const OPERATOR_BLOCK_TOOLTIP = 'В данном проекте мало номеров или мало трафика, поэтому его нужно расширить, чтобы проект снова смог работать. Рекомендуется добавить номера, объединить их в один пул и перезапустить проект.';
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -117,6 +118,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   const [includeArchived, setIncludeArchived] = useState(false);
   const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [topOnly, setTopOnly] = useState(false);
+  const [selectedSources, setSelectedSources] = useState<string[]>([...RAW_SOURCE_CODES]);
+  const [selectedCollectionSources, setSelectedCollectionSources] = useState<string[]>([PIXEL_COLLECTION_SOURCE]);
   const [openProjectMenuId, setOpenProjectMenuId] = useState<number | null>(null);
   const [projectMenuAnchorRect, setProjectMenuAnchorRect] = useState<DOMRect | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -174,6 +177,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     direction = sortDir,
     limitReached = dailyLimitReached,
     topFilter = topOnly,
+    sources = selectedSources,
+    collectionSources = selectedCollectionSources,
   ) {
     try {
       setLoading(true);
@@ -184,6 +189,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
         limit: s,
         q: formatProjectNameForSubmit(q.trim()) || undefined,
         userId: clientId,
+        sources,
+        collectionSources,
         fromDate: from,
         toDate: to,
         includeDeleted: withDeleted,
@@ -213,16 +220,16 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }, [search]);
 
   useEffect(() => {
-    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
+    load(1, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
+  }, [clientId, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources]);
 
   useEffect(() => {
-    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly);
+    const h = () => load(page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources);
     window.addEventListener('projects-refresh', h);
     return () => window.removeEventListener('projects-refresh', h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly]);
+  }, [page, pageSize, debouncedSearch, fromDate, toDate, includeDeleted, includeArchived, statusFilter, sortBy, sortDir, dailyLimitReached, topOnly, selectedSources, selectedCollectionSources]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const tableColSpan = canUseAdminProjectActions ? 14 : 13;
@@ -547,6 +554,32 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
     await runBulkAction(() => ({ status }));
   }
 
+  function toggleSource(source: string) {
+    setSelectedSources((prev) => {
+      const next = prev.includes(source)
+        ? prev.filter((item) => item !== source)
+        : [...prev, source];
+      if (!next.length && selectedCollectionSources.length === 0) {
+        setSelectedCollectionSources([PIXEL_COLLECTION_SOURCE]);
+        return [...RAW_SOURCE_CODES];
+      }
+      return next;
+    });
+    setPage(1);
+  }
+
+  function togglePixelSource() {
+    setSelectedCollectionSources((prev) => {
+      const next = prev.includes(PIXEL_COLLECTION_SOURCE) ? [] : [PIXEL_COLLECTION_SOURCE];
+      if (!next.length && selectedSources.length === 0) {
+        setSelectedSources([...RAW_SOURCE_CODES]);
+        return [PIXEL_COLLECTION_SOURCE];
+      }
+      return next;
+    });
+    setPage(1);
+  }
+
   async function handleBulkContactsSubmit(payload: BulkEditContactsModalSubmit) {
     await runBulkAction((project) => {
       const collectionSource = project.collectionSource;
@@ -642,6 +675,27 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
           </label>
           </div>
           </div>
+        </div>
+        <div className="project-source-filters">
+          {SOURCE_OPTIONS.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              className={`dashboard-source${selectedSources.includes(option.value) ? ' dashboard-source--active' : ''}`}
+              aria-pressed={selectedSources.includes(option.value)}
+              onClick={() => toggleSource(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`dashboard-source${selectedCollectionSources.includes(PIXEL_COLLECTION_SOURCE) ? ' dashboard-source--active' : ''}`}
+            aria-pressed={selectedCollectionSources.includes(PIXEL_COLLECTION_SOURCE)}
+            onClick={togglePixelSource}
+          >
+            Пиксель
+          </button>
         </div>
       </div>
       {operationActive && projectOperation && (

@@ -169,6 +169,17 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  function toggleChannel(code: string) {
+    const all = sourcesList;
+    const current = sources.length === 0 ? all : sources;
+    const next = current.includes(code)
+      ? current.filter((item) => item !== code)
+      : [...current, code];
+    const allSelected = all.length > 0 && all.every((item) => next.includes(item));
+    setSources(allSelected ? [] : next);
+    setPage(1);
+  }
+
   const sourcesList = useMemo(() => {
     const preset = ['B1', 'B2', 'B3', 'B4'];
     const set = new Set<string>(preset);
@@ -197,8 +208,8 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
   return (
     <div className="table-card">
-      <div className="table-toolbar">
-        <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="table-toolbar leads-toolbar">
+        <div className="filters leads-filters">
           {/* Выбор дат слева, как и в пользовательском ЛК */}
           <DateRangeFilter
             from={fromDate}
@@ -241,16 +252,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
 
           {/* Фильтр по каналам */}
           <FilterDropdown
-            label="Каналы"
-            options={getSourceCodeFilterOptions(sourcesList)}
-            selected={sources}
-            allLabel="Все каналы"
-            onApply={(vals) => {
-              setSources(vals);
-              setPage(1);
-            }}
-          />
-          <FilterDropdown
             label="Источник сбора"
             options={COLLECTION_SOURCE_FILTER_OPTIONS}
             selected={collectionSources}
@@ -261,6 +262,19 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
               setPage(1);
             }}
           />
+          <div className="leads-channels">
+            {getSourceCodeFilterOptions(sourcesList).map((option) => (
+              <button
+                type="button"
+                key={option.value}
+                className={`dashboard-source${sources.length === 0 || sources.includes(option.value) ? ' dashboard-source--active' : ''}`}
+                aria-pressed={sources.length === 0 || sources.includes(option.value)}
+                onClick={() => toggleChannel(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <label className="dashboard-toggle">
             <input
               type="checkbox"
@@ -277,8 +291,8 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             Без привязки
           </label>
         </div>
-        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {loading ? <span className="sub">Загрузка…</span> : <span className="sub">Итого данных: {total}</span>}
+        <div className="actions leads-toolbar__actions">
+          {loading ? <span className="sub">Загрузка…</span> : <span className="sub leads-total">Итого данных: {total}</span>}
           <ExportDropdown onExport={handleExport} />
         </div>
       </div>
@@ -287,8 +301,6 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
           {error}
         </div>
       )}
-      <div className="table-toolbar" style={{ borderTop: 'none' }}>
-      </div>
       <div className="table-footer table-footer--top">
         Показано {rows.length} из {total}
         <div className="spacer" />
