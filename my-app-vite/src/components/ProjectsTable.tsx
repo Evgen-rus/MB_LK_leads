@@ -858,7 +858,7 @@ function ProjectsTable({
         </div>
       </div>
       <div className="table-scroll">
-      <table className="table">
+      <table className="table table--projects">
         <colgroup>
           <col style={{ width: 48 }} />
           <col style={{ width: 48 }} />
@@ -893,7 +893,7 @@ function ProjectsTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td className="table-sticky-cell table-sticky-cell--check">
+              <td className="table-sticky-cell table-sticky-cell--check" data-label="Выбор">
                 <input
                   type="checkbox"
                   checked={selectedIds.includes(row.id)}
@@ -912,8 +912,8 @@ function ProjectsTable({
                   onChange={() => toggleRowSelection(row.id)}
                 />
               </td>
-              <td className="muted table-sticky-cell table-sticky-cell--after-check">{row.id}</td>
-              <td className="project-top-cell">
+              <td className="muted table-sticky-cell table-sticky-cell--after-check" data-label="ID">{row.id}</td>
+              <td className="project-top-cell" data-label="Топ">
                 <button
                   type="button"
                   className={`project-top-button${row.isTop ? ' project-top-button--active' : ''}`}
@@ -930,6 +930,7 @@ function ProjectsTable({
                 </button>
               </td>
               <td
+                data-label="Название"
                 style={{ cursor: 'pointer', position: 'relative' }}
                 onClick={(event) => {
                   const nextRect = event.currentTarget.getBoundingClientRect();
@@ -1019,8 +1020,8 @@ function ProjectsTable({
                   />
                 )}
               </td>
-              <td>{toDisplaySourceCode(row.dataSourceCode)}</td>
-              <td>
+              <td data-label="Источник">{toDisplaySourceCode(row.dataSourceCode)}</td>
+              <td data-label="Статус">
                 <span className="project-status-inline">
                   <span
                     className={`${
@@ -1081,8 +1082,9 @@ function ProjectsTable({
                   )}
                 </span>
               </td>
-              <td>{row.dataLimit}</td>
+              <td data-label="Лимит">{row.dataLimit}</td>
               <td
+                data-label="За период"
                 style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (!onOpenLeads) return;
@@ -1093,6 +1095,7 @@ function ProjectsTable({
                 {row.numbersPeriod ?? row.numbersToday}
               </td>
               <td
+                data-label="Всего"
                 style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (!onOpenLeads) return;
@@ -1107,11 +1110,11 @@ function ProjectsTable({
               >
                 {row.numbersTotal}
               </td>
-              <td className="muted">{row.daysReceived}</td>
-              <td>{row.collectionSource}</td>
-              <td>{row.sourcesCount}</td>
-              <td className="muted"><DateTimeCompact value={row.createdAt} /></td>
-              <td>
+              <td className="muted" data-label="Дни">{row.daysReceived}</td>
+              <td data-label="Сбор">{row.collectionSource}</td>
+              <td data-label="Источники">{row.sourcesCount}</td>
+              <td className="muted" data-label="Создан"><DateTimeCompact value={row.createdAt} /></td>
+              <td data-label="Действия">
                 <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 2, alignItems: 'center' }}>
                   <button
                     className="icon-btn"

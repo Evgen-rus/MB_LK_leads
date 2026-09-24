@@ -237,10 +237,10 @@ function AdminProjectsScreen({
   }, [selectedClientId]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="admin-projects-screen">
       <div className="table-card">
-        <div className="table-toolbar">
-          <div className="filters" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div className="table-toolbar admin-projects-toolbar">
+          <div className="filters admin-projects-filters">
             <select
               value={selectedClientId ?? ''}
               onChange={(e) => {
@@ -274,11 +274,13 @@ function AdminProjectsScreen({
           <div className="actions">
             <button
               type="button"
-              className="btn btn--secondary"
+              className="btn btn--secondary admin-projects-b4"
               onClick={handleRunOperatorBlockCheck}
               disabled={operatorCheckRunning}
+              title="Проверить блокировки B4"
             >
-              {operatorCheckRunning ? 'Проверка B4…' : 'Проверить блокировки B4'}
+              <span className="admin-projects-b4__full">{operatorCheckRunning ? 'Проверка B4…' : 'Проверить блокировки B4'}</span>
+              <span className="admin-projects-b4__short">B4</span>
             </button>
             {clientsError && (
               <span className="sub" style={{ color: '#d00' }}>
@@ -286,7 +288,7 @@ function AdminProjectsScreen({
               </span>
             )}
             {!clientsError && hasSelectedClient && (
-              <span className="sub">
+              <span className="sub admin-projects-client">
                 Выбран клиент: {selectedClientLabel}
                 {(Object.keys(projectChanges).length > 0 || Object.keys(projectCreates).length > 0) && (
                   <span style={{ marginLeft: 8 }}>
@@ -316,15 +318,7 @@ function AdminProjectsScreen({
         )}
 
         {hasSelectedClient && (
-          <div
-            style={{
-              padding: 12,
-              borderTop: '1px solid #eee',
-              display: 'flex',
-              gap: 8,
-              flexWrap: 'wrap',
-            }}
-          >
+          <div className="admin-projects-tabs">
               <button
                 type="button"
                 className={focus === 'projects' ? 'btn btn--primary' : 'btn btn--secondary'}

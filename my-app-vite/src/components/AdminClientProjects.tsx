@@ -560,8 +560,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
   }
 
   return (
-    <div className="table-card">
-      <div className="table-toolbar">
+    <div className="table-card project-list-card">
+      <div className="table-toolbar project-list-toolbar">
         <div className="filters">
           <input
             type="search"
@@ -586,6 +586,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             <option value="Архив">Архив</option>
             <option value="Блокировка оператора">Блокировка оператора</option>
           </select>
+          <div className="project-filter-row">
           <div className="project-quick-filters">
             <button
               type="button"
@@ -614,7 +615,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
               ★
             </button>
           </div>
-          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <div className="project-visibility-filters">
+          <label className="sub">
             <input
               type="checkbox"
               checked={includeDeleted}
@@ -626,7 +628,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             />
             Показывать удалённые
           </label>
-          <label className="sub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <label className="sub">
             <input
               type="checkbox"
               checked={includeArchived}
@@ -638,11 +640,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
             />
             Показывать архивные
           </label>
-        </div>
-        <div className="actions">
-          <span className="sub">
-            Проекты клиента: {clientName} (id: {clientId}) — всего {total}
-          </span>
+          </div>
+          </div>
         </div>
       </div>
       {operationActive && projectOperation && (
@@ -779,7 +778,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
       </div>
 
       <div className="table-scroll">
-        <table className="table">
+        <table className="table table--projects">
           <thead>
             <tr>
               {canUseAdminProjectActions && (
@@ -842,7 +841,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
               rows.map((row) => (
                 <tr key={row.id}>
                   {canUseAdminProjectActions && (
-                    <td className="table-sticky-cell table-sticky-cell--check">
+                    <td className="table-sticky-cell table-sticky-cell--check" data-label="Выбор">
                       <input
                         type="checkbox"
                         checked={selectedIds.includes(row.id)}
@@ -860,8 +859,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                       />
                     </td>
                   )}
-                  <td className={`muted table-sticky-cell ${canUseAdminProjectActions ? 'table-sticky-cell--after-check' : 'table-sticky-cell--lead'}`}>{row.id}</td>
-                  <td className="project-top-cell">
+                  <td className={`muted table-sticky-cell ${canUseAdminProjectActions ? 'table-sticky-cell--after-check' : 'table-sticky-cell--lead'}`} data-label="ID">{row.id}</td>
+                  <td className="project-top-cell" data-label="Топ">
                     <button
                       type="button"
                       className={`project-top-button${row.isTop ? ' project-top-button--active' : ''}`}
@@ -878,6 +877,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                     </button>
                   </td>
                   <td
+                    data-label="Название"
                     style={{ cursor: 'pointer', position: 'relative' }}
                     title="Открыть меню действий проекта"
                     onClick={(event) => {
@@ -978,8 +978,8 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                     />
                   )}
                   </td>
-                  <td>{toDisplaySourceCode(row.dataSourceCode)}</td>
-                  <td>
+                  <td data-label="Источник">{toDisplaySourceCode(row.dataSourceCode)}</td>
+                  <td data-label="Статус">
                     <span className="project-status-inline">
                       <span
                         className={`${
@@ -1033,8 +1033,9 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                       )}
                     </span>
                   </td>
-                  <td>{row.dataLimit}</td>
+                  <td data-label="Лимит">{row.dataLimit}</td>
                   <td
+                    data-label="За период"
                     style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                     title={onOpenLeads ? 'Идентификации за текущий период' : undefined}
                     onClick={() => {
@@ -1051,6 +1052,7 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                     {row.numbersPeriod ?? row.numbersToday}
                   </td>
                   <td
+                    data-label="Всего"
                     style={{ cursor: onOpenLeads ? 'pointer' : 'default' }}
                     title={onOpenLeads ? 'Идентификации за весь срок проекта' : undefined}
                     onClick={() => {
@@ -1066,11 +1068,11 @@ function AdminClientProjects({ clientId, clientName, fromDate, toDate, managerRo
                   >
                     {row.numbersTotal}
                   </td>
-                  <td className="muted">{row.daysReceived}</td>
-                  <td>{row.collectionSource}</td>
-                  <td>{row.sourcesCount}</td>
-                  <td className="muted"><DateTimeCompact value={row.createdAt} /></td>
-                  <td>
+                  <td className="muted" data-label="Дни">{row.daysReceived}</td>
+                  <td data-label="Сбор">{row.collectionSource}</td>
+                  <td data-label="Источники">{row.sourcesCount}</td>
+                  <td className="muted" data-label="Создан"><DateTimeCompact value={row.createdAt} /></td>
+                  <td data-label="Действия">
                     {(() => {
                       const canEdit = canEditProject(row);
                       return (

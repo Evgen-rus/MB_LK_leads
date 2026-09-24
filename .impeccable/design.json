@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-24T15:05:00+07:00",
+  "title": "Design System: Mad Boss leads",
+  "extensions": {
+    "colorMeta": {
+      "violet-mark": {
+        "role": "primary",
+        "displayName": "Фиолетовая пометка",
+        "canonical": "#6a5cff",
+        "tonalRamp": [
+          "oklch(28% 0.12 285)",
+          "oklch(38% 0.15 285)",
+          "oklch(48% 0.18 285)",
+          "oklch(57% 0.20 285)",
+          "oklch(66% 0.16 285)",
+          "oklch(76% 0.11 285)",
+          "oklch(86% 0.06 285)",
+          "oklch(95% 0.02 285)"
+        ]
+      },
+      "brand-pill": {
+        "role": "primary",
+        "displayName": "Плашка бренда",
+        "canonical": "#6f63ff",
+        "tonalRamp": [
+          "oklch(28% 0.11 283)",
+          "oklch(38% 0.14 283)",
+          "oklch(48% 0.17 283)",
+          "oklch(58% 0.19 283)",
+          "oklch(67% 0.15 283)",
+          "oklch(77% 0.10 283)",
+          "oklch(87% 0.05 283)",
+          "oklch(95% 0.02 283)"
+        ]
+      },
+      "lavender-paper": {
+        "role": "neutral",
+        "displayName": "Лавандовая бумага",
+        "canonical": "#f6f2ff",
+        "tonalRamp": [
+          "oklch(30% 0.04 290)",
+          "oklch(40% 0.04 290)",
+          "oklch(50% 0.04 290)",
+          "oklch(62% 0.04 290)",
+          "oklch(74% 0.035 290)",
+          "oklch(84% 0.03 290)",
+          "oklch(92% 0.02 290)",
+          "oklch(97% 0.012 290)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Чернила",
+        "canonical": "#1d1d1f",
+        "tonalRamp": [
+          "oklch(18% 0.005 270)",
+          "oklch(28% 0.005 270)",
+          "oklch(38% 0.006 270)",
+          "oklch(48% 0.006 270)",
+          "oklch(60% 0.006 270)",
+          "oklch(74% 0.005 270)",
+          "oklch(86% 0.004 270)",
+          "oklch(95% 0.003 270)"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "Белая карточка",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(20% 0 0)",
+          "oklch(32% 0 0)",
+          "oklch(44% 0 0)",
+          "oklch(56% 0 0)",
+          "oklch(68% 0 0)",
+          "oklch(80% 0 0)",
+          "oklch(90% 0 0)",
+          "oklch(100% 0 0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Заголовок раздела." },
+      "body": { "displayName": "Body", "purpose": "Текст, поля и кнопки." },
+      "label": { "displayName": "Label", "purpose": "Подписи групп меню, мета и подсказки." }
+    },
+    "shadows": [
+      {
+        "name": "focus-field",
+        "value": "0 4px 12px rgba(0,0,0,0.06), 0 0 0 3px rgba(106,92,255,0.15)",
+        "purpose": "Фокус поиска, селекта и полей окна."
+      },
+      {
+        "name": "popover",
+        "value": "0 8px 24px rgba(0,0,0,0.12)",
+        "purpose": "Выпадающие панели."
+      },
+      {
+        "name": "modal",
+        "value": "0 18px 48px rgba(0, 0, 0, 0.22)",
+        "purpose": "Модальное окно."
+      }
+    ],
+    "motion": [
+      {
+        "name": "field",
+        "value": "box-shadow .2s, border-color .2s",
+        "purpose": "Смена обводки и тени у поля."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sidebar-collapse", "value": "1200px" },
+      { "name": "stack", "value": "720px" },
+      { "name": "phone", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Главное действие. Фиолетовая заливка, белый текст.",
+      "html": "<button class=\"ds-btn-primary\">Сохранить</button>",
+      "css": ".ds-btn-primary { background: #6a5cff; color: #fff; border: 1px solid #6a5cff; border-radius: 8px; padding: 8px 12px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; font-weight: 500; cursor: pointer; } .ds-btn-primary:hover { background: #6a5cff; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(106,92,255,0.15); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Вторичное действие. Белая заливка и фиолетовая обводка.",
+      "html": "<button class=\"ds-btn-secondary\">Отмена</button>",
+      "css": ".ds-btn-secondary { background: #ffffff; color: #6a5cff; border: 1px solid #6a5cff; border-radius: 8px; padding: 8px 12px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; font-weight: 500; cursor: pointer; } .ds-btn-secondary:hover { background: #f6f2ff; } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(106,92,255,0.15); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Тихое действие без заливки.",
+      "html": "<button class=\"ds-btn-ghost\">Закрыть</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #1d1d1f; border: 1px solid #dcdce6; border-radius: 8px; padding: 8px 12px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; font-weight: 500; cursor: pointer; } .ds-btn-ghost:hover { background: #f1f1f7; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(106,92,255,0.15); }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Поле фильтра. Белый фон, обводка, фиолетовый фокус.",
+      "html": "<input class=\"ds-input-search\" type=\"search\" placeholder=\"Поиск\" />",
+      "css": ".ds-input-search { background: #fff; color: #1d1d1f; border: 1px solid #dcdce6; border-radius: 10px; padding: 8px 12px; min-width: 240px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; } .ds-input-search:focus { outline: none; border-color: #6a5cff; box-shadow: 0 4px 12px rgba(0,0,0,0.06), 0 0 0 3px rgba(106,92,255,0.15); }"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Пункт бокового меню. Активный и наведение делят один серый фон.",
+      "html": "<a class=\"ds-nav-item ds-nav-item--active\">Проекты</a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: #1d1d1f; background: transparent; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; text-decoration: none; width: 196px; } .ds-nav-item:hover, .ds-nav-item--active { background: #f1f1f7; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-status",
+      "description": "Капсула статуса. Цвет несёт смысл, не фиолетовый.",
+      "html": "<span class=\"ds-badge ds-badge--green\">Активен</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 0.75rem; font-weight: 600; border: 1px solid transparent; } .ds-badge--green { background: #e6f7ed; color: #1d7a45; border-color: #b6e3cb; }"
+    },
+    {
+      "name": "Table Card",
+      "kind": "card",
+      "refersTo": "card-table",
+      "description": "Белая карточка таблицы на лавандовой бумаге. В покое без тени.",
+      "html": "<div class=\"ds-page\"><article class=\"ds-card\"><div class=\"ds-card__toolbar\">Проекты</div><div class=\"ds-card__row\">Строка таблицы</div></article></div>",
+      "css": ".ds-page { background: linear-gradient(180deg, #f6f2ff 0%, #f9f9ff 100%); padding: 16px; } .ds-card { background: #ffffff; border: 1px solid #ececf2; border-radius: 12px; overflow: hidden; } .ds-card__toolbar { padding: 12px; border-bottom: 1px solid #ececf2; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1.125rem; font-weight: 600; color: #1d1d1f; } .ds-card__row { padding: 12px; font-family: system-ui, Avenir, Helvetica, Arial, sans-serif; font-size: 1rem; color: #1d1d1f; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Светлый журнал",
+    "overview": "Кабинет читается как учётная тетрадь, а не как рекламный экран. Страница лежит на лавандовой бумаге, рабочие поверхности белые, фиолетовый появляется точечно: плашка бренда, главное действие, фокус поля, выбранный день. Плотность операционная: таблицы, фильтры и статусы важнее декора.\n\nХарактер зафиксирован по текущему интерфейсу, без усиления. Карточки в покое плоские. Мягкая тень отвечает только на фокус и на всплывающие окна.",
+    "keyCharacteristics": [
+      "Лавандовый фон страницы, белые карточки и шапка.",
+      "Фиолетовая пометка редкая: действие, фокус, бренд.",
+      "Системный шрифт, без отдельной наборной пары.",
+      "Скругления небольшие: 8px у кнопок, 10px у полей, 12px у карточек.",
+      "Статусы говорят своим цветом, не фиолетовым."
+    ],
+    "rules": [
+      { "name": "The Mark Rule", "body": "Фиолетовая пометка стоит на действии, фокусе и плашке бренда. Ею не красят фон страницы, строки таблицы и обычный текст.", "section": "colors" },
+      { "name": "The Status Rule", "body": "Состояние проекта и клиента несёт свой бейдж: зелёный, оранжевый, красный или серый. Фиолетовый статус не подменяет.", "section": "colors" },
+      { "name": "The One Family Rule", "body": "Весь кабинет набирается системным стеком. Новый экран не привозит отдельный дисплейный шрифт.", "section": "typography" },
+      { "name": "The Resting Flat Rule", "body": "Карточка, меню и шапка в покое без тени. Тень не добавляют строке таблицы и обычной кнопке.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do держать страницу на лавандовой бумаге, а рабочие блоки на белых карточках с линией #ececf2.",
+      "Do красить главное действие в #6a5cff и оставлять вторичное белым с фиолетовой обводкой.",
+      "Do показывать фокус поля кольцом `0 0 0 3px rgba(106,92,255,0.15)`.",
+      "Do кодировать статусы зелёным, оранжевым, красным и серым бейджем-капсулой.",
+      "Do набирать интерфейс системным стеком и заголовок раздела кеглем 1.125rem при насыщенности 600."
+    ],
+    "donts": [
+      "Don't заливать фон, строки и обычный текст фиолетовой пометкой.",
+      "Don't добавлять тень карточке, строке таблицы или обычной кнопке в покое.",
+      "Don't подменять статусный бейдж фиолетовым.",
+      "Don't вводить отдельный дисплейный шрифт для нового экрана.",
+      "Don't делать из кнопки поддержки с градиентом и постоянной тенью образец для остальных кнопок."
+    ]
+  }
+}

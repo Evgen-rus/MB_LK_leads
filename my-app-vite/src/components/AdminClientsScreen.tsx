@@ -867,8 +867,8 @@ function AdminClientsScreen({
                       key={row.id}
                       className={`client-row${isDebt ? ' row--debt' : ''}`}
                     >
-                      <td className="muted table-sticky-cell table-sticky-cell--lead">{row.id}</td>
-                      <td>
+                      <td className="muted table-sticky-cell table-sticky-cell--lead" data-label="ID">{row.id}</td>
+                      <td data-label="Клиент">
                         <div className="name">{row.name}</div>
                         {hasEvents && (
                           <div className="chip-stack">
@@ -882,14 +882,14 @@ function AdminClientsScreen({
                           </div>
                         )}
                       </td>
-                      <td>{row.projectCount}</td>
-                      <td>
+                      <td data-label="Проекты">{row.projectCount}</td>
+                      <td data-label="Сбор данных">
                         <span className={getCollectionBadgeClass(row.dataCollectionStatus)}>
                           {row.dataCollectionStatus}
                         </span>
                       </td>
-                      <td>{row.tariffAmount == null ? '-' : row.tariffAmount}</td>
-                      <td>
+                      <td data-label="Тариф">{row.tariffAmount == null ? '-' : row.tariffAmount}</td>
+                      <td data-label="Остаток">
                         <div className={isDebt ? 'remaining-negative' : undefined}>{row.remaining}</div>
                         {row.workStatus !== 'Неактивен' && row.financeStatus && (
                           <div className="client-finance-badge-row">
@@ -897,7 +897,7 @@ function AdminClientsScreen({
                           </div>
                         )}
                       </td>
-                      <td>
+                      <td data-label="Работа">
                         <select
                           className={getWorkStatusSelectClass(row.workStatus)}
                           value={row.workStatus}
@@ -915,8 +915,8 @@ function AdminClientsScreen({
                           ))}
                         </select>
                       </td>
-                      <td>{row.totalVolume}</td>
-                      <td>
+                      <td data-label="Данные">{row.totalVolume}</td>
+                      <td data-label="Действия">
                         <div className="client-row-actions">
                           <button
                             className="btn btn--primary"

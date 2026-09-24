@@ -60,18 +60,17 @@ function Login({ onSuccess }: Props) {
   return (
     <div className="login-container">
       <div className="login-card">
-        <div className="login-header">
-          <h1 className="login-title">Вход</h1>
+        <header className="login-header">
+          <h1 className="login-brand">
+            <span className="login-brand__name">Mad Boss</span>
+            <span className="login-brand__pill">leads</span>
+          </h1>
           <p className="login-subtitle">Войдите в личный кабинет</p>
-        </div>
-        
+        </header>
+
         <form onSubmit={handleSubmit} className="login-form">
           <div className="login-field">
             <label htmlFor="username" className="login-label">
-              <svg className="login-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-              </svg>
               Логин
             </label>
             <input
@@ -88,10 +87,6 @@ function Login({ onSuccess }: Props) {
 
           <div className="login-field">
             <label htmlFor="password" className="login-label">
-              <svg className="login-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-              </svg>
               Пароль
             </label>
             <input
@@ -129,14 +124,7 @@ function Login({ onSuccess }: Props) {
                 Входим...
               </>
             ) : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-                  <polyline points="10 17 15 12 10 7"></polyline>
-                  <line x1="15" y1="12" x2="3" y2="12"></line>
-                </svg>
-                Войти
-              </>
+              'Войти'
             )}
           </button>
         </form>
