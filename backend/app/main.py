@@ -5992,6 +5992,7 @@ def admin_list_daily_export_limit_groups(
     _require_daily_limit_group_client(db_sess, current_manager, client_id)
     groups = daily_export_limit_groups.list_groups(db_sess, client_id)
     if not groups:
+        # Групп нет — ограничение не настроено вовсе, предупреждать не о чем.
         return schemas.DailyExportLimitGroupListOut(items=[])
     members = daily_export_limit_groups.list_group_project_ids(
         db_sess, [int(group.id) for group in groups]
@@ -6007,7 +6008,15 @@ def admin_list_daily_export_limit_groups(
                 db_sess, group, quota=quota, project_ids=project_ids
             )
         )
-    return schemas.DailyExportLimitGroupListOut(items=items)
+    return schemas.DailyExportLimitGroupListOut(
+        items=items,
+        unassignedProjectsCount=crud.count_client_projects_outside_limit_groups(
+            db_sess, client_id=client_id
+        ),
+        unassignedProjectsTotal=crud.count_client_projects_for_limit_group(
+            db_sess, client_id=client_id
+        ),
+    )
 
 
 @app.get(

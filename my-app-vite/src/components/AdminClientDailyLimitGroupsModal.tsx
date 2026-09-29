@@ -201,6 +201,14 @@ function GroupEditor({
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+  // Уже выбранные, которых нет в текущей выдаче поиска.  Их нельзя просто
+  // не рисовать: пользователь должен видеть и суметь снять свой выбор.
+  const resultIdSet = useMemo(() => new Set(results.map((item) => item.id)), [results]);
+  const selectedHidden = useMemo(
+    () => selectedProjects.filter((project) => !resultIdSet.has(project.id)),
+    [selectedProjects, resultIdSet],
+  );
+
   function isLockedByOtherGroup(project: DailyExportLimitGroupProject): boolean {
     if (project.limitGroupId == null) return false;
     if (isCreate) return true;
@@ -324,7 +332,15 @@ function GroupEditor({
           </span>
         </div>
 
-        {selectedProjects.length > 0 && (
+        {/*
+          Один список: найденные проекты, где уже выбранные отмечены
+          чекбоксом.  Раньше здесь было два окна — «Найдено» и
+          «Выбрано в группу», — и выбранные проекты показывались дважды.
+          Список выбранных отдельно нужен только затем, чтобы не терять
+          выбор при смене поискового запроса, поэтому невидимые (не
+          попавшие в выдачу) участники выводятся сверху, отдельным блоком.
+        */}
+        {selectedHidden.length > 0 && (
           <div
             style={{
               display: 'grid',
@@ -335,8 +351,10 @@ function GroupEditor({
               background: '#f7f8fc',
             }}
           >
-            <div className="sub">Выбрано в группу ({selectedProjects.length}):</div>
-            {selectedProjects.map((project) => (
+            <div className="sub">
+              Уже выбрано, но не попало в поиск: {selectedHidden.length}
+            </div>
+            {selectedHidden.map((project) => (
               <label
                 key={project.id}
                 style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}
@@ -429,6 +447,11 @@ export default function AdminClientDailyLimitGroupsModal({
   onChanged,
 }: AdminClientDailyLimitGroupsModalProps) {
   const [groups, setGroups] = useState<DailyExportLimitGroup[]>([]);
+  const [unassignedCount, setUnassignedCount] = useState(0);
+  const [unassignedTotal, setUnassignedTotal] = useState(0);
+  const [showUnassigned, setShowUnassigned] = useState(false);
+  const [unassignedProjects, setUnassignedProjects] = useState<DailyExportLimitGroupProject[]>([]);
+  const [unassignedLoading, setUnassignedLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState>(null);
@@ -440,6 +463,8 @@ export default function AdminClientDailyLimitGroupsModal({
       setError(null);
       const resp = await fetchDailyExportLimitGroups(clientId);
       setGroups(resp.items);
+      setUnassignedCount(resp.unassignedProjectsCount ?? 0);
+      setUnassignedTotal(resp.unassignedProjectsTotal ?? 0);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Не удалось загрузить группы'));
       setGroups([]);
@@ -451,6 +476,33 @@ export default function AdminClientDailyLimitGroupsModal({
   useEffect(() => {
     void loadGroups();
   }, [loadGroups]);
+
+  // Список вне групп грузится только по требованию: на каждый прогон он не нужен,
+  // а клиент с сотнями проектов вернул бы здесь лишние сотни строк.
+  useEffect(() => {
+    if (!showUnassigned) {
+      setUnassignedProjects([]);
+      return;
+    }
+    if (unassignedCount === 0) return;
+    let cancelled = false;
+    (async () => {
+      setUnassignedLoading(true);
+      try {
+        const resp = await searchDailyExportLimitGroupProjects(clientId, { limit: 200 });
+        if (!cancelled) {
+          setUnassignedProjects(resp.items.filter((item) => item.limitGroupId == null));
+        }
+      } catch {
+        if (!cancelled) setUnassignedProjects([]);
+      } finally {
+        if (!cancelled) setUnassignedLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showUnassigned, unassignedCount, clientId]);
 
   async function handleDelete(group: DailyExportLimitGroup) {
     if (!window.confirm(`Удалить группу «${group.name}»? Проекты группы станут обычными, лиды не удалятся.`)) {
@@ -504,6 +556,70 @@ export default function AdminClientDailyLimitGroupsModal({
       </div>
 
       {error && <div className="sub" style={{ color: '#a55' }}>{error}</div>}
+
+      {/*
+        Предупреждение показывается только когда есть хотя бы одна группа
+        И есть проекты вне них.  Пока групп нет, ограничение не настроено
+        вовсе и напоминать не о чем.
+      */}
+      {!loading && groups.length > 0 && unassignedCount > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gap: 8,
+            padding: 12,
+            border: '1px solid #f0d9a8',
+            borderRadius: 10,
+            background: '#fffaf0',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.9rem', flex: 1, minWidth: 240 }}>
+              Проектов вне лимитов групп: <b>{unassignedCount}</b>
+              {unassignedTotal > 0 && <> из {unassignedTotal}</>}. Они выгружаются без дневного
+              ограничения, пока их не добавят в группу.
+            </span>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              onClick={() => setShowUnassigned((v) => !v)}
+            >
+              {showUnassigned ? 'Скрыть' : 'Показать'}
+            </button>
+          </div>
+
+          {showUnassigned && (
+            <div
+              style={{
+                display: 'grid',
+                gap: 4,
+                maxHeight: 240,
+                overflow: 'auto',
+                border: '1px solid #f0e0c0',
+                borderRadius: 8,
+                padding: 8,
+                background: '#fff',
+              }}
+            >
+              {unassignedLoading && <div className="sub">Загрузка…</div>}
+              {!unassignedLoading && unassignedProjects.length === 0 && (
+                <div className="sub">Ничего не найдено.</div>
+              )}
+              {unassignedProjects.map((project) => (
+                <div key={project.id} style={{ fontSize: '0.85rem', overflowWrap: 'anywhere' }}>
+                  {formatProjectNameForDisplay(project.name)}{' '}
+                  <span className="sub">(id: {project.id})</span>
+                </div>
+              ))}
+              {!unassignedLoading && unassignedProjects.length > 0 && (
+                <div className="sub" style={{ marginTop: 4 }}>
+                  Добавьте их в группу через «Изменить» у нужной группы.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="sub">Загрузка групп…</div>

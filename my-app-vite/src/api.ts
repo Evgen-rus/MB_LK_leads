@@ -1301,8 +1301,22 @@ export type DailyExportLimitGroupProject = {
 
 export async function fetchDailyExportLimitGroups(
   clientId: number,
-): Promise<{ items: DailyExportLimitGroup[] }> {
-  return http<{ items: DailyExportLimitGroup[] }>(`/admin/clients/${clientId}/daily-export-limit-groups`);
+): Promise<{
+  items: DailyExportLimitGroup[];
+  /**
+   * Проекты клиента вне всех групп дневного лимита.  Новый проект в группу
+   * автоматически не попадает, поэтому такие строки выгружаются без
+   * ограничения.  При отсутствии групп оба счётчика равны 0.
+   */
+  unassignedProjectsCount: number;
+  /** Всего проектов клиента в контуре лимитов (без удалённых и пиксельных). */
+  unassignedProjectsTotal: number;
+}> {
+  return http<{
+    items: DailyExportLimitGroup[];
+    unassignedProjectsCount: number;
+    unassignedProjectsTotal: number;
+  }>(`/admin/clients/${clientId}/daily-export-limit-groups`);
 }
 
 export async function searchDailyExportLimitGroupProjects(

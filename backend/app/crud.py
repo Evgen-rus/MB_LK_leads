@@ -7090,6 +7090,65 @@ def count_client_projects_for_limit_group(
     return int(db.execute(stmt).scalar_one() or 0)
 
 
+def _client_limit_group_project_scope(db: Session, *, client_id: int):
+    """
+    Базовый отбор проектов клиента, участвующих в механике лимитов групп.
+
+    Те же фильтры, что и в поиске группы: без удалённых и без пиксельных.
+    Иначе «проектов вне групп» считало бы в том числе те, что в группу
+    добавить нельзя, и предупреждение в админке показывало бы ложную цифру.
+    """
+    return (
+        select(models.Project)
+        .where(models.Project.user_id == int(client_id))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .where(models.Project.collection_source != COLLECTION_SOURCE_PIXEL)
+    )
+
+
+def list_client_projects_outside_limit_groups(
+    db: Session,
+    *,
+    client_id: int,
+    limit: int = 100,
+) -> List[models.Project]:
+    """
+    Проекты клиента, не входящие ни в одну группу дневного лимита.
+
+    Источник истины членства — таблица связей групп, а не настройки UI:
+    новый проект не попадает в группу автоматически, поэтому такие строки
+    выгружаются без ограничения, пока администратор не добавит их вручную.
+    """
+    assigned = select(models.ProjectDailyExportLimitGroupProject.project_id)
+    stmt = (
+        _client_limit_group_project_scope(db, client_id=client_id)
+        .where(models.Project.id.notin_(assigned))
+        .order_by(models.Project.id.asc())
+        .limit(max(1, int(limit or 100)))
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def count_client_projects_outside_limit_groups(
+    db: Session,
+    *,
+    client_id: int,
+) -> int:
+    """Сколько проектов клиента не входит ни в одну группу лимита."""
+    assigned = select(models.ProjectDailyExportLimitGroupProject.project_id)
+    stmt = (
+        select(func.count())
+        .select_from(models.Project)
+        .where(models.Project.user_id == int(client_id))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .where(models.Project.collection_source != COLLECTION_SOURCE_PIXEL)
+        .where(models.Project.id.notin_(assigned))
+    )
+    return int(db.execute(stmt).scalar_one() or 0)
+
+
 # ---------------------------------------------------------------------------
 # Долговечная очередь операций над provider-проектами
 # ---------------------------------------------------------------------------

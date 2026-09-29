@@ -15,6 +15,7 @@ import {
   transferAdminClientOwner,
   updateAdminClientWorkStatus,
   fetchAdminClientCollectionState,
+  fetchDailyExportLimitGroups,
   pauseAdminClientProjects,
   resumeAdminClientProjects,
   type ProjectOperation,
@@ -225,6 +226,9 @@ function AdminClientsScreen({
   const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
   const [dailyLimitGroupsClientId, setDailyLimitGroupsClientId] = useState<number | null>(null);
+  // Сколько проектов клиента осталось вне групп дневного лимита.
+  // null = неизвестно, 0 = предупреждать не о чем.
+  const [unassignedProjectsCount, setUnassignedProjectsCount] = useState<number | null>(null);
   const [tariffModalState, setTariffModalState] = useState<{
     clientId: number;
     clientName: string;
@@ -516,6 +520,32 @@ function AdminClientsScreen({
         }
       } finally {
         if (!cancelled) setCollectionLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClientId, refreshKey, isAgentManager]);
+
+  // Счётчик проектов вне групп нужен только для бейджа на кнопке, поэтому
+  // грузим его отдельно и ровно для выбранного клиента.  Ошибка не мешает
+  // работать с группами: молча показываем кнопку без бейджа.
+  useEffect(() => {
+    if (isAgentManager) {
+      setUnassignedProjectsCount(null);
+      return;
+    }
+    if (selectedClientId == null) {
+      setUnassignedProjectsCount(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetchDailyExportLimitGroups(selectedClientId);
+        if (!cancelled) setUnassignedProjectsCount(resp.unassignedProjectsCount ?? 0);
+      } catch {
+        if (!cancelled) setUnassignedProjectsCount(null);
       }
     })();
     return () => {
@@ -1210,6 +1240,9 @@ function AdminClientsScreen({
                     <span className="sub" style={{ opacity: 0.9 }}>
                       Дневной лимит выгрузки для групп проектов
                     </span>
+                    {unassignedProjectsCount != null && unassignedProjectsCount > 0 && (
+                      <span className="badge badge--orange">вне групп: {unassignedProjectsCount}</span>
+                    )}
                   </button>
                   <button
                     type="button"
@@ -2008,6 +2041,9 @@ function AdminClientsScreen({
                       <span className="sub" style={{ opacity: 0.9 }}>
                         Дневной лимит выгрузки для групп проектов
                       </span>
+                      {unassignedProjectsCount != null && unassignedProjectsCount > 0 && (
+                        <span className="badge badge--orange">вне групп: {unassignedProjectsCount}</span>
+                      )}
                     </button>
                     <button
                       type="button"

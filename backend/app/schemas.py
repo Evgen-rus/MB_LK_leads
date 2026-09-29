@@ -849,6 +849,14 @@ class DailyExportLimitGroupOut(BaseModel):
 
 class DailyExportLimitGroupListOut(BaseModel):
     items: List[DailyExportLimitGroupOut]
+    # Проекты клиента, не входящие ни в одну группу.  Новый проект не
+    # добавляется в группу автоматически, поэтому такие строки выгружаются
+    # без дневного ограничения, пока их не внесли вручную.
+    # При отсутствии групп эти поля равны 0, и UI ничего не показывает.
+    unassignedProjectsCount: int = 0
+    # Всего проектов клиента в том же контуре (без удалённых и пиксельных),
+    # чтобы UI показал «12 из 87», а не просто «12».
+    unassignedProjectsTotal: int = 0
 
 
 class DailyExportLimitGroupCreateIn(BaseModel):
