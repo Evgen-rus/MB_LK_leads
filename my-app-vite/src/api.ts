@@ -1268,6 +1268,85 @@ export async function resumeAdminClientProjects(clientId: number): Promise<Proje
   });
 }
 
+// -------- Лимит группы проектов на день (admin-only) --------
+export type DailyExportLimitGroup = {
+  id: number;
+  clientId: number;
+  name: string;
+  dailyLimit: number;
+  projectIds: number[];
+  projectCount: number;
+  /** Реально выгруженные сегодня provider-лиды группы. */
+  exportedToday: number;
+  /** Сколько мест осталось сегодня (0, если лимит снизили ниже расхода). */
+  remainingToday: number;
+  /** Все невыгруженные лиды группы, независимо от дня. */
+  pendingTotal: number;
+  limitReached: boolean;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type DailyExportLimitGroupProject = {
+  id: number;
+  name: string;
+  tag?: string | null;
+  dataSourceCode: string;
+  collectionSource: string;
+  status: string;
+  /** Группа, в которую проект уже входит (если занят). */
+  limitGroupId?: number | null;
+  limitGroupName?: string | null;
+};
+
+export async function fetchDailyExportLimitGroups(
+  clientId: number,
+): Promise<{ items: DailyExportLimitGroup[] }> {
+  return http<{ items: DailyExportLimitGroup[] }>(`/admin/clients/${clientId}/daily-export-limit-groups`);
+}
+
+export async function searchDailyExportLimitGroupProjects(
+  clientId: number,
+  params: { q?: string; limit?: number; projectIds?: number[] },
+): Promise<{ items: DailyExportLimitGroupProject[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.q) q.set('q', params.q);
+  if (params.limit) q.set('limit', String(params.limit));
+  if (params.projectIds && params.projectIds.length > 0) {
+    q.set('projectIds', params.projectIds.join(','));
+  }
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return http<{ items: DailyExportLimitGroupProject[]; total: number }>(
+    `/admin/clients/${clientId}/daily-export-limit-groups/projects${suffix}`,
+  );
+}
+
+export async function createDailyExportLimitGroup(
+  clientId: number,
+  payload: { name: string; dailyLimit: number; projectIds: number[] },
+): Promise<DailyExportLimitGroup> {
+  return http<DailyExportLimitGroup>(`/admin/clients/${clientId}/daily-export-limit-groups`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateDailyExportLimitGroup(
+  groupId: number,
+  payload: { name?: string; dailyLimit?: number; projectIds?: number[] },
+): Promise<DailyExportLimitGroup> {
+  return http<DailyExportLimitGroup>(`/admin/daily-export-limit-groups/${groupId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteDailyExportLimitGroup(groupId: number): Promise<{ groupId: number; deleted: boolean }> {
+  return http<{ groupId: number; deleted: boolean }>(`/admin/daily-export-limit-groups/${groupId}`, {
+    method: 'DELETE',
+  });
+}
+
 // -------- Админские лиды --------
 export type AdminLead = {
   ext_id: string;

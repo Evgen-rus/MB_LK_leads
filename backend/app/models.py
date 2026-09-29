@@ -349,8 +349,62 @@ class ProviderLead(Base):
     subdomain = Column(String, nullable=True, index=True)
     pixel_url = Column(String, nullable=True)
     imported_at = Column(DateTime, nullable=False, default=now_msk, index=True)
+    # Отметка выгрузки в клиентскую Google-таблицу Пикселя.
+    # Это поле НЕ переиспользуется для промежуточной provider-таблицы.
     client_sheet_exported_at = Column(DateTime, nullable=True, index=True)
+    # Отметка успешной выгрузки строки в промежуточную Google-таблицу провайдера
+    # (``tool_export_provider_leads.py``).  NULL = строка ещё не выгружена.
+    # Это надёжное состояние очереди экспорта: FIFO строится по нему, а не по lookback.
+    provider_sheet_exported_at = Column(DateTime, nullable=True, index=True)
     project_id = Column(Integer, nullable=True, index=True)
+
+
+class ProjectDailyExportLimitGroup(Base):
+    """
+    «Лимит группы проектов на день».
+
+    Группа принадлежит одному клиенту (``client_id``) и объединяет произвольный
+    набор provider-проектов через ``ProjectDailyExportLimitGroupProject``.
+    Ограничение применяется только в ``tool_export_provider_leads.py`` и только
+    к project_id, реально состоящим в группе: ни LR-код, ни regex имени
+    проекта, ни ``client_internal_prefix`` в рантайме не используются.
+    """
+    __tablename__ = "project_daily_export_limit_groups"
+    __table_args__ = (
+        Index("ix_project_daily_export_limit_groups_client", "client_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    daily_limit = Column(Integer, nullable=False)
+    # Состояние уведомления о достижении дневного лимита.
+    # null | дата (день, когда уже отправляли) | "0" (не отправляли ни разу).
+    limit_reached_notified_on = Column(String, nullable=True)
+    limit_reached_notified_limit = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
+    updated_at = Column(DateTime, default=now_msk, nullable=False)
+
+
+class ProjectDailyExportLimitGroupProject(Base):
+    """
+    Связь группы лимита с проектом.
+
+    UNIQUE(project_id) — жёсткий инвариант: один проект не может входить
+    одновременно в две группы лимита.  Ограничение держится на уровне БД,
+    а не только во frontend-проверке.
+    """
+    __tablename__ = "project_daily_export_limit_group_projects"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_project_daily_export_limit_group_project"),
+        UniqueConstraint("group_id", "project_id", name="uq_project_daily_export_limit_group_member"),
+        Index("ix_project_daily_export_limit_group_projects_group", "group_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("project_daily_export_limit_groups.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    created_at = Column(DateTime, default=now_msk, nullable=False)
 
 
 class BlacklistPhone(Base):

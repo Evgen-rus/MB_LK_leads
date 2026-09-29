@@ -40,6 +40,7 @@ from starlette.requests import ClientDisconnect
 from . import (
     auth,
     crud,
+    daily_export_limit_groups,
     db,
     logging_setup,
     models,
@@ -633,6 +634,68 @@ def _ensure_provider_leads_pixel_columns_and_indexes() -> None:
 
 
 _ensure_provider_leads_pixel_columns_and_indexes()
+
+
+def _ensure_provider_leads_provider_sheet_export_state() -> None:
+    """
+    Состояние выгрузки в промежуточную provider-таблицу.
+
+    ``provider_sheet_exported_at`` НЕ связан с ``client_sheet_exported_at``
+    (это контур Пикселя) и не переиспользует его семантику.
+
+    Стратегия backfill для уже существующей БД:
+    колонка добавляется как NULL, поэтому исторические строки формально
+    «не выгружены».  Чтобы после деплоя не отправить в Google-таблицу заново
+    всю историю, выполняется ОДНОРАЗОВЫЙ безопасный backfill: уже
+    выгруженные строки (те, что попадали в lookback-окно старого экспорта)
+    получают метку = imported_at.  Идемпотентность обеспечивается тем, что
+    backfill трогает только строки с NULL-меткой и выполняется один раз:
+    повторный запуск увидит, что незаполненных строк внутри lookback не
+    осталось, и будет no-op.
+    """
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "provider_leads" not in tables:
+        return
+
+    columns = {col.get("name") for col in inspector.get_columns("provider_leads")}
+    with engine.begin() as conn:
+        if "provider_sheet_exported_at" not in columns:
+            conn.execute(text("ALTER TABLE provider_leads ADD COLUMN provider_sheet_exported_at TIMESTAMP"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_provider_leads_provider_sheet_exported_at "
+                "ON provider_leads (provider_sheet_exported_at)"
+            )
+        )
+        if engine.dialect.name == "postgresql":
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_provider_leads_provider_export_queue "
+                    "ON provider_leads (lead_source, provider_sheet_exported_at, imported_at)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_provider_leads_provider_export_queue "
+                    "ON provider_leads (lead_source, provider_sheet_exported_at)"
+                )
+            )
+
+
+_ensure_provider_leads_provider_sheet_export_state()
+
+
+def _ensure_daily_export_limit_group_tables() -> None:
+    """
+    Таблицы «Лимита группы проектов на день» + UNIQUE(project_id) в membership.
+    """
+    models.ProjectDailyExportLimitGroup.__table__.create(bind=engine, checkfirst=True)
+    models.ProjectDailyExportLimitGroupProject.__table__.create(bind=engine, checkfirst=True)
+
+
+_ensure_daily_export_limit_group_tables()
 
 
 def _ensure_active_project_name_unique_index() -> None:
@@ -5855,6 +5918,261 @@ def admin_list_projects(
         sort_by=sortBy,
         sort_dir=sortDir,
     )
+
+
+# =====================================================
+# ===== «Лимит группы проектов на день» (admin-only) ==
+# =====================================================
+
+def _daily_limit_group_to_out(
+    db_sess: Session,
+    group: models.ProjectDailyExportLimitGroup,
+    *,
+    quota: daily_export_limit_groups.DailyExportLimitQuota,
+    project_ids: List[int],
+) -> schemas.DailyExportLimitGroupOut:
+    return schemas.DailyExportLimitGroupOut(
+        id=int(group.id),
+        clientId=int(group.client_id),
+        name=str(group.name),
+        dailyLimit=int(group.daily_limit),
+        projectIds=project_ids,
+        projectCount=len(project_ids),
+        exportedToday=int(quota.exported_today),
+        remainingToday=int(quota.remaining_today),
+        pendingTotal=int(quota.pending_total),
+        limitReached=bool(quota.limit_reached),
+        createdAt=group.created_at,
+        updatedAt=group.updated_at,
+    )
+
+
+def _require_daily_limit_group_client(
+    db_sess: Session,
+    manager_user: models.User,
+    client_id: int,
+) -> models.User:
+    """
+    Группы лимита меняет только администратор (user.id == 1).
+
+    Агент не может ни создавать, ни редактировать эти настройки, даже если
+    клиент ему доступен: правило следует существующей модели прав проекта,
+    где агент ограничен своими клиентами, а системные настройки — админские.
+    """
+    if not crud.is_admin_user(manager_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return _ensure_manager_client_access(db_sess, manager_user, client_id)
+
+
+def _parse_int_list_param(value: Optional[str]) -> Optional[List[int]]:
+    """Разбирает ``projectIds=1,2,3`` в список int.  None = фильтр не задан."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return []
+    out: List[int] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        try:
+            out.append(int(item))
+        except ValueError:
+            continue
+    return out
+
+
+@app.get("/admin/clients/{client_id}/daily-export-limit-groups", response_model=schemas.DailyExportLimitGroupListOut)
+def admin_list_daily_export_limit_groups(
+    client_id: int,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    _require_daily_limit_group_client(db_sess, current_manager, client_id)
+    groups = daily_export_limit_groups.list_groups(db_sess, client_id)
+    if not groups:
+        return schemas.DailyExportLimitGroupListOut(items=[])
+    members = daily_export_limit_groups.list_group_project_ids(
+        db_sess, [int(group.id) for group in groups]
+    )
+    items = []
+    for group in groups:
+        project_ids = members.get(int(group.id), [])
+        quota = daily_export_limit_groups.get_group_quota(
+            db_sess, int(group.id), project_ids=project_ids
+        )
+        items.append(
+            _daily_limit_group_to_out(
+                db_sess, group, quota=quota, project_ids=project_ids
+            )
+        )
+    return schemas.DailyExportLimitGroupListOut(items=items)
+
+
+@app.get(
+    "/admin/clients/{client_id}/daily-export-limit-groups/projects",
+    response_model=schemas.DailyExportLimitGroupProjectListOut,
+)
+def admin_list_daily_export_limit_group_projects(
+    client_id: int,
+    q: Optional[str] = None,
+    limit: int = 50,
+    projectIds: Optional[str] = None,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Проекты клиента, доступные для группы.
+
+    Поиск работает по части названия и по LR-коду (``LR223``, ``[LR223]``).
+    Для каждого проекта сразу отдаём группу, в которую он уже входит,
+    чтобы UI мог заблокировать checkbox и показать её название.
+
+    ``projectIds`` позволяет получить конкретные проекты по id — этим
+    редактор группы подтягивает названия текущих участников, не загружая
+    весь список проектов клиента.
+    """
+    _require_daily_limit_group_client(db_sess, current_manager, client_id)
+    requested_ids = _parse_int_list_param(projectIds)
+    projects = crud.search_client_projects_for_limit_group(
+        db_sess, client_id=client_id, q=q, limit=limit, project_ids=requested_ids
+    )
+    project_ids = [int(project.id) for project in projects]
+    owner_names = daily_export_limit_groups.list_group_names_by_project_ids(
+        db_sess, project_ids
+    )
+    group_ids = daily_export_limit_groups.project_to_group_map(db_sess)
+
+    items = [
+        schemas.DailyExportLimitGroupProjectOut(
+            id=int(project.id),
+            name=str(project.name),
+            tag=str(project.tag or "") or None,
+            dataSourceCode=project.data_source_code,  # type: ignore[arg-type]
+            collectionSource=project.collection_source,  # type: ignore[arg-type]
+            status=project.status,  # type: ignore[arg-type]
+            limitGroupId=group_ids.get(int(project.id)),
+            limitGroupName=owner_names.get(int(project.id)),
+        )
+        for project in projects
+    ]
+    return schemas.DailyExportLimitGroupProjectListOut(
+        items=items, total=len(items)
+    )
+
+
+@app.post(
+    "/admin/clients/{client_id}/daily-export-limit-groups",
+    response_model=schemas.DailyExportLimitGroupOut,
+)
+def admin_create_daily_export_limit_group(
+    client_id: int,
+    payload: schemas.DailyExportLimitGroupCreateIn,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    _require_daily_limit_group_client(db_sess, current_manager, client_id)
+    try:
+        group = daily_export_limit_groups.create_group(
+            db_sess,
+            client_id=client_id,
+            name=payload.name,
+            daily_limit=payload.dailyLimit,
+            project_ids=payload.projectIds,
+        )
+    except daily_export_limit_groups.DailyExportLimitGroupError as exc:
+        db_sess.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    project_ids = daily_export_limit_groups.list_group_project_ids(
+        db_sess, [int(group.id)]
+    ).get(int(group.id), [])
+    quota = daily_export_limit_groups.get_group_quota(
+        db_sess, int(group.id), project_ids=project_ids
+    )
+    return _daily_limit_group_to_out(db_sess, group, quota=quota, project_ids=project_ids)
+
+
+@app.patch(
+    "/admin/daily-export-limit-groups/{group_id}",
+    response_model=schemas.DailyExportLimitGroupOut,
+)
+def admin_update_daily_export_limit_group(
+    group_id: int,
+    payload: schemas.DailyExportLimitGroupUpdateIn,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Изменение группы.
+
+    Увеличение лимита сразу добавляет доступные места сегодня: уже
+    выгруженные строки не трогаем, а следующий запуск provider export
+    продолжит FIFO-очередь до нового потолка.
+
+    Уменьшение лимита применяется сразу, но уже выгруженное за день
+    назад не удаляется: если лимит стал меньше расхода, группа сегодня
+    просто ничего не отправляет, а завтра квота уже новая.
+    """
+    if not crud.is_admin_user(current_manager):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    group = daily_export_limit_groups.get_group(db_sess, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+    client_id = int(group.client_id)
+    _ensure_manager_client_access(db_sess, current_manager, client_id)
+
+    try:
+        updated = daily_export_limit_groups.update_group(
+            db_sess,
+            group_id=group_id,
+            client_id=client_id,
+            name=payload.name,
+            daily_limit=payload.dailyLimit,
+            project_ids=payload.projectIds,
+        )
+    except daily_export_limit_groups.DailyExportLimitGroupError as exc:
+        db_sess.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    project_ids = daily_export_limit_groups.list_group_project_ids(
+        db_sess, [int(updated.id)]
+    ).get(int(updated.id), [])
+    quota = daily_export_limit_groups.get_group_quota(
+        db_sess, int(updated.id), project_ids=project_ids
+    )
+    return _daily_limit_group_to_out(db_sess, updated, quota=quota, project_ids=project_ids)
+
+
+@app.delete(
+    "/admin/daily-export-limit-groups/{group_id}",
+    response_model=schemas.DailyExportLimitGroupDeleteOut,
+)
+def admin_delete_daily_export_limit_group(
+    group_id: int,
+    current_manager: models.User = Depends(require_manager),
+    db_sess: Session = Depends(get_db),
+):
+    """
+    Удаление группы освобождает её проекты: они становятся обычными
+    негруппированными проектами, и их pending-лиды снова выгружаются без
+    группового ограничения.  Никакие лиды не удаляются.
+    """
+    if not crud.is_admin_user(current_manager):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    group = daily_export_limit_groups.get_group(db_sess, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+    _ensure_manager_client_access(db_sess, current_manager, int(group.client_id))
+
+    try:
+        daily_export_limit_groups.delete_group(
+            db_sess, group_id=group_id, client_id=int(group.client_id)
+        )
+    except daily_export_limit_groups.DailyExportLimitGroupError as exc:
+        db_sess.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return schemas.DailyExportLimitGroupDeleteOut(groupId=int(group_id), deleted=True)
 
 
 @app.get("/admin/projects/{project_id}", response_model=schemas.AdminProjectOut)

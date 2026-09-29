@@ -807,6 +807,64 @@ class ClientDashboardOut(BaseModel):
     recentEvents: List[ActivityEventOut]
 
 
+# -------- Лимит группы проектов на день (admin-only) --------
+class DailyExportLimitGroupProjectOut(BaseModel):
+    """Проект, доступный для включения в группу, с подсказкой о текущей группе."""
+    id: int
+    name: str
+    tag: Optional[str] = None
+    dataSourceCode: DataSourceCode
+    collectionSource: CollectionSource
+    status: ProjectStatus
+    # Группа, в которой проект уже состоит, если он уже занят.
+    limitGroupId: Optional[int] = None
+    limitGroupName: Optional[str] = None
+
+
+class DailyExportLimitGroupProjectListOut(BaseModel):
+    items: List[DailyExportLimitGroupProjectOut]
+    total: int
+
+
+class DailyExportLimitGroupOut(BaseModel):
+    id: int
+    clientId: int
+    name: str
+    dailyLimit: int
+    projectIds: List[int] = Field(default_factory=list)
+    projectCount: int = 0
+    # Реально выгруженные сегодня provider-лиды этой группы.
+    exportedToday: int = 0
+    # Сколько ещё можно выгрузить сегодня (0, если лимит уменьшили ниже расхода).
+    remainingToday: int = 0
+    # Все невыгруженные лиды группы, независимо от дня.
+    pendingTotal: int = 0
+    limitReached: bool = False
+    createdAt: Optional[datetime] = None
+    updatedAt: Optional[datetime] = None
+
+
+class DailyExportLimitGroupListOut(BaseModel):
+    items: List[DailyExportLimitGroupOut]
+
+
+class DailyExportLimitGroupCreateIn(BaseModel):
+    name: str
+    dailyLimit: int
+    projectIds: List[int] = Field(default_factory=list)
+
+
+class DailyExportLimitGroupUpdateIn(BaseModel):
+    name: Optional[str] = None
+    dailyLimit: Optional[int] = None
+    projectIds: Optional[List[int]] = None
+
+
+class DailyExportLimitGroupDeleteOut(BaseModel):
+    groupId: int
+    deleted: bool = True
+
+
 class AdminAgentCreateIn(BaseModel):
     name: str
     inn: str

@@ -7011,6 +7011,52 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
 
 
 # ---------------------------------------------------------------------------
+# Поиск provider-проектов клиента для «Лимита группы проектов на день»
+# ---------------------------------------------------------------------------
+
+def search_client_projects_for_limit_group(
+    db: Session,
+    *,
+    client_id: int,
+    q: Optional[str] = None,
+    limit: int = 50,
+    project_ids: Optional[List[int]] = None,
+) -> List[models.Project]:
+    """
+    Проекты клиента, доступные для включения в группу лимита.
+
+    Поиск намеренно НЕ привязан к LR-коду: LR — только удобный способ найти
+    проекты, а источник истины после сохранения — конкретные ``project_id``.
+    Пиксельные проекты в этот контур не входят.
+
+    ``project_ids`` нужен, чтобы UI мог показать названия текущих участников
+    группы без догадок и без загрузки всех проектов клиента.
+    """
+    stmt = (
+        select(models.Project)
+        .where(models.Project.user_id == int(client_id))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .where(models.Project.collection_source != COLLECTION_SOURCE_PIXEL)
+    )
+    if project_ids is not None:
+        normalized = [int(value) for value in project_ids if value is not None]
+        if not normalized:
+            return []
+        # Возвращаем в том же порядке, в котором UI их запросил.
+        stmt = stmt.where(models.Project.id.in_(normalized))
+        found = {int(project.id): project for project in db.execute(stmt).scalars().all()}
+        return [found[value] for value in normalized if value in found]
+
+    query = str(q or "").strip()
+    if query:
+        # Покрывает "LR223", "[LR223]" и часть обычного названия: ищем по подстроке.
+        stmt = stmt.where(models.Project.name.ilike(f"%{query}%", escape="\\"))
+    stmt = stmt.order_by(models.Project.id.asc()).limit(max(1, min(200, int(limit or 50))))
+    return list(db.execute(stmt).scalars().all())
+
+
+# ---------------------------------------------------------------------------
 # Долговечная очередь операций над provider-проектами
 # ---------------------------------------------------------------------------
 

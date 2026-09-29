@@ -13,7 +13,6 @@ import {
   createAdminTariffOp,
   updateAdminTariff,
   transferAdminClientOwner,
-  updateAdminClient,
   updateAdminClientWorkStatus,
   fetchAdminClientCollectionState,
   pauseAdminClientProjects,
@@ -39,6 +38,7 @@ import DateRangeCompact from './DateRangeCompact';
 import { BulkProgressBar } from './BulkEditModalFrame';
 import AdminCreateClientModal from './AdminCreateClientModal';
 import AdminClientCardModal from './AdminClientCardModal';
+import AdminClientDailyLimitGroupsModal from './AdminClientDailyLimitGroupsModal';
 import TariffManagerModal from './TariffManagerModal';
 import DashboardDailyChart from './DashboardDailyChart';
 import {
@@ -224,6 +224,7 @@ function AdminClientsScreen({
   const [collectionLastInfo, setCollectionLastInfo] = useState<string | null>(null);
   const [pauseSnapshotExpanded, setPauseSnapshotExpanded] = useState(false);
   const [ownerTarget, setOwnerTarget] = useState<string>('admin');
+  const [dailyLimitGroupsClientId, setDailyLimitGroupsClientId] = useState<number | null>(null);
   const [tariffModalState, setTariffModalState] = useState<{
     clientId: number;
     clientName: string;
@@ -605,36 +606,6 @@ function AdminClientsScreen({
         setCollectionActionLoading(false);
         setCollectionRunInfo(null);
       }
-    }
-  }
-
-  async function handleToggleAutoLimitControl() {
-    if (isAgentManager) return;
-    if (!selectedClient) return;
-    const nextEnabled = !selectedClient.autoLimitControlEnabled;
-    const confirmText = nextEnabled
-      ? 'Включить авто-контроль лимитов для этого клиента?'
-      : 'Выключить авто-контроль лимитов для этого клиента? После этого управление будет полностью ручным.';
-    if (!window.confirm(confirmText)) return;
-    try {
-      await updateAdminClient(selectedClient.id, { autoLimitControlEnabled: nextEnabled });
-      setBaseClients((prev) =>
-        prev.map((row) =>
-          row.id === selectedClient.id ? { ...row, autoLimitControlEnabled: nextEnabled } : row,
-        ),
-      );
-      window.dispatchEvent(
-        new CustomEvent('app-toast', {
-          detail: nextEnabled
-            ? 'Авто-контроль лимитов включён.'
-            : 'Авто-контроль лимитов выключен. Управление проектами полностью ручное.',
-        }),
-      );
-      setRefreshKey((x) => x + 1);
-    } catch (err: unknown) {
-      window.dispatchEvent(
-        new CustomEvent('app-toast', { detail: getErrorMessage(err, 'Не удалось изменить режим авто-контроля лимитов') }),
-      );
     }
   }
 
@@ -1074,12 +1045,6 @@ function AdminClientsScreen({
                   {selectedClient.workStatus}
                 </span>
               </div>
-              <div className="client-summary__status-item">
-                <span className="sub">Авто-контроль</span>
-                <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
-                  {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
-                </span>
-              </div>
             </div>
           </div>
           <div className="client-summary__actions-panel">
@@ -1239,17 +1204,11 @@ function AdminClientsScreen({
                   <button
                     type="button"
                     className="btn btn--secondary client-summary__button--stacked"
-                    onClick={() => {
-                      void handleToggleAutoLimitControl();
-                    }}
+                    onClick={() => setDailyLimitGroupsClientId(selectedClient.id)}
                   >
-                    <span>
-                      {selectedClient.autoLimitControlEnabled
-                        ? 'Выключить авто-контроль лимитов'
-                        : 'Включить авто-контроль лимитов'}
-                    </span>
+                    <span>Лимиты групп проектов</span>
                     <span className="sub" style={{ opacity: 0.9 }}>
-                      Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                      Дневной лимит выгрузки для групп проектов
                     </span>
                   </button>
                   <button
@@ -1563,6 +1522,14 @@ function AdminClientsScreen({
             updateTariff={updateAdminTariff}
             createTariffOp={createAdminTariffOp}
             fetchTariffOps={fetchAdminTariffOps}
+          />
+        )}
+        {dailyLimitGroupsClientId != null && (
+          <AdminClientDailyLimitGroupsModal
+            clientId={dailyLimitGroupsClientId}
+            clientName={selectedClient?.id === dailyLimitGroupsClientId ? selectedClient.name : ''}
+            onClose={() => setDailyLimitGroupsClientId(null)}
+            onChanged={() => setRefreshKey((x) => x + 1)}
           />
         )}
       </>
@@ -1900,12 +1867,6 @@ function AdminClientsScreen({
                     {selectedClient.dataCollectionStatus}
                   </span>
                 </div>
-                <div className="client-summary__status-item">
-                  <span className="sub">Авто-контроль</span>
-                  <span className={selectedClient.autoLimitControlEnabled ? 'badge badge--green' : 'badge badge--gray'}>
-                    {selectedClient.autoLimitControlEnabled ? 'Авто + ручной' : 'Ручной'}
-                  </span>
-                </div>
               </div>
             </div>
             <div className="client-summary__actions-panel">
@@ -2041,17 +2002,11 @@ function AdminClientsScreen({
                     <button
                       type="button"
                       className="btn btn--secondary client-summary__button--stacked"
-                      onClick={() => {
-                        void handleToggleAutoLimitControl();
-                      }}
+                      onClick={() => setDailyLimitGroupsClientId(selectedClient.id)}
                     >
-                      <span>
-                        {selectedClient.autoLimitControlEnabled
-                          ? 'Выключить авто-контроль лимитов'
-                          : 'Включить авто-контроль лимитов'}
-                      </span>
+                      <span>Лимиты групп проектов</span>
                       <span className="sub" style={{ opacity: 0.9 }}>
-                        Режим: {selectedClient.autoLimitControlEnabled ? 'автоматический + ручной' : 'полностью ручной'}
+                        Дневной лимит выгрузки для групп проектов
                       </span>
                     </button>
                     <button
@@ -2296,6 +2251,14 @@ function AdminClientsScreen({
         updateTariff={updateAdminTariff}
         createTariffOp={createAdminTariffOp}
         fetchTariffOps={fetchAdminTariffOps}
+      />
+    )}
+    {dailyLimitGroupsClientId != null && (
+      <AdminClientDailyLimitGroupsModal
+        clientId={dailyLimitGroupsClientId}
+        clientName={selectedClient?.id === dailyLimitGroupsClientId ? selectedClient.name : ''}
+        onClose={() => setDailyLimitGroupsClientId(null)}
+        onChanged={() => setRefreshKey((x) => x + 1)}
       />
     )}
     </>
