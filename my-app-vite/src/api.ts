@@ -1308,7 +1308,7 @@ export async function fetchDailyExportLimitGroups(
 export async function searchDailyExportLimitGroupProjects(
   clientId: number,
   params: { q?: string; limit?: number; projectIds?: number[] },
-): Promise<{ items: DailyExportLimitGroupProject[]; total: number }> {
+): Promise<{ items: DailyExportLimitGroupProject[]; total: number; truncated: boolean }> {
   const q = new URLSearchParams();
   if (params.q) q.set('q', params.q);
   if (params.limit) q.set('limit', String(params.limit));
@@ -1316,7 +1316,7 @@ export async function searchDailyExportLimitGroupProjects(
     q.set('projectIds', params.projectIds.join(','));
   }
   const suffix = q.toString() ? `?${q.toString()}` : '';
-  return http<{ items: DailyExportLimitGroupProject[]; total: number }>(
+  return http<{ items: DailyExportLimitGroupProject[]; total: number; truncated: boolean }>(
     `/admin/clients/${clientId}/daily-export-limit-groups/projects${suffix}`,
   );
 }

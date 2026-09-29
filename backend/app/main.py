@@ -6057,8 +6057,14 @@ def admin_list_daily_export_limit_group_projects(
         )
         for project in projects
     ]
+    # total — реальное число совпадений, а не len(items): UI должен видеть,
+    # что выдача обрезана, и не обещать "выбрано всё", выбрав часть.
+    if requested_ids:
+        total = len(items)
+    else:
+        total = crud.count_client_projects_for_limit_group(db_sess, client_id=client_id, q=q)
     return schemas.DailyExportLimitGroupProjectListOut(
-        items=items, total=len(items)
+        items=items, total=total, truncated=len(items) < total
     )
 
 

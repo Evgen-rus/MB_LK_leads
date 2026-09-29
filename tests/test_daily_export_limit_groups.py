@@ -120,8 +120,27 @@ DAY1 = date(2026, 3, 10)
 DAY2 = date(2026, 3, 11)
 
 
+def _candidate_ids(s, project_ids, *, exported: bool = False) -> list[int]:
+    """
+    Кандидаты текущей пачки — те, что вернул бы экспорт:
+    provider-лиды этих проектов с NULL-меткой, в FIFO-порядке.
+    """
+    stmt = (
+        select(models.ProviderLead.id)
+        .where(models.ProviderLead.lead_source == "provider")
+        .where(models.ProviderLead.project_id.in_([int(p) for p in project_ids]))
+        .where(models.ProviderLead.provider_sheet_exported_at.is_(None))
+        .order_by(models.ProviderLead.imported_at.asc(), models.ProviderLead.id.asc())
+    )
+    return [int(value) for value in s.execute(stmt).scalars().all()]
+
+
 def _plan(s, project_ids, day=DAY1):
-    return limit_groups.build_export_plan(s, project_ids=project_ids, day=day)
+    """
+    План ровно так, как его строит экспорт: по кандидатам пачки, а не по всем
+    NULL-лидам проектов.  Параметр project_ids оставлен для читаемости сценариев.
+    """
+    return limit_groups.build_export_plan(s, lead_ids=_candidate_ids(s, project_ids), day=day)
 
 
 # -------------------------------------------------------------------

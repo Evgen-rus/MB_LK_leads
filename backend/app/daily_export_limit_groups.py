@@ -529,58 +529,60 @@ def get_group_quota(
 def build_export_plan(
     db: Session,
     *,
-    project_ids: Sequence[int],
+    lead_ids: Sequence[int],
     day: Optional[date] = None,
-    ungrouped_batch_limit: Optional[int] = None,
 ) -> ExportPlan:
     """
     Решает, какие строки разрешено выгрузить сегодня.
+
+    Работает ТОЛЬКО по точному набору кандидатов, который вернул экспорт.
+    Это принципиально: если бы план сам перечитывал все
+    ``provider_sheet_exported_at IS NULL`` по проектам, до-деплойная
+    история влезла бы в него, заняла дневную квоту группы и заблокировала
+    новые строки, которые находятся в реальной очереди этого запуска.
 
     Порядок — строго FIFO по ``imported_at ASC, id ASC``, чтобы старые
     невыгруженные лиды всегда уходили раньше новых.
 
     Логика по группам:
     - строка в очереди сверх квоты остаётся в БД (NULL-метка) и уйдёт завтра;
+    - проект вне групп, в том числе с ``project_id IS NULL``, попадает в
+      план целиком: нового ограничения для него нет;
     - если админ уменьшил лимит ниже уже выгруженного, группа сегодня ничего
       не отправляет (remaining_today == 0), но завтра квота уже новая.
     """
-    members = [int(value) for value in project_ids if value is not None]
-    if not members:
+    ids = sorted({int(value) for value in lead_ids if value is not None})
+    if not ids:
         return ExportPlan(items=[])
 
     group_by_project = project_to_group_map(db)
-    ungrouped_set = {pid for pid in members if pid not in group_by_project}
 
-    # Одна общая FIFO-выборка по всем проектам: imported_at ASC, id ASC.
-    # Именно этот порядок гарантирует, что старые pending-лиды уходят раньше новых.
     rows = db.execute(
-        select(models.ProviderLead.id, models.ProviderLead.project_id)
-        .where(
-            models.ProviderLead.lead_source == crud.LEAD_SOURCE_PROVIDER,
-            models.ProviderLead.project_id.in_(members),
-            models.ProviderLead.prov_created_at.isnot(None),
-            models.ProviderLead.provider_sheet_exported_at.is_(None),
+        select(
+            models.ProviderLead.id,
+            models.ProviderLead.project_id,
         )
+        .where(models.ProviderLead.id.in_(ids))
         .order_by(models.ProviderLead.imported_at.asc(), models.ProviderLead.id.asc())
     ).all()
 
-    grouped_project_ids = [pid for pid in members if pid in group_by_project]
-    quotas: Dict[int, DailyExportLimitQuota] = {}
-    for group_id in sorted({group_by_project[pid] for pid in grouped_project_ids}):
-        quotas[group_id] = get_group_quota(db, group_id, day=day)
-
+    grouped_project_ids = {
+        int(project_id)
+        for _, project_id in rows
+        if project_id is not None and int(project_id) in group_by_project
+    }
+    quotas: Dict[int, DailyExportLimitQuota] = {
+        group_id: get_group_quota(db, group_id, day=day)
+        for group_id in sorted({group_by_project[pid] for pid in grouped_project_ids})
+    }
     per_group_remaining = {group_id: quota.remaining_today for group_id, quota in quotas.items()}
 
     items: List[ExportPlanItem] = []
-    ungrouped_kept = 0
     for lead_id, project_id in rows:
-        project_id = int(project_id)
-        group_id = group_by_project.get(project_id)
+        # project_id IS NULL не может принадлежать группе: считаем обычным.
+        group_id = group_by_project.get(int(project_id)) if project_id is not None else None
         if group_id is None:
             # Проект вне групп: выгружается как раньше, без нового ограничения.
-            if ungrouped_batch_limit is not None and ungrouped_kept >= ungrouped_batch_limit:
-                continue
-            ungrouped_kept += 1
             items.append(ExportPlanItem(lead_id=int(lead_id), group_id=None))
             continue
         # Проект в группе: строгий FIFO + жёсткое урезание по дневной квоте.

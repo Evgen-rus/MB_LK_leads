@@ -823,7 +823,10 @@ class DailyExportLimitGroupProjectOut(BaseModel):
 
 class DailyExportLimitGroupProjectListOut(BaseModel):
     items: List[DailyExportLimitGroupProjectOut]
+    # Реальное число совпадений по запросу (может быть больше len(items)).
     total: int
+    # True, если выдача обрезана потолком выборки.
+    truncated: bool = False
 
 
 class DailyExportLimitGroupOut(BaseModel):

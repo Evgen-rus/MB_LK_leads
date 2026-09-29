@@ -7014,6 +7014,12 @@ def get_all_users(db: Session) -> List[schemas.UserInfo]:
 # Поиск provider-проектов клиента для «Лимита группы проектов на день»
 # ---------------------------------------------------------------------------
 
+# Потолок одной поисковой выдачи.  Подобран под текущий масштаб: у клиентов
+# бывает несколько сотен проектов, и «Выбрать все найденные» должно
+# действительно выбирать все найденные, а не первые 200.
+LIMIT_GROUP_PROJECT_SEARCH_MAX = 1000
+
+
 def search_client_projects_for_limit_group(
     db: Session,
     *,
@@ -7052,8 +7058,36 @@ def search_client_projects_for_limit_group(
     if query:
         # Покрывает "LR223", "[LR223]" и часть обычного названия: ищем по подстроке.
         stmt = stmt.where(models.Project.name.ilike(f"%{query}%", escape="\\"))
-    stmt = stmt.order_by(models.Project.id.asc()).limit(max(1, min(200, int(limit or 50))))
+    # Для текущего масштаба (клиенты с сотнями проектов) этого достаточно,
+    # чтобы «Выбрать все найденные» действительно выбрало все найденные.
+    stmt = stmt.order_by(models.Project.id.asc()).limit(max(1, min(LIMIT_GROUP_PROJECT_SEARCH_MAX, int(limit or 50))))
     return list(db.execute(stmt).scalars().all())
+
+
+def count_client_projects_for_limit_group(
+    db: Session,
+    *,
+    client_id: int,
+    q: Optional[str] = None,
+) -> int:
+    """
+    Сколько проектов клиента реально подходит под поисковый запрос.
+
+    Нужен, чтобы UI мог отличить «найдено 300» от «показаны первые 300 из 512»
+    и не вводить администратора в заблуждение про полноту выборки.
+    """
+    stmt = (
+        select(func.count())
+        .select_from(models.Project)
+        .where(models.Project.user_id == int(client_id))
+        .where(models.Project.deleted_at.is_(None))
+        .where(models.Project.status != "Удалён")
+        .where(models.Project.collection_source != COLLECTION_SOURCE_PIXEL)
+    )
+    query = str(q or "").strip()
+    if query:
+        stmt = stmt.where(models.Project.name.ilike(f"%{query}%", escape="\\"))
+    return int(db.execute(stmt).scalar_one() or 0)
 
 
 # ---------------------------------------------------------------------------

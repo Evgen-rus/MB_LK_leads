@@ -31,7 +31,9 @@ type EditorState =
   | { mode: 'edit'; group: DailyExportLimitGroup }
   | null;
 
-const PROJECT_SEARCH_LIMIT = 100;
+// Потолок одной поисковой выдачи.  Совпадает с серверным LIMIT_GROUP_PROJECT_SEARCH_MAX:
+// «Выбрать все найденные» должно реально выбирать все найденные, а не первые 200.
+const PROJECT_SEARCH_LIMIT = 1000;
 
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -127,6 +129,8 @@ function GroupEditor({
   const [selectedIds, setSelectedIds] = useState<number[]>(isCreate ? [] : editor.group.projectIds);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DailyExportLimitGroupProject[]>([]);
+  const [totalFound, setTotalFound] = useState(0);
+  const [truncated, setTruncated] = useState(false);
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +148,8 @@ function GroupEditor({
           limit: PROJECT_SEARCH_LIMIT,
         });
         setResults(resp.items);
+        setTotalFound(resp.total);
+        setTruncated(resp.truncated);
       } catch (err: unknown) {
         setError(getErrorMessage(err, 'Не удалось загрузить проекты'));
       } finally {
@@ -308,7 +314,13 @@ function GroupEditor({
             Выбрать все найденные
           </button>
           <span className="sub">
-            {searching ? 'Загрузка…' : `Найдено: ${results.length} · Выбрано: ${selectedIds.length}`}
+            {searching
+              ? 'Загрузка…'
+              : truncated
+                // Честно говорим, что выдача обрезана: иначе «все найденные»
+                // обещало бы 300 проектов, а выбрало бы только первые.
+                ? `Показаны первые ${results.length} из ${totalFound} · Выбрано: ${selectedIds.length} · уточните поиск`
+                : `Найдено: ${totalFound} · Выбрано: ${selectedIds.length}`}
           </span>
         </div>
 

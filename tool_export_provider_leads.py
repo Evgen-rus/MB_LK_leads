@@ -34,7 +34,7 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, Iterable, List, Optional, Set, Callable, Any
 
 from dotenv import load_dotenv
 from google.oauth2 import service_account
@@ -207,27 +207,13 @@ def _safe_google_call(call: Callable[[], Any]):
             raise
 
 
-# -------------------------------------------------------------------
-# Схема и безопасный backfill состояния выгрузки
-# -------------------------------------------------------------------
-
 def _ensure_provider_export_state(engine, lookback_days: int) -> None:
     """
-    Добавляет ``provider_sheet_exported_at`` и один раз заполняет её
-    для исторических строк.
+    Добавляет колонку ``provider_sheet_exported_at`` и создаёт таблицы групп.
 
-    Почему это не выгрузит заново всю историю — двойная защита:
-
-    1. Backfill помечает как выгруженные все provider-лиды внутри окна
-       ``LEADS_EXPORT_LOOKBACK_DAYS + 1`` (с запасом, чтобы не дублировать
-       строки, которые старая выгрузка не успела отправить из-за ошибок).
-    2. Та же точка отсчёта сохраняется как ПОСТОЯННАЯ граница очереди
-       ``queue_started_at`` в служебной таблице.  Всё, что в БД было до
-       деплоя, новее этой границы уже не оказаться не может, поэтому
-       никогда не попадёт в очередь — даже если осталось NULL.
-
-    Заполнение идемпотентно (трогаем только NULL) и помечается служебной
-    строкой-меткой, поэтому повторный запуск ничего не меняет.
+    Заполнение самой колонки — не здесь, а в
+    ``reconcile_provider_export_state``: для этого нужно прочитать реальные
+    ``vid`` из промежуточной Google Sheet.
     """
     from sqlalchemy import inspect
 
@@ -250,81 +236,135 @@ def _ensure_provider_export_state(engine, lookback_days: int) -> None:
         models.ProjectDailyExportLimitGroup.__table__.create(bind=engine, checkfirst=True)
         models.ProjectDailyExportLimitGroupProject.__table__.create(bind=engine, checkfirst=True)
 
-        _run_provider_export_backfill(conn, lookback_days=lookback_days)
-
-
-def _run_provider_export_backfill(conn, *, lookback_days: int) -> datetime:
-    """
-    Одноразовый backfill.
-
-    Возвращает постоянную границу «начало очереди выгрузки».  Всё, что было
-    в БД до деплоя, отмечается как уже выгруженное и больше никогда не
-    попадает в очередь.  Всё, что пришло после границы, попадает в очередь
-    бессрочно — поэтому лид, переживший лимит группы, не исчезает, даже
-    когда его ``prov_created_at`` станет старше LEADS_EXPORT_LOOKBACK_DAYS.
-
-    Ключ идемпотентности — служебная строка в provider_export_backfill_state.
-    """
-    conn.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS provider_export_backfill_state ("
-            "name VARCHAR PRIMARY KEY, applied_at TIMESTAMP, queue_started_at TIMESTAMP)"
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS provider_export_backfill_state ("
+                "name VARCHAR PRIMARY KEY, applied_at TIMESTAMP, queue_started_at TIMESTAMP)"
+            )
         )
-    )
-    already = conn.execute(
-        text("SELECT queue_started_at FROM provider_export_backfill_state WHERE name = :name"),
+
+
+def _reconciliation_pending(conn) -> bool:
+    """True, если состояние выгрузки ещё ни разу не сверялось с Google Sheet."""
+    row = conn.execute(
+        text("SELECT applied_at FROM provider_export_backfill_state WHERE name = :name"),
         {"name": "provider_sheet_exported_at_v1"},
     ).first()
-    if already is not None and already[0] is not None:
-        return already[0]
+    return row is None
 
-    # Окно backfill шире lookback: старый экспорт мог не успеть выгрузить
-    # последние дни из-за ошибок Google, и мы не хотим дублировать их.
-    window_days = max(int(lookback_days), 1) + 1
-    queue_started_at = now_msk_naive() - timedelta(days=window_days)
-    threshold = queue_started_at
 
-    marked = conn.execute(
-        text(
-            "UPDATE provider_leads "
-            "SET provider_sheet_exported_at = imported_at "
-            "WHERE lead_source = 'provider' "
-            "AND provider_sheet_exported_at IS NULL "
-            "AND prov_created_at IS NOT NULL "
-            "AND prov_created_at >= :threshold"
-        ),
-        {"threshold": threshold},
-    ).rowcount or 0
+def reconcile_provider_export_state(
+    conn,
+    *,
+    existing_vids: Set[str],
+    lookback_days: int,
+    batch_size: int = 1000,
+) -> datetime:
+    """
+    Одноразовая сверка состояния выгрузки с промежуточной Google Sheet.
+
+    Источник истины — САМА таблица, а не догадка о периоде:
+
+    1. Уже прочитанные ``vid`` из колонки B (их даёт ``_get_existing_ids``).
+    2. Помечаем ``provider_sheet_exported_at`` только тем строкам, чей ``vid``
+       реально найден в таблице.  Значением ставим ``imported_at`` — честную
+       дату постановки в очередь, поэтому «сегодня» у старых строк
+       не сдвинется.
+    3. Тех, кого в таблице нет, оставляем NULL: они уйдут в ближайшую
+       выгрузку.  Ни одна реально невыгруженная строка не теряется.
+    4. После сверки очередь определяется ТОЛЬКО через
+       ``provider_sheet_exported_at IS NULL`` — никакой зависимости от времени.
+
+    Транзакцией владеет вызывающий: внутри функции commit() НЕ вызывается,
+    иначе был бы закрыт контекст ``engine.begin()`` у вызывающего.
+    """
+    boundary = now_msk_naive() - timedelta(days=max(int(lookback_days), 1) + 1)
+    if not _reconciliation_pending(conn):
+        return _stored_boundary(conn) or boundary
+
+    # Сверяем только provider-строки.  Pixel в этом контуре не участвует.
+    last_id = 0
+    marked_total = 0
+    scanned_total = 0
+    while True:
+        rows = conn.execute(
+            text(
+                "SELECT id, vid, imported_at FROM provider_leads "
+                "WHERE lead_source = 'provider' "
+                "AND provider_sheet_exported_at IS NULL "
+                "AND id > :last_id ORDER BY id ASC LIMIT :batch"
+            ),
+            {"last_id": last_id, "batch": max(1, int(batch_size))},
+        ).fetchall()
+        if not rows:
+            break
+        for row in rows:
+            last_id = int(row[0])
+            scanned_total += 1
+            vid = str(row[1] or "").strip()
+            if not vid or vid not in existing_vids:
+                # В таблице его нет -> остаётся pending и уйдёт в выгрузку.
+                continue
+            conn.execute(
+                text(
+                    "UPDATE provider_leads SET provider_sheet_exported_at = imported_at "
+                    "WHERE id = :id AND provider_sheet_exported_at IS NULL"
+                ),
+                {"id": int(row[0])},
+            )
+            marked_total += 1
 
     conn.execute(
         text(
             "INSERT INTO provider_export_backfill_state (name, applied_at, queue_started_at) "
             "VALUES (:name, :applied_at, :queue_started_at) "
-            "ON CONFLICT(name) DO UPDATE SET queue_started_at = :queue_started_at"
+            "ON CONFLICT(name) DO UPDATE SET applied_at = :applied_at"
         ),
         {
             "name": "provider_sheet_exported_at_v1",
             "applied_at": now_msk_naive(),
-            "queue_started_at": queue_started_at,
+            "queue_started_at": boundary,
         },
     )
 
     logging.getLogger("provider.export").info(
-        "Backfill provider_sheet_exported_at выполнен: помечено строк=%d, "
-        "очередь выгрузки начинается с %s",
-        int(marked),
-        queue_started_at.isoformat(sep=" "),
+        "Сверка provider_sheet_exported_at с Google Sheet выполнена: проверено=%d, "
+        "помечено как выгруженные=%d, осталось pending=%d",
+        scanned_total,
+        marked_total,
+        scanned_total - marked_total,
     )
-    return queue_started_at
+    return boundary
 
 
-def _load_queue_started_at(engine) -> datetime:
+def _stored_boundary(conn) -> Optional[datetime]:
+    row = conn.execute(
+        text("SELECT queue_started_at FROM provider_export_backfill_state WHERE name = :name"),
+        {"name": "provider_sheet_exported_at_v1"},
+    ).first()
+    if row is None or row[0] is None:
+        return None
+    value = row[0]
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _load_queue_started_at(engine, *, existing_vids: Optional[Set[str]] = None) -> Optional[datetime]:
     """
     Граница очереди выгрузки.
 
-    Если служебной метки нет (например, скрипт запустили на БД, где
-    backfill ещё не выполнялся), берём lookback-окно, чтобы не выгрузить
-    всю историю.  Следующий запуск выполнит backfill и зафиксирует границу.
+    После успешной сверки возвращаем ``None``: очередь определяется
+    исключительно ``provider_sheet_exported_at IS NULL`` и ничем больше
+    не ограничена — поэтому лид, переживший лимит группы, не исчезнет
+    даже спустя месяцы.
+
+    Граница по времени применяется только когда Google недоступен и мы не
+    знаем, что действительно выгружено: без неё есть риск отправить
+    в таблицу всю историю.
     """
     lookback_days = int(_get_env("LEADS_EXPORT_LOOKBACK_DAYS", "3"))
     fallback = now_msk_naive() - timedelta(days=max(lookback_days, 1) + 1)
@@ -335,19 +375,22 @@ def _load_queue_started_at(engine) -> datetime:
                 "name VARCHAR PRIMARY KEY, applied_at TIMESTAMP, queue_started_at TIMESTAMP)"
             )
         )
-        row = conn.execute(
-            text("SELECT queue_started_at FROM provider_export_backfill_state WHERE name = :name"),
+        already = conn.execute(
+            text("SELECT applied_at FROM provider_export_backfill_state WHERE name = :name"),
             {"name": "provider_sheet_exported_at_v1"},
         ).first()
-    if row is None or row[0] is None:
-        return fallback
-    value = row[0]
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError:
-        return fallback
+        if already is not None:
+            return None
+    # Сверка не выполнена, но реальные vid из таблицы у нас есть.
+    if existing_vids is not None:
+        return None
+    logging.getLogger("provider.export").warning(
+        "Сверка с Google Sheet не выполнена и список vid недоступен — очередь "
+        "ограничена окном в %d дней; следующий запуск уточнит состояние",
+        max(lookback_days, 1) + 1,
+    )
+    return fallback
+
 
 
 # -------------------------------------------------------------------
@@ -430,12 +473,13 @@ def _fetch_pending_provider_leads(
     Неотправленные provider-лиды в FIFO-порядке: imported_at ASC, id ASC.
 
     Это ДОПОЛНЕНИЕ к дневным квотам групп, а не замена lookback: лид, не
-    отправленный вчера из-за лимита, остаётся в этой очереди, даже если
-    он старше LEADS_EXPORT_LOOKBACK_DAYS.
+    отправленный вчера из-за лимита, остаётся в этой очереди бессрочно —
+    ему не нужно «просвеживать» дату.
 
-    ``queue_started_at`` — постоянная граница очереди, зафиксированная
-    одноразовым backfill.  Всё старше неё — до deploy, оно уже было
-    выгружено старой логикой, и повторно в очередь не попадает.
+    ``queue_started_at`` — аварийный ограничитель на случай, когда сверка с
+    Google Sheet не удалась.  Он фильтрует по ``imported_at``, а не по
+    ``prov_created_at``: поздно пришедший лид провайдера с давним
+    ``prov_created_at`` не должен выпадать из очереди навсегда.
     """
     stmt = (
         select(models.ProviderLead)
@@ -444,7 +488,7 @@ def _fetch_pending_provider_leads(
         .where(models.ProviderLead.provider_sheet_exported_at.is_(None))
     )
     if queue_started_at is not None:
-        stmt = stmt.where(models.ProviderLead.prov_created_at >= queue_started_at)
+        stmt = stmt.where(models.ProviderLead.imported_at >= queue_started_at)
     stmt = stmt.order_by(
         models.ProviderLead.imported_at.asc(), models.ProviderLead.id.asc()
     ).limit(max(1, int(limit)))
@@ -472,23 +516,34 @@ def _mark_provider_exported(db_sess, lead_ids: List[int]) -> int:
     return int(result.rowcount or 0)
 
 
-def _notify_groups_limit_reached(db_sess, quotas: Dict[int, limit_groups.DailyExportLimitQuota]) -> int:
-    """Ставит дедуплицированные Telegram-уведомления в существующий outbox."""
-    if not quotas:
+def _notify_groups_limit_reached(db_sess, group_ids: Iterable[int], *, day=None) -> int:
+    """
+    Ставит дедуплицированные Telegram-уведомления в существующий outbox.
+
+    Квоты читаются ЗДЕСЬ, а не берутся из снапшота до Google-записи.
+    Иначе сценарий «выгрузили ровно до лимита» не дал бы уведомления:
+    снапшот видел бы 400/500, а в БД уже 500/500.  Если очередь после
+    этого опустеет, следующий cron выйдет ещё раньше и уведомление
+    не пришло бы уже никогда.
+    """
+    ids = [int(value) for value in (group_ids or []) if value is not None]
+    if not ids:
         return 0
     chat_id = _get_env("TELEGRAM_CHAT_ID")
     if not chat_id:
         return 0
     queued = 0
-    for group_id, quota in quotas.items():
-        if not quota.limit_reached:
-            continue
+    for group_id in ids:
         group = limit_groups.get_group(db_sess, group_id)
         if group is None:
             continue
         try:
+            # Свежая квота = фактическое состояние БД после этой выгрузки.
+            quota = limit_groups.get_group_quota(db_sess, group_id, day=day)
+            if not quota.limit_reached:
+                continue
             if limit_groups.notify_limit_reached(
-                db_sess, group=group, quota=quota, chat_id=chat_id
+                db_sess, group=group, quota=quota, chat_id=chat_id, day=day
             ):
                 queued += 1
         except Exception:
@@ -522,13 +577,29 @@ def export_provider_leads():
         if not acquired:
             log.warning("Предыдущий запуск provider export ещё выполняется — пропускаем этот.")
             return
+        service = _build_sheets_client(credentials_file)
+
+        # Состояние выгрузки сверяем с реальным содержимым таблицы.
+        # Без этого мы не знаем, что из истории уже выгружено, и единственной
+        # защитой от повторной отправки 130k строк была бы граница по времени.
+        existing_vids: Optional[Set[str]] = None
+        try:
+            existing_vids = _get_existing_ids(service, sheet_id, sheet_name)
+            with engine.begin() as conn:
+                reconcile_provider_export_state(
+                    conn, existing_vids=existing_vids, lookback_days=lookback_days
+                )
+        except Exception:
+            # Google недоступен: не рискуем историей, следующий запуск уточнит.
+            log.exception("Не удалось сверрить состояние выгрузки с Google Sheet")
+
         _run_export(
             log=log,
-            service=_build_sheets_client(credentials_file),
+            service=service,
             SessionLocal=SessionLocal,
             sheet_id=sheet_id,
             sheet_name=sheet_name,
-            queue_started_at=_load_queue_started_at(engine),
+            queue_started_at=_load_queue_started_at(engine, existing_vids=existing_vids),
         )
 
 
@@ -548,16 +619,20 @@ def _run_export(
         log.info("Нет невыгруженных provider-лидов")
         return
 
-    pending_project_ids = sorted({int(row.project_id) for row in pending if row.project_id is not None})
-
     with SessionLocal() as s:
-        # Дневные квоты групп.  Проекты вне групп в plan попадают целиком
-        # и выгружаются как раньше — нового ограничения для них нет.
-        plan = limit_groups.build_export_plan(s, project_ids=pending_project_ids)
+        # План строится ТОЛЬКО по кандидатам этой пачки.  Собственная
+        # выборка всех NULL-лидов внутри плана видела бы до-деплойную
+        # историю, она заняла бы квоту и заблокировала новые строки.
+        # Сюда попадают и строки с project_id IS NULL: они не могут быть в группе.
+        plan = limit_groups.build_export_plan(
+            s, lead_ids=[int(row.id) for row in pending]
+        )
         allowed_ids = set(plan.lead_ids())
         selected = [row for row in pending if int(row.id) in allowed_ids]
-        quota_snapshot = dict(plan.quotas)
         held_back_by_limit = len(pending) - len(selected)
+        # Группы этой пачки.  Их квоты перечитаем ПОСЛЕ записи в Google,
+        # иначе уведомление ушло бы по устаревшему состоянию.
+        touched_group_ids = plan.group_ids()
 
     log.info(
         "Очередь выгрузки: кандидатов=%d, разрешено квотой=%d, отложено по лимиту групп=%d, "
@@ -574,7 +649,7 @@ def _run_export(
 
     if not selected:
         with SessionLocal() as s:
-            _notify_groups_limit_reached(s, quota_snapshot)
+            _notify_groups_limit_reached(s, touched_group_ids)
         log.info(
             "Экспорт пропущен: все строки отложены дневными лимитами групп. "
             "Уведомлений о достижении лимита отправлено=%d",
@@ -631,7 +706,7 @@ def _run_export(
             # Строки останутся в очереди и уйдут следующим запуском.
             log.exception("Ошибка при записи данных в Google Sheets")
             with SessionLocal() as s:
-                _notify_groups_limit_reached(s, quota_snapshot)
+                _notify_groups_limit_reached(s, touched_group_ids)
             return
         sent_ids = [
             int(row.id)
@@ -644,16 +719,18 @@ def _run_export(
     marked = 0
     with SessionLocal() as s:
         marked += _mark_provider_exported(s, sent_ids + duplicate_ids)
-        _notify_groups_limit_reached(s, quota_snapshot)
+        # Квота достигнута ровно сейчас -> уведомляем по СВЕЖЕМУ состоянию.
+        notified = _notify_groups_limit_reached(s, touched_group_ids)
 
     log.info(
         "Экспорт завершен. Отправлено=%d, дубликатов (пропущено)=%d, помечено в БД=%d, "
-        "отложено по лимиту групп=%d, добавлено строк в таблицу=%d",
+        "отложено по лимиту групп=%d, добавлено строк в таблицу=%d, уведомлений о лимите=%d",
         len(sent_ids),
         skipped_count,
         marked,
         held_back_by_limit,
         added_rows,
+        notified,
     )
 
 
