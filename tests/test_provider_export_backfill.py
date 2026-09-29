@@ -151,90 +151,111 @@ def _marked_count(engine, *, lead_source: str = "provider") -> int:
         )
 
 
-def test_reconcile_marks_only_vids_present_in_sheet(legacy_engine):
+def test_backfill_closes_all_history_before_deploy(legacy_engine):
     """
-    Сверка с Google Sheet — источник истины, а не период.
+    Регрессия против самой опасной ошибки перехода.
 
-    В таблице лежат только ``recent-*``; ``old-*`` в неё не попадали.
-    Значит помечаться должны ровно 30 recent-строк, а 30 старых обязаны
-    остаться NULL и уйти в ближайшую выгрузку.
+    Раньше backfill сверялся с Google Sheet по ``vid``.  После ежемесячной
+    чистки таблицы ``vid`` отсутствуют, сверка отвечала «не выгружено», и
+    десятки тысяч уже распределённых строк возвращались в таблицу.
+
+    Теперь сверки нет: вся история до деплоя закрывается по окну, и в очередь
+    попадают только строки, пришедшие после.
     """
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-
-    with legacy_engine.begin() as conn:
-        assert export_mod._reconciliation_pending(conn) is True
-        export_mod.reconcile_provider_export_state(
-            conn,
-            existing_vids={f"recent-{index}" for index in range(30)},
-            lookback_days=3,
-        )
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
 
     inspector = inspect(legacy_engine)
     columns = {c["name"] for c in inspector.get_columns("provider_leads")}
     assert "provider_sheet_exported_at" in columns
 
-    # Ровно те, кто реально в таблице.
-    assert _marked_count(legacy_engine) == 30
-
-    with legacy_engine.begin() as conn:
-        marked_vids = {
-            str(row[0])
-            for row in conn.execute(
-                text(
-                    "SELECT vid FROM provider_leads "
-                    "WHERE lead_source = 'provider' AND provider_sheet_exported_at IS NOT NULL"
-                )
-            ).fetchall()
-        }
-        assert all(vid.startswith("recent-") for vid in marked_vids)
-        assert not any(vid.startswith("old-") for vid in marked_vids)
-
-
-def test_reconcile_keeps_rows_missing_from_sheet_pending(legacy_engine):
-    """Строки, которых нет в таблице, не теряются — они ждут выгрузки."""
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-
-    # Пустая таблица: не выгружено НИЧЕГО.
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids=set(), lookback_days=3
-        )
-
-    assert _marked_count(legacy_engine) == 0
+    # Вся до-деплойная история (recent + old) помечена как выгруженная.
+    assert _marked_count(legacy_engine) == 60
+    # Pixel не тронут ни при каких условиях.
+    assert _marked_count(legacy_engine, lead_source="pixel") == 0
 
     LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
     with LocalSession() as s:
-        queue_started_at = export_mod._load_queue_started_at(
-            legacy_engine, existing_vids=set()
-        )
-        # Сверка выполнена, но подтвердила, что ничего не выгружено,
-        # поэтому очередь НЕ ограничена по времени — вся история в записи.
-        assert queue_started_at is None
         pending = export_mod._fetch_pending_provider_leads(
-            s, 500, queue_started_at=queue_started_at
+            s, 500, queue_started_at=export_mod._load_queue_started_at(legacy_engine)
         )
-        assert len(pending) == 60, "ни одна реально невыгруженная строка не потеряна"
+        assert pending == [], "ни одна историческая строка не должна попасть в очередь"
 
 
-def test_reconcile_leads_with_old_prov_created_at_still_export(legacy_engine):
+def test_backfill_runs_only_once(legacy_engine):
+    """Повторный запуск не должен пересматривать уже размеченную историю."""
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+
+    LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
+    with LocalSession() as s:
+        now = as_local_naive(now_msk())
+        s.add(
+            models.ProviderLead(
+                id=7777,
+                vid="brand-new",
+                lead_source="provider",
+                project_name="B1_new",
+                prov_created_at=now,
+                imported_at=now,
+                project_id=1,
+            )
+        )
+        s.commit()
+
+    # Второй запуск: метка деплоя уже есть, поэтому новая строка не трогается.
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+    assert _marked_count(legacy_engine) == 60, "свежая строка не должна помечаться backfill'ом"
+
+    with legacy_engine.begin() as conn:
+        state = conn.execute(
+            text("SELECT COUNT(*) FROM provider_export_backfill_state")
+        ).scalar_one()
+    assert state == 1, "служебная метка деплоя должна быть ровно одна"
+
+
+def test_new_rows_after_deploy_still_export(legacy_engine):
+    """
+    Главное свойство: backfill не съедает лиды, реально ждущие выгрузки.
+
+    Строка, пришедшая после деплоя, обязана попасть в очередь.
+    """
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
+
+    LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
+    with LocalSession() as s:
+        now = as_local_naive(now_msk())
+        s.add(
+            models.ProviderLead(
+                id=9999,
+                vid="brand-new",
+                lead_source="provider",
+                project_name="B1_new",
+                prov_created_at=now,
+                imported_at=now,
+                project_id=1,
+            )
+        )
+        s.commit()
+
+        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=queue_started_at)
+        assert [row.vid for row in pending] == ["brand-new"], (
+            "новые лиды после деплоя попадают в очередь, "
+            "а исторические строки повторно не отправляются"
+        )
+
+
+def test_late_arrival_with_old_prov_created_at_still_exports(legacy_engine):
     """
     Регрессия: поздно пришедший лид с ДАВНИМ prov_created_at.
 
-    Раньше граница очереди считалась по prov_created_at, и такой лид
-    мог выпасть из выгрузки навсегда.  Теперь граница — по imported_at,
-    а после сверки её вообще нет.
+    Граница очереди считается по ``imported_at``, а не по ``prov_created_at``,
+    поэтому такой лид не выпадает из выгрузки.  Раньше он мог пропасть навсегда.
     """
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-
-    # В таблицу попал только один vid.
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids={"recent-0"}, lookback_days=3
-        )
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
 
     LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
     with LocalSession() as s:
-        # Пришёл сегодня, но провайдер проставил дату месяц назад.
         imported_at = as_local_naive(now_msk())
         prov_created_at = imported_at - timedelta(days=45)
         s.add(
@@ -250,97 +271,115 @@ def test_reconcile_leads_with_old_prov_created_at_still_export(legacy_engine):
         )
         s.commit()
 
-        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=None)
+        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=queue_started_at)
         vids = [row.vid for row in pending]
-        assert "late-arrival" in vids, "свежий imported_at не должен отсекаться старым prov_created_at"
-        # Он встаёт в конец FIFO: старые невыгруженные уходят раньше.
-        assert vids[-1] == "late-arrival"
+        assert "late-arrival" in vids, "свежий imported_at не отсекается старым prov_created_at"
+        assert vids[-1] == "late-arrival", "и встаёт в конец FIFO, а не в начало"
 
 
-def test_reconcile_runs_only_once(legacy_engine):
-    """Вторая попытка сверки не должна трогать новые строки."""
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids={f"recent-{i}" for i in range(30)}, lookback_days=3
-        )
-        assert export_mod._reconciliation_pending(conn) is False
-
-    with legacy_engine.begin() as conn:
-        now = as_local_naive(now_msk())
-        conn.execute(
-            text(
-                "INSERT INTO provider_leads "
-                "(vid, lead_source, prov_created_at, imported_at, project_id) "
-                "VALUES ('late-1', 'provider', :when, :when, 1)"
-            ),
-            {"when": now},
-        )
-        # Повторная сверка: метка уже есть, поэтому ничего не пересчитываем.
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids={f"recent-{i}" for i in range(30)} | {"late-1"}, lookback_days=3
-        )
-
-    assert _marked_count(legacy_engine) == 30, "после первой сверки метка не меняется"
-    with legacy_engine.begin() as conn:
-        state = conn.execute(
-            text("SELECT COUNT(*) FROM provider_export_backfill_state")
-        ).scalar_one()
-    assert state == 1, "служебная метка сверки должна быть ровно одна"
-
-
-def test_reconcile_never_touches_pixel(legacy_engine):
-    """Pixel-контур полностью изолирован от provider-сверки."""
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            # Все vid, включая pixel-овские, «есть» в таблице.
-            conn,
-            existing_vids=(
-                {f"recent-{i}" for i in range(30)}
-                | {f"old-{i}" for i in range(30)}
-                | {f"pixel-{i}" for i in range(10)}
-            ),
-            lookback_days=3,
-        )
-
-    assert _marked_count(legacy_engine) == 60
-    assert _marked_count(legacy_engine, lead_source="pixel") == 0, (
-        "Pixel не должен получать provider-метку даже при совпадении vid"
-    )
-
-
-def test_queue_boundary_used_only_when_google_unavailable(legacy_engine):
+def test_window_extends_when_old_pending_exists(legacy_engine):
     """
-    Аварийный режим: Google недоступен, сверки не было.
+    Ключевое требование: лимит ограничивает поток, но НЕ обрезает историю.
 
-    Тогда единственная защита от отправки всей истории — окно по imported_at.
-    Как только сверка выполнена, граница исчезает совсем.
+    Если группа переполнялась дольше окна, в базе остаются невыгруженные
+    строки старше LEADS_EXPORT_LOOKBACK_DAYS.  Окно должно расшириться до
+    самой старой такой строки, иначе она выпала бы из очереди навсегда.
     """
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-
-    # Сверки не было и vid недоступны -> окно по времени.
-    assert export_mod._load_queue_started_at(legacy_engine) is not None
-
-    # Сверка выполнена -> границы нет.
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids={f"recent-{i}" for i in range(30)}, lookback_days=3
-        )
-    assert export_mod._load_queue_started_at(legacy_engine) is None
-    assert export_mod._load_queue_started_at(legacy_engine, existing_vids=set()) is None
-
-
-def test_pixel_rows_never_enter_provider_queue(legacy_engine):
-    """Pixel-контур изолирован и на уровне очереди выгрузки."""
-    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=3)
-    with legacy_engine.begin() as conn:
-        export_mod.reconcile_provider_export_state(
-            conn, existing_vids={f"recent-{i}" for i in range(30)}, lookback_days=3
-        )
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
 
     LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
     with LocalSession() as s:
-        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=None)
-        assert all(row.lead_source == "provider" for row in pending)
-        assert all("pixel" not in (row.vid or "") for row in pending)
+        # Хвост, провисевший 20 дней: он не вписывается в окно в 5 дней.
+        twenty_days_ago = as_local_naive(now_msk()) - timedelta(days=20)
+        s.add(
+            models.ProviderLead(
+                id=7001,
+                vid="overdue-20-days",
+                lead_source="provider",
+                project_name="B1_wait",
+                prov_created_at=twenty_days_ago,
+                imported_at=twenty_days_ago,
+                project_id=1,
+            )
+        )
+        s.commit()
+
+    # Граница уехала назад — до самой старой невыгруженной строки.
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
+    assert queue_started_at <= twenty_days_ago, "окно должно расшириться до хвоста"
+
+    with LocalSession() as s:
+        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=queue_started_at)
+        assert "overdue-20-days" in [row.vid for row in pending], (
+            "хвост старше окна не должен отсекаться — он доработается"
+        )
+
+
+def test_window_stays_narrow_when_no_old_pending(legacy_engine):
+    """
+    Обратный случай: если старых невыгруженных нет, окно не растёт.
+
+    Иначе окно постепенно расползлось бы на всю базу — и мы вернулись бы
+    к повторной выгрузке истории, от которой окно и защищает.
+    """
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+    base = as_local_naive(now_msk()) - timedelta(days=5)
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
+    assert queue_started_at >= base - timedelta(seconds=5), "окно осталось базовым"
+
+
+def test_expanded_window_does_not_resurrect_exported_history(legacy_engine):
+    """
+    Расширение окна не должно ослаблять защиту от повторов.
+
+    Backfill закрывает всю историю, поэтому даже при расширенном окне
+    в очередь не попадает ничего, что уже помечено выгруженным.
+    """
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+
+    LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
+    with LocalSession() as s:
+        twenty_days_ago = as_local_naive(now_msk()) - timedelta(days=20)
+        s.add(
+            models.ProviderLead(
+                id=7002,
+                vid="really-overdue",
+                lead_source="provider",
+                project_name="B1_wait",
+                prov_created_at=twenty_days_ago,
+                imported_at=twenty_days_ago,
+                project_id=1,
+            )
+        )
+        s.commit()
+
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
+    with LocalSession() as s:
+        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=queue_started_at)
+        vids = [row.vid for row in pending]
+        # В очередь попал только реально невыгруженный хвост.
+        assert vids == ["really-overdue"]
+        assert not any(vid.startswith("old-") for vid in vids), (
+            "история, закрытая backfill'ом, не должна возвращаться даже при расширенном окне"
+        )
+        assert not any(vid.startswith("recent-") for vid in vids)
+
+
+def test_cleaned_sheet_cannot_resurrect_history(legacy_engine, monkeypatch):
+    """
+    Ключевая защита от повторной выгрузки после чистки таблицы.
+
+    Пользователь удаляет из Google-таблицы уже распределённые строки.  Таблица
+    «помнит» их меньше всех, поэтому ориентироваться на неё при переходе
+    нельзя.  Здесь таблица пуста — и всё равно история не возвращается.
+    """
+    export_mod._ensure_provider_export_state(legacy_engine, lookback_days=5)
+    queue_started_at = export_mod._load_queue_started_at(legacy_engine)
+
+    # Таблица полностью очищена: ни одного vid не осталось.
+    monkeypatch.setattr(export_mod, "_get_existing_ids", lambda *a, **k: set())
+
+    LocalSession = sessionmaker(autocommit=False, autoflush=False, bind=legacy_engine, future=True)
+    with LocalSession() as s:
+        pending = export_mod._fetch_pending_provider_leads(s, 500, queue_started_at=queue_started_at)
+        assert pending == [], "очищенная таблица не должна воскресить историю"

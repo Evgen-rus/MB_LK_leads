@@ -203,10 +203,20 @@ def _run(session, sheets, *, monkeypatch, queue_started_at=None):
     )
 
 
-def _capture_telegram(monkeypatch) -> list[str]:
+def _capture_telegram(monkeypatch, *, fail: bool = False) -> list[str]:
+    """
+    Перехватывает постановку в outbox.
+
+    ``fail=True`` имитирует временную недоступность Telegram: уведомление
+    не ставится, и следующий запуск обязан повторить попытку.
+    """
     sent: list[str] = []
 
     def fake_send(*, db_sess, chat_id, text, parse_mode=None, metadata=None, bot_token="", kind="system"):
+        if fail:
+            return notifications.NotificationResult(
+                delivered=False, channel="none", reason="telegram_unavailable", notification_id=None
+            )
         sent.append(text)
         return notifications.NotificationResult(
             delivered=True, channel="telegram_outbox", reason="queued", notification_id=len(sent)
@@ -215,6 +225,60 @@ def _capture_telegram(monkeypatch) -> list[str]:
     monkeypatch.setattr(limit_groups.notifications, "send_system_notification", fake_send)
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100")
     return sent
+
+
+def _make_extra_project(session, project_id: int, name: str) -> None:
+    session.add(
+        models.Project(
+            id=project_id,
+            user_id=2,
+            name=name,
+            tag="t",
+            collection_source="Сайты",
+            data_source_code="B1",
+            status="Активен",
+            delivery_status="Активна",
+            data_limit=0,
+            numbers_today=0,
+            numbers_total=0,
+            days_received="",
+            sources_count=0,
+            created_at=now_msk(),
+            updated_at=now_msk(),
+        )
+    )
+    session.commit()
+
+
+def _make_project_exhausted(session, project_id: int = 11, daily_limit: int = 500) -> int:
+    """Группа, у которой лимит уже взят сегодня."""
+    session.add(
+        models.Project(
+            id=project_id,
+            user_id=2,
+            name=f"B1_[LR999] Exhausted{project_id}",
+            tag="t",
+            collection_source="Сайты",
+            data_source_code="B1",
+            status="Активен",
+            delivery_status="Активна",
+            data_limit=0,
+            numbers_today=0,
+            numbers_total=0,
+            days_received="",
+            sources_count=0,
+            created_at=now_msk(),
+            updated_at=now_msk(),
+        )
+    )
+    session.commit()
+    group = limit_groups.create_group(
+        session, client_id=2, name=f"Исчерпанная{project_id}", daily_limit=daily_limit, project_ids=[project_id]
+    )
+    for index in range(daily_limit):
+        _make_lead(session, 50000 + project_id * 1000 + index, project_id,
+                   when=_hours_ago(3), exported_at=_hours_ago(2))
+    return int(group.id)
 
 
 def _exported_ids(s) -> set[int]:
@@ -514,3 +578,145 @@ def test_day2_rollover_to_day3_when_overflow(session, monkeypatch):
     quota = limit_groups.get_group_quota(session, int(group.id))
     assert quota.exported_today == 500
     assert quota.pending_total == 300, "остаток переносится на следующий день"
+
+
+# -------------------------------------------------------------------
+# Retry уведомления о достижении лимита
+# -------------------------------------------------------------------
+
+def test_retry_when_group_at_limit_and_notification_failed(session, monkeypatch):
+    """
+    Группа 500/500, есть pending, уведомление ранее не поставилось.
+
+    Регрессия: touched_group_ids брался из plan.group_ids(), который видит
+    только реально разрешённые строки.  У группы с remaining_today == 0 её
+    pending-лиды в план не попадают, поэтому группа выпадала из retry и
+    уведомление не приходило вообще.
+    """
+    group = _make_client_and_group(session, project_id=10, daily_limit=500)
+    today = _now()
+
+    # Сегодня уже выгружено 500, лимит исчерпан.
+    for index in range(500):
+        _make_lead(session, 1000 + index, 10, when=_hours_ago(3), exported_at=_hours_ago(2))
+    # И остались pending, которые заблокированы лимитом.
+    for index in range(50):
+        _make_lead(session, 2000 + index, 10, when=_hours_ago(1))
+
+    # Первая попытка проваливается (Telegram недоступен).
+    failing = _capture_telegram(monkeypatch, fail=True)
+    sheets = FakeSheets()
+    _run(session, sheets, monkeypatch=monkeypatch, queue_started_at=None)
+    assert sheets.appended == [], "квота исчерпана, ничего не отправляем"
+    assert failing == [], "уведомление не поставилось"
+
+    # Следующий cron: Telegram ожил, уведомление обязано повториться.
+    sent = _capture_telegram(monkeypatch, fail=False)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1, "группа с исчерпанной квотой обязана попасть в retry"
+    assert "Выгружено сегодня: <b>500</b>" in sent[0]
+
+
+def test_retry_when_queue_is_empty(session, monkeypatch):
+    """
+    Группа 500/500, pending кончился, уведомление не доставлено.
+
+    Раньше _run_export() делал ранний return по пустой очереди, поэтому
+    повторной попытки не было: план про группу ничего не знает, её лиды
+    уже все выгружены.
+    """
+    _make_client_and_group(session, project_id=10, daily_limit=500)
+
+    for index in range(500):
+        _make_lead(session, 1000 + index, 10, when=_hours_ago(3), exported_at=_hours_ago(2))
+    # Очередь пуста.
+
+    # Первая попытка проваливается.
+    failing = _capture_telegram(monkeypatch, fail=True)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert failing == []
+
+    # Следующий cron при пустой очереди всё равно повторяет попытку.
+    sent = _capture_telegram(monkeypatch, fail=False)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1, "пустая очередь не должна отменять retry"
+
+
+def test_no_duplicate_after_successful_retry(session, monkeypatch):
+    """После успешного retry следующий cron молчит."""
+    _make_client_and_group(session, project_id=10, daily_limit=500)
+    for index in range(500):
+        _make_lead(session, 1000 + index, 10, when=_hours_ago(3), exported_at=_hours_ago(2))
+
+    sent = _capture_telegram(monkeypatch, fail=False)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1
+
+    for _ in range(3):
+        _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1, "дедупликация: повторных уведомлений нет"
+
+
+def test_retry_after_limit_increase_only_at_new_ceiling(session, monkeypatch):
+    """
+    500 -> 700: уведомление появляется только при реальном 700/700,
+    и если не поставилось — повторяется на следующем cron.
+    """
+    group = _make_client_and_group(session, project_id=10, daily_limit=500)
+    sent = _capture_telegram(monkeypatch, fail=False)
+
+    for index in range(600):
+        _make_lead(session, 1000 + index, 10, when=_hours_ago(4) + timedelta(minutes=index))
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1
+    assert "Лимит: <b>500</b>" in sent[0]
+
+    # Подняли лимит до 700, пока 600/700 — тишина.
+    limit_groups.update_group(session, group_id=int(group.id), client_id=2, daily_limit=700)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1, "600 < 700, новый потолок не взят"
+
+    # Telegram лёг ровно в момент достижения 700.
+    failing = _capture_telegram(monkeypatch, fail=True)
+    for index in range(100):
+        _make_lead(session, 5000 + index, 10, when=_hours_ago(1) + timedelta(minutes=index))
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert failing == [], "уведомление о 700 не поставилось"
+
+    # Следующий cron повторяет попытку и доводит дело до конца.
+    retried = _capture_telegram(monkeypatch, fail=False)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(retried) == 1, "неудачное уведомление о 700 должно повториться"
+    assert "Лимит: <b>700</b>" in retried[0]
+
+    # И дальше молчит.
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(retried) == 1
+
+
+def test_retry_checks_only_groups_that_reached_limit(session, monkeypatch):
+    """
+    Несколько групп: retry не должен спамить те, что лимит не взяли.
+    """
+    _make_client_and_group(session, project_id=10, daily_limit=500)
+    _make_project_exhausted(session)
+
+    # Вторая группа с лимитом 500, но выгружено всего 100 — потолок не взят.
+    _make_extra_project(session, 20, "B1_[LR888] Второй")
+    group2 = limit_groups.create_group(
+        session, client_id=2, name="Вторая", daily_limit=500, project_ids=[20]
+    )
+    for index in range(100):
+        _make_lead(session, 3000 + index, 20, when=_hours_ago(2), exported_at=_hours_ago(1))
+    # И её pending — но квота не исчерпана.
+    for index in range(10):
+        _make_lead(session, 4000 + index, 20, when=_hours_ago(1))
+
+    sent = _capture_telegram(monkeypatch, fail=False)
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+
+    assert len(sent) == 1, "уведомление только по группе, реально взявшей лимит"
+    assert int(group2.id) not in {1}
+    # Второй cron тоже молчит по обеим группам.
+    _run(session, FakeSheets(), monkeypatch=monkeypatch, queue_started_at=None)
+    assert len(sent) == 1

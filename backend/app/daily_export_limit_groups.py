@@ -722,3 +722,49 @@ def get_group_stats_map(
             project_ids=members.get(int(group.id), []),
         )
     return out
+
+
+def find_groups_awaiting_limit_notification(
+    db: Session,
+    *,
+    day: Optional[date] = None,
+) -> List[int]:
+    """
+    Группы, достигшие дневного лимита, но ещё без успешно поставленного
+    уведомления за ``(день, значение лимита)``.
+
+    Нужна для retry: уведомление могло не поставиться в outbox в прошлом
+    запуске, а очередь к тому моменту уже пуста — поэтому план выгрузки
+    про эту группу ничего не знает.
+
+    Сначала cheap-фильтр по самой таблице групп (уже заполненные днём
+    группы отсеиваются без единого запроса по лидам), затем точный пересчёт
+    квоты только для оставшихся кандидатов.  Поэтому пустой результат стоит
+    одного SELECT и не превращается в спам.
+    """
+    target_day = day or business_today()
+    day_key = _notification_day_key(target_day)
+
+    candidates = db.execute(
+        select(models.ProjectDailyExportLimitGroup).where(
+            (
+                models.ProjectDailyExportLimitGroup.limit_reached_notified_on.is_(None)
+            )
+            | (models.ProjectDailyExportLimitGroup.limit_reached_notified_on != day_key)
+            | (
+                models.ProjectDailyExportLimitGroup.limit_reached_notified_limit.is_(None)
+                | (models.ProjectDailyExportLimitGroup.limit_reached_notified_limit
+                   != models.ProjectDailyExportLimitGroup.daily_limit)
+            )
+        )
+    ).scalars().all()
+
+    out: List[int] = []
+    for group in candidates:
+        try:
+            quota = get_group_quota(db, int(group.id), day=target_day)
+        except DailyExportLimitGroupError:
+            continue
+        if quota.limit_reached:
+            out.append(int(group.id))
+    return out
