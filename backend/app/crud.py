@@ -4315,6 +4315,7 @@ def admin_clients_summary(
         tariff_ops_map.setdefault(tid, {"credit": 0, "debit": 0})
         tariff_ops_map[tid][str(op_type)] = int(total_amt or 0)
 
+    admin_owner_info = _get_user_info(db, 1) if any(user.owner_agent_id is None for user in users) else None
     items: List[schemas.AdminClientSummaryItem] = []
     totals_projects = 0
     totals_limit = 0
@@ -4348,7 +4349,7 @@ def admin_clients_summary(
             user=info,
             profile=profiles_map.get(uid),
             ownerType=client_owner_type,  # type: ignore[arg-type]
-            ownerUser=owner_user_map.get(int(client_owner_agent_id)) if client_owner_agent_id is not None else _get_user_info(db, 1),
+            ownerUser=owner_user_map.get(int(client_owner_agent_id)) if client_owner_agent_id is not None else admin_owner_info,
             projectCount=int(stats["projects"]),
             totalLimit=int(stats["limit"]),
             usedTotal=used_total,
