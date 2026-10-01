@@ -1819,6 +1819,44 @@ def list_activity_events_for_clients(
     include_client: bool = False,
     expose_internal_names: bool = True,
 ) -> schemas.ActivityEventListOut:
+    """Полная лента с поиском, total и пагинацией после объединения источников."""
+    return _list_activity_events_for_clients(
+        db, client_ids, offset, limit,
+        start_local=start_local, end_local=end_local, entities=entities, q=q,
+        status=status, include_client=include_client,
+        expose_internal_names=expose_internal_names,
+    )
+
+
+def list_client_recent_activity_events(
+    db: Session, client_id: int, limit: int = 5,
+) -> List[schemas.ActivityEventOut]:
+    """Последние события дашборда: не более limit строк из каждого источника.
+
+    Общая лента не задаёт SQL-порядок равных дат; здесь он фиксирован по id.
+    Приоритет источников и сортировка по полной дате остаются прежними.
+    """
+    limit = max(1, min(500, limit))
+    return _list_activity_events_for_clients(
+        db, [client_id], 0, limit,
+        expose_internal_names=False, source_limit=limit,
+    ).items
+
+
+def _list_activity_events_for_clients(
+    db: Session,
+    client_ids: List[int],
+    offset: int,
+    limit: int,
+    start_local: Optional[datetime] = None,
+    end_local: Optional[datetime] = None,
+    entities: Optional[List[str]] = None,
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    include_client: bool = False,
+    expose_internal_names: bool = True,
+    source_limit: Optional[int] = None,
+) -> schemas.ActivityEventListOut:
     """
     Единая лента активности по одному или нескольким клиентским аккаунтам.
 
@@ -1898,6 +1936,10 @@ def list_activity_events_for_clients(
         elif status == "done":
             audit_stmt = audit_stmt.where(models.AuditEvent.admin_processed_at.is_not(None))
 
+        if source_limit is not None:
+            audit_stmt = audit_stmt.order_by(
+                models.AuditEvent.created_at.desc(), models.AuditEvent.id.asc(),
+            ).limit(source_limit)
         audit_rows = db.execute(audit_stmt).all()
         for ev, project in audit_rows:
             entity = "blacklist" if ev.action in ("blacklist_add", "blacklist_delete") else "project"
@@ -1966,6 +2008,10 @@ def list_activity_events_for_clients(
         if end_local:
             failed_stmt = failed_stmt.where(models.ProjectOperationEvent.created_at <= end_local)
 
+        if source_limit is not None:
+            failed_stmt = failed_stmt.order_by(
+                models.ProjectOperationEvent.created_at.desc(), models.ProjectOperationEvent.id.asc(),
+            ).limit(source_limit)
         failed_rows = db.execute(failed_stmt).scalars().all()
         failed_project_ids = sorted({int(ev.project_id) for ev in failed_rows if ev.project_id is not None})
         failed_projects_map = {
@@ -2041,6 +2087,10 @@ def list_activity_events_for_clients(
         if end_local:
             balance_stmt = balance_stmt.where(models.ClientBalanceOperation.created_at <= end_local)
 
+        if source_limit is not None:
+            balance_stmt = balance_stmt.order_by(
+                models.ClientBalanceOperation.created_at.desc(), models.ClientBalanceOperation.id.asc(),
+            ).limit(source_limit)
         balance_rows = db.execute(balance_stmt).scalars().all()
         for op in balance_rows:
             actor = get_user_info(op.created_by)
@@ -2088,6 +2138,10 @@ def list_activity_events_for_clients(
         if end_local:
             report_stmt = report_stmt.where(models.ReportExport.created_at <= end_local)
 
+        if source_limit is not None:
+            report_stmt = report_stmt.order_by(
+                models.ReportExport.created_at.desc(), models.ReportExport.id.asc(),
+            ).limit(source_limit)
         report_rows = db.execute(report_stmt).scalars().all()
         for rep in report_rows:
             actor = get_user_info(rep.user_id)
@@ -4515,14 +4569,11 @@ def client_dashboard(
         if pid in project_by_id and int(value) > 0
     ]
 
-    recent_events = list_client_activity_events(
+    recent_events = list_client_recent_activity_events(
         db,
         client_id=int(client_id),
-        offset=0,
         limit=5,
-        start_local=None,
-        end_local=None,
-    ).items
+    )
 
     return schemas.ClientDashboardOut(
         summary=schemas.ClientDashboardSummaryOut(
