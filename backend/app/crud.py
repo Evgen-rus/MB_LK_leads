@@ -3943,72 +3943,25 @@ def admin_list_client_changes_summary(db: Session, actions: Optional[List[str]] 
     action_filter = [a for a in (actions or default_actions) if a in allowed_actions]
     if not action_filter:
         action_filter = default_actions
-    include_creates = "create" in action_filter
-    include_updates = any(a in action_filter for a in ("update", "delete"))
-    include_bl_add = "blacklist_add" in action_filter
-    include_bl_del = "blacklist_delete" in action_filter
-    # Собираем пары (user_id, login, count)
-    # pending update/delete
-    rows_updates = []
-    if include_updates:
-        rows_updates = db.execute(
-            select(
-                models.User.id,
-                models.User.login,
-                func.count(models.AuditEvent.id),
-            )
-            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.role == ROLE_CLIENT)
-            .where(models.AuditEvent.action.in_([a for a in action_filter if a in ("update", "delete")]))
-            .where(models.AuditEvent.admin_processed_at.is_(None))
-            .group_by(models.User.id, models.User.login)
-        ).all()
-
-    # pending create
-    rows_creates = []
-    if include_creates:
-        rows_creates = db.execute(
-            select(
-                models.User.id,
-                models.User.login,
-                func.count(models.AuditEvent.id),
-            )
-            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.role == ROLE_CLIENT)
-            .where(models.AuditEvent.action == "create")
-            .where(models.AuditEvent.admin_processed_at.is_(None))
-            .group_by(models.User.id, models.User.login)
-        ).all()
-
-    rows_bl_add = []
-    if include_bl_add:
-        rows_bl_add = db.execute(
-            select(
-                models.User.id,
-                models.User.login,
-                func.count(models.AuditEvent.id),
-            )
-            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.role == ROLE_CLIENT)
-            .where(models.AuditEvent.action == "blacklist_add")
-            .where(models.AuditEvent.admin_processed_at.is_(None))
-            .group_by(models.User.id, models.User.login)
-        ).all()
-
-    rows_bl_del = []
-    if include_bl_del:
-        rows_bl_del = db.execute(
-            select(
-                models.User.id,
-                models.User.login,
-                func.count(models.AuditEvent.id),
-            )
-            .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
-            .where(models.User.role == ROLE_CLIENT)
-            .where(models.AuditEvent.action == "blacklist_delete")
-            .where(models.AuditEvent.admin_processed_at.is_(None))
-            .group_by(models.User.id, models.User.login)
-        ).all()
+    rows = db.execute(
+        select(
+            models.User.id,
+            models.User.login,
+            func.sum(case((models.AuditEvent.action.in_(["update", "delete"]), 1), else_=0)),
+            func.sum(case((models.AuditEvent.action == "create", 1), else_=0)),
+            func.sum(case((models.AuditEvent.action == "blacklist_add", 1), else_=0)),
+            func.sum(case((models.AuditEvent.action == "blacklist_delete", 1), else_=0)),
+        )
+        .join(models.AuditEvent, models.AuditEvent.user_id == models.User.id)
+        .where(models.User.role == ROLE_CLIENT)
+        .where(models.AuditEvent.action.in_(action_filter))
+        .where(models.AuditEvent.admin_processed_at.is_(None))
+        .group_by(models.User.id, models.User.login)
+    ).all()
+    rows_updates = [(uid, login, upd) for uid, login, upd, crt, add, delete in rows if upd]
+    rows_creates = [(uid, login, crt) for uid, login, upd, crt, add, delete in rows if crt]
+    rows_bl_add = [(uid, login, add) for uid, login, upd, crt, add, delete in rows if add]
+    rows_bl_del = [(uid, login, delete) for uid, login, upd, crt, add, delete in rows if delete]
 
     creates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_creates}
     updates_map = {int(uid): (login, int(cnt or 0)) for uid, login, cnt in rows_updates}
