@@ -9,6 +9,7 @@
 - React 19 + TypeScript + Vite: `my-app-vite/src/`.
 - FastAPI + SQLAlchemy: `backend/app/`.
 - Хранилище: `DATABASE_URL`; код поддерживает PostgreSQL и локальный SQLite fallback.
+- Админская аналитика: изолированный пакет `backend/app/lead_analytics/`, отдельная SQLite-база и файлы в `LEAD_ANALYTICS_DATA_DIR` (по умолчанию `data/lead_analytics`).
 - Внешние границы: Prostats, Telegram Bot API через внешний worker, Google Sheets через служебные export-скрипты.
 
 В репозитории нет Docker/Compose, CI-конфигурации, отдельного backend test runner и формального мигратора. Не предполагайте их наличие.
@@ -25,6 +26,7 @@
 | Provider/Pixel XLSX import | `backend/app/provider_leads_xlsx_import.py` | preview/commit endpoints и `provider_leads` |
 | Telegram outbox | `notifications.py`, `notify_worker.py`, `telegram_worker.py` | internal claim/result API и `telegram_notifications` |
 | Экран и запросы frontend | `my-app-vite/src/App.tsx`, `my-app-vite/src/components/`, `my-app-vite/src/api.ts` | API responses, роли и lazy loading manager screens |
+| Аналитика клиента и групп проектов | `backend/app/lead_analytics/` → `/admin/analytics` → `src/components/leadAnalytics/` | admin-only доступ, входные снимки, независимые группы, очередь и архив Excel |
 
 `README.md` — только быстрый локальный запуск. `docs/` — runbook и продуктовый контекст; если они расходятся с кодом или конфигурацией, приоритет у кода.
 
@@ -81,6 +83,32 @@ flowchart LR
 
 Админские import endpoints используют общий модуль `provider_leads_xlsx_import.py`. Preview сохраняет временные файлы и state в локальной temp-директории процесса; commit разрешён только тому же админу и только с валидным `previewId`. Неоднозначная или отсутствующая привязка проекта блокирует commit. Следствие: без sticky session preview и commit на разных инстансах не работают.
 
+### Аналитика
+
+Экран «Аналитика» загружается лениво и доступен только `user.id == 1`; backend
+проверяет администратора на каждом endpoint `/admin/analytics`, включая
+скачивание. Это модуль текущего backend, а не отдельный сервис. Основная БД
+предоставляет клиентов, проекты и идентификации только для чтения; её схема не
+меняется. Внутренний XLSX повторно использует представление строк выгрузки ЛК,
+без HTTP-вызова экспорта и без записи в обычную историю отчётов.
+
+Группы аналитики независимы от групп дневных лимитов и используют конкретные
+ID проектов. Допускаются пересечения групп, Pixel и удалённые проекты. Новые
+проекты не добавляются автоматически. Расформирование группы архивирует её,
+сохраняя историю. Статусы и настройки привязаны к стабильному ключу группы,
+отдельному от отображаемого имени; начальных правил и эвристики email нет.
+Расчёты и содержимое Excel перенесены из Lead Analytics.
+
+Отдельное хранилище сохраняет входные снимки, настройки, задания и готовые
+отчёты. Завершённый отчёт не пересчитывается при изменении источника или группы;
+повторный анализ создаёт новую запись. Скачивание использует Authorization,
+JWT в URL не передаётся. Backup должен включать SQLite и каталог файлов вместе.
+
+Очередь анализа последовательная, с одним process-local worker. Поддерживается
+один backend-процесс: при startup ожидающие задания продолжаются, прерванные
+помечаются ошибкой без автоматического повторного анализа. Подробная настройка
+и backup описаны в `docs/lead-analytics.md`.
+
 ### Уведомления и периодические проверки
 
 Backend кладёт сообщения в `telegram_notifications`; Bot API вызывает только отдельный `telegram_worker.py`, который claim-ит сообщения и сообщает результат через защищённые internal endpoints. Startup в `main.py` запускает daemon threads для outbox, долговечных project jobs, тарифных/лимитных проверок, Pixel-отчётов, очистки outbox и проверки B4 operator block. Project worker использует DB lease и допускает восстановление после падения процесса; остальные расписания остаются process-local. Эти потоки создаются в каждом процессе backend; масштабирование несколькими процессами требует проверки дедупликации и расписаний.
@@ -113,6 +141,12 @@ Backend кладёт сообщения в `telegram_notifications`; Bot API в�
 ## Проверка и известные пробелы
 
 Поддерживаемые frontend-проверки в `my-app-vite/package.json`: `npm run lint` и `npm run build`. Backend test runner, CI и migration tool не обнаружены.
+
+Для нового контура аналитики добавлены целевые pytest-проверки
+`tests/lead_analytics/` и зависимости `requirements-analytics-test.txt`;
+`python -m pytest tests/lead_analytics -q` проверяет этот контур на искусственных
+данных. Это не единый runner или покрытие всего backend. Frontend-проверки
+аналитики используют существующий Playwright.
 
 Архитектурные риски текущей реализации, а не обещания системы:
 

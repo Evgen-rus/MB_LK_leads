@@ -37,6 +37,7 @@ const STORAGE_VIEW_KEY = 'last_view';
 const AdminLeadsTable = lazy(() => import('./components/AdminLeadsTable'));
 const AdminBlacklist = lazy(() => import('./components/AdminBlacklist'));
 const AdminReports = lazy(() => import('./components/AdminReports'));
+const AdminAnalytics = lazy(() => import('./components/AdminAnalytics'));
 const AdminClientsScreen = lazy(() => import('./components/AdminClientsScreen'));
 const AdminAgentsScreen = lazy(() => import('./components/AdminAgentsScreen'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
@@ -112,6 +113,7 @@ function App() {
         saved === 'projects' ||
         saved === 'leads' ||
         saved === 'reports' ||
+        saved === 'analytics' ||
         saved === 'activity' ||
         saved === 'integrations' ||
         saved === 'support' ||
@@ -223,7 +225,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && (view === 'agents' || view === 'admin-dashboard')) {
+    if (!isAdmin && (view === 'agents' || view === 'admin-dashboard' || view === 'analytics')) {
       setView(isManager ? 'admin-clients' : 'client-dashboard');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'client-dashboard');
@@ -258,6 +260,7 @@ function App() {
       view !== 'projects' &&
       view !== 'leads' &&
       view !== 'reports' &&
+      view !== 'analytics' &&
       view !== 'activity' &&
       view !== 'integrations' &&
       view !== 'support' &&
@@ -428,6 +431,8 @@ function App() {
                   ? 'Идентификации'
                   : view === 'reports'
                   ? 'Отчёты'
+                  : view === 'analytics'
+                  ? 'Аналитика'
                   : view === 'activity'
                   ? 'История изменений'
                   : view === 'balance'
@@ -768,6 +773,8 @@ function App() {
               )
             ) : view === 'leads' ? (
               isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
+            ) : view === 'analytics' ? (
+              isAdmin ? <AdminAnalytics /> : null
             ) : view === 'reports' ? (
               isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
           ) : view === 'activity' ? (

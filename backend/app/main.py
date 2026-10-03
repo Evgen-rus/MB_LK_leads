@@ -136,6 +136,7 @@ def get_settings():
 
 
 load_dotenv()
+from .lead_analytics.router import build_router as build_analytics_router
 logging_setup.setup_logging()
 settings = get_settings()
 
@@ -1187,6 +1188,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup_event():
+    from .lead_analytics import startup as analytics_startup
+
+    analytics_startup()
     with SessionLocal() as s:
         # Минимальный seed для чистой БД
         crud.seed_notify_state(s, settings["DEBOUNCE_WINDOW_MINUTES"])
@@ -5275,6 +5279,12 @@ def require_admin(request: Request, db_sess: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return user
+
+
+app.include_router(build_analytics_router(
+    require_admin, get_db,
+    _source_code_for_display, _source_text_for_display, _project_name_for_display,
+))
 
 
 @app.post("/admin/operator-block-check/run", response_model=schemas.OperatorBlockCheckOut)

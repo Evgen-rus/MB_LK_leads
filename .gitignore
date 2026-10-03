@@ -1,5 +1,7 @@
 # Credentials and environment
 credentials/
+data/lead_analytics/
+.tmp/
 .env
 # Важно: не игнорируем все *.json, чтобы не потерять package.json и др.
 # Если есть секретные JSON, указывайте их явно (например, credentials/*.json)

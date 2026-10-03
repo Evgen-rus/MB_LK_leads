@@ -178,7 +178,11 @@ async function downloadByUrl(url: string, filenameFallback: string): Promise<voi
   }
 }
 
-async function http<T>(path: string, init?: RequestInit): Promise<T> {
+export function downloadApiFile(path: string, filename: string): Promise<void> {
+  return downloadByUrl(`${API_BASE}${path}`, filename);
+}
+
+export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     const headers: Record<string, string> = {
@@ -294,7 +298,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-async function httpForm<T>(path: string, formData: FormData, init?: RequestInit): Promise<T> {
+export async function httpForm<T>(path: string, formData: FormData, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     const headers: Record<string, string> = {};
