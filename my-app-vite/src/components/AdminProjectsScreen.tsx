@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 // Админский экран «Проекты»
 // Задача: работать с проектами и изменениями ОДНОГО выбранного клиента.
 // Важно: пользовательскую версию вкладки «Проекты» не трогаем, этот экран
@@ -48,6 +49,7 @@ export type AdminProjectsScreenProps = {
 type ClientOption = {
   id: number;
   name: string;
+  workStatus?: UserInfo['workStatus'];
 };
 
 type DateRange = {
@@ -112,6 +114,7 @@ function AdminProjectsScreen({
         const options: ClientOption[] = users.map((u) => ({
           id: u.id,
           name: u.name || u.login,
+          workStatus: u.workStatus,
         }));
         setClients(options);
 
@@ -257,11 +260,7 @@ function AdminProjectsScreen({
               <option value="">
                 {loadingClients ? 'Загрузка клиентов…' : 'Выберите клиента'}
               </option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} (id: {c.id})
-                </option>
-              ))}
+              <ClientOptions clients={clients} />
             </select>
             <DateRangeFilter
               from={range.from}

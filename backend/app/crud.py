@@ -6345,12 +6345,13 @@ def admin_mark_batch_processed(db: Session, batch_id: str, admin_user_id: int) -
 # =================== ADMIN CRUD ======================
 # =====================================================
 
-def _user_info_from_user(user: models.User, *, name: Optional[str] = None) -> schemas.UserInfo:
+def _user_info_from_user(user: models.User, *, name: Optional[str] = None, work_status: Optional[str] = None) -> schemas.UserInfo:
     resolved_name = name if name is not None else (getattr(user, "display_name", None) or None)
     return schemas.UserInfo(
         id=int(user.id),
         login=user.login,
         name=resolved_name,
+        workStatus=work_status,
         inn=(getattr(user, "inn", None) or None),
         phone=(getattr(user, "phone", None) or None),
         role=get_user_role(user),  # type: ignore[arg-type]
@@ -7004,14 +7005,14 @@ def admin_list_all_reports(
 def get_all_users(db: Session) -> List[schemas.UserInfo]:
     """Получить список всех пользователей."""
     stmt = (
-        select(models.User, models.ClientProfile.name)
+        select(models.User, models.ClientProfile.name, models.ClientProfile.work_status)
         .outerjoin(models.ClientProfile, models.ClientProfile.user_id == models.User.id)
         .order_by(models.User.id)
     )
     rows = db.execute(stmt).all()
     out: List[schemas.UserInfo] = []
-    for user, name in rows:
-        out.append(_user_info_from_user(user, name=name))
+    for user, name, work_status in rows:
+        out.append(_user_info_from_user(user, name=name, work_status=work_status))
     return out
 
 

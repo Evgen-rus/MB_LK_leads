@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 import { useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminDashboard,
@@ -379,11 +380,7 @@ function AdminDashboard({ onOpenClient, onOpenProject, onOpenLeads, onOpenActivi
             onChange={(e) => setFilters((prev) => ({ ...prev, clientId: e.target.value ? Number(e.target.value) : null }))}
           >
             <option value="">Все клиенты</option>
-            {visibleClients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name || client.login} (id: {client.id})
-              </option>
-            ))}
+            <ClientOptions clients={visibleClients} />
           </select>
           <label className="dashboard-toggle">
             <input

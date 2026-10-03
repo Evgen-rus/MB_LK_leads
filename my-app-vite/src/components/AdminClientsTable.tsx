@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 // Таблица проектов всех клиентов (для админа)
 // Включает столбец "Клиент" и кликабельный dropdown для статуса отгрузки
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -149,11 +150,7 @@ function AdminClientsTable() {
             }}
           >
             <option value="">Все клиенты</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.login} (id: {u.id})
-              </option>
-            ))}
+            <ClientOptions clients={users.map((user) => ({ ...user, name: user.login }))} />
           </select>
           <select value={status} onChange={(e) => setStatus(e.target.value as 'Все' | 'Активен' | 'На паузе')}>
             <option value="Все">Все статусы проекта</option>

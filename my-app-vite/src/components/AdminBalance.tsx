@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import DateTimeCompact from './DateTimeCompact';
 import TariffManagerModal from './TariffManagerModal';
@@ -310,11 +311,7 @@ function AdminBalance({
             }}
           >
             <option value="">Выберите клиента</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name || user.login} (id: {user.id})
-              </option>
-            ))}
+            <ClientOptions clients={users} />
           </select>
         </div>
         <div className="actions toolbar-right admin-balance__toolbar-actions">

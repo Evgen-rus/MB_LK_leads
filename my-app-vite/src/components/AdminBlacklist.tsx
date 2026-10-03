@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 // Черный список всех клиентов (для админа)
 // Включает столбец "Клиент" с логином и id
 import { useEffect, useState, useCallback } from 'react';
@@ -80,11 +81,7 @@ function AdminBlacklist({ initialUserId = null }: AdminBlacklistProps) {
             }}
           >
             <option value="">Все клиенты</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name || u.login} (id: {u.id})
-                </option>
-              ))}
+              <ClientOptions clients={users} />
           </select>
         </div>
         <div className="actions">

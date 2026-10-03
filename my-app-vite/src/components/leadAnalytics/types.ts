@@ -34,6 +34,7 @@ export type UploadResponse = {
 export type AnalyticsClient = {
   id: number;
   name: string;
+  workStatus?: string | null;
   table_url?: string | null;
   pixel_table_url?: string | null;
 };

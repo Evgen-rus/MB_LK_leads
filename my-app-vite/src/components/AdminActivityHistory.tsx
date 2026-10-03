@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchAdminActivityEvents,
@@ -143,11 +144,7 @@ function AdminActivityHistory() {
             disabled={clientsLoading}
           >
             <option value="">Все клиенты</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {(client.name || client.login)} (id: {client.id})
-              </option>
-            ))}
+            <ClientOptions clients={clients} />
           </select>
           <select
             value={entityFilter}

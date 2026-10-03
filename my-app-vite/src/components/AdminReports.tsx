@@ -321,7 +321,7 @@ function AdminReports({ managerRole }: { managerRole: ManagerRole }) {
           }}
           onSubmit={handleCreateReport}
           submitting={creating}
-          users={users.map((u) => ({ id: u.id, name: u.name || u.login }))}
+          users={users.map((u) => ({ id: u.id, name: u.name || u.login, workStatus: u.workStatus }))}
           selectedClientId={selectedClientId}
           allowAllClients={managerRole === 'admin'}
           onClientChange={(clientId) => {

@@ -1,3 +1,4 @@
+import ClientOptions from '../ClientOptions';
 import { useEffect, useMemo, useState } from "react";
 import {
   archiveGroup,
@@ -555,7 +556,7 @@ export default function LeadAnalytics() {
             <span>Клиент</span>
             <select value={clientId ?? ""} disabled={clientsLoading || loading} onChange={(event) => selectClient(event.target.value ? Number(event.target.value) : null)}>
               <option value="">Выберите клиента</option>
-              {clients.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              <ClientOptions clients={clients} showIds={false} />
             </select>
           </label>
           <label className="field">

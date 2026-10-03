@@ -529,6 +529,7 @@ def build_router(
         ).all()
         return [
             {"id": int(user.id), "name": str((profile.name.strip() if profile and profile.name and profile.name.strip() else None) or user.display_name or user.login),
+             "workStatus": profile.work_status if profile else None,
              "table_url": profile.table_url if profile else None,
              "pixel_table_url": profile.pixel_table_url if profile else None}
             for user, profile in rows

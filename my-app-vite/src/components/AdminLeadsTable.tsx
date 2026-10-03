@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 // Таблица лидов всех клиентов (для админа)
 // Включает столбец "Клиент" с названием и id
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -230,11 +231,7 @@ function AdminLeadsTable({ initialFilter }: { initialFilter?: AdminLeadsInitialF
             }}
           >
             <option value="">Выберите клиента…</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name || u.login} (id: {u.id})
-              </option>
-            ))}
+            <ClientOptions clients={users} />
           </select>
 
           {/* Фильтр по проектам клиента (мультивыбор) */}

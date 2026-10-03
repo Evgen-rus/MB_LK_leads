@@ -1,3 +1,4 @@
+import ClientOptions from './ClientOptions';
 import { useMemo, useState } from 'react';
 import { formatProjectNameForDisplay } from '../utils/sourceCodeDisplay';
 
@@ -6,6 +7,7 @@ type ReportFormat = 'csv' | 'xlsx';
 type UserOption = {
   id: number;
   name: string;
+  workStatus?: string | null;
 };
 
 type ProjectOption = {
@@ -149,11 +151,7 @@ function ReportBuildModal({
               >
                 <option value="">Выберите клиента</option>
                 {allowAllClients && <option value="all">Все клиенты</option>}
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
+                <ClientOptions clients={users} showIds={false} />
               </select>
             </label>
           )}

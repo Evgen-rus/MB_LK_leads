@@ -187,6 +187,7 @@ class UserInfo(BaseModel):
     id: int
     login: str
     name: Optional[str] = None
+    workStatus: Optional[ClientWorkStatus] = None
     inn: Optional[str] = None
     phone: Optional[str] = None
     role: Optional[UserRole] = None

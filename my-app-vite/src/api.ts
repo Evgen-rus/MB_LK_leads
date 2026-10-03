@@ -783,6 +783,7 @@ export type UserInfo = {
   id: number;
   login: string;
   name?: string | null;
+  workStatus?: ClientWorkStatus | null;
   inn?: string | null;
   phone?: string | null;
   role?: 'admin' | 'client' | 'agent' | null;
