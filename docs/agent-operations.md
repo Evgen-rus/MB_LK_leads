@@ -1,0 +1,143 @@
+# LeadRecord: работа агента через SSH
+
+Предпочтительный operational interface: `agent → SSH → lkctl → localhost
+/agent/v1/* → существующий LeadRecord backend`. CLI не импортирует приложение,
+не открывает БД и не запускает worker. MCP и браузер не нужны.
+
+## Доступ и контракт
+
+Backend читает `LK_AGENT_READ_TOKEN` (scope `read`) и
+`LK_AGENT_COMPUTE_TOKEN` (scopes `read`, `compute`). Можно настроить только read.
+Токены должны быть различными, случайными и храниться вне Git. Без токенов
+или при совпадении токенов API закрыт. Администраторский пароль/JWT не подходят.
+Machine token даёт доступ ко всем клиентам; ограничения на одного клиента
+в первой версии отсутствуют.
+
+CLI получает разрешённый токен через `LK_AGENT_TOKEN`, URL через
+`LK_AGENT_URL` (по умолчанию `http://127.0.0.1:8000`). Разрешён только localhost
+HTTP; redirects и proxy отключены. Передавать токен аргументом командной строки
+или в URL нельзя. Не выводите environment, не включайте shell tracing.
+
+`lkctl capabilities` возвращает версию `1`, операции, параметры и доступность
+по scopes. Read использует GET `/agent/v1/{capability}` с query-параметрами;
+compute — POST `/agent/v1/analytics.run` с JSON. Ответы:
+
+```json
+{"ok":true,"action":"client.show","data":{"client_id":17},"request_id":"…"}
+```
+
+```json
+{"ok":false,"action":"client.show","error":{"code":"CLIENT_NOT_FOUND","message":"Клиент не найден"},"request_id":"…"}
+```
+
+JSON пишется в stdout; `--help` выводит обычную справку. Exit codes: `0` успех,
+`1` ошибка сервиса/доступа, `2` неверные аргументы или `needs_input`.
+Имена полей агрегатов discovery и API — контракт версии 1; безопасные проекции
+данных используют поля существующих моделей, указанные в JSON-ответе.
+
+## Команды
+
+```bash
+lkctl capabilities
+lkctl overview
+lkctl overview --from 2026-09-01 --to 2026-09-30
+lkctl clients list --limit 50 --offset 0
+lkctl clients find "Рио-Люкс"
+lkctl client show --id 17
+lkctl projects list --client 17
+lkctl project show --id 123
+lkctl project stats --id 123 --from 2026-09-01 --to 2026-09-30
+lkctl leads stats --client 17 --from 2026-09-01 --to 2026-09-30
+lkctl analytics groups --client 17
+lkctl analytics history --group 8
+lkctl analytics result --group 8 --id 42
+lkctl analytics result --group 8 --run RUN_ID
+lkctl analytics run --group 8 --period 2026-09-01:2026-09-30
+lkctl analytics run --group 8 --run RUN_ID
+```
+
+Даты включают последний день, используют `SHEETS_TZ`; для read по умолчанию
+сегодня. Максимальный диапазон 366 дней, страницы — 50 по умолчанию, максимум
+200. Поиск возвращает варианты и не выбирает неоднозначного клиента за агента.
+История аналитики следует порядку штатного реестра выгрузок.
+`analytics.result` возвращает агрегаты отчёта либо состояние запуска и job;
+Excel и сырые строки через этот API не выдаются.
+
+## Analytics compute и needs_input
+
+Для нового `--group --period` ответ `needs_input / PREPARATION_REQUIRED`:
+текущий pipeline требует клиентский XLSX/Google, проверку колонок и
+сопоставление. Подготовьте их штатно в разделе «Аналитика», сохраните проверенный
+mapping и статусные правила. Затем передайте `run_id` из ответа подготовки.
+Agent Interface сам не читает Google и не угадывает источник/вкладку/колонки.
+В текущем UI mapping сохраняется при подтверждённом запуске анализа; просмотр
+setup сам по себе его не сохраняет. Поэтому новая группа без такого mapping
+сначала требует штатного ручного анализа. Последующие подготовленные снимки
+могут использовать сохранённые настройки, если проверка колонок проходит.
+
+Уже сопоставленный (`matched`) запуск с сохранённым mapping и известными
+статусами ставится в штатную очередь backend. Используются зафиксированные
+периоды и снимки run. Mapping и правила не изменяются. HTTP-ответ возвращает
+job, ожидание не блокирует CLI; опрашивайте `analytics result --group … --run …`.
+Запрос активного run возвращает существующую job. Завершённый run требует нового
+снимка (`NEW_RUN_REQUIRED`), чтобы повтор случайно не запустил расчёт заново.
+Прерванный/ошибочный run требует проверки через UI, автоматического retry нет.
+
+`needs_input` — остановка compute, а не успешный анализ. `UNKNOWN_STATUSES`
+возвращает неизвестные значения; распределить их должен человек в штатной
+аналитике. `MAPPING_REQUIRED` / `MATCH_REQUIRED` требуют проверки колонок или
+завершения сопоставления. Не назначайте категории эвристически. Сохраните
+request id для диагностики. Новые правила через Agent API не принимаются.
+
+Запрещены создание/удаление/изменение проектов, пауза/возобновление, лимиты,
+клиенты/владельцы, тарифы/балансы, импорт лидов, изменение правил аналитики,
+удаление групп/отчётов и изменяющие вызовы Prostats. Сырые лиды недоступны.
+Operational-задачи не выполняются прямым SQL или отдельным Python worker.
+
+## Отдельная настройка на VPS
+
+Этот runbook не означает выполненный deploy или перезапуск production.
+
+1. При отдельно согласованном deploy добавьте токены в защищённый environment
+   работающего backend, а разрешённый токен — в environment SSH-оператора.
+   Не копируйте всю backend `.env` агенту: она содержит чужие секреты.
+   Права файла секрета: только владельцу (`chmod 600`); запрещены shell history
+   и вывод значений токенов в диагностику.
+2. Используйте один backend-процесс согласно ограничениям аналитики.
+   Проверьте фактический localhost-порт; задайте его в `LK_AGENT_URL`.
+   Доступ к порту backend ограничьте loopback/firewall. IP-check не заменяет auth.
+3. В существующий server block публичного Nginx добавьте оба location ниже,
+   чтобы более общий `proxy_pass` не публиковал Agent API. Конфигурация Nginx
+   в этом репозитории не предполагается. Если proxy переписывает префикс URL,
+   закройте также фактический внешний путь, который отображается в `/agent/v1`.
+
+   ```nginx
+   location = /agent/v1 { return 404; }
+   location ^~ /agent/v1/ { return 404; }
+   ```
+
+   Перед применением проверьте `nginx -t`; reload и внешнюю проверку выполняйте
+   только в рамках отдельного разрешения. Backend auth остаётся обязательной.
+4. Root wrapper `lkctl` запускает Python из `venv`; при другом окружении задайте
+   `LKCTL_PYTHON`. Установите wrapper в PATH либо вызывайте `./lkctl` из checkout.
+   На Linux задайте executable bit (`chmod +x lkctl`). Альтернатива из корня:
+   `venv/bin/python -m backend.app.agent_cli capabilities`.
+5. Read smoke: `lkctl capabilities`, затем `lkctl overview`. Compute проверяйте
+   только отдельным согласованным запуском; он расходует ресурсы backend.
+
+Audit использует стандартный logger `app.agent`, без отдельной БД. Текущий
+`logging_setup.py` пишет его в `logs/app.log` и stderr, с суточной ротацией
+и хранением 30 файлов. На VPS сохраните защищённые права и этот каталог логов;
+при необходимости собирайте stderr в journal.
+Записываются capability/scope, числовые ID/даты/pagination, success/failure,
+duration и correlation id. Поисковые строки, Bearer, файлы, raw leads и тексты
+исключений не записываются. Run id доступен в ответе, не в параметрах audit.
+
+## Локальная проверка
+
+```powershell
+venv/Scripts/python.exe -m pytest tests/test_agent_api.py tests/test_agent_service.py tests/test_agent_analytics.py tests/test_agent_cli.py tests/lead_analytics tests/test_lead_analytics_auth.py tests/test_lead_analytics_parity.py -q -p no:cacheprovider --basetemp .tmp-agent-tests
+```
+
+Тесты используют искусственные данные и временные БД, без import/startup
+`main.py`, production, Prostats, Telegram и Google.

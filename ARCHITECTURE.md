@@ -109,6 +109,23 @@ JWT в URL не передаётся. Backup должен включать SQLit
 помечаются ошибкой без автоматического повторного анализа. Подробная настройка
 и backup описаны в `docs/lead-analytics.md`.
 
+### Operational interface для AI-агентов
+
+`lkctl` (`backend/app/agent_cli.py`) обращается по localhost HTTP к изолированному
+`/agent/v1/*` в текущем backend. Контур `backend/app/agent_api/` использует
+отдельные environment-токены со scopes read/compute; человеческие JWT и
+`user.id == 1` не являются machine identity. Без настроенных токенов доступ
+закрыт. Read-операции переиспользуют CRUD-агрегаты и возвращают безопасные
+проекции, без сырых лидов и клиентских файлов.
+
+Compute ставит уже сопоставленный запуск с сохранёнными колонками и известными
+статусами в ту же очередь аналитики через общий `enqueue_analysis`. Новый
+снимок, сопоставление или неизвестные статусы требуют участия оператора
+(`needs_input`). Правила статусов и mapping через Agent Interface не меняются.
+Новый worker, БД или business mutations не добавлены. Журнал `app.agent`
+содержит capability/scope, безопасные параметры, outcome, duration и request id.
+Настройка localhost, токенов и закрытие маршрута Nginx: `docs/agent-operations.md`.
+
 ### Уведомления и периодические проверки
 
 Backend кладёт сообщения в `telegram_notifications`; Bot API вызывает только отдельный `telegram_worker.py`, который claim-ит сообщения и сообщает результат через защищённые internal endpoints. Startup в `main.py` запускает daemon threads для outbox, долговечных project jobs, тарифных/лимитных проверок, Pixel-отчётов, очистки outbox и проверки B4 operator block. Project worker использует DB lease и допускает восстановление после падения процесса; остальные расписания остаются process-local. Эти потоки создаются в каждом процессе backend; масштабирование несколькими процессами требует проверки дедупликации и расписаний.

@@ -506,6 +506,79 @@ def _export_lk_snapshot(
     return written
 
 
+def _latest_match_name(group_id: int, run_id: str) -> str | None:
+    output = _output_dir(group_id, run_id)
+    matches = sorted(output.glob("*_сопоставление.xlsx"), key=lambda item: item.stat().st_mtime)
+    return matches[-1].name if matches else None
+
+
+def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, save_settings: bool = True) -> JobResponse:
+    _group(group_id, active=True)
+    run = _run(group_id, run_id)
+    if db.has_active_run_job(run_id):
+        raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка")
+    _validate_periods(payload.periods)
+    periods_json = [{"period_start": item.period_start.isoformat(), "period_end": item.period_end.isoformat()} for item in payload.periods]
+    if periods_json != run["periods"]:
+        raise HTTPException(status_code=400, detail="Периоды должны совпадать с подготовленными данными запуска")
+    mapping = _to_mapping(payload.mapping)
+    if not mapping.status_column or not mapping.date_column:
+        raise HTTPException(status_code=400, detail="Для аналитики выберите колонки даты и статуса")
+    match_path = _stored_output(group_id, run_id, _latest_match_name(group_id, run_id))
+    mapping = prepare_analyze_mapping(match_path, mapping)
+    if not mapping.status_column or not mapping.date_column:
+        raise HTTPException(status_code=400, detail="Для аналитики нужны колонки даты и статуса")
+    df = read_excel_sheet(match_path, mapping.sheet_name)
+    unknown = unknown_statuses(df[mapping.status_column].tolist(), db.group_key(group_id))
+    _validate_unknown_status_rules(unknown, payload.status_rules)
+    group_key = db.group_key(group_id)
+    rules_by_pattern = {
+        str(row["pattern"]).strip().casefold(): {
+            "pattern": row["pattern"], "match_type": row["match_type"], "group_name": row["group_name"],
+            "subgroup_name": row["subgroup_name"], "comment": row["comment"],
+            "priority": row["priority"], "project_code": row["project_code"],
+        }
+        for row in db.list_project_status_rules(group_key)
+    }
+    for status, group_name in payload.status_rules.items():
+        if status.strip() and group_name.strip():
+            rules_by_pattern[status.strip().casefold()] = {
+                "pattern": status.strip(), "match_type": "exact", "group_name": group_name.strip(),
+                "subgroup_name": None, "comment": "Добавлено через web", "priority": 10,
+                "project_code": group_key,
+            }
+    rule_snapshot = list(rules_by_pattern.values())
+    settings_snapshot = {"mapping": _from_mapping(mapping).model_dump(), "status_rules": rule_snapshot}
+    try:
+        job = db.create_processing_job(run_id, "analyze", {
+            "project": run["group_name"], "storage_key": group_key, "mapping": _from_mapping(mapping).model_dump(),
+            "rule_snapshot": rule_snapshot, "periods": periods_json,
+            "analysis_date": payload.analysis_date.isoformat() if payload.analysis_date else None,
+            "source_file_name": payload.source_file_name or str(run["source_file_name"]),
+            "match_output": match_path.name, "settings_snapshot": settings_snapshot,
+        }, group_id=group_id, deferred=True)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка") from exc
+    try:
+        if save_settings:
+            db.ensure_project(group_key)
+            db.save_column_mapping(group_key, mapping)
+            for status, group_name in payload.status_rules.items():
+                if status.strip() and group_name.strip():
+                    db.add_status_rule(StatusRule(
+                        project_code=group_key, pattern=status.strip(), match_type="exact", group_name=group_name.strip(),
+                        priority=10, comment="Добавлено через web",
+                    ))
+        db.update_run_status(run_id, "queued")
+        db.update_processing_job(int(job["id"]), status="queued", phase="В очереди")
+    except Exception as exc:
+        db.update_processing_job(int(job["id"]), status="failed", phase="Ошибка",
+                                 error_text="Не удалось сохранить настройки аналитики")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить настройки аналитики") from exc
+    start_worker()
+    return _job_response(db.get_processing_job(int(job["id"])))
+
+
 def build_router(
     current_admin: Callable[..., Any],
     get_db: Callable[..., Any],
@@ -785,76 +858,10 @@ def build_router(
                                     unknown_statuses=unknown, unknown_status_counts=_unknown_status_counts(values, unknown),
                                     status_groups=ALL_GROUPS)
 
-    def _latest_match_name(group_id: int, run_id: str) -> str | None:
-        output = _output_dir(group_id, run_id)
-        matches = sorted(output.glob("*_сопоставление.xlsx"), key=lambda item: item.stat().st_mtime)
-        return matches[-1].name if matches else None
 
     @router.post("/groups/{group_id}/runs/{run_id}/analyze/jobs", response_model=JobResponse)
     def queue_analyze(group_id: int, run_id: str, payload: AnalyzePayload) -> JobResponse:
-        _group(group_id, active=True)
-        run = _run(group_id, run_id)
-        if db.has_active_run_job(run_id):
-            raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка")
-        _validate_periods(payload.periods)
-        periods_json = [{"period_start": item.period_start.isoformat(), "period_end": item.period_end.isoformat()} for item in payload.periods]
-        if periods_json != run["periods"]:
-            raise HTTPException(status_code=400, detail="Периоды должны совпадать с подготовленными данными запуска")
-        mapping = _to_mapping(payload.mapping)
-        if not mapping.status_column or not mapping.date_column:
-            raise HTTPException(status_code=400, detail="Для аналитики выберите колонки даты и статуса")
-        match_path = _stored_output(group_id, run_id, _latest_match_name(group_id, run_id))
-        mapping = prepare_analyze_mapping(match_path, mapping)
-        if not mapping.status_column or not mapping.date_column:
-            raise HTTPException(status_code=400, detail="Для аналитики нужны колонки даты и статуса")
-        df = read_excel_sheet(match_path, mapping.sheet_name)
-        unknown = unknown_statuses(df[mapping.status_column].tolist(), db.group_key(group_id))
-        _validate_unknown_status_rules(unknown, payload.status_rules)
-        group_key = db.group_key(group_id)
-        rules_by_pattern = {
-            str(row["pattern"]).strip().casefold(): {
-                "pattern": row["pattern"], "match_type": row["match_type"], "group_name": row["group_name"],
-                "subgroup_name": row["subgroup_name"], "comment": row["comment"],
-                "priority": row["priority"], "project_code": row["project_code"],
-            }
-            for row in db.list_project_status_rules(group_key)
-        }
-        for status, group_name in payload.status_rules.items():
-            if status.strip() and group_name.strip():
-                rules_by_pattern[status.strip().casefold()] = {
-                    "pattern": status.strip(), "match_type": "exact", "group_name": group_name.strip(),
-                    "subgroup_name": None, "comment": "Добавлено через web", "priority": 10,
-                    "project_code": group_key,
-                }
-        rule_snapshot = list(rules_by_pattern.values())
-        settings_snapshot = {"mapping": _from_mapping(mapping).model_dump(), "status_rules": rule_snapshot}
-        try:
-            job = db.create_processing_job(run_id, "analyze", {
-                "project": run["group_name"], "storage_key": group_key, "mapping": _from_mapping(mapping).model_dump(),
-                "rule_snapshot": rule_snapshot, "periods": periods_json,
-                "analysis_date": payload.analysis_date.isoformat() if payload.analysis_date else None,
-                "source_file_name": payload.source_file_name or str(run["source_file_name"]),
-                "match_output": match_path.name, "settings_snapshot": settings_snapshot,
-            }, group_id=group_id, deferred=True)
-        except sqlite3.IntegrityError as exc:
-            raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка") from exc
-        try:
-            db.ensure_project(group_key)
-            db.save_column_mapping(group_key, mapping)
-            for status, group_name in payload.status_rules.items():
-                if status.strip() and group_name.strip():
-                    db.add_status_rule(StatusRule(
-                        project_code=group_key, pattern=status.strip(), match_type="exact", group_name=group_name.strip(),
-                        priority=10, comment="Добавлено через web",
-                    ))
-            db.update_run_status(run_id, "queued")
-            db.update_processing_job(int(job["id"]), status="queued", phase="В очереди")
-        except Exception as exc:
-            db.update_processing_job(int(job["id"]), status="failed", phase="Ошибка",
-                                     error_text="Не удалось сохранить настройки аналитики")
-            raise HTTPException(status_code=500, detail="Не удалось сохранить настройки аналитики") from exc
-        start_worker()
-        return _job_response(db.get_processing_job(int(job["id"])))
+        return enqueue_analysis(group_id, run_id, payload)
 
     @router.get("/groups/{group_id}/jobs/{job_id}", response_model=JobResponse)
     def processing_job(group_id: int, job_id: int) -> JobResponse:

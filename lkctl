@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$SCRIPT_DIR"
+if [ -n "${LKCTL_PYTHON:-}" ]; then
+    CLI_PYTHON=$LKCTL_PYTHON
+elif [ -x "$SCRIPT_DIR/venv/bin/python" ]; then
+    CLI_PYTHON="$SCRIPT_DIR/venv/bin/python"
+else
+    CLI_PYTHON=python3
+fi
+exec "$CLI_PYTHON" -m backend.app.agent_cli "$@"
