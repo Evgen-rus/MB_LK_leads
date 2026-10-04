@@ -141,3 +141,47 @@ venv/Scripts/python.exe -m pytest tests/test_agent_api.py tests/test_agent_servi
 
 Тесты используют искусственные данные и временные БД, без import/startup
 `main.py`, production, Prostats, Telegram и Google.
+
+## Настроенный VPS (проверено 4 октября 2026)
+
+На `root@82.147.71.51` checkout расположен в `/opt/MB_LK_leads`, backend —
+`lk-backend.service`, один Uvicorn-процесс на `127.0.0.1:8000`.
+Из любой директории SSH-сессии доступны:
+
+```bash
+lkctl capabilities
+lkctl overview
+lkctl clients find "Рио-Люкс"
+lkctl-compute capabilities
+lkctl-compute analytics run --group 8 --run RUN_ID
+```
+
+`/usr/local/bin/lkctl` автоматически загружает read-токен, если
+`LK_AGENT_TOKEN` ещё не задан. `/usr/local/bin/lkctl-compute` явно выбирает
+compute-токен. Значения не нужно копировать в чат или командную строку.
+Эти wrappers предназначены для SSH-пользователя root; доступ других Unix
+пользователей и подключение отдельного Rick-инстанса не настраивались.
+
+Защищённые файлы вне checkout:
+
+- `/etc/leadrecord/agent-api.env` — оба backend-токена;
+- `/etc/leadrecord/agent-read.env` — environment read-оператора;
+- `/etc/leadrecord/agent-compute.env` — environment compute-оператора.
+
+Каталог имеет права `700`, файлы — `600`, владелец root. Systemd подключает
+backend environment через `/etc/systemd/system/lk-backend.service.d/agent-api.conf`.
+Основная `.env` не изменялась. Эти файлы входят в защищённый backup конфигурации;
+их содержимое не должно попадать в Git, логи или диагностический вывод.
+
+В `/etc/nginx/sites-enabled/leadrecordwh.ru` закрыты `/agent/v1` и
+`/api/agent/v1`, включая подпути: существующий proxy убирает префикс `/api/`.
+Оба варианта через HTTPS возвращают 404; localhost требует Bearer token.
+Резервная копия прежнего Nginx-конфига находится в
+`/root/leadrecord-agent-backup-20261004T055632Z/nginx-leadrecordwh.ru`.
+
+После restart проверены read-capabilities, реальная история и результат
+существующего отчёта, отказ без токена/с неверным токеном, отказ compute для
+read, распознавание compute-токена и запрет mutation payloads. Локальный и
+публичный health возвращают 200; audit пишется в существующий `logs/app.log`,
+вхождений новых Agent tokens в нём не обнаружено. Реальный анализ клиентских
+данных для smoke-проверки не запускался.
