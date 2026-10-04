@@ -20,9 +20,13 @@ CAPABILITIES = [
     ("project.stats", "read", "Идентификации проекта по дням", ["project_id", "from_date", "to_date"]),
     ("leads.stats", "read", "Агрегаты идентификаций", ["client_id", "project_id", "from_date", "to_date"]),
     ("analytics.groups", "read", "Группы аналитики клиента", ["client_id", "limit", "offset"]),
+    ("analytics.plan", "read", "Настройки и готовность повторного анализа, новые проекты", ["group_id", "period_start", "period_end"]),
     ("analytics.history", "read", "История готовых анализов группы", ["group_id", "limit", "offset"]),
     ("analytics.result", "read", "Агрегаты готового отчёта или состояние запуска", ["group_id", "run_id", "export_id"]),
     ("analytics.run", "compute", "Поставить подготовленный запуск в штатную очередь; иначе needs_input", ["group_id", "run_id", "period_start", "period_end"]),
+    ("analytics.prepare", "compute", "Обновить сохранённую Google-таблицу и поставить сопоставление в очередь", ["group_id", "period_start", "period_end", "confirmed_project_ids"]),
+    ("analytics.confirm-statuses", "compute", "Сохранить явно подтверждённые категории новых статусов", ["group_id", "run_id", "status_rules"]),
+    ("analytics.download", "compute", "Скачать готовый Excel конкретного отчёта", ["group_id", "export_id"]),
 ]
 
 PARAMETERS = {
@@ -38,6 +42,8 @@ PARAMETERS = {
     "period_end": {"type": "date"},
     "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200},
     "offset": {"type": "integer", "default": 0, "minimum": 0},
+    "confirmed_project_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "Явно подтверждённые новые проекты группы"},
+    "status_rules": {"type": "object", "description": "Явные назначения неизвестного статуса в разрешённую категорию"},
 }
 
 REQUIRED = {
@@ -45,6 +51,8 @@ REQUIRED = {
     "projects.list": ["client_id"], "project.show": ["project_id"],
     "project.stats": ["project_id"], "analytics.groups": ["client_id"],
     "analytics.history": ["group_id"], "analytics.result": ["group_id"],
+    "analytics.plan": ["group_id"], "analytics.prepare": ["group_id", "period_start", "period_end"],
+    "analytics.confirm-statuses": ["group_id", "run_id", "status_rules"], "analytics.download": ["group_id", "export_id"],
 }
 
 INPUT_CHOICES = {
@@ -57,7 +65,7 @@ INPUT_CHOICES = {
 def discovery(scopes):
     return {"version": "1", "scopes": sorted(scopes), "capabilities": [
         {"name": name, "scope": scope, "description": description,
-         "available": scope in scopes, "method": "POST" if scope == "compute" else "GET",
+         "available": scope in scopes, "method": "POST" if scope == "compute" and name != "analytics.download" else "GET",
          "path": f"/agent/v1/{name}", "parameters": {p: PARAMETERS[p] for p in params},
          "required": REQUIRED.get(name, []), "input_choices": INPUT_CHOICES.get(name, [])}
         for name, scope, description, params in CAPABILITIES

@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import ipaddress
 import json
 import os
+import pathlib
 import re
+import socket
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 
 
 DEFAULT_URL = "http://127.0.0.1:8000"
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -25,6 +31,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class _HTTPStatusError(Exception):
     def __init__(self, status: int, response: dict | None = None):
         self.status, self.response = status, response
+
+
+class _DownloadError(Exception):
+    def __init__(self, code: str, message: str, input_error: bool = False):
+        self.code, self.message, self.input_error = code, message, input_error
 
 
 def _json(value: object) -> None:
@@ -84,6 +95,24 @@ def _period(value: str) -> tuple[str, str]:
     if len(parts) != 2:
         raise argparse.ArgumentTypeError("ожидался период YYYY-MM-DD:YYYY-MM-DD")
     return _date(parts[0]), _date(parts[1])
+
+
+def _project_ids(value: str) -> list[int]:
+    try:
+        ids = [_positive_int(item.strip()) for item in value.split(",")]
+    except argparse.ArgumentTypeError as exc:
+        raise argparse.ArgumentTypeError("ожидался список ID через запятую") from exc
+    if not ids or len(ids) != len(set(ids)):
+        raise argparse.ArgumentTypeError("список ID пуст или содержит повторы")
+    return ids
+
+
+def _status_assignment(value: str) -> tuple[str, str]:
+    status, separator, category = value.partition("=")
+    status, category = status.strip(), category.strip()
+    if not separator or value.count("=") != 1 or not status or not category:
+        raise argparse.ArgumentTypeError("ожидалось STATUS=CATEGORY")
+    return status, category
 
 
 class _JSONArgumentParser(argparse.ArgumentParser):
@@ -194,6 +223,27 @@ def _build_parser() -> _JSONArgumentParser:
     run_target.add_argument("--period", type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
     run_target.add_argument("--run", dest="run_id")
 
+    plan = analytics_commands.add_parser("plan", help="план подготовки аналитики")
+    plan.set_defaults(action="analytics.plan")
+    _id_option(plan, "--group", "group_id")
+    plan.add_argument("--period", type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
+    prepare = analytics_commands.add_parser("prepare", help="подготовить снимок аналитики")
+    prepare.set_defaults(action="analytics.prepare")
+    _id_option(prepare, "--group", "group_id")
+    prepare.add_argument("--period", required=True, type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
+    prepare.add_argument("--confirm-projects", type=_project_ids)
+    confirm = analytics_commands.add_parser("confirm-statuses", help="задать явные правила статусов")
+    confirm.set_defaults(action="analytics.confirm-statuses")
+    _id_option(confirm, "--group", "group_id")
+    confirm.add_argument("--run", dest="run_id", required=True)
+    confirm.add_argument("--assign", action="append", required=True, type=_status_assignment,
+                         metavar="STATUS=CATEGORY")
+    download = analytics_commands.add_parser("download", help="скачать XLSX отчёт")
+    download.set_defaults(action="analytics.download")
+    _id_option(download, "--group", "group_id")
+    _id_option(download, "--id", "export_id")
+    download.add_argument("--output", required=True)
+
     return parser
 
 
@@ -213,6 +263,36 @@ def _arguments_to_request(args: argparse.Namespace, parser: argparse.ArgumentPar
         else:
             body["run_id"] = args.run_id
         return action, {}, body
+
+    if action == "analytics.plan":
+        params = {"group_id": args.group_id}
+        if args.period:
+            start, end = args.period
+            if start > end:
+                parser.error("invalid period")
+            params.update(period_start=start, period_end=end)
+        return action, params, None
+
+    if action == "analytics.prepare":
+        start, end = args.period
+        if start > end:
+            parser.error("invalid period")
+        body = {"group_id": args.group_id, "period_start": start, "period_end": end}
+        if args.confirm_projects is not None:
+            body["confirmed_project_ids"] = args.confirm_projects
+        return action, {}, body
+
+    if action == "analytics.confirm-statuses":
+        status_rules = {}
+        for status, category in args.assign:
+            if status in status_rules:
+                parser.error("duplicate status")
+            status_rules[status] = category
+        return action, {}, {"group_id": args.group_id, "run_id": args.run_id,
+                            "status_rules": status_rules}
+
+    if action == "analytics.download":
+        return action, {"group_id": args.group_id, "export_id": args.export_id}, None
 
     names = ("client_id", "project_id", "group_id", "export_id", "run_id", "from_date", "to_date", "limit", "offset", "q")
     params = {name: values[name] for name in names if values.get(name) is not None}
@@ -245,7 +325,18 @@ def _validate_base_url(value: str) -> str:
     return f"http://{parsed.netloc.rstrip('/')}"
 
 
-def _transport(url: str, method: str, token: str, payload: dict | None) -> dict:
+def _http_error(exc: urllib.error.HTTPError) -> _HTTPStatusError:
+    envelope = None
+    try:
+        body = json.loads(exc.read(1_000_000).decode("utf-8"))
+        if isinstance(body, dict) and body.get("ok") is False:
+            envelope = body
+    except Exception:
+        pass
+    return _HTTPStatusError(exc.code, envelope)
+
+
+def _transport(url: str, method: str, token: str, payload: dict | None, timeout: int = 15) -> dict:
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     data = None
     if payload is not None:
@@ -254,20 +345,92 @@ def _transport(url: str, method: str, token: str, payload: dict | None) -> dict:
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
     try:
-        with opener.open(request, timeout=15) as response:
+        with opener.open(request, timeout=timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        envelope = None
-        try:
-            body = json.loads(exc.read(1_000_000).decode("utf-8"))
-            if isinstance(body, dict) and body.get("ok") is False:
-                envelope = body
-        except Exception:
-            pass
-        raise _HTTPStatusError(exc.code, envelope) from None
+        raise _http_error(exc) from None
     if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
         raise ValueError
     return result
+
+
+def _download_path(value: str) -> pathlib.Path:
+    try:
+        path = pathlib.Path(value)
+        if not path.is_absolute() or not path.name or path.name in (".", ".."):
+            raise _DownloadError("INVALID_OUTPUT_PATH", "Укажите абсолютный путь к файлу XLSX", True)
+        if not path.parent.is_dir():
+            raise _DownloadError("INVALID_OUTPUT_PATH", "Каталог для файла не существует", True)
+        if os.path.lexists(path):
+            raise _DownloadError("OUTPUT_EXISTS", "Файл назначения уже существует", True)
+    except (OSError, TypeError, ValueError):
+        raise _DownloadError("INVALID_OUTPUT_PATH", "Недопустимый путь к файлу XLSX", True) from None
+    return path
+
+
+def _download_file(url: str, token: str, value: str) -> dict:
+    output = _download_path(value)
+    fd, temporary = tempfile.mkstemp(prefix=".lkctl-", suffix=".tmp", dir=output.parent)
+    size, checksum, request_id, expected_size = 0, hashlib.sha256(), None, None
+    try:
+        request = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json",
+        }, method="GET")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        try:
+            response = opener.open(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            raise _http_error(exc) from None
+        with response:
+            if response.getcode() != 200:
+                raise _DownloadError("DOWNLOAD_FAILED", "Agent API не вернул полный XLSX отчёт")
+            request_id = response.headers.get("X-Request-Id")
+            length = response.headers.get("Content-Length")
+            if length is not None:
+                try:
+                    expected_size = int(length)
+                except ValueError:
+                    raise _DownloadError("DOWNLOAD_FAILED", "Некорректный размер XLSX файла") from None
+                if expected_size < 0:
+                    raise _DownloadError("DOWNLOAD_FAILED", "Некорректный размер XLSX файла")
+                if expected_size > MAX_DOWNLOAD_BYTES:
+                    raise _DownloadError("DOWNLOAD_TOO_LARGE", "Файл превышает лимит загрузки")
+            with os.fdopen(fd, "wb") as target:
+                fd = -1
+                while chunk := response.read(64 * 1024):
+                    size += len(chunk)
+                    if size > MAX_DOWNLOAD_BYTES:
+                        raise _DownloadError("DOWNLOAD_TOO_LARGE", "Файл превышает лимит загрузки")
+                    target.write(chunk)
+                    checksum.update(chunk)
+        if expected_size is not None and size != expected_size:
+            raise _DownloadError("DOWNLOAD_FAILED", "Размер XLSX файла не совпадает с ответом сервера")
+        try:
+            with zipfile.ZipFile(temporary) as workbook:
+                names = set(workbook.namelist())
+        except (OSError, zipfile.BadZipFile):
+            raise _DownloadError("INVALID_XLSX", "Сервер вернул некорректный XLSX файл") from None
+        if not {"[Content_Types].xml", "xl/workbook.xml"}.issubset(names):
+            raise _DownloadError("INVALID_XLSX", "Сервер вернул некорректный XLSX файл")
+        try:
+            os.link(temporary, output)
+        except FileExistsError:
+            raise _DownloadError("OUTPUT_EXISTS", "Файл назначения уже существует", True) from None
+        return {"ok": True, "action": "analytics.download",
+                "data": {"path": str(output), "bytes": size, "sha256": checksum.hexdigest()},
+                "error": None, "request_id": request_id, "state": "complete"}
+    except _DownloadError:
+        raise
+    except OSError:
+        raise _DownloadError("DOWNLOAD_FAILED", "Не удалось сохранить XLSX файл") from None
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 
 
 def _scrub(value: object, token: str) -> object:
@@ -281,6 +444,12 @@ def _scrub(value: object, token: str) -> object:
             for key, item in value.items()
         }
     return value
+
+
+def _timed_out(exc: Exception) -> bool:
+    return isinstance(exc, (TimeoutError, socket.timeout)) or (
+        isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, (TimeoutError, socket.timeout))
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -305,7 +474,14 @@ def main(argv: list[str] | None = None) -> int:
     if query:
         url = f"{url}?{query}"
     try:
-        result = _transport(url, "POST" if payload is not None else "GET", token, payload)
+        if action == "analytics.download":
+            result = _download_file(url, token, args.output)
+        else:
+            timeout = 120 if action == "analytics.prepare" else 15
+            result = _transport(url, "POST" if payload is not None else "GET", token, payload, timeout)
+    except _DownloadError as exc:
+        _json(_error(exc.code, exc.message, action, "input" if exc.input_error else "error"))
+        return 2 if exc.input_error else 1
     except _HTTPStatusError as exc:
         is_input = exc.status == 422 or (exc.response or {}).get("state") in ("input", "needs_input")
         if exc.response is not None:
@@ -315,7 +491,10 @@ def main(argv: list[str] | None = None) -> int:
             _json(_error("AGENT_REQUEST_REJECTED" if is_input else "AGENT_UNAVAILABLE", message, action,
                          "input" if is_input else "error"))
         return 2 if is_input else 1
-    except Exception:
+    except Exception as exc:
+        if action == "analytics.prepare" and _timed_out(exc):
+            _json(_error("PREPARE_TIMEOUT", "Ответ не получен вовремя; запуск мог быть создан. Проверьте его состояние перед повтором", action))
+            return 1
         _json(_error("AGENT_UNAVAILABLE", "Не удалось связаться с Agent API", action))
         return 1
 

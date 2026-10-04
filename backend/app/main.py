@@ -5289,7 +5289,9 @@ app.include_router(build_analytics_router(
 # Machine authentication is isolated from human admin/JWT authorization.
 from .agent_api.router import build_app as build_agent_app
 
-app.mount("/agent/v1", build_agent_app(get_db, settings))
+app.mount("/agent/v1", build_agent_app(get_db, settings, analytics_display=(
+    _source_code_for_display, _source_text_for_display, _project_name_for_display,
+)))
 
 
 @app.post("/admin/operator-block-check/run", response_model=schemas.OperatorBlockCheckOut)

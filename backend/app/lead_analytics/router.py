@@ -506,6 +506,105 @@ def _export_lk_snapshot(
     return written
 
 
+def prepare_run_from_source(
+    session: Any,
+    group_id: int,
+    periods_value: list[AnalysisPeriodPayload],
+    source_code_for_display: Callable[[str | None], str],
+    source_text_for_display: Callable[[str | None], str],
+    project_name_for_display: Callable[[str | None], str],
+    *,
+    client_url: str | None = None,
+    client_file: UploadFile | None = None,
+    required_mappings: tuple[ColumnMapping, ColumnMapping] | None = None,
+) -> UploadResponse:
+    """Create the usual immutable snapshots for an uploaded or linked workbook."""
+    group = _group(group_id, active=True)
+    project_ids = [int(value) for value in group["project_ids"]]
+    if not project_ids:
+        raise HTTPException(status_code=400, detail="В группу не добавлены проекты")
+    projects = session.execute(select(models.Project).where(models.Project.id.in_(project_ids))).scalars().all()
+    if {int(project.id) for project in projects} != set(project_ids) or any(
+        project.user_id != int(group["client_id"]) for project in projects
+    ):
+        raise HTTPException(status_code=409, detail="Состав группы изменился; проверьте проекты перед новым запуском")
+    project_names = {int(project.id): str(project.name) for project in projects}
+    _validate_periods(periods_value)
+    if required_mappings:
+        lk_mapping, client_mapping = required_mappings
+        if (not lk_mapping.sheet_name or not lk_mapping.lkid_column or not lk_mapping.source_column
+                or not client_mapping.sheet_name or not client_mapping.status_column):
+            raise HTTPException(status_code=409, detail="Сохранённые сопоставления требуют проверки")
+    url = None if client_file else (_sheet_url(client_url) or _sheet_url(group["spreadsheet_url"]))
+    if (client_file is None and not url) or (client_file is not None and client_url and client_url.strip()):
+        raise HTTPException(status_code=400, detail="Выберите .xlsx файл клиента или ссылку Google Таблицы")
+    if client_file:
+        _validate_excel(client_file)
+        client_content = client_file.file.read()
+        client_name = client_file.filename or "client.xlsx"
+        preferred_sheet = None
+    else:
+        try:
+            client_content, client_name, preferred_sheet = read_spreadsheet_url(str(url))
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Не удалось прочитать Google Таблицу. Проверьте ссылку и доступ.") from exc
+
+    start_date = min(item.period_start for item in periods_value)
+    end_date = max(item.period_end for item in periods_value)
+    start_local = datetime.combine(start_date, datetime.min.time())
+    end_exclusive = datetime.max if end_date == date.max else datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+    run_id = uuid.uuid4().hex
+    run_path = RUNS_DIR / run_id
+    input_path = run_path / "input"
+    input_path.mkdir(parents=True, exist_ok=False)
+    lk_path, client_path = input_path / "lk.xlsx", input_path / "client.xlsx"
+    try:
+        row_count = _export_lk_snapshot(
+            session, int(group["client_id"]), project_ids, start_local, end_exclusive, lk_path,
+            source_code_for_display, source_text_for_display, project_name_for_display,
+        )
+        client_path.write_bytes(client_content)
+        lk_inspect = _inspect_upload(
+            lk_path, "Идентификации ЛК.xlsx", "lk",
+            saved_mapping=db.get_match_mapping(db.group_key(group_id), "lk"),
+        )
+        try:
+            client_inspect = _inspect_upload(
+                client_path, client_name, "client", preferred_sheet,
+                db.get_match_mapping(db.group_key(group_id), "client"),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Файл клиента не является корректной книгой XLSX") from exc
+        if required_mappings:
+            for path, mapping in ((lk_path, lk_mapping), (client_path, client_mapping)):
+                if mapping.sheet_name not in list_sheets(path):
+                    raise HTTPException(status_code=409, detail="Сохранённый лист отсутствует в источнике")
+                columns = set(read_excel_sheet(path, mapping.sheet_name).columns)
+                fields = ("date_column", "phone_column", "channel_column", "source_column", "status_column",
+                          "comment_column", "lkid_column", "project_column")
+                if any(getattr(mapping, field) and getattr(mapping, field) not in columns for field in fields):
+                    raise HTTPException(status_code=409, detail="Сохранённые колонки отсутствуют в источнике")
+        if url:
+            db.update_group_spreadsheet_url(group_id, url)
+        db.create_run({
+            "id": run_id, "group_id": group_id, "client_id": group["client_id"],
+            "group_name": group["name"], "project_ids": project_ids,
+            "project_names": {str(pid): project_names.get(pid, f"Проект {pid}") for pid in project_ids},
+            "periods": [{"period_start": item.period_start.isoformat(), "period_end": item.period_end.isoformat()}
+                        for item in periods_value],
+            "settings": {"spreadsheet_url": url, "client_file_name": client_name},
+            "lk_snapshot": str(lk_path.relative_to(RUNS_DIR)),
+            "client_snapshot": str(client_path.relative_to(RUNS_DIR)), "source_file_name": client_name,
+        })
+    except Exception:
+        shutil.rmtree(run_path, ignore_errors=True)
+        raise
+    return UploadResponse(
+        run_id=run_id, project=str(group["name"]), lk=lk_inspect,
+        client=client_inspect, lk_row_count=row_count,
+    )
+
+
 def _latest_match_name(group_id: int, run_id: str) -> str | None:
     output = _output_dir(group_id, run_id)
     matches = sorted(output.glob("*_сопоставление.xlsx"), key=lambda item: item.stat().st_mtime)
@@ -579,6 +678,62 @@ def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, sav
     return _job_response(db.get_processing_job(int(job["id"])))
 
 
+def enqueue_match_job(
+    group_id: int,
+    run_id: str,
+    lk_mapping: ColumnMapping,
+    client_mapping: ColumnMapping,
+    *,
+    save_mappings: bool = True,
+    start: bool = True,
+) -> JobResponse:
+    """Queue the standard sequential matching worker with selected mappings."""
+    _group(group_id, active=True)
+    run = _run(group_id, run_id)
+    if db.has_active_run_job(run_id):
+        raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка")
+    if not lk_mapping.lkid_column or not lk_mapping.source_column:
+        raise HTTPException(status_code=400, detail="Для ЛК нужны LKID и полный источник")
+    if not client_mapping.status_column:
+        raise HTTPException(status_code=400, detail="Для клиента нужен статус")
+    lk_payload, client_payload = _from_mapping(lk_mapping), _from_mapping(client_mapping)
+    group_key = db.group_key(group_id)
+    payload_json = {
+        "project": run["group_name"], "lk_mapping": lk_payload.model_dump(),
+        "client_mapping": client_payload.model_dump(),
+    }
+    try:
+        job = db.create_processing_job(run_id, "match", payload_json, group_id=group_id, deferred=True)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка") from exc
+    try:
+        if save_mappings:
+            db.ensure_project(group_key)
+            db.save_match_mapping(group_key, "lk", lk_mapping)
+            db.save_match_mapping(group_key, "client", client_mapping)
+        db.update_processing_job(int(job["id"]), status="queued", phase="В очереди")
+    except Exception as exc:
+        db.update_processing_job(int(job["id"]), status="failed", phase="Ошибка",
+                                 error_text="Не удалось сохранить настройки сопоставления")
+        raise HTTPException(status_code=500, detail="Не удалось сохранить настройки сопоставления") from exc
+    if start:
+        start_worker()
+    return _job_response(db.get_processing_job(int(job["id"])))
+
+
+def validate_project_ids(session: Any, client_id: int, project_ids: list[int]) -> list[int]:
+    ids = sorted(set(int(value) for value in project_ids))
+    if any(value <= 0 for value in ids):
+        raise HTTPException(status_code=400, detail="Некорректный идентификатор проекта")
+    if ids:
+        rows = session.execute(select(models.Project.id).where(
+            models.Project.user_id == client_id, models.Project.id.in_(ids),
+        )).all()
+        if {int(row[0]) for row in rows} != set(ids):
+            raise HTTPException(status_code=400, detail="Все проекты группы должны принадлежать выбранному клиенту")
+    return ids
+
+
 def build_router(
     current_admin: Callable[..., Any],
     get_db: Callable[..., Any],
@@ -635,18 +790,6 @@ def build_router(
              "archived": item["archived"]}
             for item in db.list_groups(client_id)
         ]
-
-    def validate_project_ids(session: Any, client_id: int, project_ids: list[int]) -> list[int]:
-        ids = sorted(set(int(value) for value in project_ids))
-        if any(value <= 0 for value in ids):
-            raise HTTPException(status_code=400, detail="Некорректный идентификатор проекта")
-        if ids:
-            rows = session.execute(select(models.Project.id).where(
-                models.Project.user_id == client_id, models.Project.id.in_(ids),
-            )).all()
-            if {int(row[0]) for row in rows} != set(ids):
-                raise HTTPException(status_code=400, detail="Все проекты группы должны принадлежать выбранному клиенту")
-        return ids
 
     @router.post("/clients/{client_id}/groups")
     def create_group(client_id: int, payload: GroupPayload, session: Any = Depends(db_session)) -> dict[str, object]:
@@ -743,104 +886,22 @@ def build_router(
         client_url: str | None = Form(default=None),
         session: Any = Depends(db_session),
     ) -> UploadResponse:
-        group = _group(group_id, active=True)
-        project_ids = [int(value) for value in group["project_ids"]]
-        if not project_ids:
-            raise HTTPException(status_code=400, detail="В группу не добавлены проекты")
-        projects = session.execute(select(models.Project).where(models.Project.id.in_(project_ids))).scalars().all()
-        if {int(project.id) for project in projects} != set(project_ids) or any(project.user_id != int(group["client_id"]) for project in projects):
-            raise HTTPException(status_code=409, detail="Состав группы изменился; проверьте проекты перед новым запуском")
-        project_names = {int(project.id): str(project.name) for project in projects}
+        _group(group_id, active=True)
         try:
             periods_value = [AnalysisPeriodPayload(**item) for item in json.loads(periods)]
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             raise HTTPException(status_code=400, detail="Некорректный список периодов") from exc
-        _validate_periods(periods_value)
-        url = None if client_file else (_sheet_url(client_url) or _sheet_url(group["spreadsheet_url"]))
-        if (client_file is None and not url) or (client_file is not None and client_url and client_url.strip()):
-            raise HTTPException(status_code=400, detail="Выберите .xlsx файл клиента или ссылку Google Таблицы")
-        if client_file:
-            _validate_excel(client_file)
-            client_content = client_file.file.read()
-            client_name = client_file.filename or "client.xlsx"
-            preferred_sheet = None
-        else:
-            try:
-                client_content, client_name, preferred_sheet = read_spreadsheet_url(str(url))
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail="Не удалось прочитать Google Таблицу. Проверьте ссылку и доступ.") from exc
-
-        start_date = min(item.period_start for item in periods_value)
-        end_date = max(item.period_end for item in periods_value)
-        start_local = datetime.combine(start_date, datetime.min.time())
-        end_exclusive = datetime.max if end_date == date.max else datetime.combine(end_date + timedelta(days=1), datetime.min.time())
-        run_id = uuid.uuid4().hex
-        run_path = RUNS_DIR / run_id
-        input_path = run_path / "input"
-        input_path.mkdir(parents=True, exist_ok=False)
-        lk_path, client_path = input_path / "lk.xlsx", input_path / "client.xlsx"
-        try:
-            row_count = _export_lk_snapshot(
-                session, int(group["client_id"]), project_ids, start_local, end_exclusive, lk_path,
-                source_code_for_display, source_text_for_display, project_name_for_display,
-            )
-            client_path.write_bytes(client_content)
-            lk_inspect = _inspect_upload(lk_path, "Идентификации ЛК.xlsx", "lk", saved_mapping=db.get_match_mapping(db.group_key(group_id), "lk"))
-            try:
-                client_inspect = _inspect_upload(client_path, client_name, "client", preferred_sheet,
-                                                 db.get_match_mapping(db.group_key(group_id), "client"))
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail="Файл клиента не является корректной книгой XLSX") from exc
-            if url:
-                db.update_group_spreadsheet_url(group_id, url)
-            db.create_run({
-                "id": run_id, "group_id": group_id, "client_id": group["client_id"],
-                "group_name": group["name"], "project_ids": project_ids,
-                "project_names": {str(pid): project_names.get(pid, f"Проект {pid}") for pid in project_ids},
-                "periods": [{"period_start": item.period_start.isoformat(), "period_end": item.period_end.isoformat()} for item in periods_value],
-                "settings": {"spreadsheet_url": url, "client_file_name": client_name},
-                "lk_snapshot": str(lk_path.relative_to(RUNS_DIR)),
-                "client_snapshot": str(client_path.relative_to(RUNS_DIR)), "source_file_name": client_name,
-            })
-        except Exception:
-            shutil.rmtree(run_path, ignore_errors=True)
-            raise
-        return UploadResponse(
-            run_id=run_id, project=str(group["name"]), lk=lk_inspect,
-            client=client_inspect, lk_row_count=row_count,
+        return prepare_run_from_source(
+            session, group_id, periods_value,
+            source_code_for_display, source_text_for_display, project_name_for_display,
+            client_url=client_url, client_file=client_file,
         )
 
     @router.post("/groups/{group_id}/runs/{run_id}/match/jobs", response_model=JobResponse)
     def queue_match(group_id: int, run_id: str, payload: MatchPayload) -> JobResponse:
-        _group(group_id, active=True)
-        run = _run(group_id, run_id)
-        if db.has_active_run_job(run_id):
-            raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка")
-        lk_mapping, client_mapping = _to_mapping(payload.lk_mapping), _to_mapping(payload.client_mapping)
-        if not lk_mapping.lkid_column or not lk_mapping.source_column:
-            raise HTTPException(status_code=400, detail="Для ЛК нужны LKID и полный источник")
-        if not client_mapping.status_column:
-            raise HTTPException(status_code=400, detail="Для клиента нужен статус")
-        group_key = db.group_key(group_id)
-        payload_json = {
-            "project": run["group_name"], "lk_mapping": payload.lk_mapping.model_dump(),
-            "client_mapping": payload.client_mapping.model_dump(),
-        }
-        try:
-            job = db.create_processing_job(run_id, "match", payload_json, group_id=group_id, deferred=True)
-        except sqlite3.IntegrityError as exc:
-            raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка") from exc
-        try:
-            db.ensure_project(group_key)
-            db.save_match_mapping(group_key, "lk", lk_mapping)
-            db.save_match_mapping(group_key, "client", client_mapping)
-            db.update_processing_job(int(job["id"]), status="queued", phase="В очереди")
-        except Exception as exc:
-            db.update_processing_job(int(job["id"]), status="failed", phase="Ошибка",
-                                     error_text="Не удалось сохранить настройки сопоставления")
-            raise HTTPException(status_code=500, detail="Не удалось сохранить настройки сопоставления") from exc
-        start_worker()
-        return _job_response(db.get_processing_job(int(job["id"])))
+        return enqueue_match_job(
+            group_id, run_id, _to_mapping(payload.lk_mapping), _to_mapping(payload.client_mapping),
+        )
 
     @router.post("/groups/{group_id}/runs/{run_id}/analyze/setup", response_model=AnalyzeSetupResponse)
     def analyze_setup(group_id: int, run_id: str, payload: AnalyzeSetupPayload) -> AnalyzeSetupResponse:

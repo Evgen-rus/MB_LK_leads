@@ -105,3 +105,23 @@ def test_request_id_matches_outer_backend_access_log(monkeypatch):
     app.mount("/agent/v1", build_app(lambda: None, {}))
     response = TestClient(app).get("/agent/v1/capabilities", headers=headers())
     assert response.json()["request_id"] == response.headers["X-Request-Id"] == "server-assigned-id"
+
+
+@pytest.mark.parametrize("action,payload", [
+    ("analytics.prepare", {"group_id": 1, "period_start": "2026-09-28", "period_end": "2026-10-02"}),
+    ("analytics.confirm-statuses", {"group_id": 1, "run_id": "run", "status_rules": {"New": "Качественные"}}),
+])
+def test_new_compute_operations_require_compute(api, action, payload):
+    response = api.post("/agent/v1/" + action, headers=headers(), json=payload)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "SCOPE_REQUIRED"
+    response = api.post("/agent/v1/" + action, headers=headers(True), json={**payload, "token": "synthetic-compute-token"})
+    assert response.status_code == 422
+    assert "synthetic-compute-token" not in response.text
+
+
+def test_download_discovery_declares_binary_get_compute(api):
+    operations = api.get("/agent/v1/capabilities", headers=headers()).json()["data"]["capabilities"]
+    operation = next(item for item in operations if item["name"] == "analytics.download")
+    assert operation["scope"] == "compute" and operation["method"] == "GET"
+    assert not operation["available"]

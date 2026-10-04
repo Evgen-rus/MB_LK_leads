@@ -9,7 +9,7 @@ from datetime import date
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.exceptions import HTTPException
 
@@ -27,6 +27,8 @@ class ReadParams(BaseModel):
     run_id: str | None = Field(None, min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     from_date: date | None = None
     to_date: date | None = None
+    period_start: date | None = None
+    period_end: date | None = None
     q: str | None = Field(None, max_length=200)
     limit: int = Field(50, ge=1, le=200)
     offset: int = Field(0, ge=0)
@@ -40,6 +42,21 @@ class RunParams(BaseModel):
     period_end: date | None = None
 
 
+class PrepareParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    group_id: int = Field(ge=1)
+    period_start: date
+    period_end: date
+    confirmed_project_ids: list[int] | None = Field(None, max_length=2000)
+
+
+class StatusParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    group_id: int = Field(ge=1)
+    run_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
+    status_rules: dict[str, str] = Field(max_length=200)
+
+
 def _failure(request, error):
     body = {"ok": False, "action": getattr(request.state, "action", None),
             "error": {"code": error.code, "message": error.message},
@@ -51,7 +68,7 @@ def _failure(request, error):
     return JSONResponse(jsonable_encoder(body), status_code=error.status)
 
 
-def build_app(get_db, settings):
+def build_app(get_db, settings, analytics_display=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     operations = {name: (scope, params) for name, scope, _, params in CAPABILITIES}
 
@@ -83,7 +100,7 @@ def build_app(get_db, settings):
                 if key in {"client_id", "project_id", "group_id", "export_id", "limit", "offset"}:
                     if value.isascii() and value.isdigit() and len(value) < 12:
                         audit_params[key] = int(value)
-                elif key in {"from_date", "to_date"}:
+                elif key in {"from_date", "to_date", "period_start", "period_end"}:
                     try:
                         audit_params[key] = date.fromisoformat(value).isoformat()
                     except ValueError:
@@ -121,7 +138,7 @@ def build_app(get_db, settings):
 
     @app.get("/{action}")
     def read(action: str, request: Request, session=Depends(get_db)):
-        if action not in operations or operations[action][0] != "read":
+        if action not in operations or (operations[action][0] != "read" and action != "analytics.download"):
             raise AgentError("CAPABILITY_NOT_FOUND", "Read capability не найдена", 404)
         raw = dict(request.query_params)
         if set(raw) - set(operations[action][1]):
@@ -132,6 +149,11 @@ def build_app(get_db, settings):
             raise AgentError("INVALID_PARAMETERS", "Некорректные параметры", 422) from None
         if action == "capabilities":
             return success(request, discovery(request.state.agent_scopes))
+        if action == "analytics.download":
+            from .reports import report_download
+            path, filename = report_download(params)
+            return FileResponse(path, filename=filename,
+                                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if action.startswith("analytics."):
             from .analytics import execute_read
             data = execute_read(action, session, params)
@@ -147,5 +169,18 @@ def build_app(get_db, settings):
         request.state.audit_params.update({key: value for key, value in params.items()
                                            if key in {"group_id", "period_start", "period_end"}})
         return success(request, execute_run(params))
+
+    @app.post("/analytics.prepare")
+    def prepare(payload: PrepareParams, request: Request, session=Depends(get_db)):
+        from .analytics_workflow import execute_prepare
+        params = payload.model_dump(mode="json", exclude_none=True)
+        request.state.audit_params.update({key: params[key] for key in ("group_id", "period_start", "period_end")})
+        return success(request, execute_prepare(session, params, analytics_display=analytics_display))
+
+    @app.post("/analytics.confirm-statuses")
+    def confirm_statuses(payload: StatusParams, request: Request, session=Depends(get_db)):
+        from .analytics_workflow import execute_confirm_statuses
+        request.state.audit_params["group_id"] = payload.group_id
+        return success(request, execute_confirm_statuses(session, payload.model_dump(mode="json")))
 
     return app
