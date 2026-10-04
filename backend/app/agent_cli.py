@@ -97,6 +97,26 @@ def _period(value: str) -> tuple[str, str]:
     return _date(parts[0]), _date(parts[1])
 
 
+def _period_list(values: list[tuple[str, str]] | None, parser: argparse.ArgumentParser,
+                 *, required: bool = True) -> list[dict[str, str]] | None:
+    if not values:
+        if required:
+            parser.error("missing periods")
+        return None
+    if len(values) > 64 or len(set(values)) != len(values):
+        parser.error("invalid periods")
+    try:
+        parsed = [(dt.date.fromisoformat(start), dt.date.fromisoformat(end)) for start, end in values]
+        if any(start > end or (end - start).days >= 366 for start, end in parsed):
+            parser.error("invalid period range")
+        if (max(end for _, end in parsed) - min(start for start, _ in parsed)).days >= 366:
+            parser.error("period envelope exceeds 366 days")
+    except (TypeError, ValueError):
+        parser.error("invalid period range")
+    return [{"period_start": start.isoformat(), "period_end": end.isoformat()}
+            for start, end in parsed]
+
+
 def _project_ids(value: str) -> list[int]:
     if value.strip().casefold() == "none":
         return []
@@ -221,9 +241,9 @@ def _build_parser() -> _JSONArgumentParser:
     run = analytics_commands.add_parser("run", help="поставить анализ в штатную очередь")
     run.set_defaults(action="analytics.run")
     _id_option(run, "--group", "group_id")
-    run_target = run.add_mutually_exclusive_group(required=True)
-    run_target.add_argument("--period", type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
-    run_target.add_argument("--run", dest="run_id")
+    run.add_argument("--period", action="append", type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD",
+                     help="период; можно повторить до 64 раз")
+    run.add_argument("--run", dest="run_id")
 
     plan = analytics_commands.add_parser("plan", help="план подготовки аналитики")
     plan.set_defaults(action="analytics.plan")
@@ -232,7 +252,8 @@ def _build_parser() -> _JSONArgumentParser:
     prepare = analytics_commands.add_parser("prepare", help="подготовить снимок аналитики")
     prepare.set_defaults(action="analytics.prepare")
     _id_option(prepare, "--group", "group_id")
-    prepare.add_argument("--period", required=True, type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
+    prepare.add_argument("--period", action="append", required=True, type=_period,
+                         metavar="YYYY-MM-DD:YYYY-MM-DD", help="период; можно повторить до 64 раз")
     prepare.add_argument(
         "--confirm-projects", type=_project_ids, metavar="ID,ID|none",
         help="явно подтвердить добавляемые ID; none — явно отказаться от всех новых проектов",
@@ -260,13 +281,14 @@ def _arguments_to_request(args: argparse.Namespace, parser: argparse.ArgumentPar
 
     if action == "analytics.run":
         body = {"group_id": args.group_id}
-        if args.period:
-            start, end = args.period
-            if start > end:
-                parser.error("invalid period")
-            body.update(period_start=start, period_end=end)
-        else:
+        periods = _period_list(args.period, parser, required=not bool(args.run_id))
+        if args.run_id:
             body["run_id"] = args.run_id
+        if periods:
+            if len(periods) == 1:
+                body.update(periods[0])
+            else:
+                body["periods"] = periods
         return action, {}, body
 
     if action == "analytics.plan":
@@ -279,10 +301,12 @@ def _arguments_to_request(args: argparse.Namespace, parser: argparse.ArgumentPar
         return action, params, None
 
     if action == "analytics.prepare":
-        start, end = args.period
-        if start > end:
-            parser.error("invalid period")
-        body = {"group_id": args.group_id, "period_start": start, "period_end": end}
+        periods = _period_list(args.period, parser)
+        body = {"group_id": args.group_id}
+        if len(periods) == 1:
+            body.update(periods[0])
+        else:
+            body["periods"] = periods
         if args.confirm_projects is not None:
             body["confirmed_project_ids"] = args.confirm_projects
         return action, {}, body

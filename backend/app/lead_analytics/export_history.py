@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -37,6 +38,53 @@ def analysis_report_path(report_file_name: str | None) -> Path | None:
     except ValueError:
         return None
     return ANALYSIS_REPORTS_DIR / report_file_name
+
+
+def analysis_download_filename(item: dict[str, Any], group_name: str, source_sheet_name: str | None) -> str:
+    """Stable, cross-platform download name based on saved group, sheet and periods."""
+    periods = item.get("periods") or [_legacy_period(item)]
+    dates: list[date] = []
+    try:
+        for period in periods:
+            dates.extend((date.fromisoformat(str(period["period_start"])),
+                          date.fromisoformat(str(period["period_end"]))))
+    except (KeyError, TypeError, ValueError):
+        periods = [_legacy_period(item)]
+        try:
+            dates = [date.fromisoformat(str(periods[0]["period_start"])),
+                     date.fromisoformat(str(periods[0]["period_end"]))]
+        except (KeyError, TypeError, ValueError):
+            dates = []
+
+    def component(value: str) -> str:
+        value = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', "_", str(value))
+        value = re.sub(r"\s+", "_", value).strip(" ._")
+        return value or "Лист_не_сохранен"
+
+    group = component(group_name)
+    sheet = component(source_sheet_name or "Лист_не_сохранен")
+    period_marker = "_по-периодам" if len(periods) > 1 else ""
+    if dates:
+        bounds = f"_{min(dates).isoformat()}_{max(dates).isoformat()}"
+    else:
+        bounds = "_даты-не-указаны"
+    fixed_prefix = "_Аналитика_"
+    fixed_tail = f"{period_marker}{bounds}.xlsx"
+    # Reserve the full label, period bounds, and extension before shortening
+    # the group or source-sheet names.
+    available = 240 - len((fixed_prefix + fixed_tail).encode("utf-8"))
+    group_budget = min(len(group.encode("utf-8")), max(16, available // 2))
+    sheet_budget = min(len(sheet.encode("utf-8")), max(8, available - group_budget))
+
+    def truncate(value: str, limit: int) -> str:
+        result = ""
+        for char in value:
+            if len((result + char).encode("utf-8")) > limit:
+                break
+            result += char
+        return result.rstrip(" ._") or "_"
+
+    return f"{truncate(group, group_budget)}{fixed_prefix}{truncate(sheet, sheet_budget)}{fixed_tail}"
 SMALL_SAMPLE_THRESHOLD = 30
 
 

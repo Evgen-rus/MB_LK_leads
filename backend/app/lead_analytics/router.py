@@ -25,6 +25,7 @@ from .excel_reader import list_sheets, read_excel_sheet
 from .export_history import (
     ExportMetadata,
     ExportPeriod,
+    analysis_download_filename,
     analysis_report_path,
     delete_analysis_export,
     list_exports,
@@ -35,7 +36,6 @@ from .models import ColumnMapping, StatusRule
 from .pipeline import analyze_file
 from .status_classifier import ALL_GROUPS, is_missing_status, unknown_statuses
 from .structure_detector import detect_match_mapping, prepare_analyze_mapping
-from .source_utils import safe_filename
 
 PREVIEW_ROWS = 25
 JOB_WORKER_LOCK = threading.Lock()
@@ -611,6 +611,25 @@ def _latest_match_name(group_id: int, run_id: str) -> str | None:
     return matches[-1].name if matches else None
 
 
+def _matched_source_sheet_name(run_id: str) -> str | None:
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT payload_json FROM processing_jobs WHERE run_id=? AND kind='match' ORDER BY id DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    mapping = payload.get("client_mapping")
+    value = payload.get("source_sheet_name") or (mapping.get("sheet_name") if isinstance(mapping, dict) else None)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, save_settings: bool = True) -> JobResponse:
     _group(group_id, active=True)
     run = _run(group_id, run_id)
@@ -648,6 +667,9 @@ def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, sav
             }
     rule_snapshot = list(rules_by_pattern.values())
     settings_snapshot = {"mapping": _from_mapping(mapping).model_dump(), "status_rules": rule_snapshot}
+    source_sheet_name = _matched_source_sheet_name(run_id)
+    if source_sheet_name:
+        settings_snapshot["source_sheet_name"] = source_sheet_name
     try:
         job = db.create_processing_job(run_id, "analyze", {
             "project": run["group_name"], "storage_key": group_key, "mapping": _from_mapping(mapping).model_dump(),
@@ -700,7 +722,7 @@ def enqueue_match_job(
     group_key = db.group_key(group_id)
     payload_json = {
         "project": run["group_name"], "lk_mapping": lk_payload.model_dump(),
-        "client_mapping": client_payload.model_dump(),
+        "client_mapping": client_payload.model_dump(), "source_sheet_name": client_mapping.sheet_name,
     }
     try:
         job = db.create_processing_job(run_id, "match", payload_json, group_id=group_id, deferred=True)
@@ -867,7 +889,10 @@ def build_router(
             raise HTTPException(status_code=404, detail="Файл отчёта для этой выгрузки недоступен")
         run = db.get_run(str(item.get("run_id"))) if item.get("run_id") else None
         report_group_name = run["group_name"] if run else group["name"]
-        return FileResponse(path, filename=f"{safe_filename(str(report_group_name))}_выгрузка_{item['export_number']}_аналитика.xlsx",
+        source_sheet_name = (item.get("settings") or {}).get("source_sheet_name")
+        if not source_sheet_name and item.get("run_id"):
+            source_sheet_name = _matched_source_sheet_name(str(item["run_id"]))
+        return FileResponse(path, filename=analysis_download_filename(item, str(report_group_name), source_sheet_name),
                             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     @router.delete("/groups/{group_id}/exports/{export_id}")

@@ -1,7 +1,5 @@
 """Safe re-analysis workflow using the existing Lead Analytics queue."""
-import re
 import threading
-from datetime import date
 
 from fastapi import HTTPException
 
@@ -11,23 +9,9 @@ from ..lead_analytics.excel_reader import read_excel_sheet
 from ..lead_analytics.models import ColumnMapping, StatusRule
 from ..lead_analytics.status_classifier import ALL_GROUPS, unknown_statuses
 from .contracts import AgentError
+from .periods import requested_periods
 
 _PREPARE_LOCK = threading.Lock()
-
-
-def _period(params):
-    start, end = params.get("period_start"), params.get("period_end")
-    try:
-        if not isinstance(start, str) or not isinstance(end, str):
-            raise ValueError
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
-            raise ValueError
-        first, last = date.fromisoformat(start), date.fromisoformat(end)
-        if first > last or (last - first).days >= 366:
-            raise ValueError
-    except (TypeError, ValueError):
-        raise AgentError("INVALID_PERIOD", "Укажите period_start и period_end в формате YYYY-MM-DD; максимум 366 дней", 422) from None
-    return first, last
 
 
 def _needs(code, message, data=None):
@@ -60,7 +44,7 @@ def _execute_prepare(session, params, *, analytics_display=None):
         raise AgentError("GROUP_NOT_FOUND", "Группа аналитики не найдена", 404)
     if group["archived"]:
         raise AgentError("GROUP_ARCHIVED", "Группа архивирована", 409)
-    first, last = _period(params)
+    periods = requested_periods(params)
     active = _active_jobs(group_id)
     if active:
         raise AgentError("RUN_BUSY", "Для группы уже выполняется обработка", 409, data={"active_jobs": active})
@@ -131,10 +115,10 @@ def _execute_prepare(session, params, *, analytics_display=None):
 
     if analytics_display is None or len(analytics_display) != 3 or not all(callable(fn) for fn in analytics_display):
         raise AgentError("ANALYTICS_UNAVAILABLE", "Не настроено представление идентификаций для аналитики", 503)
-    period = pipeline.AnalysisPeriodPayload(period_start=first, period_end=last)
+    period_payloads = [pipeline.AnalysisPeriodPayload(**item) for item in periods]
     try:
         prepared = pipeline.prepare_run_from_source(
-            session, group_id, [period], *analytics_display, client_url=url,
+            session, group_id, period_payloads, *analytics_display, client_url=url,
             required_mappings=(lk_mapping, client_mapping),
         )
         queued = pipeline.enqueue_match_job(
@@ -156,7 +140,7 @@ def _execute_prepare(session, params, *, analytics_display=None):
 
     return {
         "group_id": group_id, "run_id": prepared.run_id,
-        "periods": [{"period_start": first.isoformat(), "period_end": last.isoformat()}],
+        "periods": periods,
         "added_project_ids": sorted(additions),
         "excluded_candidate_project_ids": sorted(candidates.difference(additions)),
         "job": {key: getattr(queued, key) for key in ("id", "run_id", "kind", "status", "processed_rows", "total_rows")},

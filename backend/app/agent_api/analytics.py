@@ -9,11 +9,12 @@ from sqlalchemy import select
 
 from .. import models
 from ..lead_analytics import db, router as pipeline
-from ..lead_analytics.export_history import list_exports, analysis_report_path
+from ..lead_analytics.export_history import analysis_download_filename, list_exports, analysis_report_path
 from ..lead_analytics.excel_reader import read_excel_sheet
 from ..lead_analytics.structure_detector import prepare_analyze_mapping
 from ..lead_analytics.status_classifier import ALL_GROUPS, unknown_statuses
 from .contracts import AgentError
+from .periods import requested_periods
 
 
 def _required(params, key):
@@ -36,13 +37,20 @@ def _page(items, params):
     return {"items": items[offset:offset + limit], "total": len(items), "offset": offset, "limit": limit}
 
 
-def _report(item):
+def _report(item, group_id=None):
     fields = ("id", "export_number", "period_start", "period_end", "analysis_date",
               "total_count", "missed_count", "missed_rate", "quality_count", "quality_rate",
               "demand_count", "demand_rate", "periods", "run_id")
     result = {key: item.get(key) for key in fields}
     path = analysis_report_path(item.get("report_file_name"))
     result["report_available"] = bool(path and path.is_file())
+    run = db.get_run(str(item.get("run_id"))) if item.get("run_id") else None
+    group = db.get_group(group_id) if group_id else None
+    group_name = (run or {}).get("group_name") or (group or {}).get("name") or "Аналитика"
+    source_sheet_name = (item.get("settings") or {}).get("source_sheet_name")
+    if not source_sheet_name and item.get("run_id"):
+        source_sheet_name = pipeline._matched_source_sheet_name(str(item["run_id"]))
+    result["download_filename"] = analysis_download_filename(item, str(group_name), source_sheet_name)
     return result
 
 
@@ -176,7 +184,7 @@ def execute_read(action, session, params):
     _group(group_id)
     exports = list_exports(db.group_key(group_id))
     if action == "analytics.history":
-        return _page([_report(item) for item in exports], params)
+        return _page([_report(item, group_id) for item in exports], params)
     if action == "analytics.result":
         if bool(params.get("export_id")) == bool(params.get("run_id")):
             raise AgentError("INVALID_PARAMETERS", "Укажите export_id или run_id", 422)
@@ -184,7 +192,7 @@ def execute_read(action, session, params):
             item = next((item for item in exports if item["id"] == params["export_id"]), None)
             if not item:
                 raise AgentError("RESULT_NOT_FOUND", "Результат аналитики не найден", 404)
-            return _report(item)
+            return _report(item, group_id)
         run = db.get_run(params["run_id"])
         if not run or int(run["group_id"]) != group_id:
             raise AgentError("RUN_NOT_FOUND", "Запуск не найден", 404)
@@ -195,7 +203,7 @@ def execute_read(action, session, params):
                 "project_ids": run["project_ids"],
                 "job": job, "error_code": (job or {}).get("error_code"),
                 "needs_input": bool(job and job.get("status") == "failed"),
-                "result": _report(item) if item else None}
+                "result": _report(item, group_id) if item else None}
     raise AgentError("CAPABILITY_NOT_FOUND", "Capability не найдена", 404)
 
 
@@ -208,18 +216,20 @@ def execute_run(params):
     if not run_id:
         group_id = _required(params, "group_id")
         _group(group_id, active=True)
-        if not _validate_requested_period(params):
-            raise AgentError("INVALID_PARAMETERS", "Укажите period_start и period_end", 422)
+        periods = requested_periods(params, required=False)
+        if not periods:
+            raise AgentError("INVALID_PARAMETERS", "Укажите period_start/period_end или periods", 422)
         _needs("PREPARATION_REQUIRED", "Подготовьте снимок и сопоставление в разделе Аналитика, затем укажите run_id",
-               {"group_id": group_id, "required": ["client_snapshot", "matched_workbook", "saved_mapping", "status_rules"]})
+               {"group_id": group_id, "periods": periods,
+                "required": ["client_snapshot", "matched_workbook", "saved_mapping", "status_rules"]})
     run = db.get_run(run_id)
     if not run or (params.get("group_id") and int(run["group_id"]) != params["group_id"]):
         raise AgentError("RUN_NOT_FOUND", "Запуск не найден", 404)
     group_id = int(run["group_id"])
     _group(group_id, active=True)
-    requested = _validate_requested_period(params)
-    if requested and run["periods"] != [requested]:
-        raise AgentError("PERIOD_MISMATCH", "Период должен совпадать со снимком запуска", 409)
+    requested = requested_periods(params, required=False)
+    if requested is not None and run["periods"] != requested:
+        raise AgentError("PERIOD_MISMATCH", "Список периодов должен совпадать со снимком запуска", 409)
     if run["status"] == "completed":
         _needs("NEW_RUN_REQUIRED", "Анализ завершён; для нового анализа подготовьте новый запуск")
     job = _job(run_id)
@@ -257,16 +267,3 @@ def execute_run(params):
         _needs("MAPPING_REQUIRED", "Проверьте файл и сопоставление колонок в разделе Аналитика")
     return {"run_id": run_id, "group_id": group_id, "job": {
         key: getattr(queued, key) for key in ("id", "run_id", "kind", "status", "processed_rows", "total_rows", "export_id")}}
-
-
-def _validate_requested_period(params):
-    start, end = params.get("period_start"), params.get("period_end")
-    if not start and not end:
-        return None
-    try:
-        first, last = date.fromisoformat(start), date.fromisoformat(end)
-        if first > last or (last - first).days >= 366:
-            raise ValueError()
-    except (ValueError, TypeError):
-        raise AgentError("INVALID_PERIOD", "Укажите обе даты YYYY-MM-DD; максимум 366 дней", 422) from None
-    return {"period_start": first.isoformat(), "period_end": last.isoformat()}

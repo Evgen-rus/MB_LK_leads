@@ -23,8 +23,8 @@ CAPABILITIES = [
     ("analytics.plan", "read", "Настройки и готовность повторного анализа, новые проекты", ["group_id", "period_start", "period_end"]),
     ("analytics.history", "read", "История готовых анализов группы", ["group_id", "limit", "offset"]),
     ("analytics.result", "read", "Агрегаты готового отчёта или состояние запуска", ["group_id", "run_id", "export_id"]),
-    ("analytics.run", "compute", "Поставить подготовленный запуск в штатную очередь; иначе needs_input", ["group_id", "run_id", "period_start", "period_end"]),
-    ("analytics.prepare", "compute", "Обновить сохранённую Google-таблицу и поставить сопоставление в очередь", ["group_id", "period_start", "period_end", "confirmed_project_ids"]),
+    ("analytics.run", "compute", "Поставить подготовленный запуск в штатную очередь; иначе needs_input", ["group_id", "run_id", "period_start", "period_end", "periods"]),
+    ("analytics.prepare", "compute", "Обновить сохранённую Google-таблицу и поставить сопоставление в очередь", ["group_id", "period_start", "period_end", "periods", "confirmed_project_ids"]),
     ("analytics.confirm-statuses", "compute", "Сохранить явно подтверждённые категории новых статусов", ["group_id", "run_id", "status_rules"]),
     ("analytics.download", "compute", "Скачать готовый Excel конкретного отчёта", ["group_id", "export_id"]),
 ]
@@ -40,6 +40,10 @@ PARAMETERS = {
     "to_date": {"type": "date", "description": "Включительно; максимум 366 дней"},
     "period_start": {"type": "date"},
     "period_end": {"type": "date"},
+    "periods": {"type": "array", "max_items": 64, "items": {
+        "type": "object", "required": ["period_start", "period_end"],
+        "properties": {"period_start": {"type": "date"}, "period_end": {"type": "date"}},
+    }, "description": "Периоды в заданном порядке; допускаются пересечения, повторы запрещены"},
     "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200},
     "offset": {"type": "integer", "default": 0, "minimum": 0},
     "confirmed_project_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "Явно подтверждённые новые проекты группы"},
@@ -51,14 +55,15 @@ REQUIRED = {
     "projects.list": ["client_id"], "project.show": ["project_id"],
     "project.stats": ["project_id"], "analytics.groups": ["client_id"],
     "analytics.history": ["group_id"], "analytics.result": ["group_id"],
-    "analytics.plan": ["group_id"], "analytics.prepare": ["group_id", "period_start", "period_end"],
+    "analytics.plan": ["group_id"], "analytics.prepare": ["group_id"],
     "analytics.confirm-statuses": ["group_id", "run_id", "status_rules"], "analytics.download": ["group_id", "export_id"],
 }
 
 INPUT_CHOICES = {
     "leads.stats": [["client_id"], ["project_id"]],
     "analytics.result": [["export_id"], ["run_id"]],
-    "analytics.run": [["run_id"], ["group_id", "period_start", "period_end"]],
+    "analytics.run": [["run_id"], ["group_id", "period_start", "period_end"], ["group_id", "periods"]],
+    "analytics.prepare": [["group_id", "period_start", "period_end"], ["group_id", "periods"]],
 }
 
 

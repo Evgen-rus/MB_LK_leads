@@ -1,8 +1,7 @@
 """Download only a registered analysis report; never accept a filesystem path."""
 from .contracts import AgentError
-from ..lead_analytics import db
-from ..lead_analytics.export_history import analysis_report_path, list_exports
-from ..lead_analytics.source_utils import safe_filename
+from ..lead_analytics import db, router as pipeline
+from ..lead_analytics.export_history import analysis_download_filename, analysis_report_path, list_exports
 
 
 def report_download(params):
@@ -20,4 +19,7 @@ def report_download(params):
         raise AgentError("REPORT_UNAVAILABLE", "Файл отчёта недоступен", 404)
     run = db.get_run(str(item.get("run_id"))) if item.get("run_id") else None
     name = run["group_name"] if run else group["name"]
-    return path, f"{safe_filename(str(name))}_выгрузка_{item['export_number']}_аналитика.xlsx"
+    source_sheet_name = (item.get("settings") or {}).get("source_sheet_name")
+    if not source_sheet_name and item.get("run_id"):
+        source_sheet_name = pipeline._matched_source_sheet_name(str(item["run_id"]))
+    return path, analysis_download_filename(item, str(name), source_sheet_name)

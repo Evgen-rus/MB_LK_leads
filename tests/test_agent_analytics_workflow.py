@@ -1,11 +1,13 @@
 """Synthetic end-to-end tests for the agent analytics repeat workflow."""
 from datetime import datetime
 from io import BytesIO
+from urllib.parse import unquote
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -13,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 from backend.app import models
 from backend.app.agent_api.router import build_app
 from backend.app.agent_api import analytics_workflow
-from backend.app.lead_analytics import db, pipeline as analysis_pipeline, router
+from backend.app.lead_analytics import db, export_history, pipeline as analysis_pipeline, router
 from backend.app.lead_analytics.models import ColumnMapping, StatusRule
 from backend.app.lead_analytics.status_classifier import ALL_GROUPS
 
@@ -24,6 +26,18 @@ def _client_xlsx():
     ws.title = "Client"
     ws.append(["Дата", "Телефон", "Статус"])
     ws.append([datetime(2026, 9, 3), "+7 900 000-00-01", "Новый статус"])
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def _client_xlsx_for_periods():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Client"
+    ws.append(["Дата", "Телефон", "Статус"])
+    ws.append([datetime(2026, 9, 3), "+7 900 000-00-01", "Known"])
+    ws.append([datetime(2026, 9, 10), "+7 900 000-00-02", "Known"])
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()
@@ -88,7 +102,9 @@ def configured(tmp_path, monkeypatch):
     )
     app = FastAPI()
     app.mount("/agent/v1", build_app(get_db, {"SHEETS_TZ": "Europe/Moscow"}, analytics_display=display))
-    yield TestClient(app), group_id
+    client = TestClient(app)
+    client.main_sessions = sessions
+    yield client, group_id
     engine.dispose()
 
 
@@ -162,6 +178,87 @@ def test_prepare_match_confirm_run_and_result_use_real_queue(configured):
     assert result["data"]["periods"] == [{"period_start": "2026-09-01", "period_end": "2026-09-30"}]
     assert result["data"]["result"]["total_count"] == 1
     assert "synthetic-vid" not in str(result)
+
+
+def test_multi_period_month_and_overlapping_weeks_match_order_and_filename(configured, monkeypatch):
+    client, group_id = configured
+    with client.main_sessions() as session:
+        session.add(models.ProviderLead(id=2, vid="synthetic-vid-2", lead_source="provider",
+                                        phone="+7 900 000-00-02", project_name="B1_[LR223] Current project",
+                                        prov_created_at=datetime(2026, 9, 10), prov_chanel="B1",
+                                        prov_source="Search", subdomain="example.test",
+                                        imported_at=datetime(2026, 9, 10, 10), project_id=20))
+        session.commit()
+    monkeypatch.setattr(router, "read_spreadsheet_url",
+                        lambda url: (_client_xlsx_for_periods(), "synthetic.xlsx", "Client"))
+    periods = [
+        {"period_start": "2026-09-01", "period_end": "2026-09-30"},
+        {"period_start": "2026-09-01", "period_end": "2026-09-07"},
+        {"period_start": "2026-09-08", "period_end": "2026-09-14"},
+    ]
+    prepared_response = client.post("/agent/v1/analytics.prepare", headers=_headers(True), json={
+        "group_id": group_id, "periods": periods, "confirmed_project_ids": [],
+    })
+    assert prepared_response.status_code == 200, prepared_response.text
+    prepared = prepared_response.json()["data"]
+    assert prepared["periods"] == periods
+    _run_synthetic_worker()
+    assert db.get_run(prepared["run_id"])["periods"] == periods
+
+    reversed_periods = list(reversed(periods))
+    mismatch = client.post("/agent/v1/analytics.run", headers=_headers(True), json={
+        "run_id": prepared["run_id"], "periods": reversed_periods,
+    })
+    assert mismatch.status_code == 409
+    assert mismatch.json()["error"]["code"] == "PERIOD_MISMATCH"
+
+    run_response = client.post("/agent/v1/analytics.run", headers=_headers(True), json={
+        "run_id": prepared["run_id"], "periods": periods,
+    })
+    assert run_response.status_code == 200, run_response.text
+    _run_synthetic_worker()
+    db.save_match_mapping(db.group_key(group_id), "client", ColumnMapping(
+        sheet_name="Renamed after snapshot", date_column="Дата", phone_column="Телефон", status_column="Статус",
+    ))
+    result = client.get(f"/agent/v1/analytics.result?group_id={group_id}&run_id={prepared['run_id']}",
+                        headers=_headers()).json()["data"]["result"]
+    assert [{key: item[key] for key in ("period_start", "period_end")}
+            for item in result["periods"]] == periods
+    assert [item["total_count"] for item in result["periods"]] == [2, 1, 1]
+    with db.connect() as conn:
+        row = conn.execute("SELECT export_id FROM processing_jobs WHERE run_id=? AND kind='analyze'",
+                           (prepared["run_id"],)).fetchone()
+    saved_export = next(item for item in export_history.list_exports(db.group_key(group_id))
+                        if item["id"] == int(row["export_id"]))
+    assert saved_export["settings"]["source_sheet_name"] == "Client"
+    report_path = export_history.analysis_report_path(saved_export["report_file_name"])
+    workbook = load_workbook(report_path, read_only=True, data_only=True)
+    try:
+        sheet = workbook["Итог"]
+        header = [cell.value for cell in sheet[1]]
+        rows = list(sheet.iter_rows(min_row=2, values_only=True))
+        period_col = header.index("Период")
+        count_col = header.index("Всего идентификаций")
+        assert [row[period_col] for row in rows] == [
+            f"{item['period_start']} - {item['period_end']}" for item in periods
+        ]
+        assert [row[count_col] for row in rows] == [2, 1, 1]
+    finally:
+        workbook.close()
+
+    expected_name = "Synthetic_group_Аналитика_Client_по-периодам_2026-09-01_2026-09-30.xlsx"
+    assert result["download_filename"] == expected_name
+    long_name = export_history.analysis_download_filename(
+        {"periods": periods}, "[LR174] " + "Эпкара" * 100, "Данные" * 100,
+    )
+    assert len(long_name.encode("utf-8")) <= 240
+    assert long_name.endswith("_2026-09-01_2026-09-30.xlsx")
+    assert not any(char in long_name for char in '<>:"/\\|?*')
+    download = client.get(f"/agent/v1/analytics.download?group_id={group_id}&export_id={result['id']}",
+                          headers=_headers(True))
+    assert download.status_code == 200
+    encoded_name = download.headers["content-disposition"].split("filename*=utf-8''", 1)[1]
+    assert unquote(encoded_name) == expected_name
 
 
 def test_status_confirmation_rejects_noncurrent_or_invalid_categories(configured):

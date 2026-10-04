@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, FileResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.exceptions import HTTPException
 
 from .contracts import AgentError, CAPABILITIES, discovery
@@ -34,20 +34,44 @@ class ReadParams(BaseModel):
     offset: int = Field(0, ge=0)
 
 
+class PeriodParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    period_start: date
+    period_end: date
+
+
 class RunParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     group_id: int | None = Field(None, ge=1)
     run_id: str | None = Field(None, min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     period_start: date | None = None
     period_end: date | None = None
+    periods: list[PeriodParams] | None = Field(None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_period_fields(self):
+        if self.periods is not None and (self.period_start is not None or self.period_end is not None):
+            raise ValueError("periods and period_start/period_end are mutually exclusive")
+        if (self.period_start is None) != (self.period_end is None):
+            raise ValueError("period_start and period_end must be supplied together")
+        return self
 
 
 class PrepareParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
     group_id: int = Field(ge=1)
-    period_start: date
-    period_end: date
+    period_start: date | None = None
+    period_end: date | None = None
+    periods: list[PeriodParams] | None = Field(None, min_length=1, max_length=64)
     confirmed_project_ids: list[int] | None = Field(None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_period_fields(self):
+        if self.periods is not None and (self.period_start is not None or self.period_end is not None):
+            raise ValueError("periods and period_start/period_end are mutually exclusive")
+        if self.periods is None and (self.period_start is None or self.period_end is None):
+            raise ValueError("provide periods or both period_start and period_end")
+        return self
 
 
 class StatusParams(BaseModel):
@@ -168,13 +192,18 @@ def build_app(get_db, settings, analytics_display=None):
         params = payload.model_dump(mode="json", exclude_none=True)
         request.state.audit_params.update({key: value for key, value in params.items()
                                            if key in {"group_id", "period_start", "period_end"}})
+        if "periods" in params:
+            request.state.audit_params["periods"] = params["periods"]
         return success(request, execute_run(params))
 
     @app.post("/analytics.prepare")
     def prepare(payload: PrepareParams, request: Request, session=Depends(get_db)):
         from .analytics_workflow import execute_prepare
         params = payload.model_dump(mode="json", exclude_none=True)
-        request.state.audit_params.update({key: params[key] for key in ("group_id", "period_start", "period_end")})
+        request.state.audit_params.update({key: params[key] for key in ("group_id", "period_start", "period_end")
+                                           if key in params})
+        if "periods" in params:
+            request.state.audit_params["periods"] = params["periods"]
         return success(request, execute_prepare(session, params, analytics_display=analytics_display))
 
     @app.post("/analytics.confirm-statuses")

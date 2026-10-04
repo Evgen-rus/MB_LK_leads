@@ -19,7 +19,12 @@ def download_api(tmp_path, monkeypatch):
     monkeypatch.setattr(reports.db, "get_group", lambda gid: {"name": "Synthetic"} if gid == 2 else None)
     monkeypatch.setattr(reports.db, "group_key", lambda gid: str(gid))
     monkeypatch.setattr(reports.db, "get_run", lambda rid: None)
-    monkeypatch.setattr(reports, "list_exports", lambda key: [{"id": 4, "export_number": 1, "report_file_name": path.name}])
+    monkeypatch.setattr(reports, "list_exports", lambda key: [{
+        "id": 4, "export_number": 1, "report_file_name": path.name,
+        "period_start": "2026-09-01", "period_end": "2026-09-30",
+        "periods": [{"period_start": "2026-09-01", "period_end": "2026-09-30"}],
+        "settings": {"source_sheet_name": "Client"},
+    }])
     monkeypatch.setattr(reports, "analysis_report_path", lambda name: path)
     app = FastAPI()
     app.mount("/agent/v1", build_app(lambda: None, {}))

@@ -87,6 +87,41 @@ def test_analytics_prepare_posts_explicit_project_ids_and_uses_long_timeout(monk
     assert calls[0][4] == 120
 
 
+def test_analytics_prepare_posts_ordered_repeated_periods(monkeypatch, capsys):
+    code, _, calls = call_cli(monkeypatch, capsys, [
+        "analytics", "prepare", "--group", "8",
+        "--period", "2026-09-01:2026-09-30",
+        "--period", "2026-09-01:2026-09-07",
+        "--period", "2026-09-08:2026-09-14",
+        "--confirm-projects", "none",
+    ])
+    assert code == 0
+    assert calls[0][1:4] == ("POST", TOKEN, {
+        "group_id": 8,
+        "periods": [
+            {"period_start": "2026-09-01", "period_end": "2026-09-30"},
+            {"period_start": "2026-09-01", "period_end": "2026-09-07"},
+            {"period_start": "2026-09-08", "period_end": "2026-09-14"},
+        ],
+        "confirmed_project_ids": [],
+    })
+
+
+def test_analytics_run_rechecks_exact_ordered_periods_with_run_id(monkeypatch, capsys):
+    code, _, calls = call_cli(monkeypatch, capsys, [
+        "analytics", "run", "--group", "8", "--run", "run-abc",
+        "--period", "2026-09-01:2026-09-30",
+        "--period", "2026-09-01:2026-09-07",
+    ])
+    assert code == 0
+    assert calls[0][1:4] == ("POST", TOKEN, {
+        "group_id": 8, "run_id": "run-abc", "periods": [
+            {"period_start": "2026-09-01", "period_end": "2026-09-30"},
+            {"period_start": "2026-09-01", "period_end": "2026-09-07"},
+        ],
+    })
+
+
 def test_analytics_prepare_can_explicitly_decline_all_new_projects(monkeypatch, capsys):
     code, _, calls = call_cli(monkeypatch, capsys, [
         "analytics", "prepare", "--group", "8", "--period", "2026-09-01:2026-09-30",
