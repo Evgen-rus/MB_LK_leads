@@ -98,6 +98,8 @@ def _period(value: str) -> tuple[str, str]:
 
 
 def _project_ids(value: str) -> list[int]:
+    if value.strip().casefold() == "none":
+        return []
     try:
         ids = [_positive_int(item.strip()) for item in value.split(",")]
     except argparse.ArgumentTypeError as exc:
@@ -231,7 +233,10 @@ def _build_parser() -> _JSONArgumentParser:
     prepare.set_defaults(action="analytics.prepare")
     _id_option(prepare, "--group", "group_id")
     prepare.add_argument("--period", required=True, type=_period, metavar="YYYY-MM-DD:YYYY-MM-DD")
-    prepare.add_argument("--confirm-projects", type=_project_ids)
+    prepare.add_argument(
+        "--confirm-projects", type=_project_ids, metavar="ID,ID|none",
+        help="явно подтвердить добавляемые ID; none — явно отказаться от всех новых проектов",
+    )
     confirm = analytics_commands.add_parser("confirm-statuses", help="задать явные правила статусов")
     confirm.set_defaults(action="analytics.confirm-statuses")
     _id_option(confirm, "--group", "group_id")

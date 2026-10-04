@@ -109,6 +109,8 @@ lkctl analytics plan --group 8 --period 2026-09-28:2026-10-02
 lkctl-compute analytics prepare --group 8 --period 2026-09-28:2026-10-02
 # Только после подтверждения человеком конкретных новых ID:
 lkctl-compute analytics prepare --group 8 --period 2026-09-28:2026-10-02 --confirm-projects 123,124
+# Только после явного отказа человека от всех новых проектов:
+lkctl-compute analytics prepare --group 8 --period 2026-09-28:2026-10-02 --confirm-projects none
 lkctl analytics result --group 8 --run RUN_ID
 lkctl-compute analytics run --group 8 --run RUN_ID
 # Только после явного назначения неизвестного статуса человеком:
@@ -234,5 +236,8 @@ backend environment через `/etc/systemd/system/lk-backend.service.d/agent-a
 существующего отчёта, отказ без токена/с неверным токеном, отказ compute для
 read, распознавание compute-токена и запрет mutation payloads. Локальный и
 публичный health возвращают 200; audit пишется в существующий `logs/app.log`,
-вхождений новых Agent tokens в нём не обнаружено. Реальный анализ клиентских
-данных для smoke-проверки не запускался.
+вхождений новых Agent tokens в нём не обнаружено. После расширения интерфейса
+проверен полный реальный путь plan → prepare → match → run → result → download
+по сохранённой группе и отдельному периоду. Получен новый зарегистрированный
+отчёт; байты локальной копии сверены по SHA256, структура XLSX проверена.
+Бизнес-результаты и файл хранятся вне Git.

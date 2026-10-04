@@ -87,6 +87,19 @@ def test_analytics_prepare_posts_explicit_project_ids_and_uses_long_timeout(monk
     assert calls[0][4] == 120
 
 
+def test_analytics_prepare_can_explicitly_decline_all_new_projects(monkeypatch, capsys):
+    code, _, calls = call_cli(monkeypatch, capsys, [
+        "analytics", "prepare", "--group", "8", "--period", "2026-09-01:2026-09-30",
+        "--confirm-projects", "none"
+    ])
+    assert code == 0
+    assert calls[0][1:4] == ("POST", TOKEN, {
+        "group_id": 8, "period_start": "2026-09-01", "period_end": "2026-09-30",
+        "confirmed_project_ids": [],
+    })
+    assert calls[0][4] == 120
+
+
 def test_analytics_confirm_statuses_posts_explicit_mapping(monkeypatch, capsys):
     code, _, calls = call_cli(monkeypatch, capsys, [
         "analytics", "confirm-statuses", "--group", "8", "--run", "run-abc",
