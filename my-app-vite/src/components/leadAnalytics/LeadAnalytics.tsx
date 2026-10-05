@@ -47,6 +47,7 @@ import type {
   UploadResponse,
   WorkbookPreview
 } from "./types";
+import { incompletePeriodLabel, periodDayCount, splitAnalysisPeriod, type PeriodSplit } from "./periods";
 import "./styles.css";
 
 const emptyMapping: Mapping = { sheet_name: "" };
@@ -65,6 +66,14 @@ function periodIssue(period: AnalysisPeriod): string | null {
 
 function periodIsValid(period: AnalysisPeriod): boolean {
   return !periodIssue(period);
+}
+
+function periodSummary(period: AnalysisPeriod, index: number, split: PeriodSplit | null): string {
+  const days = periodDayCount(period);
+  const label = index === 0 ? "Общий период" : `Период ${index + 1}`;
+  if (days === null) return label;
+  const incomplete = index > 0 ? incompletePeriodLabel(period, split) : null;
+  return `${label} · ${days} дн.${incomplete ? ` · ${incomplete}` : ""}`;
 }
 
 function sameIds(left: number[], right: number[]): boolean {
@@ -100,6 +109,8 @@ export default function LeadAnalytics() {
   const [rulesData, setRulesData] = useState<StatusRulesData | null>(null);
   const [analyzePreview, setAnalyzePreview] = useState<WorkbookPreview | null>(null);
   const [periods, setPeriods] = useState<AnalysisPeriod[]>([emptyPeriod()]);
+  const [periodSplit, setPeriodSplit] = useState<PeriodSplit | null>(null);
+  const [periodSplitError, setPeriodSplitError] = useState("");
   const [analysisDate, setAnalysisDate] = useState(todayIso());
   const [step, setStep] = useState<Step>("upload");
   const [loading, setLoading] = useState(false);
@@ -229,6 +240,8 @@ export default function LeadAnalytics() {
     setRulesData(null);
     setAnalyzePreview(null);
     setPeriods([emptyPeriod()]);
+    setPeriodSplit(null);
+    setPeriodSplitError("");
     setAnalysisDate(todayIso());
     setActiveJob(null);
     setCurrentExportId(null);
@@ -346,6 +359,43 @@ export default function LeadAnalytics() {
       setLoading(false);
       setOperation("");
       setOperationStage(null);
+    }
+  }
+
+  function splitPeriods(split: PeriodSplit) {
+    try {
+      setPeriods(splitAnalysisPeriod(periods[0], split));
+      setPeriodSplit(split);
+      setPeriodSplitError("");
+    } catch (err) {
+      setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
+    }
+  }
+
+  function editPeriod(index: number, field: keyof AnalysisPeriod, value: string) {
+    const updated = periods.map((period, itemIndex) => itemIndex === index ? { ...period, [field]: value } : period);
+    if (index > 0) {
+      setPeriodSplit(null);
+      setPeriodSplitError("");
+      setPeriods(updated);
+      return;
+    }
+
+    const mainPeriod = updated[0];
+    setPeriodSplitError("");
+    if (!periodSplit) {
+      setPeriods(updated);
+      return;
+    }
+    if (!periodIsValid(mainPeriod)) {
+      setPeriods([mainPeriod]);
+      return;
+    }
+    try {
+      setPeriods(splitAnalysisPeriod(mainPeriod, periodSplit));
+    } catch (err) {
+      setPeriods([mainPeriod]);
+      setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
     }
   }
 
@@ -677,7 +727,12 @@ export default function LeadAnalytics() {
                 <div>
                   <h2>Периоды и источник данных клиента</h2>
                   <p>Идентификации из ЛК подготовятся автоматически для проектов группы.</p>
+                  <p>Общий период идёт первым, разбивка по неделям или месяцам — следом.</p>
                 </div>
+              </div>
+              <div className="actions">
+                <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("week")}>Разбить по неделям</button>
+                <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("month")}>Разбить по месяцам</button>
               </div>
               <div className="periodList">
                 {periods.map((period, index) => {
@@ -686,16 +741,22 @@ export default function LeadAnalytics() {
                   return (
                     <div className="periodBlock" key={index}>
                       <div className="periodRow">
-                        <strong>Период {index + 1}</strong>
-                        <label className="field"><span>От *</span><input type="date" value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => setPeriods((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, period_start: event.target.value } : item))} /></label>
-                        <label className="field"><span>До *</span><input type="date" value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => setPeriods((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, period_end: event.target.value } : item))} /></label>
-                        {periods.length > 1 && <button className="dangerButton" type="button" onClick={() => setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Удалить</button>}
+                        <strong>{index === 0 ? "Общий период" : `Период ${index + 1}`}</strong>
+                        <label className="field"><span>От *</span><input type="date" value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => editPeriod(index, "period_start", event.target.value)} /></label>
+                        <label className="field"><span>До *</span><input type="date" value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod(index, "period_end", event.target.value)} /></label>
+                        {index > 0 && <button className="dangerButton" type="button" onClick={() => setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Удалить</button>}
                       </div>
+                      <p className="periodMessage">{periodSummary(period, index, periodSplit)}</p>
                       {issue && <p className={`periodMessage ${invalidOrder ? "fieldError" : ""}`}>{issue}</p>}
                     </div>
                   );
                 })}
-                <button className="ghostButton" type="button" disabled={loading} onClick={() => setPeriods((current) => [...current, emptyPeriod()])}>Добавить период</button>
+                {periodSplitError && <p className="periodMessage fieldError" role="alert">{periodSplitError}</p>}
+                <button className="ghostButton" type="button" disabled={loading} onClick={() => {
+                  setPeriodSplit(null);
+                  setPeriodSplitError("");
+                  setPeriods((current) => [...current, emptyPeriod()]);
+                }}>Добавить период</button>
               </div>
               <FileDropZone label="Файл клиента или сохранённая Google-таблица" file={clientFile} spreadsheetUrl={spreadsheetUrl} disabled={loading || isArchived} onChange={setClientFile} onSpreadsheetUrlChange={setSpreadsheetUrl} />
               <p className="uploadHint">Ссылка сохранится в настройках группы. Для конкретного запуска можно загрузить XLSX-файл.</p>
@@ -742,7 +803,11 @@ export default function LeadAnalytics() {
           <section className="panel">
             <div className="panelHeader compact"><div><h2>Периоды анализа</h2><p>Периоды сохранены вместе с этим запуском.</p></div></div>
             <div className="periodList">
-              {periods.map((period, index) => <div className="periodRow" key={index}><strong>Период {index + 1}</strong><span>{period.period_start} — {period.period_end}</span></div>)}
+              {periods.map((period, index) => (
+                <div className="periodBlock" key={index}>
+                  <div className="periodRow"><strong>{periodSummary(period, index, periodSplit)}</strong><span>{period.period_start} — {period.period_end}</span></div>
+                </div>
+              ))}
             </div>
             <div className="exportMetaGrid">
               <label className="field"><span>Номер аналитики</span><input type="number" value={nextExportNumber} readOnly /></label>
