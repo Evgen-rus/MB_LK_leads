@@ -7,7 +7,7 @@ from ..lead_analytics import db, router as pipeline
 from ..lead_analytics.config import MATCHED_SHEET_NAME
 from ..lead_analytics.excel_reader import read_excel_sheet
 from ..lead_analytics.models import ColumnMapping, StatusRule
-from ..lead_analytics.status_classifier import ALL_GROUPS, unknown_statuses
+from ..lead_analytics.status_classifier import ALL_GROUPS, client_rule_key, unknown_statuses
 from .contracts import AgentError
 from .periods import requested_periods
 
@@ -163,6 +163,7 @@ def execute_confirm_statuses(session, params):
         _needs("MATCH_REQUIRED", "Сначала завершите сопоставление строк", {"run_id": run_id})
 
     key = db.group_key(group_id)
+    rules_key = client_rule_key(int(group["client_id"]))
     mapping = db.get_column_mapping(key)
     try:
         path = pipeline._stored_output(group_id, run_id, pipeline._latest_match_name(group_id, run_id))
@@ -171,7 +172,7 @@ def execute_confirm_statuses(session, params):
         frame = read_excel_sheet(path, mapping.sheet_name)
         if mapping.status_column not in frame.columns:
             _needs("MAPPING_REQUIRED", "Сохранённая колонка статуса отсутствует в результате сопоставления")
-        unknown = unknown_statuses(frame[mapping.status_column].tolist(), key)
+        unknown = unknown_statuses(frame[mapping.status_column].tolist(), rules_key)
     except AgentError:
         raise
     except HTTPException:
@@ -187,10 +188,10 @@ def execute_confirm_statuses(session, params):
     if any(not isinstance(category, str) or category not in ALL_GROUPS for category in assignments.values()):
         raise AgentError("INVALID_STATUS_CATEGORY", "Выберите категорию из разрешённого списка", 422,
                          data={"allowed_categories": list(ALL_GROUPS)})
-    db.ensure_project(key)
+    db.ensure_project(rules_key)
     for status, category in assignments.items():
         db.add_status_rule(StatusRule(
-            project_code=key, pattern=status, match_type="exact", group_name=category,
+            project_code=rules_key, pattern=status, match_type="exact", group_name=category,
             priority=10, comment="Confirmed via Agent Interface",
         ))
     return {"group_id": group_id, "run_id": run_id,

@@ -12,7 +12,7 @@ from ..lead_analytics import db, router as pipeline
 from ..lead_analytics.export_history import analysis_download_filename, list_exports, analysis_report_path
 from ..lead_analytics.excel_reader import read_excel_sheet
 from ..lead_analytics.structure_detector import prepare_analyze_mapping
-from ..lead_analytics.status_classifier import ALL_GROUPS, unknown_statuses
+from ..lead_analytics.status_classifier import ALL_GROUPS, client_rule_key, unknown_statuses
 from .contracts import AgentError
 from .periods import requested_periods
 
@@ -117,7 +117,9 @@ def _plan(group_id, session, params):
     lk = db.get_match_mapping(key, "lk")
     client = db.get_match_mapping(key, "client")
     mapping = db.get_column_mapping(key)
-    rules = db.list_project_status_rules(key)
+    rules_key = client_rule_key(int(group["client_id"]))
+    rules = db.list_project_status_rules(rules_key)
+    rule_conflicts = db.list_client_status_rule_conflicts(int(group["client_id"]))
     missing = []
     if group.get("archived"):
         missing.append("group_archived")
@@ -163,6 +165,8 @@ def _plan(group_id, session, params):
         },
         "settings_ready": not missing, "state": "ready" if not missing else "needs_input",
         "missing_settings": missing, "status_rule_count": len(rules),
+        "status_rule_conflicts": [{"pattern": item["pattern"], "group_names": item["group_names"]}
+                                   for item in rule_conflicts],
         "period": _validate_plan_period(params), "new_projects": candidates,
         "excluded_candidate_project_ids": [item["project_id"] for item in candidates],
         "active_jobs": _active_jobs(group_id), "latest_runs": _latest_runs(group_id),
@@ -226,7 +230,7 @@ def execute_run(params):
     if not run or (params.get("group_id") and int(run["group_id"]) != params["group_id"]):
         raise AgentError("RUN_NOT_FOUND", "Запуск не найден", 404)
     group_id = int(run["group_id"])
-    _group(group_id, active=True)
+    group = _group(group_id, active=True)
     requested = requested_periods(params, required=False)
     if requested is not None and run["periods"] != requested:
         raise AgentError("PERIOD_MISMATCH", "Список периодов должен совпадать со снимком запуска", 409)
@@ -250,10 +254,16 @@ def execute_run(params):
         prepared = prepare_analyze_mapping(path, deepcopy(mapping))
         if pipeline._from_mapping(prepared) != pipeline._from_mapping(mapping):
             _needs("MAPPING_REQUIRED", "Сопоставление требует проверки в разделе Аналитика")
-        unknown = unknown_statuses(frame[mapping.status_column].tolist(), key)
+        unknown = unknown_statuses(frame[mapping.status_column].tolist(), client_rule_key(int(group["client_id"])))
         if unknown:
+            conflict_keys = {db.normalize_status_pattern(status) for status in unknown}
+            conflicts = [
+                {"pattern": item["pattern"], "group_names": item["group_names"]}
+                for item in db.list_client_status_rule_conflicts(int(group["client_id"]))
+                if item["pattern_key"] in conflict_keys
+            ]
             _needs("UNKNOWN_STATUSES", "Распределите неизвестные статусы в разделе Аналитика",
-                   {"statuses": unknown, "allowed_categories": list(ALL_GROUPS)})
+                   {"statuses": unknown, "allowed_categories": list(ALL_GROUPS), "conflicts": conflicts})
         payload = pipeline.AnalyzePayload(mapping=pipeline._from_mapping(mapping), status_rules={},
                                           periods=[pipeline.AnalysisPeriodPayload(**period) for period in run["periods"]])
         queued = pipeline.enqueue_analysis(group_id, run_id, payload, save_settings=False)

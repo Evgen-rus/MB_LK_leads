@@ -133,6 +133,68 @@ test('saved projects and archived group keep downloadable history', async ({ pag
   await expect(page.getByRole('button', { name: 'Excel', exact: true })).toBeEnabled();
 });
 
+test('client status rules can be resolved, added, edited and deleted across groups', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  const categories = ['Качественные', 'Недозвон'];
+  let rules: { id: number; pattern: string; match_type: string; group_name: string; priority: number; source: string }[] = [];
+  let conflicts = [{ pattern: 'Спорный статус', group_names: categories }];
+  let nextId = 1;
+  await page.route('**/admin/analytics/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    let result: unknown;
+    if (path === '/admin/analytics/clients/2/groups') {
+      result = [group, { ...group, id: 12, name: 'Другая группа' }];
+    } else if (/\/groups\/(11|12)\/status-rules$/.test(path)) {
+      if (method === 'POST') {
+        const payload = route.request().postDataJSON();
+        const rule = { id: nextId++, pattern: payload.pattern, match_type: 'exact', group_name: payload.group_name, priority: 10, source: 'project' };
+        rules.push(rule);
+        conflicts = conflicts.filter(item => item.pattern !== rule.pattern);
+        result = rule;
+      } else {
+        result = { project_rules: rules, system_rules: [], status_groups: categories, conflicts };
+      }
+    } else if (/\/groups\/(11|12)\/status-rules\/\d+$/.test(path)) {
+      const id = Number(path.split('/').at(-1));
+      if (method === 'DELETE') {
+        rules = rules.filter(rule => rule.id !== id);
+        result = { deleted: true };
+      } else {
+        const rule = rules.find(rule => rule.id === id)!;
+        rule.group_name = route.request().postDataJSON().group_name;
+        result = rule;
+      }
+    } else {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('button', { name: 'Соответствия статусов', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Соответствия статусов клиента', exact: true });
+  await dialog.getByLabel('Категория для статуса Спорный статус').selectOption('Качественные');
+  await dialog.getByRole('button', { name: 'Сохранить выбор', exact: true }).click();
+  await expect(dialog.getByLabel('Категория для статуса Спорный статус')).toHaveCount(0);
+  await dialog.getByLabel('Исходный статус', { exact: true }).fill('Новый статус');
+  await dialog.locator('form').getByRole('combobox').selectOption('Недозвон');
+  await dialog.getByRole('button', { name: 'Добавить правило', exact: true }).click();
+  await expect(dialog.getByRole('row').filter({ hasText: 'Новый статус' })).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
+  await page.getByRole('combobox', { name: 'Группа', exact: true }).selectOption('12');
+  await page.getByRole('button', { name: 'Соответствия статусов', exact: true }).click();
+  const row = dialog.getByRole('row').filter({ hasText: 'Новый статус' });
+  await expect(row.getByRole('combobox')).toHaveValue('Недозвон');
+  await row.getByRole('combobox').selectOption('Качественные');
+  await row.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(row.getByRole('combobox')).toHaveValue('Качественные');
+  await row.getByRole('button', { name: 'Удалить', exact: true }).click();
+  await row.getByRole('button', { name: 'Да', exact: true }).click();
+  await expect(row).toHaveCount(0);
+});
+
 for (const role of ['agent', 'client'] as const) {
   test(`${role} cannot open saved analytics section`, async ({ page }) => {
     const requests = await preparePage(page, role, 'analytics');

@@ -15,7 +15,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from .. import crud, models, schemas
@@ -34,7 +34,7 @@ from .sheets_reader import parse_spreadsheet_url, read_spreadsheet_url
 from .matcher import match_files
 from .models import ColumnMapping, StatusRule
 from .pipeline import analyze_file
-from .status_classifier import ALL_GROUPS, is_missing_status, unknown_statuses
+from .status_classifier import ALL_GROUPS, client_rule_key, is_missing_status, unknown_statuses
 from .structure_detector import detect_match_mapping, prepare_analyze_mapping
 
 PREVIEW_ROWS = 25
@@ -174,8 +174,14 @@ class StatusRuleResponse(BaseModel):
 
 class StatusRulesResponse(BaseModel):
     project_rules: list[StatusRuleResponse]
+    conflicts: list[dict[str, object]] = Field(default_factory=list)
     system_rules: list[StatusRuleResponse]
     status_groups: list[str]
+
+
+class StatusRuleCreatePayload(BaseModel):
+    pattern: str = Field(min_length=1, max_length=200)
+    group_name: str
 
 
 class StatusRuleUpdatePayload(BaseModel):
@@ -631,7 +637,7 @@ def _matched_source_sheet_name(run_id: str) -> str | None:
 
 
 def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, save_settings: bool = True) -> JobResponse:
-    _group(group_id, active=True)
+    group = _group(group_id, active=True)
     run = _run(group_id, run_id)
     if db.has_active_run_job(run_id):
         raise HTTPException(status_code=409, detail="Для запуска уже выполняется обработка")
@@ -647,7 +653,8 @@ def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, sav
     if not mapping.status_column or not mapping.date_column:
         raise HTTPException(status_code=400, detail="Для аналитики нужны колонки даты и статуса")
     df = read_excel_sheet(match_path, mapping.sheet_name)
-    unknown = unknown_statuses(df[mapping.status_column].tolist(), db.group_key(group_id))
+    rules_key = client_rule_key(int(group["client_id"]))
+    unknown = unknown_statuses(df[mapping.status_column].tolist(), rules_key)
     _validate_unknown_status_rules(unknown, payload.status_rules)
     group_key = db.group_key(group_id)
     rules_by_pattern = {
@@ -656,14 +663,14 @@ def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, sav
             "subgroup_name": row["subgroup_name"], "comment": row["comment"],
             "priority": row["priority"], "project_code": row["project_code"],
         }
-        for row in db.list_project_status_rules(group_key)
+        for row in db.list_project_status_rules(rules_key)
     }
     for status, group_name in payload.status_rules.items():
         if status.strip() and group_name.strip():
             rules_by_pattern[status.strip().casefold()] = {
                 "pattern": status.strip(), "match_type": "exact", "group_name": group_name.strip(),
                 "subgroup_name": None, "comment": "Добавлено через web", "priority": 10,
-                "project_code": group_key,
+                "project_code": rules_key,
             }
     rule_snapshot = list(rules_by_pattern.values())
     settings_snapshot = {"mapping": _from_mapping(mapping).model_dump(), "status_rules": rule_snapshot}
@@ -687,7 +694,7 @@ def enqueue_analysis(group_id: int, run_id: str, payload: AnalyzePayload, *, sav
             for status, group_name in payload.status_rules.items():
                 if status.strip() and group_name.strip():
                     db.add_status_rule(StatusRule(
-                        project_code=group_key, pattern=status.strip(), match_type="exact", group_name=group_name.strip(),
+                        project_code=rules_key, pattern=status.strip(), match_type="exact", group_name=group_name.strip(),
                         priority=10, comment="Добавлено через web",
                     ))
         db.update_run_status(run_id, "queued")
@@ -843,18 +850,38 @@ def build_router(
 
     @router.get("/groups/{group_id}/status-rules", response_model=StatusRulesResponse)
     def status_rules(group_id: int) -> StatusRulesResponse:
-        _group(group_id)
-        key = db.group_key(group_id)
+        group = _group(group_id)
+        key = client_rule_key(int(group["client_id"]))
         rules = [StatusRuleResponse(
             id=int(row["id"]), pattern=str(row["pattern"]), match_type=str(row["match_type"]),
             group_name=str(row["group_name"]), priority=int(row["priority"]), source="project",
         ) for row in db.list_project_status_rules(key)]
-        return StatusRulesResponse(project_rules=rules, system_rules=[], status_groups=ALL_GROUPS)
+        conflicts = [{"pattern": item["pattern"], "group_names": item["group_names"]}
+                     for item in db.list_client_status_rule_conflicts(int(group["client_id"]))]
+        return StatusRulesResponse(project_rules=rules, conflicts=conflicts, system_rules=[], status_groups=ALL_GROUPS)
+
+    @router.post("/groups/{group_id}/status-rules", response_model=StatusRuleResponse)
+    def create_status_rule(group_id: int, payload: StatusRuleCreatePayload) -> StatusRuleResponse:
+        group = _group(group_id)
+        pattern, group_name = payload.pattern.strip(), payload.group_name.strip()
+        if not pattern:
+            raise HTTPException(status_code=400, detail="Укажите статус")
+        if group_name not in ALL_GROUPS:
+            raise HTTPException(status_code=400, detail="Неизвестная группа статуса")
+        key = client_rule_key(int(group["client_id"]))
+        db.add_status_rule(StatusRule(
+            project_code=key, pattern=pattern, match_type="exact", group_name=group_name,
+            priority=10, comment="Добавлено через личный кабинет",
+        ))
+        row = next(item for item in db.list_project_status_rules(key)
+                   if db.normalize_status_pattern(str(item["pattern"])) == db.normalize_status_pattern(pattern))
+        return StatusRuleResponse(id=int(row["id"]), pattern=str(row["pattern"]), match_type="exact",
+                                  group_name=str(row["group_name"]), priority=int(row["priority"]), source="project")
 
     @router.put("/groups/{group_id}/status-rules/{rule_id}", response_model=StatusRuleResponse)
     def update_status_rule(group_id: int, rule_id: int, payload: StatusRuleUpdatePayload) -> StatusRuleResponse:
-        _group(group_id)
-        key, group_name = db.group_key(group_id), payload.group_name.strip()
+        group = _group(group_id)
+        key, group_name = client_rule_key(int(group["client_id"])), payload.group_name.strip()
         if group_name not in ALL_GROUPS:
             raise HTTPException(status_code=400, detail="Неизвестная группа статуса")
         if not db.update_project_status_rule_group(rule_id, key, group_name):
@@ -866,8 +893,8 @@ def build_router(
 
     @router.delete("/groups/{group_id}/status-rules/{rule_id}")
     def delete_status_rule(group_id: int, rule_id: int) -> dict[str, bool]:
-        _group(group_id)
-        if not db.delete_project_status_rule(rule_id, db.group_key(group_id)):
+        group = _group(group_id)
+        if not db.delete_project_status_rule(rule_id, client_rule_key(int(group["client_id"]))):
             raise HTTPException(status_code=404, detail="Правило статуса не найдено")
         return {"deleted": True}
 
@@ -930,6 +957,7 @@ def build_router(
 
     @router.post("/groups/{group_id}/runs/{run_id}/analyze/setup", response_model=AnalyzeSetupResponse)
     def analyze_setup(group_id: int, run_id: str, payload: AnalyzeSetupPayload) -> AnalyzeSetupResponse:
+        group = _group(group_id)
         _run(group_id, run_id)
         path = _stored_output(group_id, run_id, _latest_match_name(group_id, run_id))
         saved = db.get_column_mapping(db.group_key(group_id))
@@ -939,7 +967,7 @@ def build_router(
             raise HTTPException(status_code=400, detail="Для аналитики нужен столбец статуса")
         df = read_excel_sheet(path, mapping.sheet_name)
         values = df[mapping.status_column].tolist()
-        unknown = unknown_statuses(values, db.group_key(group_id))
+        unknown = unknown_statuses(values, client_rule_key(int(group["client_id"])))
         return AnalyzeSetupResponse(filename=path.name, mapping=_from_mapping(mapping), sheets=_inspect_workbook(path),
                                     unknown_statuses=unknown, unknown_status_counts=_unknown_status_counts(values, unknown),
                                     status_groups=ALL_GROUPS)

@@ -115,13 +115,19 @@ export type StatusRuleItem = {
   match_type: string;
   group_name: string;
   priority: number;
-  source: "project" | "global" | "default";
+  source: "project" | "client" | "global" | "default";
+};
+
+export type StatusRuleConflict = {
+  pattern: string;
+  group_names: string[];
 };
 
 export type StatusRulesData = {
   project_rules: StatusRuleItem[];
   system_rules: StatusRuleItem[];
   status_groups: string[];
+  conflicts?: StatusRuleConflict[];
 };
 
 export type Step = "upload" | "mapping" | "analyze" | "done";

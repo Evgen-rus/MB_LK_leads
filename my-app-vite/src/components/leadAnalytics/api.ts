@@ -40,6 +40,9 @@ export const archiveGroup = (groupId: number) =>
 export const fetchStatusRules = (groupId: number) =>
   http<StatusRulesData>(`${base}/groups/${groupId}/status-rules`);
 
+export const createStatusRule = (groupId: number, pattern: string, groupName: string) =>
+  http<StatusRuleItem>(`${base}/groups/${groupId}/status-rules`, json("POST", { pattern, group_name: groupName }));
+
 export const updateStatusRule = (groupId: number, ruleId: number, groupName: string) =>
   http<StatusRuleItem>(`${base}/groups/${groupId}/status-rules/${ruleId}`, json("PUT", { group_name: groupName }));
 
@@ -74,8 +77,8 @@ export const queueMatchJob = (groupId: number, runId: string, lkMapping: Mapping
     client_mapping: clientMapping
   }));
 
-export const fetchAnalyzeSetup = (groupId: number, runId: string) =>
-  http<AnalyzeSetup>(`${base}/groups/${groupId}/runs/${encodeURIComponent(runId)}/analyze/setup`, json("POST", {}));
+export const fetchAnalyzeSetup = (groupId: number, runId: string, mapping?: Mapping) =>
+  http<AnalyzeSetup>(`${base}/groups/${groupId}/runs/${encodeURIComponent(runId)}/analyze/setup`, json("POST", mapping ? { mapping } : {}));
 
 export const queueAnalyzeJob = (
   groupId: number,

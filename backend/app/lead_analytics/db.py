@@ -51,6 +51,18 @@ def init_db(db_path: Path | None = None) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS client_status_rule_migrations (
+                client_id INTEGER PRIMARY KEY,
+                migrated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS client_status_rule_conflicts (
+                client_id INTEGER NOT NULL,
+                pattern TEXT NOT NULL,
+                pattern_key TEXT NOT NULL,
+                group_names_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(client_id, pattern_key)
+            );
             CREATE TABLE IF NOT EXISTS source_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_code TEXT,
@@ -360,6 +372,10 @@ def group_key(group_id: int) -> str:
     return f"lk-group:{int(group_id)}"
 
 
+def client_status_rule_key(client_id: int) -> str:
+    return f"lk-client:{int(client_id)}"
+
+
 def _group(row: sqlite3.Row | None) -> dict[str, object] | None:
     if row is None:
         return None
@@ -653,6 +669,7 @@ def add_status_rule(rule: StatusRule) -> None:
                         existing["id"],
                     ),
                 )
+                _clear_client_status_rule_conflict(conn, rule, pattern_key)
                 return
         conn.execute(
             """
@@ -674,6 +691,21 @@ def add_status_rule(rule: StatusRule) -> None:
                 stamp,
             ),
         )
+        _clear_client_status_rule_conflict(conn, rule, pattern_key)
+
+
+def _clear_client_status_rule_conflict(conn: sqlite3.Connection, rule: StatusRule, pattern_key: str) -> None:
+    prefix = "lk-client:"
+    if rule.match_type != "exact" or not rule.project_code or not rule.project_code.startswith(prefix):
+        return
+    try:
+        client_id = int(rule.project_code[len(prefix):])
+    except ValueError:
+        return
+    conn.execute(
+        "DELETE FROM client_status_rule_conflicts WHERE client_id=? AND pattern_key=?",
+        (client_id, pattern_key),
+    )
 
 
 def list_status_rules(project: str | None = None) -> list[sqlite3.Row]:
@@ -704,6 +736,75 @@ def list_project_status_rules(project: str) -> list[sqlite3.Row]:
                 (project,),
             )
         )
+
+
+def ensure_client_status_rules(client_id: int, valid_groups: set[str] | list[str]) -> None:
+    """Move legacy group rules to the shared client key once, preserving disagreements for review."""
+    client_id = int(client_id)
+    client_key = client_status_rule_key(client_id)
+    allowed_groups = set(valid_groups)
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        migrated = conn.execute(
+            "SELECT 1 FROM client_status_rule_migrations WHERE client_id=?", (client_id,)
+        ).fetchone()
+        if migrated:
+            return
+
+        groups = conn.execute(
+            "SELECT id, name FROM analytics_groups WHERE client_id=? ORDER BY id", (client_id,)
+        ).fetchall()
+        candidates: dict[str, list[sqlite3.Row]] = {}
+        for group in groups:  # Include archived groups: their saved mappings were still this client's rules.
+            for row in conn.execute(
+                "SELECT * FROM status_rules WHERE project_code=? ORDER BY priority ASC, id ASC",
+                (group_key(int(group["id"])),),
+            ):
+                pattern_key = normalize_status_pattern(row["pattern"])
+                candidates.setdefault(pattern_key, []).append(row)
+
+        stamp = now_text()
+        for pattern_key, records in candidates.items():
+            if conn.execute(
+                "SELECT 1 FROM status_rules WHERE project_code=? AND pattern_key=?",
+                (client_key, pattern_key),
+            ).fetchone():
+                continue
+            categories = {str(row["group_name"]) for row in records}
+            if len(categories) == 1 and next(iter(categories)) in allowed_groups:
+                row = records[0]
+                conn.execute(
+                    """INSERT INTO status_rules(
+                        project_code, pattern, pattern_key, match_type, group_name, subgroup_name,
+                        comment, priority, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (client_key, row["pattern"], pattern_key, row["match_type"], row["group_name"],
+                     row["subgroup_name"], row["comment"], row["priority"], row["created_at"], stamp),
+                )
+            else:
+                first = records[0]
+                conn.execute(
+                    """INSERT OR REPLACE INTO client_status_rule_conflicts(
+                        client_id, pattern, pattern_key, group_names_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?)""",
+                    (client_id, first["pattern"], pattern_key,
+                     json.dumps(sorted(categories), ensure_ascii=False), stamp),
+                )
+        conn.execute(
+            "INSERT INTO client_status_rule_migrations(client_id, migrated_at) VALUES (?, ?)",
+            (client_id, stamp),
+        )
+
+
+def list_client_status_rule_conflicts(client_id: int) -> list[dict[str, object]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT pattern, pattern_key, group_names_json
+            FROM client_status_rule_conflicts WHERE client_id=? ORDER BY pattern COLLATE NOCASE""",
+            (int(client_id),),
+        ).fetchall()
+    return [{"pattern": str(row["pattern"]), "pattern_key": str(row["pattern_key"]),
+             "group_names": json.loads(row["group_names_json"])} for row in rows]
 
 
 def list_global_status_rules() -> list[sqlite3.Row]:

@@ -13,6 +13,7 @@ from backend.app import models
 from backend.app.agent_api.router import build_app
 from backend.app.lead_analytics import db, router
 from backend.app.lead_analytics.models import ColumnMapping, StatusRule
+from backend.app.lead_analytics.status_classifier import client_rule_key
 
 
 @pytest.fixture
@@ -53,7 +54,8 @@ def prepared(tmp_path, monkeypatch):
     key = db.group_key(group_id)
     db.ensure_project(key)
     db.save_column_mapping(key, ColumnMapping(sheet_name="Joined", date_column="Дата", status_column="Статус", phone_column="Телефон"))
-    db.add_status_rule(StatusRule(pattern="Known", match_type="exact", group_name="Качественные", project_code=key))
+    db.add_status_rule(StatusRule(pattern="Known", match_type="exact", group_name="Качественные",
+                                  project_code=client_rule_key(2)))
     app = FastAPI()
     app.mount("/agent/v1", build_app(get_db, {"SHEETS_TZ": "Europe/Moscow"}))
     yield TestClient(app), group_id
@@ -121,7 +123,8 @@ def test_fresh_run_needs_human_preparation(prepared):
 
 def test_prepared_run_uses_shared_queue_and_preserves_settings(prepared, monkeypatch):
     client, group = prepared
-    before = db.list_project_status_rules(db.group_key(group))
+    rules_key = client_rule_key(2)
+    before = db.list_project_status_rules(rules_key)
     monkeypatch.setattr(db, "save_column_mapping", lambda *a: pytest.fail("Agent must not change mapping"))
     monkeypatch.setattr(db, "add_status_rule", lambda *a: pytest.fail("Agent must not change rules"))
     response = client.post("/agent/v1/analytics.run", headers=h(True), json={"group_id": group, "run_id": "synthetic-run"})
@@ -131,7 +134,7 @@ def test_prepared_run_uses_shared_queue_and_preserves_settings(prepared, monkeyp
     assert job["kind"] == "analyze" and job["status"] == "queued"
     assert job["payload"]["storage_key"] == db.group_key(group)
     assert job["payload"]["periods"] == db.get_run("synthetic-run")["periods"]
-    assert db.list_project_status_rules(db.group_key(group)) == before
+    assert db.list_project_status_rules(rules_key) == before
     repeat = client.post("/agent/v1/analytics.run", headers=h(True), json={"run_id": "synthetic-run"})
     assert repeat.json()["data"]["already_active"]
     assert repeat.json()["data"]["job"]["id"] == job_id
@@ -147,7 +150,7 @@ def test_unknown_statuses_do_not_guess_or_enqueue(prepared):
     assert response.json()["error"]["code"] == "UNKNOWN_STATUSES"
     assert response.json()["data"]["statuses"] == ["Known"]
     assert not db.has_active_run_job("synthetic-run")
-    assert db.list_project_status_rules(db.group_key(group)) == []
+    assert db.list_project_status_rules(client_rule_key(2)) == []
 
 
 def test_period_mismatch_and_completed_run_are_not_repeated(prepared):

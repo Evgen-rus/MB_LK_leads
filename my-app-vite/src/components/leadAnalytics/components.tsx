@@ -616,23 +616,32 @@ export function StatusRulesModal({
 
 export function StatusRulesManager({
   open,
-  project,
+  client,
   data,
   loading,
+  error,
   onClose,
   onSave,
-  onDelete
+  onDelete,
+  onCreate,
+  onResolve
 }: {
   open: boolean;
-  project: string;
+  client: string;
   data: StatusRulesData | null;
   loading: boolean;
+  error: string;
   onClose: () => void;
   onSave: (ruleId: number, groupName: string) => Promise<void>;
   onDelete: (ruleId: number) => Promise<void>;
+  onCreate: (pattern: string, groupName: string) => Promise<boolean>;
+  onResolve: (pattern: string, groupName: string) => Promise<void>;
 }) {
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [conflictDrafts, setConflictDrafts] = useState<Record<string, string>>({});
+  const [newPattern, setNewPattern] = useState("");
+  const [newGroup, setNewGroup] = useState("");
   const [deletingRule, setDeletingRule] = useState<number | null>(null);
 
   useEffect(() => {
@@ -643,52 +652,136 @@ export function StatusRulesManager({
           .map((rule) => [rule.id as number, rule.group_name])
       )
     );
+    setConflictDrafts(Object.fromEntries((data?.conflicts ?? []).map((conflict) => [conflict.pattern, ""])));
+    setNewGroup((current) => data?.status_groups.includes(current) ? current : data?.status_groups[0] ?? "");
   }, [data]);
 
   useEffect(() => {
     if (!open) {
       setSearch("");
       setDeletingRule(null);
+      setNewPattern("");
+      setConflictDrafts({});
     }
   }, [open]);
 
   if (!open) return null;
   const query = search.trim().toLocaleLowerCase("ru");
-  const matches = (pattern: string, group: string) =>
+  const matches = (pattern: string, groups: string[]) =>
     !query ||
     pattern.toLocaleLowerCase("ru").includes(query) ||
-    group.toLocaleLowerCase("ru").includes(query);
-  const projectRules = (data?.project_rules ?? []).filter((rule) => matches(rule.pattern, rule.group_name));
+    groups.some((group) => group.toLocaleLowerCase("ru").includes(query));
+  const clientRules = (data?.project_rules ?? []).filter((rule) => matches(rule.pattern, [rule.group_name]));
+  const conflicts = (data?.conflicts ?? []).filter((conflict) => matches(conflict.pattern, conflict.group_names));
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="rules-manager-title">
       <section className="modalPanel rulesManagerModal">
         <div className="modalHeader">
           <div>
-            <h2 id="rules-manager-title">Соответствия статусов</h2>
-            <p>{project}</p>
+            <h2 id="rules-manager-title">Соответствия статусов клиента</h2>
+            <p>{client}</p>
           </div>
           <button className="ghostButton iconButton" type="button" disabled={loading} onClick={onClose} aria-label="Закрыть">
             x
           </button>
         </div>
 
+        <p>Правила применяются ко всем группам клиента в следующих запусках. Готовые отчёты сохраняются.</p>
+        {error && <div className="alert" role="alert">{error}</div>}
+
         <label className="field rulesSearch">
-          <span>Поиск по статусу или группе</span>
+          <span>Поиск по статусу или категории</span>
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Начните вводить..." />
         </label>
 
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (await onCreate(newPattern.trim(), newGroup)) setNewPattern("");
+          }}
+        >
+          <div className="rulesSectionHeader">
+            <div>
+              <h2>Добавить правило</h2>
+              <p>Новое соответствие сразу станет доступно во всех группах клиента.</p>
+            </div>
+          </div>
+          <div className="twoColumn">
+            <label className="field">
+              <span>Исходный статус</span>
+              <input value={newPattern} onChange={(event) => setNewPattern(event.target.value)} required />
+            </label>
+            <label className="field">
+              <span>Категория для клиента</span>
+              <select value={newGroup} onChange={(event) => setNewGroup(event.target.value)} required>
+                <option value="">Выберите категорию</option>
+                {(data?.status_groups ?? []).map((group) => <option value={group} key={group}>{group}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="ruleActions">
+            <button type="submit" disabled={loading || !newPattern.trim() || !newGroup}>Добавить правило</button>
+          </div>
+        </form>
+
+        {conflicts.length > 0 && (
+          <>
+            <div className="rulesSectionHeader">
+              <div>
+                <h2>Нужно разрешить расхождения</h2>
+                <p>В группах клиента для этих статусов были сохранены разные категории.</p>
+              </div>
+              <strong>{conflicts.length}</strong>
+            </div>
+            <div className="tableWrap rulesTableWrap">
+              <table className="rulesTable">
+                <thead>
+                  <tr><th>Исходный статус</th><th>Категории в группах</th><th>Категория клиента</th><th>Действия</th></tr>
+                </thead>
+                <tbody>
+                  {conflicts.map((conflict) => {
+                    const draft = conflictDrafts[conflict.pattern] ?? "";
+                    return (
+                      <tr key={conflict.pattern}>
+                        <td title={conflict.pattern}>{conflict.pattern}</td>
+                        <td>{conflict.group_names.join(" · ")}</td>
+                        <td>
+                          <select
+                            aria-label={`Категория для статуса ${conflict.pattern}`}
+                            value={draft}
+                            disabled={loading}
+                            onChange={(event) => setConflictDrafts({ ...conflictDrafts, [conflict.pattern]: event.target.value })}
+                          >
+                            <option value="">Выберите категорию</option>
+                            {(data?.status_groups ?? []).map((group) => <option value={group} key={group}>{group}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <button type="button" disabled={loading || !draft} onClick={() => void onResolve(conflict.pattern, draft)}>
+                            Сохранить выбор
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
         <div className="rulesSectionHeader">
           <div>
-            <h2>Правила группы</h2>
-            <p>Изменения применяются только к будущим аналитикам</p>
+            <h2>Правила клиента</h2>
+            <p>Изменения применяются ко всем группам в будущих запусках.</p>
           </div>
-          <strong>{projectRules.length}</strong>
+          <strong>{clientRules.length}</strong>
         </div>
-        {projectRules.length === 0 ? (
+        {clientRules.length === 0 ? (
           <div className="emptyState">
-            <strong>Соответствия не найдены</strong>
-            <span>{query ? "Измените строку поиска." : "Для этой группы пока нет сохранённых соответствий."}</span>
+            <strong>Правила не найдены</strong>
+            <span>{query ? "Измените строку поиска." : "Для этого клиента пока нет сохранённых правил."}</span>
           </div>
         ) : (
           <div className="tableWrap rulesTableWrap">
@@ -701,7 +794,7 @@ export function StatusRulesManager({
                 </tr>
               </thead>
               <tbody>
-                {projectRules.map((rule) => {
+                {clientRules.map((rule) => {
                   const ruleId = rule.id as number;
                   const draft = drafts[ruleId] ?? rule.group_name;
                   const changed = draft !== rule.group_name;
@@ -739,7 +832,7 @@ export function StatusRulesManager({
                         </div>
                         {deletingRule === ruleId && (
                           <div className="inlineConfirm">
-                            <span>Удалить это соответствие?</span>
+                            <span>Удалить правило для всех групп клиента?</span>
                             <button
                               className="dangerButton"
                               type="button"

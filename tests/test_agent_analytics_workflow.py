@@ -17,7 +17,7 @@ from backend.app.agent_api.router import build_app
 from backend.app.agent_api import analytics_workflow
 from backend.app.lead_analytics import db, export_history, pipeline as analysis_pipeline, router
 from backend.app.lead_analytics.models import ColumnMapping, StatusRule
-from backend.app.lead_analytics.status_classifier import ALL_GROUPS
+from backend.app.lead_analytics.status_classifier import ALL_GROUPS, client_rule_key
 
 
 def _client_xlsx():
@@ -92,7 +92,8 @@ def configured(tmp_path, monkeypatch):
         sheet_name="Сопоставленные", date_column="Дата клиента", phone_column="Телефон",
         status_column="Статус клиента",
     ))
-    db.add_status_rule(StatusRule(pattern="Known", match_type="exact", group_name="Качественные", project_code=key))
+    db.add_status_rule(StatusRule(pattern="Known", match_type="exact", group_name="Качественные",
+                                  project_code=client_rule_key(2)))
     monkeypatch.setattr(router, "read_spreadsheet_url",
                         lambda url: (_client_xlsx(), "synthetic.xlsx", "Client"))
     display = (
@@ -166,6 +167,7 @@ def test_prepare_match_confirm_run_and_result_use_real_queue(configured):
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["data"]["analysis_queued"] is False
     assert not db.has_active_run_job(prepared["run_id"])
+    assert any(row["pattern"] == "Новый статус" for row in db.list_project_status_rules(client_rule_key(2)))
 
     queued = client.post("/agent/v1/analytics.run", headers=_headers(True), json={"run_id": prepared["run_id"]})
     assert queued.status_code == 200, queued.text

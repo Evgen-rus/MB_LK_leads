@@ -83,19 +83,42 @@ def test_clients_projects_and_independent_group_membership(api):
     group = created.json()
     assert group["project_ids"] == [20, 21]
     assert api.get(f"/admin/analytics/groups/{group['id']}/status-rules").json()["system_rules"] == []
-    db.ensure_project(db.group_key(group["id"]))
-    db.add_status_rule(StatusRule(pattern="New", match_type="exact", group_name="Качественные",
-                                  project_code=db.group_key(group["id"])))
+    added_rule = api.post(f"/admin/analytics/groups/{group['id']}/status-rules", json={
+        "pattern": "New", "group_name": "Качественные",
+    })
+    assert added_rule.status_code == 200, added_rule.text
     same_name = api.post("/admin/analytics/clients/2/groups", json={
         "name": "Combined", "project_ids": [20], "spreadsheet_url": None,
     }).json()
-    assert api.get(f"/admin/analytics/groups/{same_name['id']}/status-rules").json()["project_rules"] == []
+    assert api.get(f"/admin/analytics/groups/{same_name['id']}/status-rules").json()["project_rules"][0]["pattern"] == "New"
     assert api.put(f"/admin/analytics/groups/{group['id']}", json={
         "name": "Renamed", "project_ids": [21], "spreadsheet_url": None,
     }).json()["id"] == group["id"]
     assert api.get(f"/admin/analytics/groups/{group['id']}/status-rules").json()["project_rules"][0]["pattern"] == "New"
     assert api.post("/admin/analytics/clients/2/groups", json={
         "name": "Bad", "project_ids": [30], "spreadsheet_url": None,
+    }).status_code == 400
+
+
+def test_status_rule_routes_share_and_edit_client_rules(api):
+    group1 = api.post("/admin/analytics/clients/2/groups", json={"name": "First", "project_ids": [20]}).json()
+    group2 = api.post("/admin/analytics/clients/2/groups", json={"name": "Second", "project_ids": [21]}).json()
+    other = api.post("/admin/analytics/clients/3/groups", json={"name": "Other", "project_ids": [30]}).json()
+    created = api.post(f"/admin/analytics/groups/{group1['id']}/status-rules", json={
+        "pattern": "Новый статус", "group_name": "Качественные",
+    })
+    assert created.status_code == 200, created.text
+    rule_id = created.json()["id"]
+    assert api.get(f"/admin/analytics/groups/{group2['id']}/status-rules").json()["project_rules"][0]["pattern"] == "Новый статус"
+    assert api.get(f"/admin/analytics/groups/{other['id']}/status-rules").json()["project_rules"] == []
+    assert api.put(f"/admin/analytics/groups/{group2['id']}/status-rules/{rule_id}", json={
+        "group_name": "Недозвон",
+    }).json()["group_name"] == "Недозвон"
+    assert api.get(f"/admin/analytics/groups/{group1['id']}/status-rules").json()["project_rules"][0]["group_name"] == "Недозвон"
+    assert api.delete(f"/admin/analytics/groups/{group2['id']}/status-rules/{rule_id}").json() == {"deleted": True}
+    assert api.get(f"/admin/analytics/groups/{group1['id']}/status-rules").json()["project_rules"] == []
+    assert api.post(f"/admin/analytics/groups/{group1['id']}/status-rules", json={
+        "pattern": "Bad", "group_name": "Invented",
     }).status_code == 400
 
 

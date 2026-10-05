@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   archiveGroup,
   createGroup,
+  createStatusRule,
   deleteExport,
   deleteStatusRule,
   downloadExport,
@@ -531,10 +532,23 @@ export default function LeadAnalytics() {
     try {
       setRulesData(await fetchStatusRules(selectedGroup.id));
     } catch (err) {
-      setRulesManagerOpen(false);
       setError(err instanceof Error ? err.message : "Не удалось загрузить соответствия статусов");
     } finally {
       setRulesLoading(false);
+    }
+  }
+
+  async function refreshStatusRules(groupId: number) {
+    setRulesData(await fetchStatusRules(groupId));
+    if (step !== "analyze" || !upload || !analyzeSetup) return;
+    try {
+      const setup = await fetchAnalyzeSetup(groupId, upload.run_id, analyzeMapping);
+      setAnalyzeSetup(setup);
+      setStatusRules((current) => Object.fromEntries(
+        Object.entries(current).filter(([status]) => setup.unknown_statuses.includes(status))
+      ));
+    } catch {
+      setError("Правило сохранено, но список неизвестных статусов не удалось обновить.");
     }
   }
 
@@ -543,13 +557,10 @@ export default function LeadAnalytics() {
     setRulesLoading(true);
     setError("");
     try {
-      const updated = await updateStatusRule(selectedGroup.id, ruleId, groupNameValue);
-      setRulesData((current) => current ? {
-        ...current,
-        project_rules: current.project_rules.map((rule) => rule.id === ruleId ? updated : rule)
-      } : current);
+      await updateStatusRule(selectedGroup.id, ruleId, groupNameValue);
+      await refreshStatusRules(selectedGroup.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить соответствие");
+      setError(err instanceof Error ? err.message : "Не удалось сохранить правило клиента");
     } finally {
       setRulesLoading(false);
     }
@@ -561,12 +572,39 @@ export default function LeadAnalytics() {
     setError("");
     try {
       await deleteStatusRule(selectedGroup.id, ruleId);
-      setRulesData((current) => current ? {
-        ...current,
-        project_rules: current.project_rules.filter((rule) => rule.id !== ruleId)
-      } : current);
+      await refreshStatusRules(selectedGroup.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить соответствие");
+      setError(err instanceof Error ? err.message : "Не удалось удалить правило клиента");
+    } finally {
+      setRulesLoading(false);
+    }
+  }
+
+  async function addStatusRule(pattern: string, groupNameValue: string): Promise<boolean> {
+    if (!selectedGroup) return false;
+    setRulesLoading(true);
+    setError("");
+    try {
+      await createStatusRule(selectedGroup.id, pattern, groupNameValue);
+      await refreshStatusRules(selectedGroup.id);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось добавить правило клиента");
+      return false;
+    } finally {
+      setRulesLoading(false);
+    }
+  }
+
+  async function resolveStatusConflict(pattern: string, groupNameValue: string) {
+    if (!selectedGroup) return;
+    setRulesLoading(true);
+    setError("");
+    try {
+      await createStatusRule(selectedGroup.id, pattern, groupNameValue);
+      await refreshStatusRules(selectedGroup.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось сохранить категорию статуса");
     } finally {
       setRulesLoading(false);
     }
@@ -717,7 +755,7 @@ export default function LeadAnalytics() {
 
       <Stepper step={step} />
       <ProcessProgress active={loading} stage={activeJob ? activeJob.kind === "match" ? "match" : "prepare" : operationStage} label={activeJob?.phase || operation} processedRows={activeJob?.processed_rows} totalRows={activeJob?.total_rows} queued={activeJob?.status === "queued"} />
-      {error && <div className="alert" role="alert">{error}</div>}
+      {error && !rulesManagerOpen && <div className="alert" role="alert">{error}</div>}
 
       {step === "upload" && (
         <>
@@ -855,7 +893,7 @@ export default function LeadAnalytics() {
         onConfirmDelete={() => void confirmDeleteExport()}
         onDownload={(exportId) => void downloadReport(exportId)}
       />
-      <StatusRulesManager open={rulesManagerOpen} project={selectedGroup?.name ?? ""} data={rulesData} loading={rulesLoading} onClose={() => setRulesManagerOpen(false)} onSave={saveStatusRule} onDelete={removeStatusRule} />
+      <StatusRulesManager open={rulesManagerOpen} client={client?.name ?? ""} data={rulesData} loading={rulesLoading} error={error} onClose={() => { setRulesManagerOpen(false); setError(""); }} onSave={saveStatusRule} onDelete={removeStatusRule} onCreate={addStatusRule} onResolve={resolveStatusConflict} />
     </section>
   );
 }
