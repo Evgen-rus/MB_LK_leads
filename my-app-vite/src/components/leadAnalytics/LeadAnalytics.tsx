@@ -8,6 +8,7 @@ import {
   deleteExport,
   deleteStatusRule,
   downloadExport,
+  downloadMatch,
   fetchAnalyzeSetup,
   fetchClients,
   fetchExports,
@@ -599,6 +600,19 @@ export default function LeadAnalytics() {
     }
   }
 
+  async function downloadMatching() {
+    if (!selectedGroup || !upload || !matchPreview) return;
+    setLoading(true);
+    setError("");
+    try {
+      await downloadMatch(selectedGroup.id, upload.run_id, matchPreview.filename);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось скачать сопоставление");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function downloadReport(exportId: number) {
     if (!selectedGroup) return;
     setLoading(true);
@@ -947,7 +961,7 @@ export default function LeadAnalytics() {
             <button type="button" onClick={requestAnalyze} disabled={!canAnalyze}>Сделать аналитику</button>
           </section>
           <div className="sectionBar"><div><span>Параметры аналитики</span><p>Сопоставление готово, проверьте периоды и колонки.</p></div><button className="ghostButton" type="button" onClick={() => setStep("mapping")} disabled={loading}>Назад</button></div>
-          {matchPreview && <section className="panel"><div className="panelHeader compact"><div><h2>Итог сопоставления</h2><p>{matchPreview.filename}</p></div></div><MatchSummary workbook={matchPreview} /></section>}
+          {matchPreview && <section className="panel"><div className="panelHeader compact"><div><h2>Итог сопоставления</h2><p>{matchPreview.filename}</p></div><button className="ghostButton" type="button" disabled={loading} onClick={() => void downloadMatching()}>Скачать сопоставление</button></div><MatchSummary workbook={matchPreview} /></section>}
           <section className="panel">
             <div className="panelHeader compact"><div><h2>Периоды анализа</h2><p>Периоды сохранены вместе с этим запуском.</p></div></div>
             <div className="periodList">
@@ -975,6 +989,7 @@ export default function LeadAnalytics() {
               <div><h2>Аналитика готова</h2><p>{analyzePreview.filename}</p></div>
               <div className="actions">
                 <button type="button" disabled={!currentExportId || loading} onClick={() => currentExportId && void downloadReport(currentExportId)}>Скачать аналитику</button>
+                {matchPreview && <button className="ghostButton" type="button" disabled={loading} onClick={() => void downloadMatching()}>Скачать сопоставление</button>}
                 <button className="ghostButton" type="button" onClick={resetRun} disabled={loading}>Новая аналитика</button>
               </div>
             </div>

@@ -471,7 +471,6 @@ export function MatchSummary({ workbook }: { workbook: WorkbookPreview }) {
   const total = valueFromCheckSheet(workbook, "Строк в ЛК");
   const matched = valueFromCheckSheet(workbook, "Сопоставлено");
   const unmatched = valueFromCheckSheet(workbook, "Не сопоставлено из ЛК");
-  const duplicateRows = valueFromCheckSheet(workbook, "Дублей клиента");
   const matchedNumber = toNumber(matched);
   const totalNumber = toNumber(total);
   const rate = matchedNumber !== null && totalNumber ? matchedNumber / totalNumber : null;
@@ -481,7 +480,7 @@ export function MatchSummary({ workbook }: { workbook: WorkbookPreview }) {
       <MetricCard label="Сопоставлено" value={matched || "0"} hint={rate !== null ? formatPercent(rate) : undefined} />
       <MetricCard label="Строк в ЛК" value={total || "0"} />
       <MetricCard label="Не найдено из ЛК" value={unmatched || "0"} />
-      <MetricCard label="Дублей клиента" value={duplicateRows || "0"} />
+      <MetricCard label="Неоднозначные сопоставления" value={valueFromCheckSheet(workbook, "Неоднозначные сопоставления") || "0"} tooltip="Для строки ЛК найдено несколько записей клиента по использованному ключу. Выбрана последняя по дате; строка ЛК учитывается один раз. Подробности в Excel сопоставления." />
     </div>
   );
 }
@@ -504,10 +503,10 @@ function formatMetric(value: unknown): string | undefined {
   return numeric === null ? undefined : formatPercent(numeric);
 }
 
-function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function MetricCard({ label, value, hint, tooltip }: { label: string; value: string; hint?: string; tooltip?: string }) {
   return (
     <div className="metricCard">
-      <span>{label}</span>
+      <span title={tooltip} tabIndex={tooltip ? 0 : undefined}>{label}{tooltip && " ⓘ"}</span>
       <strong>{value}</strong>
       {hint && <small>{hint}</small>}
     </div>

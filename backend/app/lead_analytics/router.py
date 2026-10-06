@@ -955,6 +955,14 @@ def build_router(
             group_id, run_id, _to_mapping(payload.lk_mapping), _to_mapping(payload.client_mapping),
         )
 
+    @router.get("/groups/{group_id}/runs/{run_id}/match/download")
+    def download_match(group_id: int, run_id: str) -> FileResponse:
+        _group(group_id)
+        _run(group_id, run_id)
+        path = _stored_output(group_id, run_id, _latest_match_name(group_id, run_id))
+        return FileResponse(path, filename=path.name,
+                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
     @router.post("/groups/{group_id}/runs/{run_id}/analyze/setup", response_model=AnalyzeSetupResponse)
     def analyze_setup(group_id: int, run_id: str, payload: AnalyzeSetupPayload) -> AnalyzeSetupResponse:
         group = _group(group_id)

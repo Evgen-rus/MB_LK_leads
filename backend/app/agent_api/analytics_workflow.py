@@ -78,7 +78,7 @@ def _execute_prepare(session, params, *, analytics_display=None):
         "Дата", "Телефон", "Канал", "Источники", "Проект", "lk id", "ext_id", "Клиент",
         "LKID", "Нормализованный телефон", "Дата из ЛК", "Полный источник из ЛК", "Статус клиента",
         "Комментарий клиента", "Дата клиента", "Ключ сопоставления", "Тип сопоставления",
-        "Признак дубля клиента", "Комментарий сопоставления",
+        "Строка клиента", "Неоднозначное сопоставление", "Комментарий сопоставления",
     }
     analysis_fields = ("date_column", "phone_column", "channel_column", "source_column", "status_column", "comment_column")
     if (analysis_mapping.sheet_name != MATCHED_SHEET_NAME or not analysis_mapping.date_column

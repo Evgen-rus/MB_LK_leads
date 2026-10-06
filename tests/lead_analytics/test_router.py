@@ -401,3 +401,20 @@ def test_prepare_freezes_multiple_periods_membership_and_includes_last_day(api, 
     assert frozen["group_name"] == "Before rename"
     assert frozen["project_ids"] == [20]
     assert frozen["project_names"] == {"20": "Active Pixel"}
+
+
+def test_download_full_match_workbook_and_group_boundary(api, tmp_path, monkeypatch):
+    monkeypatch.setattr(analytics_router, "RUNS_DIR", tmp_path / "runs")
+    group_id = db.create_group(2, "Download", [20], None)
+    other_group = db.create_group(2, "Other", [20], None)
+    _add_run(group_id, "download-match")
+    output = tmp_path / "runs" / "download-match" / "output"
+    output.mkdir(parents=True)
+    path = output / "test_сопоставление.xlsx"
+    with pd.ExcelWriter(path) as writer:
+        for name in ("Сопоставленные", "Неоднозначные сопоставления", "Проверка"):
+            pd.DataFrame({"test": [1]}).to_excel(writer, sheet_name=name, index=False)
+    response = api.get(f"/admin/analytics/groups/{group_id}/runs/download-match/match/download")
+    assert response.status_code == 200
+    assert response.content == path.read_bytes()
+    assert api.get(f"/admin/analytics/groups/{other_group}/runs/download-match/match/download").status_code == 404

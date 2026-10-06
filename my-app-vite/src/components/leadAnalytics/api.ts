@@ -100,3 +100,6 @@ export const fetchProcessingJob = (groupId: number, jobId: number) =>
 
 export const fetchProcessingJobPreview = (groupId: number, jobId: number) =>
   http<WorkbookPreview>(`${base}/groups/${groupId}/jobs/${jobId}/preview`);
+
+export const downloadMatch = (groupId: number, runId: string, filename: string) =>
+  downloadApiFile(`${base}/groups/${groupId}/runs/${encodeURIComponent(runId)}/match/download`, filename);

@@ -21,7 +21,7 @@ def extract_lkid_from_source(value: object) -> str:
     if "_" not in text:
         return ""
     tail = text.rsplit("_", 1)[-1]
-    match = re.fullmatch(r"\d{4,}", tail)
+    match = re.fullmatch(r"3[0-9]{7}", tail)
     return tail if match else ""
 
 

@@ -54,34 +54,17 @@ def _prepare_client(df: pd.DataFrame, mapping: ColumnMapping) -> pd.DataFrame:
     return result
 
 
-def _build_index(client: pd.DataFrame, key_col: str, key_type: str) -> tuple[dict[str, pd.Series], list[dict]]:
+def _build_index(client: pd.DataFrame, key_col: str) -> dict[str, pd.Series]:
     rows = client[client[key_col] != ""].copy()
     if rows.empty:
-        return {}, []
+        return {}
 
     # The original rule is: prefer the latest dated row, then the latest source row.
     # Sorting all rows once avoids repeating a DataFrame sort for every individual key.
     rows["_has_date"] = rows["_date"].notna()
     ordered = rows.sort_values([key_col, "_has_date", "_date", "_row"], kind="stable")
     selected = ordered.drop_duplicates(subset=key_col, keep="last")
-    indexed = {str(row[key_col]): row for _, row in selected.iterrows()}
-
-    duplicate_rows = rows[rows.duplicated(subset=key_col, keep=False)].copy()
-    if duplicate_rows.empty:
-        return indexed, []
-
-    selected_rows = dict(zip(selected[key_col], selected["_row"], strict=True))
-    dated_keys = set(rows.loc[rows["_date"].notna(), key_col])
-    duplicate_rows = duplicate_rows.sort_values([key_col, "_row"], kind="stable")
-    duplicate_rows["Ключ"] = duplicate_rows[key_col]
-    duplicate_rows["Тип ключа"] = key_type
-    duplicate_rows["Выбрана строка"] = duplicate_rows["_row"].eq(
-        duplicate_rows[key_col].map(selected_rows)
-    ).map({True: "да", False: "нет"})
-    duplicate_rows["Причина выбора"] = duplicate_rows[key_col].isin(dated_keys).map(
-        {True: "последняя дата", False: "последняя строка"}
-    )
-    return indexed, duplicate_rows.drop(columns="_has_date").to_dict("records")
+    return {str(row[key_col]): row for _, row in selected.iterrows()}
 
 
 def match_files(
@@ -98,14 +81,20 @@ def match_files(
     lk = _prepare_lk(lk_raw, lk_mapping)
     client = _prepare_client(client_raw, client_mapping)
 
-    by_lkid, dup_lkid = _build_index(client, "_lkid", "LKID")
-    by_source_lkid, dup_source_lkid = _build_index(client, "_lkid_from_source", "LKID из источника")
-    by_phone, dup_phone = _build_index(client, "_phone", "Телефон")
-    duplicate_rows = dup_lkid + dup_source_lkid + dup_phone
-    duplicate_keys = {str(item["Ключ"]) for item in duplicate_rows}
+    by_lkid = _build_index(client, "_lkid")
+    by_source_lkid = _build_index(client, "_lkid_from_source")
+    by_phone = _build_index(client, "_phone")
     lk_lkids = set(lk["_lkid"])
     lk_phones = set(lk["_phone"])
 
+    candidates = {}
+    for kind, column in (("LKID", "_lkid"), ("LKID из источника", "_lkid_from_source"), ("Телефон", "_phone")):
+        candidates[kind] = {
+            str(key): rows for key, rows in client[client[column] != ""].groupby(column)
+            if len(rows) > 1
+        }
+    ambiguous_rows = []
+    ambiguous_count = 0
     matched_rows = []
     unmatched_lk = []
     used_client_rows = set()
@@ -139,6 +128,18 @@ def match_files(
                 progress("Сопоставление строк", position, total_rows)
             continue
 
+        alternatives = candidates[match_type].get(match_key)
+        if alternatives is not None:
+            ambiguous_count += 1
+            for _, alternative in alternatives.iterrows():
+                ambiguous_rows.append({
+                    "Строка ЛК": lk_row["_row"], "LKID": lk_row["_lkid"],
+                    "Тип ключа": match_type, "Ключ": match_key,
+                    "Строка клиента": alternative["_row"], "Источник клиента": alternative["_source"],
+                    "Статус клиента": alternative["_status"], "Дата клиента": alternative["_date"],
+                    "Выбрана строка": "да" if alternative["_row"] == client_row["_row"] else "нет",
+                    "Правило выбора": "последняя дата, затем последняя строка",
+                })
         used_client_rows.add(int(client_row["_row"]))
         match_counts[match_type] += 1
         item = lk_row.to_dict()
@@ -151,7 +152,8 @@ def match_files(
         item["Дата клиента"] = client_row["_date"]
         item["Ключ сопоставления"] = match_key
         item["Тип сопоставления"] = match_type
-        item["Признак дубля клиента"] = "да" if match_key in duplicate_keys else "нет"
+        item["Строка клиента"] = client_row["_row"]
+        item["Неоднозначное сопоставление"] = "да" if alternatives is not None else "нет"
         item["Комментарий сопоставления"] = f"Сопоставлено по {match_type}"
         matched_rows.append(item)
         if progress:
@@ -185,9 +187,9 @@ def match_files(
             ["Строк в ЛК", len(lk)],
             ["Строк у клиента", len(client)],
             ["Сопоставлено", len(matched_rows)],
+            ["Неоднозначные сопоставления", ambiguous_count],
             ["Не сопоставлено из ЛК", len(unmatched_lk)],
             ["Не сопоставлено от клиента", len(unmatched_client)],
-            ["Дублей клиента", len(duplicate_rows)],
             ["Сопоставлено по LKID", match_counts["LKID"]],
             ["Сопоставлено по LKID из источника", match_counts["LKID из источника"]],
             ["Сопоставлено по телефону", match_counts["Телефон"]],
@@ -218,7 +220,20 @@ def match_files(
             MATCHED_SHEET_NAME: pd.DataFrame(matched_rows),
             "Не сопоставлено из ЛК": pd.DataFrame(unmatched_lk),
             "Не сопоставлено от клиента": pd.DataFrame(unmatched_client),
-            "Дубли клиента": pd.DataFrame(duplicate_rows),
+            "Неоднозначные сопоставления": pd.DataFrame(ambiguous_rows, columns=["Строка ЛК", "LKID", "Тип ключа", "Ключ", "Строка клиента", "Источник клиента", "Статус клиента", "Дата клиента", "Выбрана строка", "Правило выбора"]),
             "Проверка": check,
+            "Как читать сопоставление": pd.DataFrame([
+                ["Версия правил", "2: LKID из источника — 8 цифр с первой 3 после последнего подчёркивания"],
+                ["Порядок поиска", "LKID → LKID из источника → нормализованный телефон. Используется первый найденный тип ключа."],
+                ["Сопоставленные", "Одна строка на сопоставленную строку ЛК. Строка клиента указывает выбранную запись."],
+                ["Неоднозначные сопоставления", "Все кандидаты только по фактически использованному ключу, отдельно для каждой строки ЛК. Выбрана строка = да — запись, из которой взят статус."],
+                ["Счётчик неоднозначных", "Количество строк ЛК с несколькими кандидатами, а не количество лишних строк клиента. Повторы по неиспользованным ключам не считаются."],
+                ["Правило выбора", "Последняя корректная дата клиента; при одинаковых или отсутствующих датах — последняя строка клиента."],
+                ["Номера строк", "Строка ЛК: _row; Строка клиента: номер записи после удаления полностью пустых строк. Нумерация с 1, без заголовка; это не физический номер строки Excel."],
+                ["Не сопоставлено от клиента", "Записи клиента, не выбранные ни для одной строки ЛК, включая невыбранных кандидатов. Они не добавляются отдельно в аналитику."],
+                ["Проверка результата", "Сопоставлено + Не сопоставлено из ЛК = Строк в ЛК. Проверять неоднозначные по Строка ЛК, Тип ключа, Ключ и выбранному статусу."],
+                ["Параметры ЛК", str(lk_mapping)],
+                ["Параметры клиента", str(client_mapping)],
+            ], columns=["Раздел", "Пояснение"]),
         },
     )
