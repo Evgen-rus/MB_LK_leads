@@ -938,6 +938,14 @@ export default function LeadAnalytics() {
 
       {!historyOpen && step === "analyze" && upload && analyzeSetup && (
         <>
+          <section className="panel runReview">
+            <div>
+              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"} · {periods.map((period) => period.period_start && period.period_end ? `${period.period_start} — ${period.period_end}` : "период не заполнен").join(" · ")}</p>
+              {!canAnalyze && !loading && <p className="runReviewHint">{!periodsMatchPrepared ? "Периоды изменились: вернитесь и подготовьте данные заново." : "Проверьте обязательные колонки и даты периодов."}</p>}
+              {analyzeSetup.unknown_statuses.length > 0 && <p>{analyzeSetup.unknown_statuses.length} неизвестных статусов потребуют ручного распределения.</p>}
+            </div>
+            <button type="button" onClick={requestAnalyze} disabled={!canAnalyze}>Сделать аналитику</button>
+          </section>
           <div className="sectionBar"><div><span>Параметры аналитики</span><p>Сопоставление готово, проверьте периоды и колонки.</p></div><button className="ghostButton" type="button" onClick={() => setStep("mapping")} disabled={loading}>Назад</button></div>
           {matchPreview && <section className="panel"><div className="panelHeader compact"><div><h2>Итог сопоставления</h2><p>{matchPreview.filename}</p></div></div><MatchSummary workbook={matchPreview} /></section>}
           <section className="panel">
@@ -956,15 +964,6 @@ export default function LeadAnalytics() {
           </section>
           <MappingPanel title="Колонки аналитики" file={analyzeSetup} mapping={analyzeMapping} role="analyze" onChange={(mapping) => changeMapping("analyze", setAnalyzeMapping, mapping)} />
           {matchPreview && <details className="previewDisclosure"><summary>Посмотреть все листы сопоставления</summary><WorkbookViewer title="Предпросмотр сопоставления" workbook={matchPreview} /></details>}
-          <section className="panel runReview">
-            <div>
-              <h2>Проверить и запустить</h2>
-              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"} · {periods.map((period) => period.period_start && period.period_end ? `${period.period_start} — ${period.period_end}` : "период не заполнен").join(" · ")}</p>
-              {!canAnalyze && !loading && <p className="runReviewHint">{!periodsMatchPrepared ? "Периоды изменились: вернитесь и подготовьте данные заново." : "Проверьте обязательные колонки и даты периодов."}</p>}
-              {analyzeSetup.unknown_statuses.length > 0 && <p>{analyzeSetup.unknown_statuses.length} неизвестных статусов потребуют ручного распределения.</p>}
-            </div>
-            <button type="button" onClick={requestAnalyze} disabled={!canAnalyze}>Сделать аналитику</button>
-          </section>
           <StatusRulesModal open={statusModalOpen} setup={analyzeSetup} statusRules={statusRules} loading={loading} onChange={(rules) => changeAnalyzeInput(setStatusRules, rules)} onCancel={() => setStatusModalOpen(false)} onConfirm={() => void runAnalyze()} />
         </>
       )}

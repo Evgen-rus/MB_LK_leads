@@ -403,14 +403,17 @@
 }
 .lead-analytics .runReview{
   position: sticky;
-  bottom: 12px;
+  top: 8px;
   z-index: 5;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   box-shadow: 0 8px 24px rgba(16, 32, 44, 0.14);
 }
+.lead-analytics .runReview p{ margin: 0; font-size: 13px; }
+.lead-analytics .runReview > button{ flex-shrink: 0; }
 .lead-analytics .fileBadge{
   width: fit-content;
   border-radius: 4px;
@@ -934,8 +937,8 @@
     flex-wrap: wrap;
   }
 .lead-analytics .runReview{
-    position: static;
-    box-shadow: none;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 .lead-analytics .periodMessage{
     padding-left: 0;
