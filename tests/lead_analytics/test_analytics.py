@@ -251,3 +251,35 @@ def test_write_excel_preserves_report_formatting(tmp_path):
     assert ws["A2"].fill.fill_type == "solid"
     assert ws["A3"].fill.fill_type == "solid"
     assert ws.column_dimensions["B"].width >= len("Канал") + 2
+
+
+def test_excel_numeric_columns_are_compact(tmp_path):
+    data = pd.DataFrame({
+        "Домен": ["long-domain.example.com"],
+        "Всего идентификаций": [12345],
+        "Рабочий потенциал %": [0.1234],
+    })
+    path = write_excel(tmp_path / "report.xlsx", {"Отчет": data})
+    workbook = load_workbook(path)
+    sheet = workbook["Отчет"]
+    assert sheet.column_dimensions["A"].width == 25
+    assert sheet.column_dimensions["B"].width == 12
+    assert sheet.column_dimensions["C"].width == 12
+    assert sheet["B1"].value == "Всего идентификаций"
+    assert not sheet["B1"].alignment.wrap_text
+    assert sheet["C2"].number_format == "0.00%"
+    assert sheet["C2"].value == 0.1234
+    workbook.close()
+
+
+def test_excel_highlights_key_metric_headers(tmp_path):
+    data = pd.DataFrame({"Кач. %": [0.01], "Сигнал спроса %": [0.02], "Рабочий потенциал %": [0.03], "Недозвон %": [0.1]})
+    workbook = load_workbook(write_excel(tmp_path / "headers.xlsx", {"Отчет": data}))
+    sheet = workbook["Отчет"]
+    assert sheet["A1"].fill.fgColor.rgb == "00C6EFCE"
+    assert sheet["B1"].fill.fgColor.rgb == "00C6EFCE"
+    assert sheet["C1"].fill.fgColor.rgb == "00D9EAF7"
+    assert sheet["D1"].fill.fgColor.rgb == "00FFC7CE"
+    assert sheet["D2"].fill.fgColor.rgb == "00C6EFCE"
+    assert sheet["A2"].fill.fgColor.rgb == "00FFC7CE"
+    workbook.close()

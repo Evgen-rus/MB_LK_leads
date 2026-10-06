@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.styles import Font
 
-from .report_styles import HEADER, fill_for_metric
+from .report_styles import GREEN, HEADER, RED, fill_for_metric
 
 
 def write_excel(path: str | Path, sheets: dict[str, pd.DataFrame | list[str]]) -> Path:
@@ -27,14 +27,15 @@ def style_worksheet(ws, df: pd.DataFrame) -> None:
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     for cell in ws[1]:
-        cell.fill = HEADER
+        cell.fill = GREEN if cell.value in {"Кач. %", "Сигнал спроса %"} else RED if cell.value == "Недозвон %" else HEADER
         cell.font = Font(bold=True)
 
     for idx, header in enumerate(df.columns, 1):
         values = df.iloc[:, idx - 1].dropna().astype(str)
         value_width = values.str.len().max() if not values.empty else 0
         max_len = min(max(len(str(header or "")), int(value_width)), 60)
-        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = max_len + 2
+        numeric = pd.api.types.is_numeric_dtype(df.iloc[:, idx - 1]) or str(header).endswith("%")
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = min(max_len + 2, 12) if numeric else max_len + 2
 
         if not str(header).endswith("%"):
             continue
