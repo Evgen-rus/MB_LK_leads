@@ -30,7 +30,7 @@ function sheetColumns(file: MappingFile | null, mapping: Mapping): string[] {
 }
 
 function sheetRowsLabel(sheet: SheetPreview): string {
-  const shown = sheet.rows.length;
+  const shown = Math.min(sheet.rows.length, 5);
   return shown ? `${shown} строк в предпросмотре` : "нет строк в предпросмотре";
 }
 
@@ -216,7 +216,6 @@ export function SelectField({
   columns,
   required = false,
   note,
-  sample,
   onChange
 }: {
   label: string;
@@ -224,7 +223,6 @@ export function SelectField({
   columns: string[];
   required?: boolean;
   note?: string;
-  sample?: string;
   onChange: (value: string | null) => void;
 }) {
   return (
@@ -241,13 +239,26 @@ export function SelectField({
           </option>
         ))}
       </select>
-      {note && <small className={note.startsWith("Проверьте") || note.startsWith("Обязательное") ? "fieldError" : "mappingNote"}>{note}</small>}
-      {value && <small className="mappingSample" title={sample}>Пример: {sample || "нет значений в предпросмотре"}</small>}
+      <small className={note?.startsWith("Проверьте") || note?.startsWith("Обязательное") ? "fieldError mappingFeedback" : "mappingNote mappingFeedback"} title={note}>{note || "\u00a0"}</small>
     </label>
   );
 }
 
-export function Stepper({ step }: { step: Step }) {
+export function Stepper({
+  step,
+  historyOpen,
+  disabled,
+  canVisit,
+  onStepChange,
+  onHistoryChange
+}: {
+  step: Step;
+  historyOpen: boolean;
+  disabled: boolean;
+  canVisit: Record<Step, boolean>;
+  onStepChange: (step: Step) => void;
+  onHistoryChange: (open: boolean) => void;
+}) {
   const steps: { id: Step; title: string }[] = [
     { id: "upload", title: "Файлы" },
     { id: "mapping", title: "Колонки" },
@@ -259,15 +270,21 @@ export function Stepper({ step }: { step: Step }) {
   return (
     <nav className="stepper" aria-label="Шаги обработки">
       {steps.map((item, index) => (
-        <div
-          className={`stepItem ${index === current ? "active" : ""} ${index < current ? "done" : ""}`}
-          aria-current={index === current ? "step" : undefined}
+        <button
+          type="button"
+          className={`stepItem ${!historyOpen && index === current ? "active" : ""} ${index < current ? "done" : ""}`}
+          aria-current={!historyOpen && index === current ? "step" : undefined}
+          disabled={disabled || !canVisit[item.id]}
+          onClick={() => onStepChange(item.id)}
           key={item.id}
         >
           <span>{index + 1}</span>
           <strong>{item.title}</strong>
-        </div>
+        </button>
       ))}
+      <button type="button" className={`stepItem ${historyOpen ? "active" : ""}`} aria-current={historyOpen ? "page" : undefined} disabled={disabled} onClick={() => onHistoryChange(true)}>
+        <strong>История</strong>
+      </button>
     </nav>
   );
 }
@@ -332,7 +349,7 @@ export function PreviewTable({ sheet }: { sheet: SheetPreview }) {
             </tr>
           </thead>
           <tbody>
-            {sheet.rows.slice(0, 12).map((row, index) => (
+            {sheet.rows.slice(0, 5).map((row, index) => (
               <tr key={index}>
                 {columns.map((column) => (
                   <td key={column} title={String(row[column] ?? "")}>{String(row[column] ?? "")}</td>
@@ -385,7 +402,7 @@ export function MappingPanel({
       : !columns.includes(value) ? "Проверьте: колонки нет на выбранном листе"
       : !sample ? "Проверьте: в предпросмотре нет значений"
       : detected[key] === value ? "Определено автоматически" : "Выбрано вручную";
-    return <SelectField key={key} label={label} value={value} columns={columns} required={required} note={note} sample={sample} onChange={(next) => patch({ [key]: next })} />;
+    return <SelectField key={key} label={label} value={value} columns={columns} required={required} note={note} onChange={(next) => patch({ [key]: next })} />;
   }
 
   const requiredFields: Array<[string, keyof Mapping]> = role === "lk"
@@ -402,30 +419,26 @@ export function MappingPanel({
   const selectedOptionalCount = optionalFields.filter(([, key]) => mapping[key]).length;
 
   return (
-    <section className="panel">
+    <section className="panel mappingPanel">
       <div className="panelHeader">
         <div>
           <h2>{title}</h2>
-          <p>{file.filename}</p>
+          <p title={file.filename}>{file.filename}</p>
         </div>
       </div>
       <div className="mappingGrid">
-        {sheets.length > 1 && (
+        {(
           <label className="field">
             <span>Лист</span>
-            <select value={effectiveMapping.sheet_name} onChange={(event) => patch({ sheet_name: event.target.value })}>
+            <select disabled={sheets.length <= 1} value={effectiveMapping.sheet_name} onChange={(event) => patch({ sheet_name: event.target.value })}>
               {sheets.map((sheet) => <option value={sheet.name} key={sheet.name}>{sheet.name}</option>)}
             </select>
           </label>
         )}
         <div className="mappingFields">
-          <h3>Обязательные колонки</h3>
           {requiredFields.map(([label, key]) => field(label, key, true))}
-        </div>
-        {matchingFields.length > 0 && <div className="mappingFields">
-          <h3>Колонки для сопоставления</h3>
           {matchingFields.map(([label, key]) => field(label, key))}
-        </div>}
+        </div>
         <details className="optionalMappings">
           <summary>Дополнительные колонки <span>{selectedOptionalCount} выбрано</span></summary>
           <div className="mappingFields">{optionalFields.map(([label, key]) => field(label, key))}</div>

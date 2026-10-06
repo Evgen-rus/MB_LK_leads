@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import ClientOptions from '../ClientOptions';
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -87,6 +88,7 @@ export default function LeadAnalytics() {
   const [groups, setGroups] = useState<AnalyticsGroup[]>([]);
   const [groupId, setGroupId] = useState<number | null>(null);
   const [creatingGroup, setCreatingGroup] = useState(true);
+  const [editingGroup, setEditingGroup] = useState(true);
   const [groupName, setGroupName] = useState("");
   const [projectIds, setProjectIds] = useState<number[]>([]);
   const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
@@ -114,6 +116,7 @@ export default function LeadAnalytics() {
   const [periodSplitError, setPeriodSplitError] = useState("");
   const [analysisDate, setAnalysisDate] = useState(todayIso());
   const [step, setStep] = useState<Step>("upload");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [operation, setOperation] = useState("");
   const [operationStage, setOperationStage] = useState<OperationStage | null>(null);
@@ -129,11 +132,12 @@ export default function LeadAnalytics() {
   const client = clients.find((item) => item.id === clientId) ?? null;
   const selectedGroup = groups.find((item) => item.id === groupId) ?? null;
   const isArchived = Boolean(selectedGroup?.archived);
+  const hasPreparedRun = Boolean(upload || matchPreview || analyzeSetup || analyzePreview || currentExportId);
   const groupDirty = !creatingGroup && selectedGroup
     ? groupName.trim() !== selectedGroup.name ||
       !sameIds(projectIds, selectedGroup.project_ids) ||
       spreadsheetUrl.trim() !== (selectedGroup.spreadsheet_url ?? "").trim()
-    : Boolean(groupName.trim());
+    : Boolean(groupName.trim() || projectIds.length || spreadsheetUrl.trim() !== (client?.table_url ?? "").trim());
   const filteredProjects = useMemo(() => {
     const query = projectSearch.trim().toLocaleLowerCase("ru");
     if (!query) return projects;
@@ -145,10 +149,10 @@ export default function LeadAnalytics() {
   const validPeriods = periods.length > 0 && periods.every(periodIsValid);
   const periodsMatchPrepared = Boolean(preparedPeriods && JSON.stringify(preparedPeriods) === JSON.stringify(periods));
   const hasClientSource = Boolean(clientFile || spreadsheetUrl.trim());
-  const canPrepare = Boolean(clientId && selectedGroup && !isArchived && !groupDirty && projectIds.length && hasClientSource && validPeriods && !loading);
-  const canMatch = Boolean(upload && periodsMatchPrepared && !groupDirty && lkMapping.lkid_column && lkMapping.source_column && clientMapping.status_column);
+  const canPrepare = Boolean(clientId && selectedGroup && !isArchived && !editingGroup && !groupDirty && projectIds.length && hasClientSource && validPeriods && !loading);
+  const canMatch = Boolean(upload && periodsMatchPrepared && !editingGroup && !groupDirty && lkMapping.lkid_column && lkMapping.source_column && clientMapping.status_column);
   const canAnalyze = Boolean(
-    upload && periodsMatchPrepared && !groupDirty && analyzeMapping.status_column && analyzeMapping.date_column && validPeriods && !loading
+    upload && periodsMatchPrepared && !editingGroup && !groupDirty && analyzeMapping.status_column && analyzeMapping.date_column && validPeriods && !loading
   );
   const nextExportNumber = Math.max(0, ...savedExports.map((item) => item.export_number ?? 0)) + 1;
   const statusText = loading
@@ -180,12 +184,14 @@ export default function LeadAnalytics() {
         const first = nextGroups.find((item) => !item.archived) ?? nextGroups[0];
         if (first) {
           setCreatingGroup(false);
+          setEditingGroup(false);
           setGroupId(first.id);
           setGroupName(first.name);
           setProjectIds([...first.project_ids]);
           setSpreadsheetUrl(first.spreadsheet_url ?? "");
         } else {
           setCreatingGroup(true);
+          setEditingGroup(true);
           setGroupId(null);
           setGroupName("");
           setProjectIds([]);
@@ -249,15 +255,65 @@ export default function LeadAnalytics() {
     setStatusModalOpen(false);
     setRulesManagerOpen(false);
     setStep("upload");
+    setHistoryOpen(false);
     setError("");
   }
 
+  function clearPreparedRun(includeUpload = false) {
+    if (includeUpload) {
+      setUpload(null);
+      setPreparedPeriods(null);
+      setLkFile(null);
+    }
+    setAnalyzePreview(null);
+    setCurrentExportId(null);
+    setStatusModalOpen(false);
+    if (includeUpload) {
+      setMatchPreview(null);
+      setAnalyzeSetup(null);
+      setActiveJob(null);
+      setStep("upload");
+    } else setStep("analyze");
+    setHistoryOpen(false);
+  }
+
+  function invalidateForInput(scope: "upload" | "mapping" | "analyze"): boolean {
+    if (loading) return false;
+    const needsConfirm = scope === "upload"
+      ? Boolean(upload || preparedPeriods || matchPreview || analyzeSetup || analyzePreview || currentExportId)
+      : scope === "mapping"
+        ? Boolean(matchPreview || analyzeSetup || analyzePreview || currentExportId)
+        : Boolean(analyzePreview || currentExportId);
+    if (needsConfirm && !window.confirm("Изменение сбросит подготовленные следующие шаги и текущий результат. Продолжить?")) return false;
+    if (needsConfirm && scope === "upload") clearPreparedRun(true);
+    if (needsConfirm && scope === "mapping") {
+      setMatchPreview(null);
+      setAnalyzeSetup(null);
+      setAnalyzePreview(null);
+      setCurrentExportId(null);
+      setActiveJob(null);
+      setStatusModalOpen(false);
+      setStep("mapping");
+      setHistoryOpen(false);
+    }
+    if (needsConfirm && scope === "analyze") clearPreparedRun(false);
+    return true;
+  }
+
+  function confirmContextChange(): boolean {
+    const hasRunInputs = Boolean(clientFile || periods.some((period) => period.period_start || period.period_end) || periods.length > 1);
+    if (!groupDirty && !hasPreparedRun && !hasRunInputs) return true;
+    return window.confirm("Смена клиента или группы отменит несохранённые изменения и данные текущего запуска. Продолжить?");
+  }
+
   function selectClient(nextId: number | null) {
+    if (nextId === clientId || !confirmContextChange()) return;
     setClientId(nextId);
     setGroups([]);
     setProjects([]);
     setGroupId(null);
     setCreatingGroup(true);
+    setEditingGroup(true);
     setGroupName("");
     setProjectIds([]);
     setProjectSearch("");
@@ -268,13 +324,32 @@ export default function LeadAnalytics() {
   }
 
   function selectGroup(next: AnalyticsGroup | null) {
+    const sameSelection = next ? next.id === groupId && !creatingGroup : groupId === null && creatingGroup;
+    if (sameSelection || !confirmContextChange()) return;
+    setSavedExports([]);
     setGroupId(next?.id ?? null);
     setCreatingGroup(!next);
+    setEditingGroup(!next);
     setGroupName(next?.name ?? "");
     setProjectIds(next ? [...next.project_ids] : []);
     setSpreadsheetUrl(next?.spreadsheet_url ?? client?.table_url ?? "");
     setArchiveConfirmation(false);
     resetRun();
+  }
+
+  function cancelGroupEdit() {
+    setArchiveConfirmation(false);
+    setProjectSearch("");
+    if (selectedGroup) {
+      setGroupName(selectedGroup.name);
+      setProjectIds([...selectedGroup.project_ids]);
+      setSpreadsheetUrl(selectedGroup.spreadsheet_url ?? "");
+      setEditingGroup(false);
+    } else {
+      setGroupName("");
+      setProjectIds([]);
+      setSpreadsheetUrl(client?.table_url ?? "");
+    }
   }
 
   function toggleProject(id: number) {
@@ -291,6 +366,11 @@ export default function LeadAnalytics() {
 
   async function saveGroup() {
     if (clientId === null || !groupName.trim() || projectIds.length === 0) return;
+    if (!creatingGroup && !groupDirty) {
+      setEditingGroup(false);
+      return;
+    }
+    if (groupDirty && hasPreparedRun && !window.confirm("Сохранение группы сбросит данные текущего запуска. Продолжить?")) return;
     setLoading(true);
     setOperation(creatingGroup ? "Создаю группу аналитики" : "Сохраняю группу аналитики");
     setOperationStage("upload");
@@ -306,10 +386,11 @@ export default function LeadAnalytics() {
       });
       setGroupId(saved.id);
       setCreatingGroup(false);
+      setEditingGroup(false);
       setGroupName(saved.name);
       setProjectIds([...saved.project_ids]);
       setSpreadsheetUrl(saved.spreadsheet_url ?? "");
-      resetRun();
+      clearPreparedRun(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось сохранить группу");
     } finally {
@@ -328,6 +409,7 @@ export default function LeadAnalytics() {
       await archiveGroup(selectedGroup.id);
       setGroups((current) => current.map((item) => item.id === selectedGroup.id ? { ...item, archived: true } : item));
       setArchiveConfirmation(false);
+      setEditingGroup(false);
       resetRun();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось расформировать группу");
@@ -365,7 +447,9 @@ export default function LeadAnalytics() {
 
   function splitPeriods(split: PeriodSplit) {
     try {
-      setPeriods(splitAnalysisPeriod(periods[0], split));
+      const nextPeriods = splitAnalysisPeriod(periods[0], split);
+      if (!invalidateForInput("upload")) return;
+      setPeriods(nextPeriods);
       setPeriodSplit(split);
       setPeriodSplitError("");
     } catch (err) {
@@ -375,29 +459,33 @@ export default function LeadAnalytics() {
 
   function editPeriod(index: number, field: keyof AnalysisPeriod, value: string) {
     const updated = periods.map((period, itemIndex) => itemIndex === index ? { ...period, [field]: value } : period);
+    let nextPeriods = updated;
     if (index > 0) {
+      if (!invalidateForInput("upload")) return;
       setPeriodSplit(null);
       setPeriodSplitError("");
-      setPeriods(updated);
+      setPeriods(nextPeriods);
       return;
     }
-
     const mainPeriod = updated[0];
+    if (periodSplit && periodIsValid(mainPeriod)) {
+      try { nextPeriods = splitAnalysisPeriod(mainPeriod, periodSplit); }
+      catch (err) {
+        setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
+        return;
+      }
+    } else if (periodSplit) nextPeriods = [mainPeriod];
+    if (!invalidateForInput("upload")) return;
     setPeriodSplitError("");
-    if (!periodSplit) {
-      setPeriods(updated);
-      return;
-    }
-    if (!periodIsValid(mainPeriod)) {
-      setPeriods([mainPeriod]);
-      return;
-    }
-    try {
-      setPeriods(splitAnalysisPeriod(mainPeriod, periodSplit));
-    } catch (err) {
-      setPeriods([mainPeriod]);
-      setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
-    }
+    setPeriods(nextPeriods);
+  }
+
+  function changeMapping(scope: "mapping" | "analyze", setter: (value: Mapping) => void, value: Mapping) {
+    if (invalidateForInput(scope)) setter(value);
+  }
+
+  function changeAnalyzeInput<T>(setter: (value: T) => void, value: T) {
+    if (invalidateForInput("analyze")) setter(value);
   }
 
   async function waitForJob(initial: ProcessingJob): Promise<ProcessingJob> {
@@ -617,28 +705,14 @@ export default function LeadAnalytics() {
 
   return (
     <section className="lead-analytics" aria-label="Аналитика">
-      <section className="topbar">
-        <div>
-          <h1>Аналитика</h1>
-          <p>Подготовка данных, сопоставление и отчёты по группам проектов</p>
-        </div>
-        <div className={`statusBadge ${loading ? "busy" : step === "upload" && !canPrepare ? "needsInput" : "ready"}`}>
-          <span aria-hidden="true" />{statusText}
-        </div>
-      </section>
+      {document.getElementById("analytics-header-status") && createPortal(
+        <div role="status" className={`analytics-statusBadge ${loading ? "busy" : step === "upload" && !canPrepare ? "needsInput" : "ready"}`}>
+          <span aria-hidden="true" />{historyOpen ? "История аналитики" : statusText}
+        </div>,
+        document.getElementById("analytics-header-status")!
+      )}
 
-      <section className="panel groupPanel">
-        <div className="panelHeader">
-          <div>
-            <h2>Клиент и группа проектов</h2>
-            <p>Группы аналитики настраиваются отдельно от дневных лимитов. Проект может входить в несколько групп.</p>
-          </div>
-          <div className="actions">
-            <button className="ghostButton" type="button" onClick={openRulesManager} disabled={!selectedGroup || isArchived || loading}>
-              Соответствия статусов
-            </button>
-          </div>
-        </div>
+      <section className={`panel groupPanel ${!creatingGroup && !editingGroup ? "groupPanel--readonly" : ""}`}>
         <div className="twoColumn">
           <label className="field">
             <span>Клиент</span>
@@ -665,99 +739,126 @@ export default function LeadAnalytics() {
         </div>
 
         {clientId !== null && (
-          <>
-            <div className="twoColumn groupFields">
-              <label className="field">
-                <span>Название группы</span>
-                <input value={groupName} disabled={(!creatingGroup && isArchived) || loading || step !== "upload"} onChange={(event) => setGroupName(event.target.value)} placeholder="Например, Все сайты и звонки" />
-              </label>
-              <label className="field">
-                <span>Источник данных клиента · Google-таблица</span>
-                <input type="url" value={spreadsheetUrl} disabled={(!creatingGroup && isArchived) || loading || step !== "upload"} onChange={(event) => setSpreadsheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." />
-              </label>
-            </div>
-            {clientUrlSuggestions.length > 0 && (
-              <div className="suggestionRow" aria-label="Ссылки клиента">
-                <span>Подставить:</span>
-                {clientUrlSuggestions.map((item) => (
-                  <button className="ghostButton" type="button" key={item.label} disabled={isArchived || loading || step !== "upload"} onClick={() => setSpreadsheetUrl(item.url)}>{item.label}</button>
-                ))}
+          creatingGroup || editingGroup ? (
+            <>
+              <div className="twoColumn groupFields">
+                <label className="field">
+                  <span>Название группы</span>
+                  <input value={groupName} disabled={loading} onChange={(event) => setGroupName(event.target.value)} placeholder="Например, Все сайты и звонки" />
+                </label>
+                <label className="field">
+                  <span>Источник данных клиента · Google-таблица</span>
+                  <input type="url" value={spreadsheetUrl} disabled={loading} onChange={(event) => setSpreadsheetUrl(event.target.value)} placeholder="https://docs.google.com/spreadsheets/d/..." />
+                </label>
               </div>
-            )}
-            <div className="groupProjectsHeader">
-              <div>
-                <h3>Проекты в группе</h3>
-                <p>{projectIds.length} включено · новые проекты выбираются вручную</p>
-              </div>
-              <label className="columnSearch">
-                <span className="visuallyHidden">Поиск проектов</span>
-                <input value={projectSearch} disabled={isArchived || loading || step !== "upload"} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Найти проект..." />
-              </label>
-            </div>
-            {projectsLoading ? <p>Загружаю проекты…</p> : filteredProjects.length === 0 ? (
-              <div className="emptyState"><strong>Проекты не найдены</strong><span>Измените запрос поиска.</span></div>
-            ) : (
-              <>
-                <div className="projectSelectionActions">
-                  <span>{filteredProjects.length} показано · {projectIds.filter((id) => filteredProjects.some((item) => item.id === id)).length} включено</span>
-                  <button className="ghostButton" type="button" disabled={isArchived || loading || step !== "upload"} onClick={() => toggleVisibleProjects(filteredProjects.some((item) => !projectIds.includes(item.id)))}>
-                    {filteredProjects.some((item) => !projectIds.includes(item.id)) ? "Добавить все показанные" : "Исключить показанные"}
-                  </button>
+              {clientUrlSuggestions.length > 0 && (
+                <div className="suggestionRow" aria-label="Ссылки клиента">
+                  <span>Подставить:</span>
+                  {clientUrlSuggestions.map((item) => (
+                    <button className="ghostButton" type="button" key={item.label} disabled={loading} onClick={() => setSpreadsheetUrl(item.url)}>{item.label}</button>
+                  ))}
                 </div>
-                <div className="projectSelectionList">
-                  {filteredProjects.map((item) => {
-                    const included = projectIds.includes(item.id);
-                    const removed = Boolean(item.deleted_at);
-                    return (
-                      <label className={`projectChoice ${included ? "included" : ""}`} key={item.id}>
-                        <input type="checkbox" checked={included} disabled={isArchived || loading || step !== "upload"} onChange={() => toggleProject(item.id)} />
-                        <span className="projectChoiceName">{item.name}</span>
-                        <span className="projectChoiceMeta">{included ? "В группе" : "Вне группы"} · {item.collection_source || "источник не указан"}{removed ? " · удалён, история сохранена" : ""}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-            {!projectsLoading && projectIds.some((id) => !projects.some((item) => item.id === id)) && (
-              <div className="missingProjects">
-                <strong>Сохранённые проекты, которых нет в каталоге</strong>
-                {projectIds.filter((id) => !projects.some((item) => item.id === id)).map((id) => (
-                  <div className="projectChoice" key={id}>
-                    <input type="checkbox" checked disabled aria-label={`Проект ${id} сохранён в группе`} />
-                    <span className="projectChoiceName">Проект #{id}</span>
-                    <span className="projectChoiceMeta">Проект удалён из каталога</span>
-                    <button type="button" className="ghostButton" disabled={isArchived || loading || step !== "upload"} onClick={() => toggleProject(id)}>Убрать</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="groupActions">
-              {creatingGroup || groupDirty ? (
-                <button type="button" onClick={saveGroup} disabled={!groupName.trim() || projectIds.length === 0 || loading || step !== "upload"}>
-                  {creatingGroup ? "Создать группу" : "Сохранить группу"}
-                </button>
-              ) : <span className="savedHint">Изменений нет</span>}
-              {!creatingGroup && selectedGroup && !isArchived && (
-                archiveConfirmation ? (
-                  <div className="inlineConfirm">
-                    <span>Расформировать группу? История отчётов останется доступна.</span>
-                    <button className="dangerButton" type="button" disabled={loading} onClick={() => void archiveSelectedGroup()}>Расформировать</button>
-                    <button className="ghostButton" type="button" disabled={loading} onClick={() => setArchiveConfirmation(false)}>Отмена</button>
-                  </div>
-                ) : <button className="dangerButton" type="button" disabled={loading} onClick={() => setArchiveConfirmation(true)}>Расформировать группу</button>
               )}
-              {isArchived && <span className="archivedHint">Группа расформирована. История доступна, новые отчёты создавать нельзя.</span>}
-            </div>
-          </>
+              <div className="groupProjectsHeader">
+                <div>
+                  <h3>Проекты в группе</h3>
+                  <p>{projectIds.length} включено · новые проекты выбираются вручную</p>
+                </div>
+                <label className="columnSearch">
+                  <span className="visuallyHidden">Поиск проектов</span>
+                  <input value={projectSearch} disabled={loading} onChange={(event) => setProjectSearch(event.target.value)} placeholder="Найти проект..." />
+                </label>
+              </div>
+              {projectsLoading ? <p>Загружаю проекты…</p> : filteredProjects.length === 0 ? (
+                <div className="emptyState"><strong>Проекты не найдены</strong><span>Измените запрос поиска.</span></div>
+              ) : (
+                <>
+                  <div className="projectSelectionActions">
+                    <span>{filteredProjects.length} показано · {projectIds.filter((id) => filteredProjects.some((item) => item.id === id)).length} включено</span>
+                    <button className="ghostButton" type="button" disabled={loading} onClick={() => toggleVisibleProjects(filteredProjects.some((item) => !projectIds.includes(item.id)))}>
+                      {filteredProjects.some((item) => !projectIds.includes(item.id)) ? "Добавить все показанные" : "Исключить показанные"}
+                    </button>
+                  </div>
+                  <div className="projectSelectionList">
+                    {filteredProjects.map((item) => {
+                      const included = projectIds.includes(item.id);
+                      const removed = Boolean(item.deleted_at);
+                      return (
+                        <label className={`projectChoice ${included ? "included" : ""}`} key={item.id}>
+                          <input type="checkbox" checked={included} disabled={loading} onChange={() => toggleProject(item.id)} />
+                          <span className="projectChoiceName">{item.name}</span>
+                          <span className="projectChoiceMeta">{included ? "В группе" : "Вне группы"} · {item.collection_source || "источник не указан"}{removed ? " · удалён, история сохранена" : ""}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+              {!projectsLoading && projectIds.some((id) => !projects.some((item) => item.id === id)) && (
+                <div className="missingProjects">
+                  <strong>Сохранённые проекты, которых нет в каталоге</strong>
+                  {projectIds.filter((id) => !projects.some((item) => item.id === id)).map((id) => (
+                    <div className="projectChoice" key={id}>
+                      <input type="checkbox" checked disabled aria-label={`Проект ${id} сохранён в группе`} />
+                      <span className="projectChoiceName">Проект #{id}</span>
+                      <span className="projectChoiceMeta">Проект удалён из каталога</span>
+                      <button type="button" className="ghostButton" disabled={loading} onClick={() => toggleProject(id)}>Убрать</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="groupActions">
+                <button className="ghostButton" type="button" onClick={openRulesManager} disabled={!selectedGroup || isArchived || loading}>Соответствия статусов</button>
+                <button type="button" onClick={() => void saveGroup()} disabled={!groupName.trim() || projectIds.length === 0 || loading}>
+                  {creatingGroup ? "Создать группу" : "Сохранить изменения"}
+                </button>
+                {!creatingGroup && <button className="ghostButton" type="button" onClick={cancelGroupEdit} disabled={loading}>Отмена</button>}
+                {!creatingGroup && selectedGroup && !isArchived && (
+                  archiveConfirmation ? (
+                    <div className="inlineConfirm">
+                      <span>Расформировать группу? История отчётов останется доступна.</span>
+                      <button className="dangerButton" type="button" disabled={loading} onClick={() => void archiveSelectedGroup()}>Расформировать</button>
+                      <button className="ghostButton" type="button" disabled={loading} onClick={() => setArchiveConfirmation(false)}>Отмена</button>
+                    </div>
+                  ) : <button className="dangerButton" type="button" disabled={loading} onClick={() => setArchiveConfirmation(true)}>Расформировать группу</button>
+                )}
+              </div>
+            </>
+          ) : selectedGroup ? (
+            <>
+              <div className="groupActions">
+                <button className="ghostButton" type="button" onClick={openRulesManager} disabled={!selectedGroup || isArchived || loading}>Соответствия статусов</button>
+                {!isArchived && <button className="ghostButton" type="button" onClick={() => setEditingGroup(true)} disabled={loading}>Редактировать группу</button>}
+                {isArchived && <span className="archivedHint">Группа расформирована. История доступна, новые отчёты создавать нельзя.</span>}
+              </div>
+            </>
+          ) : null
         )}
       </section>
 
-      <Stepper step={step} />
+      <Stepper
+        step={step}
+        historyOpen={historyOpen}
+        disabled={loading}
+        canVisit={{ upload: true, mapping: Boolean(upload), analyze: Boolean(upload && analyzeSetup), done: Boolean(analyzePreview) }}
+        onStepChange={(nextStep) => { setHistoryOpen(false); setStep(nextStep); }}
+        onHistoryChange={setHistoryOpen}
+      />
       <ProcessProgress active={loading} stage={activeJob ? activeJob.kind === "match" ? "match" : "prepare" : operationStage} label={activeJob?.phase || operation} processedRows={activeJob?.processed_rows} totalRows={activeJob?.total_rows} queued={activeJob?.status === "queued"} />
       {error && !rulesManagerOpen && <div className="alert" role="alert">{error}</div>}
 
-      {step === "upload" && (
+      {historyOpen && <ExportHistory
+        groupName={selectedGroup?.name ?? ""}
+        exports={savedExports}
+        loading={loading}
+        deletingExport={deletingExport}
+        onAskDelete={setDeletingExport}
+        onCancelDelete={() => setDeletingExport(null)}
+        onConfirmDelete={() => void confirmDeleteExport()}
+        onDownload={(exportId) => void downloadReport(exportId)}
+      />}
+
+      {!historyOpen && step === "upload" && (
         <>
           {selectedGroup && !isArchived && (
             <section className="panel sourcePanel">
@@ -780,9 +881,9 @@ export default function LeadAnalytics() {
                     <div className="periodBlock" key={index}>
                       <div className="periodRow">
                         <strong>{index === 0 ? "Общий период" : `Период ${index + 1}`}</strong>
-                        <label className="field"><span>От *</span><input type="date" value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => editPeriod(index, "period_start", event.target.value)} /></label>
-                        <label className="field"><span>До *</span><input type="date" value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod(index, "period_end", event.target.value)} /></label>
-                        {index > 0 && <button className="dangerButton" type="button" onClick={() => setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Удалить</button>}
+                        <label className="field"><span>От *</span><input type="date" disabled={loading} value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => editPeriod(index, "period_start", event.target.value)} /></label>
+                        <label className="field"><span>До *</span><input type="date" disabled={loading} value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod(index, "period_end", event.target.value)} /></label>
+                        {index > 0 && <button className="dangerButton" type="button" disabled={loading} onClick={() => { if (invalidateForInput("upload")) setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index)); }}>Удалить</button>}
                       </div>
                       <p className="periodMessage">{periodSummary(period, index, periodSplit)}</p>
                       {issue && <p className={`periodMessage ${invalidOrder ? "fieldError" : ""}`}>{issue}</p>}
@@ -791,13 +892,14 @@ export default function LeadAnalytics() {
                 })}
                 {periodSplitError && <p className="periodMessage fieldError" role="alert">{periodSplitError}</p>}
                 <button className="ghostButton" type="button" disabled={loading} onClick={() => {
+                  if (!invalidateForInput("upload")) return;
                   setPeriodSplit(null);
                   setPeriodSplitError("");
                   setPeriods((current) => [...current, emptyPeriod()]);
                 }}>Добавить период</button>
               </div>
-              <FileDropZone label="Файл клиента или сохранённая Google-таблица" file={clientFile} spreadsheetUrl={spreadsheetUrl} disabled={loading || isArchived} onChange={setClientFile} onSpreadsheetUrlChange={setSpreadsheetUrl} />
-              <p className="uploadHint">Ссылка сохранится в настройках группы. Для конкретного запуска можно загрузить XLSX-файл.</p>
+              <FileDropZone label="Файл клиента" file={clientFile} disabled={loading || isArchived} onChange={(file) => { if (invalidateForInput("upload")) setClientFile(file); }} />
+              <p className="uploadHint">Источник Google-таблицы хранится в настройках группы. Для отдельного запуска можно загрузить XLSX-файл.</p>
               <div className="actions prepareActions">
                 <button type="button" onClick={() => void prepareData()} disabled={!canPrepare}>Подготовить данные</button>
                 {groupDirty && <span className="runReviewHint">Сначала сохраните изменения группы.</span>}
@@ -812,7 +914,7 @@ export default function LeadAnalytics() {
         </>
       )}
 
-      {step === "mapping" && upload && (
+      {!historyOpen && step === "mapping" && upload && (
         <>
           <section className="panel">
             <div className="panelHeader">
@@ -827,14 +929,14 @@ export default function LeadAnalytics() {
               </div>
             </div>
           </section>
-          <div className="twoColumn">
-            {lkFile && <MappingPanel title="Идентификации ЛК" file={lkFile} mapping={lkMapping} role="lk" onChange={setLkMapping} />}
-            <MappingPanel title="Клиент" file={upload.client} mapping={clientMapping} role="client" onChange={setClientMapping} />
+          <div className="twoColumn mappingPanels">
+            {lkFile && <MappingPanel title="Идентификации ЛК" file={lkFile} mapping={lkMapping} role="lk" onChange={(mapping) => changeMapping("mapping", setLkMapping, mapping)} />}
+            <MappingPanel title="Клиент" file={upload.client} mapping={clientMapping} role="client" onChange={(mapping) => changeMapping("mapping", setClientMapping, mapping)} />
           </div>
         </>
       )}
 
-      {step === "analyze" && upload && analyzeSetup && (
+      {!historyOpen && step === "analyze" && upload && analyzeSetup && (
         <>
           <div className="sectionBar"><div><span>Параметры аналитики</span><p>Сопоставление готово, проверьте периоды и колонки.</p></div><button className="ghostButton" type="button" onClick={() => setStep("mapping")} disabled={loading}>Назад</button></div>
           {matchPreview && <section className="panel"><div className="panelHeader compact"><div><h2>Итог сопоставления</h2><p>{matchPreview.filename}</p></div></div><MatchSummary workbook={matchPreview} /></section>}
@@ -849,10 +951,10 @@ export default function LeadAnalytics() {
             </div>
             <div className="exportMetaGrid">
               <label className="field"><span>Номер аналитики</span><input type="number" value={nextExportNumber} readOnly /></label>
-              <label className="field"><span>Дата анализа</span><input type="date" value={analysisDate} onChange={(event) => setAnalysisDate(event.target.value)} /></label>
+              <label className="field"><span>Дата анализа</span><input type="date" disabled={loading} value={analysisDate} onChange={(event) => changeAnalyzeInput(setAnalysisDate, event.target.value)} /></label>
             </div>
           </section>
-          <MappingPanel title="Колонки аналитики" file={analyzeSetup} mapping={analyzeMapping} role="analyze" onChange={setAnalyzeMapping} />
+          <MappingPanel title="Колонки аналитики" file={analyzeSetup} mapping={analyzeMapping} role="analyze" onChange={(mapping) => changeMapping("analyze", setAnalyzeMapping, mapping)} />
           {matchPreview && <details className="previewDisclosure"><summary>Посмотреть все листы сопоставления</summary><WorkbookViewer title="Предпросмотр сопоставления" workbook={matchPreview} /></details>}
           <section className="panel runReview">
             <div>
@@ -863,11 +965,11 @@ export default function LeadAnalytics() {
             </div>
             <button type="button" onClick={requestAnalyze} disabled={!canAnalyze}>Сделать аналитику</button>
           </section>
-          <StatusRulesModal open={statusModalOpen} setup={analyzeSetup} statusRules={statusRules} loading={loading} onChange={setStatusRules} onCancel={() => setStatusModalOpen(false)} onConfirm={() => void runAnalyze()} />
+          <StatusRulesModal open={statusModalOpen} setup={analyzeSetup} statusRules={statusRules} loading={loading} onChange={(rules) => changeAnalyzeInput(setStatusRules, rules)} onCancel={() => setStatusModalOpen(false)} onConfirm={() => void runAnalyze()} />
         </>
       )}
 
-      {step === "done" && analyzePreview && (
+      {!historyOpen && step === "done" && analyzePreview && (
         <>
           <section className="panel">
             <div className="panelHeader">
@@ -883,16 +985,6 @@ export default function LeadAnalytics() {
         </>
       )}
 
-      <ExportHistory
-        groupName={selectedGroup?.name ?? ""}
-        exports={savedExports}
-        loading={loading}
-        deletingExport={deletingExport}
-        onAskDelete={setDeletingExport}
-        onCancelDelete={() => setDeletingExport(null)}
-        onConfirmDelete={() => void confirmDeleteExport()}
-        onDownload={(exportId) => void downloadReport(exportId)}
-      />
       <StatusRulesManager open={rulesManagerOpen} client={client?.name ?? ""} data={rulesData} loading={rulesLoading} error={error} onClose={() => { setRulesManagerOpen(false); setError(""); }} onSave={saveStatusRule} onDelete={removeStatusRule} onCreate={addStatusRule} onResolve={resolveStatusConflict} />
     </section>
   );

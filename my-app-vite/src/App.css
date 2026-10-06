@@ -54,6 +54,9 @@
 .sidebar ul { list-style: none; margin: 0; padding: 0; }
 .sidebar li { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; }
 .sidebar li.active, .sidebar li:hover { background: #f1f1f7; }
+.sidebar-nav-button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sidebar-nav-button:focus:not(:focus-visible) { outline: none; }
+.sidebar-nav-button:focus-visible { outline-offset: -2px; }
 .nav-icon { width: 18px; min-width: 18px; display: inline-flex; align-items: center; justify-content: center; color: #6b6b76; }
 .nav-icon svg { width: 18px; height: 18px; }
 .nav-label { white-space: nowrap; }

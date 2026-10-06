@@ -74,7 +74,7 @@
 .lead-analytics{
   width: min(1440px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 24px 0 48px;
+  padding: 0 0 24px;
 }
 .lead-analytics .topbar{
   display: flex;
@@ -102,7 +102,7 @@
   color: #667085;
   margin-top: 4px;
 }
-.lead-analytics .statusBadge{
+.analytics-statusBadge{
   min-height: 34px;
   border: 1px solid #cfd8e3;
   border-radius: 999px;
@@ -116,23 +116,23 @@
   font-size: 14px;
   font-weight: 600;
 }
-.lead-analytics .statusBadge span{
+.analytics-statusBadge span{
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #12b76a;
   flex: 0 0 auto;
 }
-.lead-analytics .statusBadge.busy span{
+.analytics-statusBadge.busy span{
   background: #f79009;
   animation: lead-analytics-pulse 1100ms ease-in-out infinite;
 }
-.lead-analytics .statusBadge.needsInput span{
+.analytics-statusBadge.needsInput span{
   background: #f79009;
 }
 .lead-analytics .stepper{
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -141,11 +141,24 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   border: 1px solid #d9e2ec;
   border-radius: 8px;
   padding: 10px 12px;
   background: #fff;
   color: #667085;
+  text-align: left;
+  font-weight: 400;
+  justify-content: flex-start;
+}
+.lead-analytics .stepItem:not(:disabled):hover{
+  border-color: #91a3b5;
+  background: #f5f8fa;
+  color: #17202a;
+}
+.lead-analytics .stepItem.active:not(:disabled):hover{
+  border-color: #0f6b8d;
+  background: #e7f3f7;
 }
 .lead-analytics .stepItem span{
   width: 26px;
@@ -236,12 +249,6 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-.lead-analytics .mappingFields h3{
-  grid-column: 1 / -1;
-  margin: 0;
-  color: #344054;
-  font-size: 14px;
 }
 .lead-analytics .optionalMappings{
   border-top: 1px solid #e4e7ec;
@@ -374,12 +381,7 @@
 .lead-analytics .mappingNote{
   color: #526579;
 }
-.lead-analytics .mappingSample{
-  color: #344054;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .lead-analytics .mappingWarning select{
   border-color: #b42318;
 }
@@ -858,7 +860,7 @@
 .lead-analytics button, .lead-analytics .download, .lead-analytics input, .lead-analytics select, .lead-analytics .dropZone, .lead-analytics .processTrack span{
     transition-duration: 0.01ms;
   }
-.lead-analytics .statusBadge.busy span, .lead-analytics .spinner, .lead-analytics .processTrack span::after{
+.analytics-statusBadge.busy span, .lead-analytics .spinner, .lead-analytics .processTrack span::after{
     animation: none;
   }
 .lead-analytics .spinner{
@@ -979,6 +981,10 @@
 .lead-analytics .groupPanel { margin-bottom: 20px; }
 .lead-analytics .fileClear { justify-self: start; }
 .lead-analytics .groupFields { margin: 12px 0; }
+.lead-analytics .groupSummary { display: grid; gap: 8px; margin-top: 12px; }
+.lead-analytics .groupSummary > div { display: grid; grid-template-columns: minmax(160px, 190px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.lead-analytics .groupSummary > div > span:first-child { color: #667085; font-size: 13px; }
+.lead-analytics .groupSummaryValue { min-width: 0; overflow-wrap: anywhere; }
 .lead-analytics .suggestionRow,
 .lead-analytics .projectSelectionActions,
 .lead-analytics .groupProjectsHeader,
@@ -1010,10 +1016,43 @@
 
 @media (max-width: 960px) {
   .lead-analytics .groupProjectsHeader,
+  .lead-analytics .groupSummary > div,
   .lead-analytics .projectSelectionActions,
   .lead-analytics .groupActions,
   .lead-analytics .prepareActions { align-items: stretch; flex-direction: column; }
   .lead-analytics .columnSearch { width: 100%; }
   .lead-analytics .projectChoice { grid-template-columns: 20px minmax(0, 1fr); }
   .lead-analytics .projectChoiceMeta { grid-column: 2; white-space: normal; }
+}
+
+.lead-analytics .groupPanel { margin-bottom: 12px; padding: 12px; }
+.lead-analytics .groupPanel--readonly { display: flex; align-items: flex-end; gap: 12px; }
+.lead-analytics .groupPanel--readonly > .twoColumn { flex: 1; min-width: 0; }
+.lead-analytics .groupPanel--readonly .groupActions { margin-top: 0; }
+@media (max-width: 1100px) {
+  .lead-analytics .groupPanel--readonly { flex-direction: column; align-items: stretch; }
+}
+.analytics-statusBadge { max-width: 100%; white-space: normal; font-size: 12px; min-height: 30px; padding: 4px 8px; }
+@media (max-width: 600px) {
+  .page-title__right:has(#analytics-header-status) { max-width: 200px; flex-wrap: wrap; justify-content: flex-end; }
+  #analytics-header-status { width: 100%; }
+}
+
+.lead-analytics .mappingPanel { min-width: 0; }
+.lead-analytics .mappingPanel .panelHeader p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-analytics .mappingPanel .panelHeader > div { min-width: 0; }
+.lead-analytics .mappingPanel > * { min-width: 0; }
+.lead-analytics .mappingPanel .previewHeader > div { min-width: 0; flex: 1; }
+.lead-analytics .mappingPanel .previewTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-analytics .mappingPanel .field { min-width: 0; align-content: start; }
+.lead-analytics .mappingPanel select { width: 100%; min-width: 0; height: 40px; }
+.lead-analytics .mappingField { grid-template-rows: 18px 40px 32px; }
+.lead-analytics .mappingFeedback { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.lead-analytics .mappingFields { align-content: start; align-items: start; }
+@media (min-width: 961px) {
+  .lead-analytics .mappingPanels { row-gap: 12px; }
+  .lead-analytics .mappingPanels > .mappingPanel { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr); grid-row: span 5; grid-template-rows: subgrid; margin-bottom: 16px; }
+  .lead-analytics .mappingPanels .mappingGrid { display: contents; }
+  .lead-analytics .mappingPanels .panelHeader { margin-bottom: 0; }
+  .lead-analytics .mappingPanels .preview { margin-top: 0; }
 }

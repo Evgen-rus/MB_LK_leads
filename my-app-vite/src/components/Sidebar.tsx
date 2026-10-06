@@ -135,18 +135,6 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
         )}
         <div className="nav-section">Основное</div>
         <ul>
-          {isAdmin && (
-            <li className={active === 'analytics' ? 'active' : ''}>
-              <button type="button" onClick={() => navigate('analytics')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 0, color: 'inherit', font: 'inherit', textAlign: 'left', padding: 0, cursor: 'pointer' }}>
-                <span className="nav-icon" aria-hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 20V4M4 20h16M8 15l4-6 4 3 4-7" />
-                  </svg>
-                </span>
-                <span className="nav-label">Аналитика</span>
-              </button>
-            </li>
-          )}
           {!isAdmin && !isAgent && (
             <li className={active === 'client-dashboard' ? 'active' : ''} onClick={() => navigate('client-dashboard')}>
               <span className="nav-icon" aria-hidden>
@@ -191,6 +179,18 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Отчеты</span>
           </li>
+          {isAdmin && (
+            <li className={active === 'analytics' ? 'active' : ''} style={{ padding: 0 }}>
+              <button type="button" className="sidebar-nav-button" onClick={() => navigate('analytics')}>
+                <span className="nav-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 20V4M4 20h16M8 15l4-6 4 3 4-7" />
+                  </svg>
+                </span>
+                <span className="nav-label">Аналитика</span>
+              </button>
+            </li>
+          )}
           {(isAdmin || isAgent) && (
             <li className={active === 'activity' ? 'active' : ''} onClick={() => navigate('activity')}>
               <span className="nav-icon" aria-hidden>

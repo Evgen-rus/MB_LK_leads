@@ -483,6 +483,7 @@ function App() {
               )}
             </div>
           <div className="page-title__right">
+            {view === 'analytics' && <div id="analytics-header-status" />}
             {!isManager && clientBalance && (
               <div className="page-title__balance" style={{ color: clientBalance.debt ? '#d23' : '#111' }}>
                 <div className="page-title__balance-value">

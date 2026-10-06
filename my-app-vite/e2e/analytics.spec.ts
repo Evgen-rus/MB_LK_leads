@@ -21,7 +21,7 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
   const lkMapping = { sheet_name: 'leads', date_column: 'Дата', phone_column: 'Телефон', source_column: 'Источники', lkid_column: 'lk id', project_column: 'Проект' };
   const clientMapping = { sheet_name: 'Sheet1', date_column: 'Дата', phone_column: 'Телефон', lkid_column: 'LKID', status_column: 'Статус' };
   const analyzeMapping = { sheet_name: 'Сопоставленные', date_column: 'Дата из ЛК', phone_column: 'Телефон', source_column: 'Полный источник из ЛК', status_column: 'Статус клиента' };
-  const sheet = (name: string, columns: string[]) => ({ name, columns, rows: [Object.fromEntries(columns.map(column => [column, column === 'Статус клиента' ? 'Новый статус' : 'synthetic']))] });
+  const sheet = (name: string, columns: string[]) => ({ name, columns, rows: Array.from({ length: 8 }, () => Object.fromEntries(columns.map(column => [column, column === 'Статус клиента' ? 'Новый статус' : 'synthetic']))) });
   const preview = { filename: 'synthetic.xlsx', sheets: [sheet('Сопоставленные', ['Дата из ЛК', 'Телефон', 'Полный источник из ЛК', 'Статус клиента'])] };
   const job = (id: number, kind: 'match' | 'analyze', status = 'completed') => ({ id, run_id: 'synthetic-run', kind, status, phase: 'Готово', processed_rows: 1, total_rows: 1, error_text: null, output_file_name: 'synthetic.xlsx', export_id: kind === 'analyze' && status === 'completed' ? 5 : null });
   await page.route(/http:\/\/(localhost|127\.0\.0\.1):8000\//, async (route) => {
@@ -96,12 +96,28 @@ test('prepare, match, manually assign unknown status and create final analytics'
   await preparePage(page, 'admin', 'analytics', true);
   await page.goto('/');
   await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
-  await expect(page.getByLabel('Название группы')).toHaveValue(group.name);
+  await expect(page.getByRole('combobox', { name: 'Группа', exact: true })).toHaveValue('11');
   await page.getByLabel('От *', { exact: true }).fill('2026-01-01');
   await page.getByLabel('До *', { exact: true }).fill('2026-01-07');
   await page.locator('input[type=file]').setInputFiles({ name: 'client.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic mock input') });
   await page.getByRole('button', { name: 'Подготовить данные', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Проверка колонок' })).toBeVisible();
+  await expect(page.locator('.mappingPanels').getByText(/^Пример:/)).toHaveCount(0);
+  for (const panel of await page.locator('.mappingPanels > .mappingPanel').all()) {
+    await expect(panel.locator('tbody tr')).toHaveCount(5);
+  }
+  const panelGeometry = await page.locator('.mappingPanels > .mappingPanel').evaluateAll(panels => panels.map(panel => ({
+    tableTop: panel.querySelector('.tableWrap')!.getBoundingClientRect().top,
+    selectHeights: [...panel.querySelectorAll('select')].map(select => select.getBoundingClientRect().height),
+  })));
+  expect(Math.abs(panelGeometry[0].tableTop - panelGeometry[1].tableTop)).toBeLessThanOrEqual(1);
+  expect(new Set(panelGeometry.flatMap(panel => panel.selectHeights)).size).toBe(1);
+  await page.screenshot({ path: 'test-results/analytics-mapping-desktop.png', fullPage: true });
+  const desktopViewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.locator('.mappingPanels > .mappingPanel').evaluateAll(panels => panels.every(panel => panel.getBoundingClientRect().right <= window.innerWidth))).toBeTruthy();
+  await page.screenshot({ path: 'test-results/analytics-mapping-mobile.png', fullPage: true });
+  await page.setViewportSize(desktopViewport);
   await page.getByRole('button', { name: 'Сопоставить', exact: true }).click();
   await page.getByRole('button', { name: 'Сделать аналитику', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Проверьте статусы перед аналитикой' });
@@ -113,24 +129,160 @@ test('prepare, match, manually assign unknown status and create final analytics'
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Скачать аналитику', exact: true }).click();
   await download;
+  const nav = page.getByRole('navigation', { name: 'Шаги обработки' });
+  await nav.getByRole('button', { name: /Аналитика/ }).click();
+  const analysisDate = page.getByLabel('Дата анализа', { exact: true });
+  const previousDate = await analysisDate.inputValue();
+  page.once('dialog', dialog => dialog.dismiss());
+  await analysisDate.fill('2026-01-09');
+  await expect(analysisDate).toHaveValue(previousDate);
+  await expect(nav.getByRole('button', { name: /Результат/ })).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await analysisDate.fill('2026-01-09');
+  await expect(analysisDate).toHaveValue('2026-01-09');
+  await expect(page.getByRole('button', { name: 'Сделать аналитику', exact: true })).toBeEnabled();
+  await expect(nav.getByRole('button', { name: /Результат/ })).toBeDisabled();
+  await expect(nav.getByRole('button', { name: /Колонки/ })).toBeEnabled();
 });
 
 test('saved projects and archived group keep downloadable history', async ({ page }) => {
   await preparePage(page, 'admin', 'analytics');
   await page.goto('/');
   await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
-  await expect(page.getByLabel('Название группы')).toHaveValue(group.name);
+  await expect(page.getByRole('combobox', { name: 'Группа', exact: true })).toHaveValue('11');
+  await page.getByRole('button', { name: 'Редактировать группу', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: /Исторический Pixel/ })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: /Новый проект/ })).not.toBeChecked();
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
   await expect(page.getByText('synthetic.xlsx')).toBeVisible();
   await expect(page.getByRole('link', { name: /сводк|сравнить|сопоставлен/i })).toHaveCount(0);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Excel', exact: true }).click();
   await download;
+  await page.getByRole('button', { name: 'Редактировать группу', exact: true }).click();
   await page.getByRole('button', { name: 'Расформировать группу', exact: true }).click();
   await page.getByRole('button', { name: 'Расформировать', exact: true }).click();
   await expect(page.getByText(/Группа расформирована/)).toBeVisible();
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
   await expect(page.getByRole('button', { name: 'Excel', exact: true })).toBeEnabled();
+});
+
+test('group editing is explicit, cancel restores selection, save closes editor', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  let saved = { ...group };
+  let writes = 0;
+  await page.route('**/admin/analytics/groups/11', async route => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    writes++;
+    saved = { ...saved, ...route.request().postDataJSON() };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(saved) });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  const edit = page.getByRole('button', { name: 'Редактировать группу', exact: true });
+  await expect(edit).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'История аналитики' })).toHaveCount(0);
+  await edit.click();
+  await page.getByRole('checkbox', { name: /Исторический Pixel/ }).uncheck();
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  expect(writes).toBe(0);
+  await edit.click();
+  await expect(page.getByRole('checkbox', { name: /Исторический Pixel/ })).toBeChecked();
+  await page.getByRole('checkbox', { name: /Исторический Pixel/ }).uncheck();
+  await page.getByRole('button', { name: 'Сохранить изменения', exact: true }).click();
+  await expect(edit).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  expect(writes).toBe(1);
+  expect(saved.project_ids).toEqual([101]);
+  await page.screenshot({ path: 'test-results/analytics-protected-desktop.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(edit).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({ path: 'test-results/analytics-protected-mobile.png', fullPage: true });
+});
+
+test('step navigation and history preserve work, only confirmed changes invalidate later steps', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics', true);
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  const nav = page.getByRole('navigation', { name: 'Шаги обработки' });
+  const files = nav.getByRole('button', { name: /Файлы/ });
+  const mapping = nav.getByRole('button', { name: /Колонки/ });
+  const analysis = nav.getByRole('button', { name: /Аналитика/ });
+  const result = nav.getByRole('button', { name: /Результат/ });
+  const history = nav.getByRole('button', { name: /История/ });
+  await expect(mapping).toBeDisabled();
+  await expect(analysis).toBeDisabled();
+  await expect(result).toBeDisabled();
+  await page.getByLabel('От *', { exact: true }).fill('2026-01-01');
+  await page.getByLabel('До *', { exact: true }).fill('2026-01-07');
+  await page.locator('input[type=file]').setInputFiles({ name: 'client.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic') });
+  await page.getByRole('button', { name: 'Подготовить данные', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Проверка колонок' })).toBeVisible();
+  await history.click();
+  await expect(page.getByRole('heading', { name: 'История аналитики' })).toBeVisible();
+  await mapping.click();
+  await expect(page.getByRole('heading', { name: 'Проверка колонок' })).toBeVisible();
+  await page.getByRole('button', { name: 'Редактировать группу', exact: true }).click();
+  await page.getByRole('checkbox', { name: /Исторический Pixel/ }).uncheck();
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await expect(mapping).toBeEnabled();
+  await page.getByRole('button', { name: 'Сопоставить', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Сделать аналитику', exact: true })).toBeVisible();
+  await mapping.click();
+  const sourceColumn = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: 'Идентификации ЛК', exact: true }) }).getByRole('combobox', { name: /^Полный источник/ });
+  page.once('dialog', dialog => dialog.dismiss());
+  await sourceColumn.selectOption('Телефон');
+  await expect(sourceColumn).toHaveValue('Источники');
+  await expect(analysis).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await sourceColumn.selectOption('Телефон');
+  await expect(sourceColumn).toHaveValue('Телефон');
+  await expect(analysis).toBeDisabled();
+  await expect(mapping).toBeEnabled();
+  await sourceColumn.selectOption('Источники');
+  await page.getByRole('button', { name: 'Сопоставить', exact: true }).click();
+  await expect(analysis).toBeEnabled();
+  await files.click();
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.getByLabel('До *', { exact: true }).fill('2026-01-08');
+  await expect(page.getByLabel('До *', { exact: true })).toHaveValue('2026-01-07');
+  await expect(analysis).toBeEnabled();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByLabel('До *', { exact: true }).fill('2026-01-08');
+  await expect(page.getByLabel('До *', { exact: true })).toHaveValue('2026-01-08');
+  await expect(mapping).toBeDisabled();
+  await expect(analysis).toBeDisabled();
+  await expect(result).toBeDisabled();
+  await history.click();
+  await expect(page.getByRole('heading', { name: 'История аналитики' })).toBeVisible();
+});
+
+test('context switches confirm draft periods and unnamed group project selections', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  await page.goto('/');
+  const clientSelect = page.getByRole('combobox', { name: 'Клиент', exact: true });
+  const groupSelect = page.getByRole('combobox', { name: 'Группа', exact: true });
+  await clientSelect.selectOption('2');
+  await expect(page.getByRole('button', { name: 'Редактировать группу', exact: true })).toBeVisible();
+  await page.getByLabel('От *', { exact: true }).fill('2026-01-01');
+  page.once('dialog', dialog => dialog.dismiss());
+  await groupSelect.selectOption('new');
+  await expect(groupSelect).toHaveValue('11');
+  await expect(page.getByLabel('От *', { exact: true })).toHaveValue('2026-01-01');
+  page.once('dialog', dialog => dialog.accept());
+  await groupSelect.selectOption('new');
+  await expect(page.getByLabel('Название группы')).toHaveValue('');
+  await page.getByRole('checkbox', { name: /Обычный проект/ }).check();
+  page.once('dialog', dialog => dialog.dismiss());
+  await clientSelect.selectOption('');
+  await expect(clientSelect).toHaveValue('2');
+  await expect(page.getByRole('checkbox', { name: /Обычный проект/ })).toBeChecked();
+  page.once('dialog', dialog => dialog.accept());
+  await clientSelect.selectOption('');
+  await expect(clientSelect).toHaveValue('');
 });
 
 test('client status rules can be resolved, added, edited and deleted across groups', async ({ page }) => {
