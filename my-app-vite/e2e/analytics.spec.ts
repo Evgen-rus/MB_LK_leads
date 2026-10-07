@@ -150,6 +150,17 @@ test('prepare, match, manually assign unknown status and create final analytics'
   await page.screenshot({ path: 'test-results/analytics-mapping-mobile.png', fullPage: true });
   await page.setViewportSize(desktopViewport);
   await page.getByRole('button', { name: 'Сопоставить', exact: true }).click();
+  const periodLists = page.locator('.periodDisclosure');
+  await expect(periodLists).toHaveCount(2);
+  for (const list of await periodLists.all()) {
+    await expect(list).not.toHaveAttribute('open', '');
+    await list.locator('summary').click();
+    await expect(list).toHaveAttribute('open', '');
+    await expect(list.getByText('2026-01-05 — 2026-01-07', { exact: true })).toBeVisible();
+    await list.locator('summary').click();
+    await expect(list.getByText('2026-01-05 — 2026-01-07', { exact: true })).toBeHidden();
+  }
+  await page.screenshot({ path: 'test-results/analytics-periods-setup.png', fullPage: true });
   await page.getByRole('button', { name: 'Сделать аналитику', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Проверьте статусы перед аналитикой' });
   await expect(dialog.getByRole('button', { name: 'Запустить аналитику' })).toBeDisabled();
@@ -239,6 +250,66 @@ test('history opens saved native results, marks unavailable Excel, and queries t
   await page.getByRole('button', { name: 'Следующая страница' }).click();
   await expect.poll(() => requests.some(value => value.includes('/result/rows?') && value.includes('page=2'))).toBeTruthy();
   await expect(page.getByRole('button', { name: 'К истории', exact: true })).toBeVisible();
+});
+
+test('history collapses additional periods and their metrics together', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  await page.route('**/admin/analytics/groups/11/exports', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify([{ ...report, periods: [period,
+      { ...period, period_start: '2026-01-01', period_end: '2026-01-04', total_count: 7 },
+      { ...period, period_start: '2026-01-05', period_end: '2026-01-07', total_count: 3 },
+    ] }]),
+  }));
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
+  const row = page.locator('.historyWrap tbody tr');
+  const list = row.locator('.periodDisclosure');
+  await expect(row.locator('td').nth(4).locator('div')).toHaveCount(1);
+  await expect(list.getByText('2026-01-05 — 2026-01-07', { exact: true })).toBeHidden();
+  await list.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(list.getByText('2026-01-05 — 2026-01-07', { exact: true })).toBeVisible();
+  await expect(row.locator('td').nth(4).locator('div')).toHaveCount(3);
+  await list.locator('summary').click();
+  await expect(row.locator('td').nth(4).locator('div')).toHaveCount(1);
+  await page.screenshot({ path: 'test-results/analytics-periods-history.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await list.locator('summary').click();
+  await expect(row.locator('td').nth(4).locator('div')).toHaveCount(3);
+  await page.screenshot({ path: 'test-results/analytics-periods-history-mobile.png', fullPage: true });
+});
+
+test('large saved result keeps one page scrollbar and contains table scrolling', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  const metrics = { 'Всего идентификаций': 100, 'Качественные': 50, 'Кач. %': 0.5 };
+  await page.route('**/admin/analytics/groups/11/exports/5/result', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      id: 5, ...period,
+      periods: [{ id: 'overall', period_start: period.period_start, period_end: period.period_end, metrics }],
+      breakdowns: { overall: { domain_channel: [], channel: [], source_channel: Array.from({ length: 100 }, (_, index) => ({
+        'Полный источник': `synthetic-${index}`, 'Канал': 'Поиск', ...metrics,
+      })) } },
+    }),
+  }));
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await page.getByRole('tab', { name: 'Источники', exact: true }).click();
+  await expect(page.locator('.resultTable tbody tr')).toHaveCount(100);
+  for (const viewport of [{ width: 1582, height: 866 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(() => page.locator('main').evaluate(element => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBeTruthy();
+    const table = page.locator('.resultTableShell');
+    expect(await table.evaluate(element => element.scrollHeight > element.clientHeight)).toBeTruthy();
+    await table.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    expect(await table.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    await table.evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: `test-results/analytics-scroll-${viewport.width}.png`, fullPage: true });
+  }
 });
 
 test('group editing is explicit, cancel restores selection, save closes editor', async ({ page }) => {

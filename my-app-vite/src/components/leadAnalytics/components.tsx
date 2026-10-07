@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState, type DragEvent } from "react";
 import type {
+  AnalysisPeriod,
   AnalyzeSetup,
   ExportRecord,
   FileInspect,
@@ -884,6 +885,19 @@ export function StatusRulesManager({
   );
 }
 
+export function PeriodDisclosure({ periods }: { periods: AnalysisPeriod[] }) {
+  if (!periods.length) return null;
+  const range = (period: AnalysisPeriod) => `${period.period_start} — ${period.period_end}`;
+  const first = <span>Общий период · {range(periods[0])}</span>;
+  if (periods.length === 1) return first;
+  return <details className="periodDisclosure">
+    <summary>{first}</summary>
+    <div className="periodDisclosureList">
+      {periods.slice(1).map((period) => <div key={range(period)}>{range(period)}</div>)}
+    </div>
+  </details>;
+}
+
 export function ExportHistory({
   groupName,
   exports,
@@ -906,6 +920,7 @@ export function ExportHistory({
   onOpenResult: (exportId: number) => void;
 }) {
   const hasGroup = groupName.trim().length > 0;
+  const [expandedExports, setExpandedExports] = useState<Record<number, boolean>>({});
 
   return (
     <section className="panel historyPanel">
@@ -937,35 +952,39 @@ export function ExportHistory({
               </tr>
             </thead>
             <tbody>
-              {exports.map((item) => (
+              {exports.map((item) => {
+                const visiblePeriods = expandedExports[item.id] ? item.periods : item.periods.slice(0, 1);
+                return (
                 <tr key={item.id}>
           <td>{item.export_number}</td>
                   <td>
-                    {item.periods.map((period) => (
-                      <div key={`${period.period_start}-${period.period_end}`}>
-                        {period.period_start} - {period.period_end}
-                      </div>
-                    ))}
+                    {item.periods.length > 1 ? <details className="periodDisclosure" onToggle={(event) => {
+                      const open = event.currentTarget.open;
+                      setExpandedExports((current) => ({ ...current, [item.id]: open }));
+                    }}>
+                      <summary>{item.periods[0].period_start} — {item.periods[0].period_end}</summary>
+                      {item.periods.slice(1).map((period) => <div key={`${period.period_start}-${period.period_end}`}>{period.period_start} — {period.period_end}</div>)}
+                    </details> : item.periods.map((period) => <div key={`${period.period_start}-${period.period_end}`}>{period.period_start} — {period.period_end}</div>)}
                   </td>
                   <td>{item.analysis_date}</td>
                   <td>{item.source_file_name}</td>
-                  <td>{item.periods.map((period) => <div key={`${period.period_start}-${period.period_end}`}>{period.total_count}</div>)}</td>
+                  <td>{visiblePeriods.map((period) => <div key={`${period.period_start}-${period.period_end}`}>{period.total_count}</div>)}</td>
                   <td>
-                    {item.periods.map((period) => (
+                    {visiblePeriods.map((period) => (
                       <div key={`${period.period_start}-${period.period_end}`}>
                         {period.missed_count} / {formatPercent(period.missed_rate)}
                       </div>
                     ))}
                   </td>
                   <td>
-                    {item.periods.map((period) => (
+                    {visiblePeriods.map((period) => (
                       <div key={`${period.period_start}-${period.period_end}`}>
                         {period.quality_count} / {formatPercent(period.quality_rate)}
                       </div>
                     ))}
                   </td>
                   <td>
-                    {item.periods.map((period) => (
+                    {visiblePeriods.map((period) => (
                       <div key={`${period.period_start}-${period.period_end}`}>
                         {period.demand_count} / {formatPercent(period.demand_rate)}
                       </div>
@@ -999,7 +1018,7 @@ export function ExportHistory({
                     </div>
                   </td>
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table>
         </div>

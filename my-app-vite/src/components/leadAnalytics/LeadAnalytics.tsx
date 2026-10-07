@@ -30,6 +30,7 @@ import {
   MappingPanel,
   MatchSummary,
   ProcessProgress,
+  PeriodDisclosure,
   StatusRulesManager,
   StatusRulesModal,
   Stepper,
@@ -944,7 +945,8 @@ export default function LeadAnalytics() {
         <>
           <section className="panel runReview">
             <div>
-              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"} · {activePeriods.map((period) => period.period_start && period.period_end ? `${period.period_start} — ${period.period_end}` : "период не заполнен").join(" · ")}</p>
+              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"}</p>
+              <PeriodDisclosure key={JSON.stringify(activePeriods)} periods={activePeriods} />
               {!canAnalyze && !loading && <p className="runReviewHint">{!periodsMatchPrepared ? "Периоды изменились: вернитесь и подготовьте данные заново." : "Проверьте обязательные колонки и даты периодов."}</p>}
               {analyzeSetup.unknown_statuses.length > 0 && <p>{analyzeSetup.unknown_statuses.length} неизвестных статусов потребуют ручного распределения.</p>}
             </div>
@@ -954,13 +956,7 @@ export default function LeadAnalytics() {
           {matchPreview && <section className="panel"><div className="panelHeader compact"><div><h2>Итог сопоставления</h2><p>{matchPreview.filename}</p></div><button className="ghostButton" type="button" disabled={loading} onClick={() => void downloadMatching()}>Скачать сопоставление</button></div><MatchSummary workbook={matchPreview} /></section>}
           <section className="panel">
             <div className="panelHeader compact"><div><h2>Периоды анализа</h2><p>Периоды сохранены вместе с этим запуском.</p></div></div>
-            <div className="periodList">
-              {activePeriods.map((period, index) => (
-                <div className="periodBlock" key={index}>
-                  <div className="periodRow"><strong>{periodSummary(period, index)}</strong><span>{period.period_start} — {period.period_end}</span></div>
-                </div>
-              ))}
-            </div>
+            <PeriodDisclosure key={JSON.stringify(activePeriods)} periods={activePeriods} />
             <div className="exportMetaGrid">
               <label className="field"><span>Номер аналитики</span><input type="number" value={nextExportNumber} readOnly /></label>
               <label className="field"><span>Дата анализа</span><input type="date" disabled={loading} value={analysisDate} onChange={(event) => changeAnalyzeInput(setAnalysisDate, event.target.value)} /></label>

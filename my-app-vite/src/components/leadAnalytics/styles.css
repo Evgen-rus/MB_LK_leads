@@ -413,6 +413,12 @@
   box-shadow: 0 8px 24px rgba(16, 32, 44, 0.14);
 }
 .lead-analytics .runReview p{ margin: 0; font-size: 13px; }
+.lead-analytics .periodDisclosure { font-size: 13px; line-height: 1.6; }
+.lead-analytics .periodDisclosure summary { cursor: pointer; width: fit-content; border-radius: 3px; }
+.lead-analytics .periodDisclosure summary::marker { color: #0f6b8d; font-size: 10px; }
+.lead-analytics .periodDisclosure summary:focus-visible { outline: 2px solid #0f6b8d; outline-offset: 3px; }
+.lead-analytics .periodDisclosureList { padding-left: 14px; color: #667085; }
+.lead-analytics .historyWrap .periodDisclosure { font: inherit; }
 .lead-analytics .runReview > button{ flex-shrink: 0; }
 .lead-analytics .fileBadge{
   width: fit-content;
@@ -1132,7 +1138,7 @@
 .lead-analytics .resultChip { display: inline-flex; max-width: 100%; align-items: center; gap: 5px; border: 1px solid #c7dce8; border-radius: 20px; padding: 3px 7px 3px 9px; background: #f0f7fa; color: #365a70; font-size: 11px; }
 .lead-analytics .resultChip button { width: 20px; min-height: 20px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; }
 .lead-analytics .resultFilterEmpty { color: #80909c; font-size: 11px; }
-.lead-analytics .resultTableShell { max-width: 100%; max-height: min(66vh, 700px); overflow: auto; border: 1px solid #d9e3ea; border-radius: 8px; background: #fff; scrollbar-color: #bdcbd4 #f3f6f8; }
+.lead-analytics .resultTableShell { position: relative; max-width: 100%; max-height: min(66vh, 700px); overflow: auto; border: 1px solid #d9e3ea; border-radius: 8px; background: #fff; scrollbar-color: #bdcbd4 #f3f6f8; }
 .lead-analytics .resultTable { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
 .lead-analytics .resultTable th, .lead-analytics .resultTable td { box-sizing: border-box; border-right: 1px solid #e4ebef; border-bottom: 1px solid #e4ebef; }
 .lead-analytics .resultTable th:last-child, .lead-analytics .resultTable td:last-child { border-right: 0; }
