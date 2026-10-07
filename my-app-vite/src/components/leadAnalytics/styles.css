@@ -1086,9 +1086,7 @@
 .lead-analytics .resultPeriodPanel { display: grid; gap: 12px; padding: 14px 16px; }
 .lead-analytics .resultControlRow { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: start; gap: 12px; }
 .lead-analytics .resultControlRow--secondary { padding-top: 12px; border-top: 1px solid #edf1f4; }
-.lead-analytics .resultControlRow--saved { grid-template-columns: 160px minmax(0, 1fr); }
 .lead-analytics .resultControlLabel { padding-top: 8px; color: #526879; font-size: 12px; font-weight: 700; }
-.lead-analytics .resultSavedPeriodSelect { width: min(420px, 100%); min-height: 36px; border: 1px solid #cbd8e2; border-radius: 6px; padding: 6px 9px; background: #fff; color: #304e63; font-size: 12px; }
 .lead-analytics .resultSegments { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px; }
 .lead-analytics .resultSegment { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; padding: 5px 9px; background: #f1f5f8; color: #3e586a; cursor: pointer; font-size: 12px; font-weight: 600; }
 .lead-analytics .resultSegment:hover:not(:disabled) { border-color: #b7cad7; background: #eaf1f5; }

@@ -51,7 +51,7 @@ import type {
   UploadResponse,
   WorkbookPreview
 } from "./types";
-import { buildHierarchicalAnalysisPeriods, incompletePeriodLabel, periodDayCount, splitAnalysisPeriod, type PeriodSplit } from "./periods";
+import { buildHierarchicalAnalysisPeriods, periodDayCount } from "./periods";
 import "./styles.css";
 
 const emptyMapping: Mapping = { sheet_name: "" };
@@ -72,12 +72,11 @@ function periodIsValid(period: AnalysisPeriod): boolean {
   return !periodIssue(period);
 }
 
-function periodSummary(period: AnalysisPeriod, index: number, split: PeriodSplit | null): string {
+function periodSummary(period: AnalysisPeriod, index: number): string {
   const days = periodDayCount(period);
   const label = index === 0 ? "Общий период" : `Период ${index + 1}`;
   if (days === null) return label;
-  const incomplete = index > 0 ? incompletePeriodLabel(period, split) : null;
-  return `${label} · ${days} дн.${incomplete ? ` · ${incomplete}` : ""}`;
+  return `${label} · ${days} дн.`;
 }
 
 function sameIds(left: number[], right: number[]): boolean {
@@ -114,9 +113,6 @@ export default function LeadAnalytics() {
   const [rulesData, setRulesData] = useState<StatusRulesData | null>(null);
   const [analyzePreview, setAnalyzePreview] = useState<WorkbookPreview | null>(null);
   const [periods, setPeriods] = useState<AnalysisPeriod[]>([emptyPeriod()]);
-  const [periodSplit, setPeriodSplit] = useState<PeriodSplit | null>(null);
-  const [periodSplitError, setPeriodSplitError] = useState("");
-  const [periodHierarchy, setPeriodHierarchy] = useState(true);
   const [analysisDate, setAnalysisDate] = useState(todayIso());
   const [step, setStep] = useState<Step>("upload");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -151,14 +147,12 @@ export default function LeadAnalytics() {
       (item.collection_source ?? "").toLocaleLowerCase("ru").includes(query)
     );
   }, [projectSearch, projects]);
-  let activePeriods = periods;
+  let activePeriods: AnalysisPeriod[] = [];
   let hierarchyError = "";
-  if (periodHierarchy) {
-    try {
-      activePeriods = buildHierarchicalAnalysisPeriods(periods[0]);
-    } catch (err) {
-      hierarchyError = err instanceof Error ? err.message : "Не удалось подготовить месячные и недельные срезы.";
-    }
+  try {
+    activePeriods = buildHierarchicalAnalysisPeriods(periods[0]);
+  } catch (err) {
+    hierarchyError = err instanceof Error ? err.message : "Не удалось подготовить месячные и недельные срезы.";
   }
   const validPeriods = !hierarchyError && activePeriods.length > 0 && activePeriods.every(periodIsValid);
   const periodsMatchPrepared = Boolean(preparedPeriods && JSON.stringify(preparedPeriods) === JSON.stringify(activePeriods));
@@ -261,9 +255,6 @@ export default function LeadAnalytics() {
     setRulesData(null);
     setAnalyzePreview(null);
     setPeriods([emptyPeriod()]);
-    setPeriodHierarchy(true);
-    setPeriodSplit(null);
-    setPeriodSplitError("");
     setAnalysisDate(todayIso());
     setActiveJob(null);
     setCurrentExportId(null);
@@ -466,40 +457,9 @@ export default function LeadAnalytics() {
     }
   }
 
-  function splitPeriods(split: PeriodSplit) {
-    try {
-      const nextPeriods = splitAnalysisPeriod(periods[0], split);
-      if (!invalidateForInput("upload")) return;
-      setPeriods(nextPeriods);
-      setPeriodHierarchy(false);
-      setPeriodSplit(split);
-      setPeriodSplitError("");
-    } catch (err) {
-      setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
-    }
-  }
-
-  function editPeriod(index: number, field: keyof AnalysisPeriod, value: string) {
-    const updated = periods.map((period, itemIndex) => itemIndex === index ? { ...period, [field]: value } : period);
-    let nextPeriods = updated;
-    if (index > 0) {
-      if (!invalidateForInput("upload")) return;
-      setPeriodSplit(null);
-      setPeriodSplitError("");
-      setPeriods(nextPeriods);
-      return;
-    }
-    const mainPeriod = updated[0];
-    if (periodSplit && periodIsValid(mainPeriod)) {
-      try { nextPeriods = splitAnalysisPeriod(mainPeriod, periodSplit); }
-      catch (err) {
-        setPeriodSplitError(err instanceof Error ? err.message : "Не удалось разбить общий период.");
-        return;
-      }
-    } else if (periodSplit) nextPeriods = [mainPeriod];
+  function editPeriod(field: keyof AnalysisPeriod, value: string) {
     if (!invalidateForInput("upload")) return;
-    setPeriodSplitError("");
-    setPeriods(nextPeriods);
+    setPeriods((current) => [{ ...current[0], [field]: value }]);
   }
 
   function changeMapping(scope: "mapping" | "analyze", setter: (value: Mapping) => void, value: Mapping) {
@@ -920,49 +880,27 @@ export default function LeadAnalytics() {
                 <div>
                   <h2>Периоды и источник данных клиента</h2>
                   <p>Идентификации из ЛК подготовятся автоматически для проектов группы.</p>
-                  <p>Общий период идёт первым, разбивка по неделям или месяцам — следом.</p>
+                  <p>Укажите общий диапазон. Отчёт будет включать месяцы и недели внутри каждого месяца.</p>
                 </div>
               </div>
-              <div className="actions">
-                <label className="periodHierarchyToggle" title={!periodHierarchy && periods.length > 1 ? "Сначала удалите дополнительные периоды из ручного списка." : undefined}>
-                  <input type="checkbox" checked={periodHierarchy} disabled={loading || (!periodHierarchy && periods.length > 1)} onChange={(event) => {
-                    if (!invalidateForInput("upload")) return;
-                    setPeriodHierarchy(event.target.checked);
-                    setPeriodSplitError("");
-                  }} />
-                  <span>Сохранить месяцы и недели для выбора в отчёте</span>
-                </label>
-                {!periodHierarchy && <div className="actions">
-                  <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("week")}>Разбить по неделям</button>
-                  <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("month")}>Разбить по месяцам</button>
-                </div>}
-              </div>
               <div className="periodList">
-                {(periodHierarchy ? periods.slice(0, 1) : periods).map((period, index) => {
+                {periods.slice(0, 1).map((period, index) => {
                   const issue = periodIssue(period);
                   const invalidOrder = Boolean(period.period_start && period.period_end && period.period_start > period.period_end);
                   return (
                     <div className="periodBlock" key={index}>
                       <div className="periodRow">
                         <strong>{index === 0 ? "Общий период" : `Период ${index + 1}`}</strong>
-                        <label className="field"><span>От *</span><input type="date" disabled={loading} value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => editPeriod(index, "period_start", event.target.value)} /></label>
-                        <label className="field"><span>До *</span><input type="date" disabled={loading} value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod(index, "period_end", event.target.value)} /></label>
-                        {index > 0 && <button className="dangerButton" type="button" disabled={loading} onClick={() => { if (invalidateForInput("upload")) setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index)); }}>Удалить</button>}
+                        <label className="field"><span>От *</span><input type="date" disabled={loading} value={period.period_start} aria-invalid={invalidOrder || !period.period_start} onChange={(event) => editPeriod("period_start", event.target.value)} /></label>
+                        <label className="field"><span>До *</span><input type="date" disabled={loading} value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod("period_end", event.target.value)} /></label>
                       </div>
-                      <p className="periodMessage">{periodSummary(period, index, periodHierarchy ? null : periodSplit)}</p>
+                      <p className="periodMessage">{periodSummary(period, index)}</p>
                       {issue && <p className={`periodMessage ${invalidOrder ? "fieldError" : ""}`}>{issue}</p>}
                     </div>
                   );
                 })}
-                {(periodSplitError || hierarchyError) && <p className="periodMessage fieldError" role="alert">{hierarchyError || periodSplitError}</p>}
-                {periodHierarchy && !hierarchyError && activePeriods.length > 1 && <p className="periodMessage">Сохранятся общий диапазон, месяцы и недели внутри каждого месяца · {activePeriods.length} периодов.</p>}
-                {!periodHierarchy && <button className="ghostButton" type="button" disabled={loading} onClick={() => {
-                  if (!invalidateForInput("upload")) return;
-                  setPeriodSplit(null);
-                  setPeriodSplitError("");
-                  setPeriodHierarchy(false);
-                  setPeriods((current) => [...current, emptyPeriod()]);
-                }}>Добавить период</button>}
+                {hierarchyError && <p className="periodMessage fieldError" role="alert">{hierarchyError}</p>}
+                {!hierarchyError && activePeriods.length > 1 && <p className="periodMessage">Месяцы и недели рассчитываются автоматически · {activePeriods.length} периодов, включая общий диапазон.</p>}
               </div>
               <FileDropZone label="Файл клиента" file={clientFile} disabled={loading || isArchived} onChange={(file) => { if (invalidateForInput("upload")) setClientFile(file); }} />
               <p className="uploadHint">Источник Google-таблицы хранится в настройках группы. Для отдельного запуска можно загрузить XLSX-файл.</p>
@@ -1019,7 +957,7 @@ export default function LeadAnalytics() {
             <div className="periodList">
               {activePeriods.map((period, index) => (
                 <div className="periodBlock" key={index}>
-                  <div className="periodRow"><strong>{periodSummary(period, index, periodSplit)}</strong><span>{period.period_start} — {period.period_end}</span></div>
+                  <div className="periodRow"><strong>{periodSummary(period, index)}</strong><span>{period.period_start} — {period.period_end}</span></div>
                 </div>
               ))}
             </div>

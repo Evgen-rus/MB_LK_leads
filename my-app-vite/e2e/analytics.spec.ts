@@ -126,6 +126,8 @@ test('prepare, match, manually assign unknown status and create final analytics'
   await page.goto('/');
   await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
   await expect(page.getByRole('combobox', { name: 'Группа', exact: true })).toHaveValue('11');
+  await expect(page.getByText('Сохранить месяцы и недели для выбора в отчёте', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Разбить по|Добавить период/ })).toHaveCount(0);
   await page.getByLabel('От *', { exact: true }).fill('2026-01-01');
   await page.getByLabel('До *', { exact: true }).fill('2026-01-07');
   await page.locator('input[type=file]').setInputFiles({ name: 'client.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('synthetic mock input') });
@@ -207,6 +209,7 @@ test('history opens saved native results, marks unavailable Excel, and queries t
   await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
   await expect(page.getByRole('heading', { name: 'История аналитики' })).toBeVisible();
   await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await expect(page.getByLabel('Другие сохранённые периоды')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Тестовая группа', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Шаги обработки' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Клиент', exact: true })).toHaveCount(0);
@@ -236,48 +239,6 @@ test('history opens saved native results, marks unavailable Excel, and queries t
   await page.getByRole('button', { name: 'Следующая страница' }).click();
   await expect.poll(() => requests.some(value => value.includes('/result/rows?') && value.includes('page=2'))).toBeTruthy();
   await expect(page.getByRole('button', { name: 'К истории', exact: true })).toBeVisible();
-});
-
-test('legacy result exposes saved February and cross-month periods by exact dates', async ({ page }) => {
-  await preparePage(page, 'admin', 'analytics');
-  const period = (id: string, period_start: string, period_end: string, total: number) => ({
-    id, period_start, period_end,
-    metrics: { 'Период': `${period_start} — ${period_end}`, 'Всего идентификаций': total, 'Качественные': total / 2, 'Кач. %': 0.5, _fills: {} },
-  });
-  await page.route('**/admin/analytics/groups/11/exports/5/result', async route => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      id: 5, period_start: '2026-01-01', period_end: '2026-01-31',
-      periods: [
-        period('saved-jan', '2026-01-01', '2026-01-15', 11),
-        period('saved-feb', '2026-02-01', '2026-02-28', 22),
-        period('saved-cross-month', '2026-07-27', '2026-08-02', 7),
-      ],
-      breakdowns: {
-        'saved-jan': { domain_channel: [], source_channel: [], channel: [] },
-        'saved-feb': { domain_channel: [], source_channel: [], channel: [] },
-        'saved-cross-month': { domain_channel: [], source_channel: [], channel: [] },
-      },
-    }) });
-  });
-  await page.goto('/');
-  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
-  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
-  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
-  await expect(page.getByRole('button', { name: /Весь период/ })).toContainText('нет среза');
-  await expect(page.locator('.resultWorkspaceHead').getByText('Общий срез не сохранён', { exact: true })).toBeVisible();
-
-  const savedPeriods = page.getByLabel('Другие сохранённые периоды');
-  const savedPeriodOptions = await savedPeriods.locator('option').allTextContents();
-  expect(savedPeriodOptions).toContain('01.02.2026 — 28.02.2026');
-  expect(savedPeriodOptions).toContain('27.07.2026 — 02.08.2026');
-  await savedPeriods.selectOption('saved-feb');
-  await expect(page.getByRole('cell', { name: '22', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Динамика' }).click();
-  await expect(page.getByRole('cell', { name: '01.02.2026 — 28.02.2026', exact: true })).toBeVisible();
-  await savedPeriods.selectOption('saved-cross-month');
-  await expect(page.getByRole('cell', { name: '27.07.2026 — 02.08.2026', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Данные' }).click();
-  await expect(page.getByText('Первый сохранённый срез: 01.01.2026 — 15.01.2026')).toBeVisible();
 });
 
 test('group editing is explicit, cancel restores selection, save closes editor', async ({ page }) => {

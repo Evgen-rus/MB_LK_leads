@@ -107,33 +107,6 @@ function weekSlices(month: Slice): Slice[] {
   return weeks;
 }
 
-function savedWeekSlices(month: Slice, result: SavedExportResult | null): Slice[] {
-  const expected = weekSlices(month);
-  if (!result) return expected;
-  const known = new Set(expected.map(({ start, end }) => `${start}:${end}`));
-  const additional = result.periods
-    .filter((period) => period.period_start >= month.start && period.period_end <= month.end &&
-      !(period.period_start === month.start && period.period_end === month.end) &&
-      !known.has(`${period.period_start}:${period.period_end}`))
-    .map((period) => ({
-      id: `saved-${period.id}`,
-      periodId: period.id,
-      start: period.period_start,
-      end: period.period_end,
-      short: `Срез ${formatShortDate(period.period_start)}–${formatShortDate(period.period_end)}`,
-      label: `Сохранённый срез · ${formatDate(period.period_start)} — ${formatDate(period.period_end)}`,
-    }));
-  return [...expected, ...additional].sort((left, right) => left.start.localeCompare(right.start) || left.end.localeCompare(right.end));
-}
-
-function unrepresentedPeriods(result: SavedExportResult, months: Slice[]): SavedResultPeriod[] {
-  return result.periods.filter((period) => {
-    const isWholeRange = period.period_start === result.period_start && period.period_end === result.period_end;
-    const isVisibleInMonth = months.some((month) => period.period_start >= month.start && period.period_end <= month.end);
-    return !isWholeRange && !isVisibleInMonth;
-  });
-}
-
 function formatDate(value: string): string {
   const date = parseDate(value);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC" }).format(date);
@@ -235,7 +208,6 @@ export function ResultViewer({
   const [view, setView] = useState<"main" | "all">("main");
   const [monthId, setMonthId] = useState("all");
   const [sliceId, setSliceId] = useState("all");
-  const [savedPeriodId, setSavedPeriodId] = useState("");
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, SavedResultFilter>>({});
   const [sort, setSort] = useState<SortState>(null);
@@ -304,24 +276,20 @@ export function ResultViewer({
 
   const months = useMemo(() => result ? dateSlices(result.period_start, result.period_end) : [], [result]);
   const overall = useMemo(() => result?.periods.find((item) => item.period_start === result.period_start && item.period_end === result.period_end) ?? null, [result]);
-  const standalonePeriods = useMemo(() => result ? unrepresentedPeriods(result, months) : [], [result, months]);
-  const standalonePeriod = result?.periods.find((item) => item.id === savedPeriodId) ?? null;
   const selectedMonth = monthId === "all" ? null : months.find((month) => month.id === monthId) ?? null;
-  const weeks = useMemo(() => selectedMonth ? savedWeekSlices(selectedMonth, result) : [], [selectedMonth, result]);
+  const weeks = useMemo(() => selectedMonth ? weekSlices(selectedMonth) : [], [selectedMonth]);
   const findPeriod = (slice: Pick<Slice, "start" | "end"> & Partial<Pick<Slice, "periodId">>) =>
     result?.periods.find((item) => item.id === slice.periodId || item.period_start === slice.start && item.period_end === slice.end) ?? null;
   const activePeriod = tab === "data" || tab === "statuses"
     ? overall
-    : standalonePeriod ?? (monthId === "all" ? overall
+    : monthId === "all" ? overall
       : sliceId === "all" ? (selectedMonth ? findPeriod(selectedMonth) : null)
-        : findPeriod(weeks.find((week) => week.id === sliceId) ?? { start: "", end: "" }));
+        : findPeriod(weeks.find((week) => week.id === sliceId) ?? { start: "", end: "" });
   const firstSavedPeriod = result?.periods[0] ?? null;
   const firstSavedPeriodLabel = firstSavedPeriod ? `${formatDate(firstSavedPeriod.period_start)} — ${formatDate(firstSavedPeriod.period_end)}` : "Период не сохранён";
-  const standalonePeriodLabel = standalonePeriod ? `${formatDate(standalonePeriod.period_start)} — ${formatDate(standalonePeriod.period_end)}` : "";
   const activePeriodLabel = tab === "data" || tab === "statuses"
     ? overall ? `Общий срез · ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : `Общий срез не сохранён · первый срез ${firstSavedPeriodLabel}`
-    : standalonePeriod ? `Сохранённый период · ${standalonePeriodLabel}`
-      : monthId === "all" ? overall ? `Весь период · ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : "Общий срез не сохранён"
+    : monthId === "all" ? overall ? `Весь период · ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : "Общий срез не сохранён"
         : sliceId === "all" ? selectedMonth?.label ?? "Период"
           : weeks.find((week) => week.id === sliceId)?.label ?? selectedMonth?.label ?? "Период";
   const mainRows = useMemo(() => result ? rowsForTab(result, tab, activePeriod) : [], [result, tab, activePeriod]);
@@ -351,9 +319,7 @@ export function ResultViewer({
 
   const dynamicsRows = useMemo(() => {
     if (!result) return [];
-    const slices = standalonePeriod
-      ? [{ id: `saved-${standalonePeriod.id}`, periodId: standalonePeriod.id, start: standalonePeriod.period_start, end: standalonePeriod.period_end, short: `${formatDate(standalonePeriod.period_start)} — ${formatDate(standalonePeriod.period_end)}`, label: `${formatDate(standalonePeriod.period_start)} — ${formatDate(standalonePeriod.period_end)}` }]
-      : selectedMonth ? weeks : months;
+    const slices = selectedMonth ? weeks : months;
     return slices.map((slice) => {
       const period = result.periods.find((item) => item.id === slice.periodId || item.period_start === slice.start && item.period_end === slice.end) ?? null;
       return {
@@ -363,7 +329,7 @@ export function ResultViewer({
         _unavailable: !period || !Object.keys(period.metrics).some((key) => key !== "_fills"),
       } as AnalyticsRow;
     });
-  }, [result, selectedMonth, weeks, months, standalonePeriod]);
+  }, [result, selectedMonth, weeks, months]);
   const dynamicsMetricColumns = [...new Set(dynamicsRows.flatMap((row) => Object.keys(row).filter((key) => key !== "_fills" && key !== "_unavailable" && !hiddenMeta.has(key))))];
   const dynamicsColumns = ["Период", ...(view === "main" ? MAIN_METRICS : [...MAIN_METRICS, ...EXTRA_METRICS]).filter((key) => dynamicsMetricColumns.includes(key)), ...(view === "all" ? dynamicsMetricColumns.filter((key) => !MAIN_METRICS.includes(key) && !EXTRA_METRICS.includes(key)) : [])];
   const queryColumns = tab === "dynamics" ? dynamicsColumns : projectedColumns;
@@ -448,7 +414,6 @@ export function ResultViewer({
   }
 
   function selectMonth(month: Slice | null) {
-    setSavedPeriodId("");
     setMonthId(month?.id ?? "all");
     setSliceId("all");
     setPage(1);
@@ -551,11 +516,11 @@ export function ResultViewer({
             <div className="resultControlRow">
               <span className="resultControlLabel">Период</span>
               <div className="resultSegments" role="group" aria-label="Выберите месяц">
-                <button className={`resultSegment ${isGeneral || !standalonePeriod && monthId === "all" ? "active" : ""} ${overall ? "" : "isUnavailable"}`} type="button" disabled={isGeneral} onClick={() => selectMonth(null)}>Весь период{!overall && <small>нет среза</small>}</button>
+                <button className={`resultSegment ${isGeneral || monthId === "all" ? "active" : ""} ${overall ? "" : "isUnavailable"}`} type="button" disabled={isGeneral} onClick={() => selectMonth(null)}>Весь период{!overall && <small>нет среза</small>}</button>
                 {months.map((month) => {
                   const hasMonth = Boolean(findPeriod(month));
                   return <button
-                    className={`resultSegment ${!isGeneral && !standalonePeriod && monthId === month.id ? "active" : ""} ${hasMonth ? "" : "isUnavailable"}`}
+                    className={`resultSegment ${!isGeneral && monthId === month.id ? "active" : ""} ${hasMonth ? "" : "isUnavailable"}`}
                     type="button"
                     disabled={isGeneral}
                     title={hasMonth ? `${month.label}: ${formatDate(month.start)} — ${formatDate(month.end)}` : "Месячный срез не сохранён; проверьте недели этого месяца."}
@@ -566,32 +531,19 @@ export function ResultViewer({
               </div>
               <span className="resultPeriodNote">{isGeneral ? overall ? `Общий срез: ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : `Общий срез не сохранён · первый срез: ${firstSavedPeriodLabel}` : `Сейчас: ${activePeriodLabel}`}</span>
             </div>
-            {!isGeneral && standalonePeriods.length > 0 && <div className="resultControlRow resultControlRow--secondary resultControlRow--saved">
-              <label className="resultControlLabel" htmlFor="saved-period-select">Сохранённые периоды</label>
-              <select id="saved-period-select" className="resultSavedPeriodSelect" aria-label="Другие сохранённые периоды" value={savedPeriodId} onChange={(event) => {
-                setSavedPeriodId(event.target.value);
-                setMonthId("all");
-                setSliceId("all");
-                setPage(1);
-                resetTableState();
-              }}>
-                <option value="">Выберите период с точными датами</option>
-                {standalonePeriods.map((period) => <option key={period.id} value={period.id}>{formatDate(period.period_start)} — {formatDate(period.period_end)}</option>)}
-              </select>
-            </div>}
             {selectedMonth && !isGeneral && <div className="resultControlRow resultControlRow--secondary">
               <span className="resultControlLabel">Срез</span>
               <div className="resultSegments" role="group" aria-label="Выберите неделю">
-                <button className={`resultSegment ${!standalonePeriod && sliceId === "all" ? "active" : ""} ${findPeriod(selectedMonth) ? "" : "isUnavailable"}`} type="button" onClick={() => { setSavedPeriodId(""); setSliceId("all"); setPage(1); resetTableState(); }}>
+                <button className={`resultSegment ${sliceId === "all" ? "active" : ""} ${findPeriod(selectedMonth) ? "" : "isUnavailable"}`} type="button" onClick={() => { setSliceId("all"); setPage(1); resetTableState(); }}>
                   Весь месяц{!findPeriod(selectedMonth) && <small>нет среза</small>}
                 </button>
                 {weeks.map((week) => {
                   const hasWeek = Boolean(findPeriod(week));
                   return <button
-                    className={`resultSegment ${!standalonePeriod && sliceId === week.id ? "active" : ""} ${hasWeek ? "" : "isUnavailable"}`}
+                    className={`resultSegment ${sliceId === week.id ? "active" : ""} ${hasWeek ? "" : "isUnavailable"}`}
                     type="button"
                     title={hasWeek ? week.label : "Точный срез этой недели в отчёте не сохранён."}
-                    onClick={() => { setSavedPeriodId(""); setSliceId(week.id); setPage(1); resetTableState(); }}
+                    onClick={() => { setSliceId(week.id); setPage(1); resetTableState(); }}
                     key={week.id}
                   >{week.short}{!hasWeek && <small>нет среза</small>}</button>;
                 })}
@@ -621,7 +573,7 @@ export function ResultViewer({
           {tab === "dynamics" ? (
             <section className="resultWorkspace">
               <div className="resultWorkspaceHead">
-                <div><h2>Динамика</h2><p>{standalonePeriod ? `Отдельный сохранённый период · ${standalonePeriodLabel}` : selectedMonth ? `${selectedMonth.label}: сохранённые недельные срезы` : "Сохранённые месячные срезы всего диапазона"}</p></div>
+                <div><h2>Динамика</h2><p>{selectedMonth ? `${selectedMonth.label}: сохранённые недельные срезы` : "Сохранённые месячные срезы всего диапазона"}</p></div>
                 <div className="resultViewToggle" role="group" aria-label="Набор показателей">
                   <button type="button" className={view === "main" ? "active" : ""} onClick={() => { setView("main"); setPage(1); }}>Основные показатели</button>
                   <button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setPage(1); }}>Все показатели</button>
