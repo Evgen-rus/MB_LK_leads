@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MAX_ANALYSIS_PERIODS, periodDayCount, splitAnalysisPeriod } from "./periods.ts";
+import { MAX_ANALYSIS_PERIODS, buildHierarchicalAnalysisPeriods, periodDayCount, splitAnalysisPeriod } from "./periods.ts";
 
 test("splits date ranges into clipped calendar weeks and months", () => {
   const range = { period_start: "2026-07-15", period_end: "2026-10-02" };
@@ -36,4 +36,24 @@ test("keeps leap-day boundaries, avoids duplicate whole periods, and enforces th
   const allowedMonths = splitAnalysisPeriod({ period_start: "2020-01-01", period_end: "2025-03-31" }, "month");
   assert.equal(allowedMonths.length, MAX_ANALYSIS_PERIODS);
   assert.throws(() => splitAnalysisPeriod({ period_start: "2020-01-01", period_end: "2025-04-30" }, "month"), RangeError);
+});
+
+test("builds whole, clipped month, and month-clipped week periods without duplicates", () => {
+  const periods = buildHierarchicalAnalysisPeriods({ period_start: "2026-07-27", period_end: "2026-08-05" });
+  assert.deepEqual(periods, [
+    { period_start: "2026-07-27", period_end: "2026-08-05" },
+    { period_start: "2026-07-27", period_end: "2026-07-31" },
+    { period_start: "2026-08-01", period_end: "2026-08-05" },
+    { period_start: "2026-08-01", period_end: "2026-08-02" },
+    { period_start: "2026-08-03", period_end: "2026-08-05" }
+  ]);
+
+  const oneMonth = buildHierarchicalAnalysisPeriods({ period_start: "2026-01-01", period_end: "2026-01-31" });
+  assert.equal(oneMonth[0].period_start, "2026-01-01");
+  assert.equal(new Set(oneMonth.map(({ period_start, period_end }) => `${period_start}:${period_end}`)).size, oneMonth.length);
+  assert.deepEqual(oneMonth.slice(1).map(({ period_start, period_end }) => [period_start, period_end]), [
+    ["2026-01-01", "2026-01-04"], ["2026-01-05", "2026-01-11"], ["2026-01-12", "2026-01-18"],
+    ["2026-01-19", "2026-01-25"], ["2026-01-26", "2026-01-31"]
+  ]);
+  assert.throws(() => buildHierarchicalAnalysisPeriods({ period_start: "2025-01-01", period_end: "2026-12-31" }), RangeError);
 });

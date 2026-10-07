@@ -35,6 +35,7 @@ import {
   Stepper,
   WorkbookViewer
 } from "./components";
+import { ResultViewer } from "./ResultViewer";
 import type {
   AnalysisPeriod,
   AnalyticsClient,
@@ -50,7 +51,7 @@ import type {
   UploadResponse,
   WorkbookPreview
 } from "./types";
-import { incompletePeriodLabel, periodDayCount, splitAnalysisPeriod, type PeriodSplit } from "./periods";
+import { buildHierarchicalAnalysisPeriods, incompletePeriodLabel, periodDayCount, splitAnalysisPeriod, type PeriodSplit } from "./periods";
 import "./styles.css";
 
 const emptyMapping: Mapping = { sheet_name: "" };
@@ -115,6 +116,7 @@ export default function LeadAnalytics() {
   const [periods, setPeriods] = useState<AnalysisPeriod[]>([emptyPeriod()]);
   const [periodSplit, setPeriodSplit] = useState<PeriodSplit | null>(null);
   const [periodSplitError, setPeriodSplitError] = useState("");
+  const [periodHierarchy, setPeriodHierarchy] = useState(true);
   const [analysisDate, setAnalysisDate] = useState(todayIso());
   const [step, setStep] = useState<Step>("upload");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -129,6 +131,8 @@ export default function LeadAnalytics() {
   const [rulesLoading, setRulesLoading] = useState(false);
   const [activeJob, setActiveJob] = useState<ProcessingJob | null>(null);
   const [currentExportId, setCurrentExportId] = useState<number | null>(null);
+  const [resultExportId, setResultExportId] = useState<number | null>(null);
+  const [resultFromRun, setResultFromRun] = useState(false);
 
   const client = clients.find((item) => item.id === clientId) ?? null;
   const selectedGroup = groups.find((item) => item.id === groupId) ?? null;
@@ -147,8 +151,17 @@ export default function LeadAnalytics() {
       (item.collection_source ?? "").toLocaleLowerCase("ru").includes(query)
     );
   }, [projectSearch, projects]);
-  const validPeriods = periods.length > 0 && periods.every(periodIsValid);
-  const periodsMatchPrepared = Boolean(preparedPeriods && JSON.stringify(preparedPeriods) === JSON.stringify(periods));
+  let activePeriods = periods;
+  let hierarchyError = "";
+  if (periodHierarchy) {
+    try {
+      activePeriods = buildHierarchicalAnalysisPeriods(periods[0]);
+    } catch (err) {
+      hierarchyError = err instanceof Error ? err.message : "Не удалось подготовить месячные и недельные срезы.";
+    }
+  }
+  const validPeriods = !hierarchyError && activePeriods.length > 0 && activePeriods.every(periodIsValid);
+  const periodsMatchPrepared = Boolean(preparedPeriods && JSON.stringify(preparedPeriods) === JSON.stringify(activePeriods));
   const hasClientSource = Boolean(clientFile || spreadsheetUrl.trim());
   const canPrepare = Boolean(clientId && selectedGroup && !isArchived && !editingGroup && !groupDirty && projectIds.length && hasClientSource && validPeriods && !loading);
   const canMatch = Boolean(upload && periodsMatchPrepared && !editingGroup && !groupDirty && lkMapping.lkid_column && lkMapping.source_column && clientMapping.status_column);
@@ -248,11 +261,14 @@ export default function LeadAnalytics() {
     setRulesData(null);
     setAnalyzePreview(null);
     setPeriods([emptyPeriod()]);
+    setPeriodHierarchy(true);
     setPeriodSplit(null);
     setPeriodSplitError("");
     setAnalysisDate(todayIso());
     setActiveJob(null);
     setCurrentExportId(null);
+    setResultExportId(null);
+    setResultFromRun(false);
     setStatusModalOpen(false);
     setRulesManagerOpen(false);
     setStep("upload");
@@ -268,6 +284,8 @@ export default function LeadAnalytics() {
     }
     setAnalyzePreview(null);
     setCurrentExportId(null);
+    setResultExportId(null);
+    setResultFromRun(false);
     setStatusModalOpen(false);
     if (includeUpload) {
       setMatchPreview(null);
@@ -427,15 +445,17 @@ export default function LeadAnalytics() {
     setOperationStage("upload");
     setError("");
     try {
-      const data = await prepareRun(selectedGroup.id, periods, clientFile, spreadsheetUrl);
+      const data = await prepareRun(selectedGroup.id, activePeriods, clientFile, spreadsheetUrl);
       setUpload(data);
-      setPreparedPeriods(periods.map((period) => ({ ...period })));
+      setPreparedPeriods(activePeriods.map((period) => ({ ...period })));
       setLkFile(data.lk);
       setLkMapping(normalizeMapping(data.lk.detected, data.lk.sheets[0]?.name ?? ""));
       setClientMapping(normalizeMapping(data.client.detected, data.client.sheets[0]?.name ?? ""));
       setMatchPreview(null);
       setAnalyzeSetup(null);
       setAnalyzePreview(null);
+      setResultExportId(null);
+      setResultFromRun(false);
       setStep("mapping");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось подготовить данные");
@@ -451,6 +471,7 @@ export default function LeadAnalytics() {
       const nextPeriods = splitAnalysisPeriod(periods[0], split);
       if (!invalidateForInput("upload")) return;
       setPeriods(nextPeriods);
+      setPeriodHierarchy(false);
       setPeriodSplit(split);
       setPeriodSplitError("");
     } catch (err) {
@@ -561,16 +582,22 @@ export default function LeadAnalytics() {
       const job = await queueAnalyzeJob(selectedGroup.id, upload.run_id, {
         mapping: analyzeMapping,
         status_rules: statusRules,
-        periods,
+        periods: activePeriods,
         analysis_date: analysisDate || null,
         source_file_name: clientFile?.name || upload.client.filename
       });
       const completed = await waitForJob(job);
       setOperationStage("done");
-      setAnalyzePreview(await fetchProcessingJobPreview(selectedGroup.id, completed.id));
+      if (completed.export_id === null || completed.export_id === undefined) {
+        setAnalyzePreview(await fetchProcessingJobPreview(selectedGroup.id, completed.id));
+      } else {
+        setAnalyzePreview(null);
+      }
       const refreshed = await fetchExports(selectedGroup.id);
       setSavedExports(refreshed);
       setCurrentExportId(completed.export_id ?? null);
+      setResultExportId(completed.export_id ?? null);
+      setResultFromRun(completed.export_id != null);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось сформировать аналитику");
@@ -718,15 +745,15 @@ export default function LeadAnalytics() {
   ].filter((item): item is { label: string; url: string } => Boolean(item.url));
 
   return (
-    <section className="lead-analytics" aria-label="Аналитика">
+    <section className={`lead-analytics ${resultExportId !== null && !historyOpen ? "isResultViewing" : ""}`} aria-label="Аналитика">
       {document.getElementById("analytics-header-status") && createPortal(
         <div role="status" className={`analytics-statusBadge ${loading ? "busy" : step === "upload" && !canPrepare ? "needsInput" : "ready"}`}>
-          <span aria-hidden="true" />{historyOpen ? "История аналитики" : statusText}
+          <span aria-hidden="true" />{historyOpen ? "История аналитики" : resultExportId !== null ? `Просмотр аналитики №${resultExportId}` : statusText}
         </div>,
         document.getElementById("analytics-header-status")!
       )}
 
-      <section className={`panel groupPanel ${!creatingGroup && !editingGroup ? "groupPanel--readonly" : ""}`}>
+      {(resultExportId === null || resultFromRun) && <section className={`panel groupPanel ${!creatingGroup && !editingGroup ? "groupPanel--readonly" : ""}`}>
         <div className="twoColumn">
           <label className="field">
             <span>Клиент</span>
@@ -848,16 +875,16 @@ export default function LeadAnalytics() {
             </>
           ) : null
         )}
-      </section>
+      </section>}
 
-      <Stepper
+      {(resultExportId === null || resultFromRun) && <Stepper
         step={step}
         historyOpen={historyOpen}
         disabled={loading}
-        canVisit={{ upload: true, mapping: Boolean(upload), analyze: Boolean(upload && analyzeSetup), done: Boolean(analyzePreview) }}
-        onStepChange={(nextStep) => { setHistoryOpen(false); setStep(nextStep); }}
-        onHistoryChange={setHistoryOpen}
-      />
+        canVisit={{ upload: true, mapping: Boolean(upload), analyze: Boolean(upload && analyzeSetup), done: Boolean(analyzePreview || currentExportId) }}
+        onStepChange={(nextStep) => { setResultExportId(nextStep === "done" ? currentExportId : null); setResultFromRun(nextStep === "done" && currentExportId != null); setHistoryOpen(false); setStep(nextStep); }}
+        onHistoryChange={(open) => { setResultExportId(null); setResultFromRun(false); setHistoryOpen(open); }}
+      />}
       <ProcessProgress active={loading} stage={activeJob ? activeJob.kind === "match" ? "match" : "prepare" : operationStage} label={activeJob?.phase || operation} processedRows={activeJob?.processed_rows} totalRows={activeJob?.total_rows} queued={activeJob?.status === "queued"} />
       {error && !rulesManagerOpen && <div className="alert" role="alert">{error}</div>}
 
@@ -870,9 +897,22 @@ export default function LeadAnalytics() {
         onCancelDelete={() => setDeletingExport(null)}
         onConfirmDelete={() => void confirmDeleteExport()}
         onDownload={(exportId) => void downloadReport(exportId)}
+        onOpenResult={(exportId) => { setError(""); setResultFromRun(false); setResultExportId(exportId); setHistoryOpen(false); }}
       />}
 
-      {!historyOpen && step === "upload" && (
+      {!historyOpen && resultExportId !== null && selectedGroup && <ResultViewer
+        key={`${selectedGroup.id}:${resultExportId}`}
+        groupName={selectedGroup.name}
+        groupId={selectedGroup.id}
+        exportId={resultExportId}
+        canStartNew={!isArchived}
+        canDownload={Boolean(savedExports.find((item) => item.id === resultExportId)?.report_available)}
+        onBack={() => { setResultFromRun(false); setResultExportId(null); setHistoryOpen(true); }}
+        onNewAnalysis={resetRun}
+        onDownload={() => void downloadReport(resultExportId)}
+      />}
+
+      {!historyOpen && resultExportId === null && step === "upload" && (
         <>
           {selectedGroup && !isArchived && (
             <section className="panel sourcePanel">
@@ -884,11 +924,21 @@ export default function LeadAnalytics() {
                 </div>
               </div>
               <div className="actions">
-                <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("week")}>Разбить по неделям</button>
-                <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("month")}>Разбить по месяцам</button>
+                <label className="periodHierarchyToggle" title={!periodHierarchy && periods.length > 1 ? "Сначала удалите дополнительные периоды из ручного списка." : undefined}>
+                  <input type="checkbox" checked={periodHierarchy} disabled={loading || (!periodHierarchy && periods.length > 1)} onChange={(event) => {
+                    if (!invalidateForInput("upload")) return;
+                    setPeriodHierarchy(event.target.checked);
+                    setPeriodSplitError("");
+                  }} />
+                  <span>Сохранить месяцы и недели для выбора в отчёте</span>
+                </label>
+                {!periodHierarchy && <div className="actions">
+                  <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("week")}>Разбить по неделям</button>
+                  <button className="ghostButton" type="button" disabled={loading || !periodIsValid(periods[0])} onClick={() => splitPeriods("month")}>Разбить по месяцам</button>
+                </div>}
               </div>
               <div className="periodList">
-                {periods.map((period, index) => {
+                {(periodHierarchy ? periods.slice(0, 1) : periods).map((period, index) => {
                   const issue = periodIssue(period);
                   const invalidOrder = Boolean(period.period_start && period.period_end && period.period_start > period.period_end);
                   return (
@@ -899,18 +949,20 @@ export default function LeadAnalytics() {
                         <label className="field"><span>До *</span><input type="date" disabled={loading} value={period.period_end} aria-invalid={invalidOrder || !period.period_end} onChange={(event) => editPeriod(index, "period_end", event.target.value)} /></label>
                         {index > 0 && <button className="dangerButton" type="button" disabled={loading} onClick={() => { if (invalidateForInput("upload")) setPeriods((current) => current.filter((_, itemIndex) => itemIndex !== index)); }}>Удалить</button>}
                       </div>
-                      <p className="periodMessage">{periodSummary(period, index, periodSplit)}</p>
+                      <p className="periodMessage">{periodSummary(period, index, periodHierarchy ? null : periodSplit)}</p>
                       {issue && <p className={`periodMessage ${invalidOrder ? "fieldError" : ""}`}>{issue}</p>}
                     </div>
                   );
                 })}
-                {periodSplitError && <p className="periodMessage fieldError" role="alert">{periodSplitError}</p>}
-                <button className="ghostButton" type="button" disabled={loading} onClick={() => {
+                {(periodSplitError || hierarchyError) && <p className="periodMessage fieldError" role="alert">{hierarchyError || periodSplitError}</p>}
+                {periodHierarchy && !hierarchyError && activePeriods.length > 1 && <p className="periodMessage">Сохранятся общий диапазон, месяцы и недели внутри каждого месяца · {activePeriods.length} периодов.</p>}
+                {!periodHierarchy && <button className="ghostButton" type="button" disabled={loading} onClick={() => {
                   if (!invalidateForInput("upload")) return;
                   setPeriodSplit(null);
                   setPeriodSplitError("");
+                  setPeriodHierarchy(false);
                   setPeriods((current) => [...current, emptyPeriod()]);
-                }}>Добавить период</button>
+                }}>Добавить период</button>}
               </div>
               <FileDropZone label="Файл клиента" file={clientFile} disabled={loading || isArchived} onChange={(file) => { if (invalidateForInput("upload")) setClientFile(file); }} />
               <p className="uploadHint">Источник Google-таблицы хранится в настройках группы. Для отдельного запуска можно загрузить XLSX-файл.</p>
@@ -918,7 +970,7 @@ export default function LeadAnalytics() {
                 <button type="button" onClick={() => void prepareData()} disabled={!canPrepare}>Подготовить данные</button>
                 {groupDirty && <span className="runReviewHint">Сначала сохраните изменения группы.</span>}
                 {!projectIds.length && <span className="runReviewHint">Добавьте в группу хотя бы один проект.</span>}
-                {!validPeriods && <span className="runReviewHint">Укажите корректные периоды.</span>}
+                {!validPeriods && !hierarchyError && <span className="runReviewHint">Укажите корректные периоды.</span>}
               </div>
             </section>
           )}
@@ -928,7 +980,7 @@ export default function LeadAnalytics() {
         </>
       )}
 
-      {!historyOpen && step === "mapping" && upload && (
+      {!historyOpen && resultExportId === null && step === "mapping" && upload && (
         <>
           <section className="panel">
             <div className="panelHeader">
@@ -950,11 +1002,11 @@ export default function LeadAnalytics() {
         </>
       )}
 
-      {!historyOpen && step === "analyze" && upload && analyzeSetup && (
+      {!historyOpen && resultExportId === null && step === "analyze" && upload && analyzeSetup && (
         <>
           <section className="panel runReview">
             <div>
-              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"} · {periods.map((period) => period.period_start && period.period_end ? `${period.period_start} — ${period.period_end}` : "период не заполнен").join(" · ")}</p>
+              <p>Аналитика №{nextExportNumber} · дата {analysisDate || "не указана"} · {activePeriods.map((period) => period.period_start && period.period_end ? `${period.period_start} — ${period.period_end}` : "период не заполнен").join(" · ")}</p>
               {!canAnalyze && !loading && <p className="runReviewHint">{!periodsMatchPrepared ? "Периоды изменились: вернитесь и подготовьте данные заново." : "Проверьте обязательные колонки и даты периодов."}</p>}
               {analyzeSetup.unknown_statuses.length > 0 && <p>{analyzeSetup.unknown_statuses.length} неизвестных статусов потребуют ручного распределения.</p>}
             </div>
@@ -965,7 +1017,7 @@ export default function LeadAnalytics() {
           <section className="panel">
             <div className="panelHeader compact"><div><h2>Периоды анализа</h2><p>Периоды сохранены вместе с этим запуском.</p></div></div>
             <div className="periodList">
-              {periods.map((period, index) => (
+              {activePeriods.map((period, index) => (
                 <div className="periodBlock" key={index}>
                   <div className="periodRow"><strong>{periodSummary(period, index, periodSplit)}</strong><span>{period.period_start} — {period.period_end}</span></div>
                 </div>
@@ -982,7 +1034,7 @@ export default function LeadAnalytics() {
         </>
       )}
 
-      {!historyOpen && step === "done" && analyzePreview && (
+      {!historyOpen && resultExportId === null && step === "done" && analyzePreview && (
         <>
           <section className="panel">
             <div className="panelHeader">

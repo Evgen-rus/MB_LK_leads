@@ -4,6 +4,10 @@ import type {
   AnalyticsClient,
   AnalyticsGroup,
   AnalyticsProject,
+  SavedExportResult,
+  SavedResultFilter,
+  SavedResultRows,
+  SavedResultTable,
   AnalyzeSetup,
   ExportRecord,
   Mapping,
@@ -51,6 +55,36 @@ export const deleteStatusRule = (groupId: number, ruleId: number) =>
 
 export const fetchExports = (groupId: number) =>
   http<ExportRecord[]>(`${base}/groups/${groupId}/exports`);
+
+export const fetchExportResult = (groupId: number, exportId: number) =>
+  http<SavedExportResult>(`${base}/groups/${groupId}/exports/${exportId}/result`);
+
+export function fetchExportResultRows(
+  groupId: number,
+  exportId: number,
+  params: {
+    table: SavedResultTable;
+    page: number;
+    pageSize: number;
+    query?: string;
+    filters?: Record<string, SavedResultFilter>;
+    sort?: string | null;
+    direction?: "asc" | "desc";
+  }
+) {
+  const query = new URLSearchParams({
+    table: params.table,
+    page: String(params.page),
+    page_size: String(params.pageSize),
+  });
+  if (params.query) query.set("query", params.query);
+  if (params.filters && Object.keys(params.filters).length) query.set("filters", JSON.stringify(params.filters));
+  if (params.sort) {
+    query.set("sort", params.sort);
+    query.set("direction", params.direction ?? "desc");
+  }
+  return http<SavedResultRows>(`${base}/groups/${groupId}/exports/${exportId}/result/rows?${query}`);
+}
 
 export const deleteExport = (groupId: number, exportId: number) =>
   http<{ deleted: boolean }>(`${base}/groups/${groupId}/exports/${exportId}`, json("DELETE"));

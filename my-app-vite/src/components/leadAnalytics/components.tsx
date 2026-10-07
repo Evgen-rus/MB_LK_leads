@@ -892,7 +892,8 @@ export function ExportHistory({
   onAskDelete,
   onCancelDelete,
   onConfirmDelete,
-  onDownload
+  onDownload,
+  onOpenResult
 }: {
   groupName: string;
   exports: ExportRecord[];
@@ -902,6 +903,7 @@ export function ExportHistory({
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
   onDownload: (exportId: number) => void;
+  onOpenResult: (exportId: number) => void;
 }) {
   const hasGroup = groupName.trim().length > 0;
 
@@ -971,6 +973,15 @@ export function ExportHistory({
                   </td>
                   <td>
                     <div className="actions">
+                      <button
+                        className="ghostButton"
+                        type="button"
+                        onClick={() => onOpenResult(item.id)}
+                        disabled={loading}
+                        title="Открыть сохранённые показатели аналитики"
+                      >
+                        Открыть аналитику
+                      </button>
                       {item.report_available && (
                         <button
                           className="download secondary"

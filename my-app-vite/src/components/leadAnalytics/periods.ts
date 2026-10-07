@@ -44,6 +44,33 @@ export function splitAnalysisPeriod(period: AnalysisPeriod, split: PeriodSplit):
   return periods;
 }
 
+export function buildHierarchicalAnalysisPeriods(period: AnalysisPeriod): AnalysisPeriod[] {
+  const whole = splitAnalysisPeriod(period, "month")[0];
+  const monthSlices = splitAnalysisPeriod(period, "month").slice(1);
+  if (monthSlices.length === 0) monthSlices.push(whole);
+
+  const periods = [whole];
+  const seen = new Set([`${whole.period_start}:${whole.period_end}`]);
+  for (const month of monthSlices) {
+    const monthKey = `${month.period_start}:${month.period_end}`;
+    if (!seen.has(monthKey)) {
+      periods.push(month);
+      seen.add(monthKey);
+    }
+    for (const week of splitAnalysisPeriod(month, "week").slice(1)) {
+      const weekKey = `${week.period_start}:${week.period_end}`;
+      if (!seen.has(weekKey)) {
+        periods.push(week);
+        seen.add(weekKey);
+      }
+    }
+    if (periods.length > MAX_ANALYSIS_PERIODS) {
+      throw new RangeError(`Иерархическая разбивка превышает лимит ${MAX_ANALYSIS_PERIODS} периодов. Уменьшите диапазон или отключите разбивку.`);
+    }
+  }
+  return periods;
+}
+
 export function periodDayCount(period: AnalysisPeriod): number | null {
   try {
     const start = parseDate(period.period_start);

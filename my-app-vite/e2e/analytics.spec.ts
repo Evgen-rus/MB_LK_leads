@@ -23,10 +23,26 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
   const analyzeMapping = { sheet_name: 'Сопоставленные', date_column: 'Дата из ЛК', phone_column: 'Телефон', source_column: 'Полный источник из ЛК', status_column: 'Статус клиента' };
   const sheet = (name: string, columns: string[]) => ({ name, columns, rows: Array.from({ length: 8 }, () => Object.fromEntries(columns.map(column => [column, column === 'Статус клиента' ? 'Новый статус' : 'synthetic']))) });
   const preview = { filename: 'synthetic.xlsx', sheets: [sheet('Сопоставленные', ['Дата из ЛК', 'Телефон', 'Полный источник из ЛК', 'Статус клиента'])] };
+  const savedResult = {
+    id: 5,
+    period_start: '2026-01-01',
+    period_end: '2026-01-07',
+    periods: [{
+      id: 'saved-overall', period_start: '2026-01-01', period_end: '2026-01-07',
+      metrics: { 'Период': '01.01.2026–07.01.2026', 'Всего идентификаций': 10, 'Качественные': 4, 'Кач. %': 0.4,
+        'Рабочий потенциал': 3, 'Рабочий потенциал %': 0.3, 'Сигнал спроса': 2, 'Сигнал спроса %': 0.2,
+        'Недозвон': 2, 'Недозвон %': 0.2, _fills: { 'Кач. %': 'C6EFCE' } },
+    }],
+    breakdowns: { 'saved-overall': { domain_channel: [], source_channel: [], channel: [] } },
+  };
+  const resultRows = [
+    { 'Полный источник': 'synthetic alpha', 'Канал': 'Поиск', 'Количество': 12, 'Кач. %': 0.5 },
+    { 'Полный источник': 'synthetic beta', 'Канал': 'Рекомендация', 'Количество': 8, 'Кач. %': 0.25 },
+  ];
   const job = (id: number, kind: 'match' | 'analyze', status = 'completed') => ({ id, run_id: 'synthetic-run', kind, status, phase: 'Готово', processed_rows: 1, total_rows: 1, error_text: null, output_file_name: 'synthetic.xlsx', export_id: kind === 'analyze' && status === 'completed' ? 5 : null });
   await page.route(/http:\/\/(localhost|127\.0\.0\.1):8000\//, async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.startsWith('/admin/analytics')) analyticsRequests.push(path);
+    if (path.startsWith('/admin/analytics')) analyticsRequests.push(path + new URL(route.request().url()).search);
     let result: unknown = { items: [], total: 0 };
     if (path === '/me') result = { id: 2, name: 'Тестовый клиент', role, login: 'synthetic' };
     else if (path === '/admin/users') result = [];
@@ -37,6 +53,15 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
       { id: 103, name: 'Новый проект', status: 'Активен', collection_source: 'Звонки', deleted_at: null },
     ];
     else if (path.endsWith('/groups') && path.startsWith('/admin/analytics')) result = [group];
+    else if (path.endsWith('/exports/5/result/rows')) {
+      const url = new URL(route.request().url());
+      const table = url.searchParams.get('table') ?? 'data';
+      const columns = table === 'statuses' ? ['Группа статуса', 'Исходный статус', 'Количество'] : ['Дата', 'Полный источник', 'Канал', 'Количество', 'Кач. %'];
+      const rows = table === 'statuses' ? [{ 'Группа статуса': 'Качественные', 'Исходный статус': 'synthetic status', 'Количество': 4 }] : resultRows;
+      result = { columns, rows, total: 250, page: Number(url.searchParams.get('page') ?? '1'), page_size: 100, available: true,
+        values: { 'Полный источник': ['', 'synthetic alpha', 'synthetic beta'], 'Канал': ['Поиск', 'Рекомендация'] } };
+    }
+    else if (path.endsWith('/exports/5/result')) result = savedResult;
     else if (path.endsWith('/exports') && path.startsWith('/admin/analytics')) result = workflow ? (analysisFinished ? [report, { ...report, id: 6, export_number: 2 }] : []) : [report];
     else if (path.endsWith('/status-rules')) result = { project_rules: [], system_rules: [], status_groups: ['Качественные', 'Недозвон'] };
     else if (path.endsWith('/exports/5/download')) {
@@ -54,7 +79,11 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
     else if (path.endsWith('/analyze/setup')) result = { ...preview, mapping: analyzeMapping, unknown_statuses: ['Новый статус'], unknown_status_counts: { 'Новый статус': 1 }, status_groups: ['Качественные', 'Недозвон'] };
     else if (path.endsWith('/analyze/jobs')) {
       expect(route.request().postDataJSON().status_rules).toEqual({ 'Новый статус': 'Качественные' });
-      expect(route.request().postDataJSON().periods).toEqual([{ period_start: '2026-01-01', period_end: '2026-01-07' }]);
+      expect(route.request().postDataJSON().periods).toEqual([
+        { period_start: '2026-01-01', period_end: '2026-01-07' },
+        { period_start: '2026-01-01', period_end: '2026-01-04' },
+        { period_start: '2026-01-05', period_end: '2026-01-07' },
+      ]);
       analysisFinished = true;
       result = job(2, 'analyze', 'queued');
     } else if (path.endsWith('/jobs/1')) result = job(1, 'match');
@@ -124,10 +153,10 @@ test('prepare, match, manually assign unknown status and create final analytics'
   await expect(dialog.getByRole('button', { name: 'Запустить аналитику' })).toBeDisabled();
   await dialog.getByRole('combobox').selectOption('Качественные');
   await dialog.getByRole('button', { name: 'Запустить аналитику' }).click();
-  await expect(page.getByRole('heading', { name: 'Аналитика готова' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Скачать аналитику', exact: true })).toBeEnabled();
+  await expect(page.getByRole('heading', { name: 'Тестовая группа', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Скачать Excel', exact: true })).toBeEnabled();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Скачать аналитику', exact: true }).click();
+  await page.getByRole('button', { name: 'Скачать Excel', exact: true }).click();
   await download;
   const nav = page.getByRole('navigation', { name: 'Шаги обработки' });
   await nav.getByRole('button', { name: /Аналитика/ }).click();
@@ -168,6 +197,89 @@ test('saved projects and archived group keep downloadable history', async ({ pag
   await expect(page.getByRole('button', { name: 'Excel', exact: true })).toBeEnabled();
 });
 
+test('history opens saved native results, marks unavailable Excel, and queries the archived sheet', async ({ page }) => {
+  const requests = await preparePage(page, 'admin', 'analytics');
+  await page.route('**/admin/analytics/groups/11/exports', async route => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ ...report, report_available: false }]) });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
+  await expect(page.getByRole('heading', { name: 'История аналитики' })).toBeVisible();
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Тестовая группа', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Шаги обработки' })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Клиент', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Скачать Excel', exact: true })).toBeDisabled();
+  await expect(page.getByRole('region', { name: 'Ключевые показатели' }).getByText('10', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Итог' })).toHaveAttribute('aria-selected', 'true');
+
+  await page.getByRole('tab', { name: 'Статусы' }).click();
+  await expect(page.getByText('Общий срез.')).toBeVisible();
+  await expect(page.getByText('synthetic status')).toBeVisible();
+  await page.getByRole('tab', { name: 'Данные' }).click();
+  await expect(page.getByText('synthetic alpha')).toBeVisible();
+  await page.getByPlaceholder('Поиск по таблице...').fill('synthetic alpha');
+  await expect.poll(() => requests.some(value => value.includes('/result/rows?') && value.includes('query=synthetic'))).toBeTruthy();
+
+  await page.getByRole('button', { name: 'Фильтр: Полный источник' }).click();
+  const filter = page.getByRole('dialog', { name: 'Фильтр: Полный источник' });
+  await filter.getByRole('checkbox', { name: 'synthetic alpha' }).check();
+  await filter.getByRole('button', { name: 'Применить' }).click();
+  await expect.poll(() => requests.some(value => value.includes('/result/rows?') && value.includes('filters='))).toBeTruthy();
+  const serializedFilters = requests.map(value => {
+    const query = value.split('?')[1];
+    return query ? new URLSearchParams(query).get('filters') : null;
+  }).find(Boolean);
+  expect(JSON.parse(serializedFilters!)['Полный источник'].selected).toEqual(['synthetic alpha']);
+
+  await page.getByRole('button', { name: 'Следующая страница' }).click();
+  await expect.poll(() => requests.some(value => value.includes('/result/rows?') && value.includes('page=2'))).toBeTruthy();
+  await expect(page.getByRole('button', { name: 'К истории', exact: true })).toBeVisible();
+});
+
+test('legacy result exposes saved February and cross-month periods by exact dates', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  const period = (id: string, period_start: string, period_end: string, total: number) => ({
+    id, period_start, period_end,
+    metrics: { 'Период': `${period_start} — ${period_end}`, 'Всего идентификаций': total, 'Качественные': total / 2, 'Кач. %': 0.5, _fills: {} },
+  });
+  await page.route('**/admin/analytics/groups/11/exports/5/result', async route => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      id: 5, period_start: '2026-01-01', period_end: '2026-01-31',
+      periods: [
+        period('saved-jan', '2026-01-01', '2026-01-15', 11),
+        period('saved-feb', '2026-02-01', '2026-02-28', 22),
+        period('saved-cross-month', '2026-07-27', '2026-08-02', 7),
+      ],
+      breakdowns: {
+        'saved-jan': { domain_channel: [], source_channel: [], channel: [] },
+        'saved-feb': { domain_channel: [], source_channel: [], channel: [] },
+        'saved-cross-month': { domain_channel: [], source_channel: [], channel: [] },
+      },
+    }) });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Весь период/ })).toContainText('нет среза');
+  await expect(page.locator('.resultWorkspaceHead').getByText('Общий срез не сохранён', { exact: true })).toBeVisible();
+
+  const savedPeriods = page.getByLabel('Другие сохранённые периоды');
+  const savedPeriodOptions = await savedPeriods.locator('option').allTextContents();
+  expect(savedPeriodOptions).toContain('01.02.2026 — 28.02.2026');
+  expect(savedPeriodOptions).toContain('27.07.2026 — 02.08.2026');
+  await savedPeriods.selectOption('saved-feb');
+  await expect(page.getByRole('cell', { name: '22', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Динамика' }).click();
+  await expect(page.getByRole('cell', { name: '01.02.2026 — 28.02.2026', exact: true })).toBeVisible();
+  await savedPeriods.selectOption('saved-cross-month');
+  await expect(page.getByRole('cell', { name: '27.07.2026 — 02.08.2026', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Данные' }).click();
+  await expect(page.getByText('Первый сохранённый срез: 01.01.2026 — 15.01.2026')).toBeVisible();
+});
+
 test('group editing is explicit, cancel restores selection, save closes editor', async ({ page }) => {
   await preparePage(page, 'admin', 'analytics');
   let saved = { ...group };
@@ -182,7 +294,7 @@ test('group editing is explicit, cancel restores selection, save closes editor',
   await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
   const edit = page.getByRole('button', { name: 'Редактировать группу', exact: true });
   await expect(edit).toBeVisible();
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.locator('.projectSelectionList input[type="checkbox"]')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'История аналитики' })).toHaveCount(0);
   await edit.click();
   await page.getByRole('checkbox', { name: /Исторический Pixel/ }).uncheck();
@@ -193,7 +305,7 @@ test('group editing is explicit, cancel restores selection, save closes editor',
   await page.getByRole('checkbox', { name: /Исторический Pixel/ }).uncheck();
   await page.getByRole('button', { name: 'Сохранить изменения', exact: true }).click();
   await expect(edit).toBeVisible();
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.locator('.projectSelectionList input[type="checkbox"]')).toHaveCount(0);
   expect(writes).toBe(1);
   expect(saved.project_ids).toEqual([101]);
   await page.screenshot({ path: 'test-results/analytics-protected-desktop.png', fullPage: true });

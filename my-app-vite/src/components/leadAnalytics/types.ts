@@ -100,6 +100,40 @@ export type ExportPeriodRecord = AnalysisPeriod & {
   demand_rate: number;
 };
 
+export type AnalyticsRow = Record<string, unknown> & { _fills?: Record<string, string> };
+
+export type SavedResultPeriod = AnalysisPeriod & {
+  id: string;
+  metrics: AnalyticsRow;
+};
+
+export type SavedExportResult = {
+  id: number;
+  period_start: string;
+  period_end: string;
+  periods: SavedResultPeriod[];
+  breakdowns: Record<string, {
+    domain_channel: AnalyticsRow[];
+    source_channel: AnalyticsRow[];
+    channel: AnalyticsRow[];
+  }>;
+};
+
+export type SavedResultTable = "data" | "statuses";
+export type SavedResultFilter =
+  | { contains?: string; selected?: string[] }
+  | { min?: number; max?: number };
+
+export type SavedResultRows = {
+  columns: string[];
+  rows: AnalyticsRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  available: boolean;
+  values?: Record<string, string[]>;
+};
+
 export type AnalyzeSetup = {
   filename: string;
   mapping: Mapping;

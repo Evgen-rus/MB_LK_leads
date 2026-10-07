@@ -6,13 +6,14 @@ import sqlite3
 import shutil
 import threading
 import uuid
+import zipfile
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Literal
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from pydantic import BaseModel, Field
@@ -34,11 +35,204 @@ from .sheets_reader import parse_spreadsheet_url, read_spreadsheet_url
 from .matcher import match_files
 from .models import ColumnMapping, StatusRule
 from .pipeline import analyze_file
+from .report_styles import fill_for_metric
 from .status_classifier import ALL_GROUPS, client_rule_key, is_missing_status, unknown_statuses
 from .structure_detector import detect_match_mapping, prepare_analyze_mapping
 
 PREVIEW_ROWS = 25
 JOB_WORKER_LOCK = threading.Lock()
+RESULT_TABLES = {"data": "Данные", "statuses": "Статусы"}
+BREAKDOWN_DIMENSIONS = {
+    "domain_channel": ("Домен", "Канал"),
+    "source_channel": ("Полный источник", "Канал"),
+    "channel": ("Канал",),
+}
+
+
+def _json_object(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _metric_fills(metrics: dict[str, Any]) -> dict[str, str]:
+    fills = {}
+    for header, value in metrics.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            fill = fill_for_metric(header, value)
+            if fill:
+                color = fill.fgColor.rgb
+                fills[header] = str(color)[-6:] if color else ""
+    return {header: color for header, color in fills.items() if color}
+
+
+def _safe_cell(value: Any) -> Any:
+    if value is None or value is pd.NA or (not isinstance(value, (list, dict)) and pd.isna(value)):
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value.item() if hasattr(value, "item") else value
+
+
+def _read_saved_result(
+    group_id: int, export_id: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, dict[str, list[dict[str, Any]]]]]:
+    project = db.group_key(group_id)
+    with db.connect() as conn:
+        export = conn.execute(
+            "SELECT * FROM analysis_exports WHERE id = ? AND project_code = ?",
+            (export_id, project),
+        ).fetchone()
+        if export is None:
+            raise HTTPException(status_code=404, detail="Выгрузка не найдена")
+        periods = [dict(row) for row in conn.execute(
+            "SELECT * FROM analysis_export_periods WHERE export_id = ? ORDER BY period_index",
+            (export_id,),
+        ).fetchall()]
+        breakdown_rows = [dict(row) for row in conn.execute(
+            "SELECT * FROM analysis_export_breakdowns WHERE export_id = ? ORDER BY id",
+            (export_id,),
+        ).fetchall()]
+
+    if not periods:
+        item = dict(export)
+        periods = [{
+            "id": f"legacy-{export_id}", "period_start": item["period_start"],
+            "period_end": item["period_end"], "metrics_json": item.get("metrics_json"),
+        }]
+    else:
+        periods[0]["id"] = str(periods[0]["id"])
+        for period in periods[1:]:
+            period["id"] = str(period["id"])
+
+    output_periods = []
+    for period in periods:
+        metrics = _json_object(period.get("metrics_json"))
+        metrics["_fills"] = _metric_fills(metrics)
+        output_periods.append({
+            "id": str(period["id"]),
+            "period_start": period["period_start"],
+            "period_end": period["period_end"],
+            "metrics": metrics,
+        })
+    breakdowns: dict[str, dict[str, list[dict[str, Any]]]] = {
+        str(period["id"]): {name: [] for name in BREAKDOWN_DIMENSIONS}
+        for period in periods
+    }
+    first_period_id = str(periods[0]["id"])
+    period_id_lookup = {str(period.get("id")): str(period.get("id")) for period in periods}
+    for stored in breakdown_rows:
+        stored_period_id = stored.get("period_id")
+        period_id = first_period_id if stored_period_id is None else period_id_lookup.get(str(stored_period_id))
+        kind = stored["breakdown_type"]
+        if kind not in BREAKDOWN_DIMENSIONS or period_id is None or period_id not in breakdowns:
+            continue
+        row = _json_object(stored.get("metrics_json"))
+        for index, dimension in enumerate(BREAKDOWN_DIMENSIONS[kind], start=1):
+            row[dimension] = stored.get(f"dimension_{index}") or ""
+        row["_fills"] = _metric_fills(row)
+        breakdowns[period_id][kind].append(row)
+    return dict(export), output_periods, breakdowns
+
+
+def _saved_sheet_name(path: Path, table: str, period_start: str, period_end: str) -> str | None:
+    try:
+        start = date.fromisoformat(str(period_start))
+        end = date.fromisoformat(str(period_end))
+    except ValueError:
+        return None
+    prefix = f"{RESULT_TABLES[table]} {start:%d.%m}-{end:%d.%m}"
+    try:
+        return next((name for name in list_sheets(path) if name == prefix or name.startswith(prefix + " ")), None)
+    except (OSError, ValueError, zipfile.BadZipFile):
+        return None
+
+
+def _validated_filters(raw: str | None, columns: list[str]) -> dict[str, dict[str, Any]]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Некорректный JSON фильтров") from exc
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="Фильтры должны быть объектом")
+    result = {}
+    for column, spec in value.items():
+        if column not in columns or not isinstance(spec, dict):
+            raise HTTPException(status_code=400, detail="Неизвестная колонка или формат фильтра")
+        if set(spec) <= {"contains", "selected"}:
+            contains = spec.get("contains", "")
+            selected = spec.get("selected", [])
+            if not isinstance(contains, str) or not isinstance(selected, list) or not all(isinstance(x, str) for x in selected):
+                raise HTTPException(status_code=400, detail="Некорректный текстовый фильтр")
+            result[column] = {"contains": contains.casefold(), "selected": {x.casefold() for x in selected}}
+        elif set(spec) <= {"min", "max"}:
+            bounds = {}
+            for bound, number in spec.items():
+                if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
+                    raise HTTPException(status_code=400, detail="Некорректный числовой фильтр")
+                if column.endswith("%") and not 0 <= number <= 100:
+                    raise HTTPException(status_code=400, detail="Процентный фильтр должен быть от 0 до 100")
+                bounds[bound] = float(number)
+            if "min" in bounds and "max" in bounds and bounds["min"] > bounds["max"]:
+                raise HTTPException(status_code=400, detail="Минимум фильтра больше максимума")
+            result[column] = bounds
+        else:
+            raise HTTPException(status_code=400, detail="Некорректный формат фильтра")
+    return result
+
+
+def _filter_and_sort_rows(
+    rows: list[dict[str, Any]], query: str, filters: dict[str, dict[str, Any]], sort: str | None, direction: str,
+) -> list[dict[str, Any]]:
+    query = query.casefold()
+    kept = []
+    for row in rows:
+        if query and not any(query in str(value).casefold() for key, value in row.items() if key != "_fills" and value is not None):
+            continue
+        accepted = True
+        for column, spec in filters.items():
+            value = row.get(column)
+            if "contains" in spec:
+                text = "" if value is None else str(value).casefold()
+                if spec["contains"] and spec["contains"] not in text:
+                    accepted = False
+                    break
+                if spec["selected"] and text not in spec["selected"]:
+                    accepted = False
+                    break
+            else:
+                try:
+                    number = float(value)
+                except (TypeError, ValueError):
+                    accepted = False
+                    break
+                if column.endswith("%"):
+                    number *= 100
+                if ("min" in spec and number < spec["min"]) or ("max" in spec and number > spec["max"]):
+                    accepted = False
+                    break
+        if accepted:
+            kept.append(row)
+    if sort:
+        if direction not in {"asc", "desc"}:
+            raise HTTPException(status_code=400, detail="direction должен быть asc или desc")
+        present = [row for row in kept if row.get(sort) is not None]
+        absent = [row for row in kept if row.get(sort) is None]
+
+        def key(row: dict[str, Any]) -> tuple[int, Any]:
+            value = row[sort]
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return (0, float(value))
+            return (1, str(value).casefold())
+
+        kept = sorted(present, key=key, reverse=direction == "desc") + absent
+    elif direction not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail="direction должен быть asc или desc")
+    return kept
 
 
 class MappingPayload(BaseModel):
@@ -904,6 +1098,69 @@ def build_router(
         return [ExportRecord(**item, report_available=bool(
             (path := analysis_report_path(item.get("report_file_name"))) and path.is_file()
         )) for item in list_exports(db.group_key(group_id))]
+
+    @router.get("/groups/{group_id}/exports/{export_id}/result")
+    def saved_export_result(group_id: int, export_id: int) -> dict[str, Any]:
+        _group(group_id)
+        item, periods, breakdowns = _read_saved_result(group_id, export_id)
+        return {
+            "id": export_id,
+            "period_start": item["period_start"],
+            "period_end": item["period_end"],
+            "periods": periods,
+            "breakdowns": breakdowns,
+        }
+
+    @router.get("/groups/{group_id}/exports/{export_id}/result/rows")
+    def saved_export_rows(
+        group_id: int,
+        export_id: int,
+        table: Literal["data", "statuses"],
+        page: int = Query(1, ge=1),
+        page_size: int = Query(100, ge=1, le=500),
+        query: str = Query("", max_length=500),
+        filters: str | None = Query(default=None, max_length=10000),
+        sort: str | None = None,
+        direction: Literal["asc", "desc"] = "desc",
+    ) -> dict[str, Any]:
+        _group(group_id)
+        item, periods, _ = _read_saved_result(group_id, export_id)
+        path = analysis_report_path(item.get("report_file_name"))
+        unavailable = {"columns": [], "rows": [], "values": {}, "total": 0, "page": page,
+                       "page_size": page_size, "available": False}
+        if not path or not path.is_file() or not periods:
+            return unavailable
+        period = periods[0]
+        sheet_name = _saved_sheet_name(path, table, period["period_start"], period["period_end"])
+        if sheet_name is None:
+            return unavailable
+        try:
+            # ponytail: фильтрация читает лист целиком; для очень больших архивов нужен индексированный снимок.
+            frame = read_excel_sheet(path, sheet_name)
+        except (OSError, ValueError, zipfile.BadZipFile):
+            return unavailable
+        columns = [str(column) for column in frame.columns]
+        if sort and sort not in columns:
+            raise HTTPException(status_code=400, detail="Неизвестная колонка сортировки")
+        parsed_filters = _validated_filters(filters, columns)
+        rows = [{key: _safe_cell(value) for key, value in row.items()} for row in frame.to_dict("records")]
+        values = {
+            column: sorted({"" if row.get(column) is None else str(row[column]) for row in rows}, key=str.casefold)
+            for column in columns
+            if any(isinstance(row.get(column), str) for row in rows) or all(row.get(column) is None for row in rows)
+        }
+        selected = _filter_and_sort_rows(rows, query, parsed_filters, sort, direction)
+        total = len(selected)
+        start = (page - 1) * page_size
+        return {
+            "columns": columns,
+            "rows": selected[start:start + page_size],
+            "values": values,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "available": True,
+        }
 
     @router.get("/groups/{group_id}/exports/{export_id}/download")
     def download_export(group_id: int, export_id: int) -> FileResponse:
