@@ -89,6 +89,87 @@ def test_result_api_returns_saved_period_metrics_breakdowns_and_colors(api, tmp_
     assert result["breakdowns"][period_id]["channel"][0]["_fills"]["Кач. %"] == "C6EFCE"
 
 
+@pytest.fixture
+def selected_export(api, tmp_path, monkeypatch):
+    monkeypatch.setattr(export_history, "ANALYSIS_REPORTS_DIR", tmp_path)
+    group_id = db.create_group(2, "Selected", [20], None)
+    periods = [ExportPeriod("2026-09-01", "2026-10-07"),
+               ExportPeriod("2026-09-14", "2026-09-20"),
+               ExportPeriod("2026-10-01", "2026-10-04"),
+               ExportPeriod("2026-09-15", "2026-09-21")]
+    filename = f"{uuid.uuid4().hex}.xlsx"
+    export_id = _save_export(group_id, periods, filename)
+    data = pd.DataFrame([
+        ["2026-09-01", "Качественные", "Новый"],
+        ["2026-09-14", "Качественные", "Новый"],
+        ["2026-09-14", "Качественные", "Новый"],
+        ["2026-09-15", "Рабочий потенциал", "Думает"],
+        ["2026-09-20 23:59:59", "Не учитывать", None],
+        ["2026-09-21", "Недозвон", "Нет ответа"],
+        ["2026-10-01", "Недозвон", "Нет ответа"],
+        ["2026-10-04 23:59:59", "Не учитывать", None],
+        ["2026-10-05", "Качественные", "Новый"],
+    ], columns=["Дата", "Группа статуса", "Исходный статус"])
+    data["Дата"] = pd.to_datetime(data["Дата"], format="mixed")
+    data["Домен"] = "example.com"
+    data["Полный источник"] = "example.com"
+    data["Канал"] = "B1"
+    data.to_excel(tmp_path / filename, sheet_name="Данные 01.09-07.10", index=False)
+    base = f"/admin/analytics/groups/{group_id}/exports/{export_id}/result"
+    ids = [period["id"] for period in api.get(base).json()["periods"]]
+    return base, ids, tmp_path / filename
+
+
+def test_selected_weeks_recalculate_all_breakdowns_and_filter_raw_rows(api, selected_export):
+    base, ids, path = selected_export
+    original = path.read_bytes()
+    params = [("period_ids", ids[1]), ("period_ids", ids[2]), ("period_ids", ids[1])]
+    response = api.get(base, params=params)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    metrics = result["periods"][0]["metrics"]
+    # Keep distinct identifications even when their displayed values match.
+    assert metrics["Всего идентификаций"] == 4
+    assert metrics["Качественные"] == 2
+    assert metrics["Кач. %"] == 0.5
+    assert metrics["Рабочий потенциал %"] == 0.25
+    assert metrics["Недозвон %"] == 0.25
+    assert metrics["Не обработано %"] == pytest.approx(2 / 6)
+    assert metrics["_fills"]["Кач. %"] == "C6EFCE"
+    for rows in result["breakdowns"]["selection"].values():
+        assert rows[0]["Всего идентификаций"] == 4
+        assert rows[0]["Кач. %"] == 0.5
+    raw = api.get(base + "/rows", params=params + [("table", "data")]).json()
+    assert raw["total"] == 6
+    assert len(raw["rows"]) == 6
+    assert sum(row["Дата"].startswith("2026-09-14") for row in raw["rows"]) == 2
+    statuses = api.get(base + "/rows", params=params + [("table", "statuses")]).json()
+    assert sum(row["Количество"] for row in statuses["rows"]) == 4
+    filtered = api.get(base + "/rows", params=params + [("table", "data"), ("query", "Недозвон"),
+                                                       ("page_size", "1")]).json()
+    assert filtered["total"] == 1
+    assert filtered["rows"][0]["Дата"].startswith("2026-10-01")
+    assert path.read_bytes() == original
+
+
+def test_selected_periods_union_overlaps_and_validate_archive(api, selected_export):
+    base, ids, path = selected_export
+    params = [("period_ids", ids[1]), ("period_ids", ids[3])]
+    result = api.get(base, params=params).json()
+    assert result["periods"][0]["metrics"]["Всего идентификаций"] == 4
+    assert api.get(base + "/rows", params=params + [("table", "data")]).json()["total"] == 5
+    overall = api.get(base, params=[("period_ids", value) for value in ids]).json()
+    assert overall["periods"][0]["metrics"]["Всего идентификаций"] == 7
+    assert api.get(base, params={"period_ids": "another-export"}).status_code == 400
+    assert api.get(base + "/rows", params={"table": "data", "period_ids": "unknown"}).status_code == 400
+    assert api.get(base, params=[("period_ids", ids[1])] * 65).status_code == 400
+    path.unlink()
+    assert api.get(base, params=params).status_code == 409
+    assert api.get(base + "/rows", params=params + [("table", "data")]).status_code == 409
+    # Existing saved indicators remain available without the archive.
+    assert api.get(base).status_code == 200
+
+
 def test_result_api_is_group_scoped(api, tmp_path, monkeypatch):
     monkeypatch.setattr(export_history, "ANALYSIS_REPORTS_DIR", tmp_path / "reports")
     first_group = db.create_group(2, "First", [20], None)

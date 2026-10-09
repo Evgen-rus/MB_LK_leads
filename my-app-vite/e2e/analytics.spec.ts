@@ -280,6 +280,81 @@ test('history collapses additional periods and their metrics together', async ({
   await page.screenshot({ path: 'test-results/analytics-periods-history-mobile.png', fullPage: true });
 });
 
+test('selected weeks combine across months and apply to every result table', async ({ page }) => {
+  await preparePage(page, 'admin', 'analytics');
+  const requests: string[][] = [];
+  const metrics = { 'Всего идентификаций': 10, 'Качественные': 4, 'Кач. %': 0.4 };
+  const periods = [
+    { id: 'overall', period_start: '2026-09-01', period_end: '2026-10-07', metrics },
+    { id: 'september', period_start: '2026-09-01', period_end: '2026-09-30', metrics },
+    { id: 'october', period_start: '2026-10-01', period_end: '2026-10-07', metrics },
+    { id: 'sep-week', period_start: '2026-09-14', period_end: '2026-09-20', metrics },
+    { id: 'oct-week', period_start: '2026-10-01', period_end: '2026-10-04', metrics },
+  ];
+  await page.route(/\/exports\/5\/result(?:\?|$)/, async route => {
+    const ids = new URL(route.request().url()).searchParams.getAll('period_ids');
+    requests.push(ids);
+    const selectedMetrics = { ...metrics, 'Всего идентификаций': ids.length * 10 };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      id: 5, period_start: '2026-09-01', period_end: '2026-10-07',
+      periods: ids.length ? [{ id: 'selection', period_start: '2026-09-14', period_end: '2026-10-04', metrics: selectedMetrics }] : periods,
+      breakdowns: { selection: { domain_channel: [{ 'Домен': 'synthetic.example', 'Канал': 'B1', ...selectedMetrics }],
+        source_channel: [{ 'Полный источник': 'synthetic.example', 'Канал': 'B1', ...selectedMetrics }],
+        channel: [{ 'Канал': 'B1', ...selectedMetrics }] } },
+    }) });
+  });
+  const rowRequests: string[][] = [];
+  await page.route(/\/exports\/5\/result\/rows\?/, async route => {
+    const url = new URL(route.request().url());
+    rowRequests.push(url.searchParams.getAll('period_ids'));
+    const columns = url.searchParams.get('table') === 'statuses' ? ['Группа статуса', 'Количество'] : ['Дата', 'Канал'];
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ columns, rows: [], total: 0,
+      page: 1, page_size: 100, available: true }) });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('navigation', { name: 'Шаги обработки' }).getByRole('button', { name: /История/ }).click();
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await page.getByRole('button', { name: 'Несколько недель', exact: true }).click();
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('—');
+  const september = page.getByRole('button', { name: '14.09–20.09', exact: true });
+  await september.click();
+  await expect(september).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('10');
+  await page.getByRole('button', { name: 'Октябрь', exact: true }).click();
+  await page.getByRole('button', { name: '01.10–04.10', exact: true }).click();
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('20');
+  expect(requests.at(-1)).toEqual(['sep-week', 'oct-week']);
+  await expect(page.getByRole('button', { name: 'Excel всего отчёта', exact: true })).toBeVisible();
+  for (const name of ['Домены', 'Источники', 'Каналы']) {
+    await page.getByRole('tab', { name, exact: true }).click();
+    await expect(page.locator('.resultTable tbody tr')).toHaveCount(1);
+    await expect(page.locator('.resultKpi strong').first()).toHaveText('20');
+  }
+  await page.getByRole('tab', { name: 'Динамика', exact: true }).click();
+  await expect(page.locator('.resultTable tbody tr')).toHaveCount(2);
+  for (const name of ['Статусы', 'Данные']) {
+    await page.getByRole('tab', { name, exact: true }).click();
+    await expect.poll(() => rowRequests.at(-1)).toEqual(['sep-week', 'oct-week']);
+    await expect(page.locator('.resultKpi strong').first()).toHaveText('20');
+  }
+  await page.getByRole('button', { name: 'Сентябрь', exact: true }).click();
+  await expect(september).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('tab', { name: 'Итог', exact: true }).click();
+  for (const width of [1582, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.screenshot({ path: `test-results/analytics-selected-weeks-${width}.png`, fullPage: true });
+  }
+  await september.click();
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('10');
+  await page.getByRole('button', { name: 'Снять выбор недель', exact: true }).click();
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('—');
+  await page.getByRole('button', { name: 'Весь период', exact: true }).click();
+  await expect(page.locator('.resultKpi strong').first()).toHaveText('10');
+  await expect(page.getByRole('button', { name: 'Несколько недель', exact: true })).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('large saved result keeps one page scrollbar and contains table scrolling', async ({ page }) => {
   await preparePage(page, 'admin', 'analytics');
   const metrics = { 'Всего идентификаций': 100, 'Качественные': 50, 'Кач. %': 0.5 };

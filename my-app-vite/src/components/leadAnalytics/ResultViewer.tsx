@@ -208,6 +208,12 @@ export function ResultViewer({
   const [view, setView] = useState<"main" | "all">("main");
   const [monthId, setMonthId] = useState("all");
   const [sliceId, setSliceId] = useState("all");
+  const [multiWeek, setMultiWeek] = useState(false);
+  const [selectedWeeks, setSelectedWeeks] = useState<Slice[]>([]);
+  const [selectionResult, setSelectionResult] = useState<SavedExportResult | null>(null);
+  const [selectionLoading, setSelectionLoading] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
+  const selectionIds = useMemo(() => multiWeek ? selectedWeeks.map((week) => week.periodId!) : [], [multiWeek, selectedWeeks]);
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, SavedResultFilter>>({});
   const [sort, setSort] = useState<SortState>(null);
@@ -235,8 +241,32 @@ export function ResultViewer({
   }, [groupId, exportId, refresh]);
 
   useEffect(() => {
-    if (!result || (tab !== "data" && tab !== "statuses")) {
+    setMultiWeek(false);
+    setSelectedWeeks([]);
+    setMonthId("all");
+    setSliceId("all");
+  }, [groupId, exportId]);
+
+  useEffect(() => {
+    let active = true;
+    setSelectionResult(null);
+    setSelectionError("");
+    setSelectionLoading(selectionIds.length > 0);
+    if (!selectionIds.length) return;
+    const timer = window.setTimeout(() => {
+      fetchExportResult(groupId, exportId, selectionIds)
+        .then((data) => { if (active) setSelectionResult(data); })
+        .catch((error: unknown) => { if (active) setSelectionError(error instanceof Error ? error.message : "Не удалось объединить недели"); })
+        .finally(() => { if (active) setSelectionLoading(false); });
+    }, 160);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [groupId, exportId, selectionIds, refresh]);
+
+  useEffect(() => {
+    if (!result || (multiWeek && !selectionIds.length) || (tab !== "data" && tab !== "statuses")) {
       setTableResult(null);
+      setTableLoading(false);
+      setTableError("");
       return;
     }
     const requestId = ++tableRequest.current;
@@ -253,6 +283,7 @@ export function ResultViewer({
         filters,
         sort: sort?.key ?? null,
         direction: sort?.direction,
+        periodIds: selectionIds,
       })
         .then((data) => {
           if (active && requestId === tableRequest.current) setTableResult(data);
@@ -265,7 +296,7 @@ export function ResultViewer({
         });
     }, 160);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [result, groupId, exportId, tab, page, query, filters, sort]);
+  }, [result, groupId, exportId, tab, page, query, filters, sort, multiWeek, selectionIds]);
 
   useEffect(() => {
     if (!filterKey) return;
@@ -280,19 +311,23 @@ export function ResultViewer({
   const weeks = useMemo(() => selectedMonth ? weekSlices(selectedMonth) : [], [selectedMonth]);
   const findPeriod = (slice: Pick<Slice, "start" | "end"> & Partial<Pick<Slice, "periodId">>) =>
     result?.periods.find((item) => item.id === slice.periodId || item.period_start === slice.start && item.period_end === slice.end) ?? null;
-  const activePeriod = tab === "data" || tab === "statuses"
+  const activePeriod = multiWeek ? selectionResult?.periods[0] ?? null : tab === "data" || tab === "statuses"
     ? overall
     : monthId === "all" ? overall
       : sliceId === "all" ? (selectedMonth ? findPeriod(selectedMonth) : null)
         : findPeriod(weeks.find((week) => week.id === sliceId) ?? { start: "", end: "" });
   const firstSavedPeriod = result?.periods[0] ?? null;
   const firstSavedPeriodLabel = firstSavedPeriod ? `${formatDate(firstSavedPeriod.period_start)} — ${formatDate(firstSavedPeriod.period_end)}` : "Период не сохранён";
-  const activePeriodLabel = tab === "data" || tab === "statuses"
+  const selectionLabel = selectedWeeks.length
+    ? `Выбрано недель: ${selectedWeeks.length} · ${[...selectedWeeks].sort((a, b) => a.start.localeCompare(b.start)).map((week) => week.label).join("; ")}`
+    : "Отметьте недели одного или нескольких месяцев";
+  const activePeriodLabel = multiWeek ? selectionLabel : tab === "data" || tab === "statuses"
     ? overall ? `Общий срез · ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : `Общий срез не сохранён · первый срез ${firstSavedPeriodLabel}`
     : monthId === "all" ? overall ? `Весь период · ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : "Общий срез не сохранён"
         : sliceId === "all" ? selectedMonth?.label ?? "Период"
           : weeks.find((week) => week.id === sliceId)?.label ?? selectedMonth?.label ?? "Период";
-  const mainRows = useMemo(() => result ? rowsForTab(result, tab, activePeriod) : [], [result, tab, activePeriod]);
+  const displayedResult = multiWeek ? selectionResult : result;
+  const mainRows = useMemo(() => displayedResult ? rowsForTab(displayedResult, tab, activePeriod) : [], [displayedResult, tab, activePeriod]);
   const dataTable = tab === "data" || tab === "statuses";
   const rawColumns = dataTable ? tableResult?.columns ?? [] : tab === "dynamics" ? [] : [...new Set(mainRows.flatMap((row) => Object.keys(row).filter((key) => key !== "_fills")))];
   const dimColumns = tab === "sources" || tab === "domains" ? (tab === "sources" ? ["Полный источник", "Канал"] : ["Домен", "Канал"])
@@ -306,7 +341,7 @@ export function ResultViewer({
     ...(view === "all" ? metricColumns.filter((key) => !preferred.includes(key)) : []),
   ];
 
-  const isGeneral = GENERAL_TABS.has(tab);
+  const isGeneral = !multiWeek && GENERAL_TABS.has(tab);
   const kpiPeriod = isGeneral ? overall : activePeriod;
   const metrics = kpiPeriod?.metrics;
   const kpis = [
@@ -319,7 +354,7 @@ export function ResultViewer({
 
   const dynamicsRows = useMemo(() => {
     if (!result) return [];
-    const slices = selectedMonth ? weeks : months;
+    const slices = multiWeek ? [...selectedWeeks].sort((a, b) => a.start.localeCompare(b.start)) : selectedMonth ? weeks : months;
     return slices.map((slice) => {
       const period = result.periods.find((item) => item.id === slice.periodId || item.period_start === slice.start && item.period_end === slice.end) ?? null;
       return {
@@ -329,7 +364,7 @@ export function ResultViewer({
         _unavailable: !period || !Object.keys(period.metrics).some((key) => key !== "_fills"),
       } as AnalyticsRow;
     });
-  }, [result, selectedMonth, weeks, months]);
+  }, [result, selectedMonth, weeks, months, multiWeek, selectedWeeks]);
   const dynamicsMetricColumns = [...new Set(dynamicsRows.flatMap((row) => Object.keys(row).filter((key) => key !== "_fills" && key !== "_unavailable" && !hiddenMeta.has(key))))];
   const dynamicsColumns = ["Период", ...(view === "main" ? MAIN_METRICS : [...MAIN_METRICS, ...EXTRA_METRICS]).filter((key) => dynamicsMetricColumns.includes(key)), ...(view === "all" ? dynamicsMetricColumns.filter((key) => !MAIN_METRICS.includes(key) && !EXTRA_METRICS.includes(key)) : [])];
   const queryColumns = tab === "dynamics" ? dynamicsColumns : projectedColumns;
@@ -414,9 +449,22 @@ export function ResultViewer({
   }
 
   function selectMonth(month: Slice | null) {
+    if (!month) {
+      setMultiWeek(false);
+      setSelectedWeeks([]);
+    }
     setMonthId(month?.id ?? "all");
     setSliceId("all");
     setPage(1);
+    resetTableState();
+  }
+
+  function toggleWeek(week: Slice) {
+    const saved = findPeriod(week);
+    if (!saved) return;
+    setSelectedWeeks((current) => current.some((item) => item.id === week.id)
+      ? current.filter((item) => item.id !== week.id)
+      : [...current, { ...week, periodId: saved.id }]);
     resetTableState();
   }
 
@@ -498,7 +546,7 @@ export function ResultViewer({
         </div>
         <div className="resultHeroActions">
           <button className="resultButton resultButton--primary" type="button" onClick={onDownload} disabled={!canDownload} title={canDownload ? "Скачать сохранённый Excel-отчёт" : "Excel-файл недоступен; сохранённые показатели можно просмотреть здесь."}>
-            <svg aria-hidden="true" viewBox="0 0 16 16" className="resultDownloadIcon"><path d="M8 2.5v7M5 7l3 3 3-3M3 12.5v1h10v-1" /></svg> Скачать Excel
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="resultDownloadIcon"><path d="M8 2.5v7M5 7l3 3 3-3M3 12.5v1h10v-1" /></svg> {multiWeek ? "Excel всего отчёта" : "Скачать Excel"}
           </button>
           {canStartNew && <button className="resultButton" type="button" onClick={onNewAnalysis}>Новая аналитика</button>}
           <button className="resultButton" type="button" onClick={onBack}>К истории</button>
@@ -516,7 +564,13 @@ export function ResultViewer({
             <div className="resultControlRow">
               <span className="resultControlLabel">Период</span>
               <div className="resultSegments" role="group" aria-label="Выберите месяц">
-                <button className={`resultSegment ${isGeneral || monthId === "all" ? "active" : ""} ${overall ? "" : "isUnavailable"}`} type="button" disabled={isGeneral} onClick={() => selectMonth(null)}>Весь период{!overall && <small>нет среза</small>}</button>
+                <button className={`resultSegment ${!multiWeek && (isGeneral || monthId === "all") ? "active" : ""} ${overall ? "" : "isUnavailable"}`} type="button" disabled={isGeneral} onClick={() => selectMonth(null)}>Весь период{!overall && <small>нет среза</small>}</button>
+                <button className={`resultSegment ${multiWeek ? "active" : ""}`} type="button" aria-pressed={multiWeek} onClick={() => {
+                  setMultiWeek(!multiWeek);
+                  setSelectedWeeks([]);
+                  if (monthId === "all" && months[0]) setMonthId(months[0].id);
+                  resetTableState();
+                }}>Несколько недель</button>
                 {months.map((month) => {
                   const hasMonth = Boolean(findPeriod(month));
                   return <button
@@ -529,21 +583,23 @@ export function ResultViewer({
                   >{month.short}{!hasMonth && <small>нет среза</small>}</button>;
                 })}
               </div>
-              <span className="resultPeriodNote">{isGeneral ? overall ? `Общий срез: ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : `Общий срез не сохранён · первый срез: ${firstSavedPeriodLabel}` : `Сейчас: ${activePeriodLabel}`}</span>
+              <span className="resultPeriodNote">{multiWeek ? selectionLabel : isGeneral ? overall ? `Общий срез: ${formatDate(overall.period_start)} — ${formatDate(overall.period_end)}` : `Общий срез не сохранён · первый срез: ${firstSavedPeriodLabel}` : `Сейчас: ${activePeriodLabel}`}</span>
             </div>
             {selectedMonth && !isGeneral && <div className="resultControlRow resultControlRow--secondary">
               <span className="resultControlLabel">Срез</span>
               <div className="resultSegments" role="group" aria-label="Выберите неделю">
-                <button className={`resultSegment ${sliceId === "all" ? "active" : ""} ${findPeriod(selectedMonth) ? "" : "isUnavailable"}`} type="button" onClick={() => { setSliceId("all"); setPage(1); resetTableState(); }}>
+                {!multiWeek && <button className={`resultSegment ${sliceId === "all" ? "active" : ""} ${findPeriod(selectedMonth) ? "" : "isUnavailable"}`} type="button" onClick={() => { setSliceId("all"); setPage(1); resetTableState(); }}>
                   Весь месяц{!findPeriod(selectedMonth) && <small>нет среза</small>}
-                </button>
+                </button>}
                 {weeks.map((week) => {
                   const hasWeek = Boolean(findPeriod(week));
                   return <button
-                    className={`resultSegment ${sliceId === week.id ? "active" : ""} ${hasWeek ? "" : "isUnavailable"}`}
+                    className={`resultSegment ${(multiWeek ? selectedWeeks.some((item) => item.id === week.id) : sliceId === week.id) ? "active" : ""} ${hasWeek ? "" : "isUnavailable"}`}
                     type="button"
+                    aria-pressed={multiWeek ? selectedWeeks.some((item) => item.id === week.id) : undefined}
+                    disabled={multiWeek && !hasWeek}
                     title={hasWeek ? week.label : "Точный срез этой недели в отчёте не сохранён."}
-                    onClick={() => { setSliceId(week.id); setPage(1); resetTableState(); }}
+                    onClick={() => { if (multiWeek) toggleWeek(week); else { setSliceId(week.id); setPage(1); resetTableState(); } }}
                     key={week.id}
                   >{week.short}{!hasWeek && <small>нет среза</small>}</button>;
                 })}
@@ -551,6 +607,11 @@ export function ResultViewer({
             </div>}
           </section>
 
+          {multiWeek && <div className="resultInfo" aria-live="polite">
+            <span>{selectionLoading ? "Рассчитываю общий итог выбранных недель…" : "Выбор сохраняется при переходе между месяцами. Пересекающиеся даты учитываются один раз."}</span>
+            {selectedWeeks.length > 0 && <button className="resultButton" type="button" onClick={() => { setSelectedWeeks([]); resetTableState(); }}>Снять выбор недель</button>}
+          </div>}
+          {multiWeek && selectionError && <div className="resultInlineError" role="alert">{selectionError}<button type="button" onClick={() => setRefresh((value) => value + 1)}>Повторить</button></div>}
           <section className="resultKpis" aria-label="Ключевые показатели">
             {kpis.map((item) => {
               const value = metrics?.[item.key];
@@ -573,7 +634,7 @@ export function ResultViewer({
           {tab === "dynamics" ? (
             <section className="resultWorkspace">
               <div className="resultWorkspaceHead">
-                <div><h2>Динамика</h2><p>{selectedMonth ? `${selectedMonth.label}: сохранённые недельные срезы` : "Сохранённые месячные срезы всего диапазона"}</p></div>
+                <div><h2>Динамика</h2><p>{multiWeek ? "Выбранные недельные срезы" : selectedMonth ? `${selectedMonth.label}: сохранённые недельные срезы` : "Сохранённые месячные срезы всего диапазона"}</p></div>
                 <div className="resultViewToggle" role="group" aria-label="Набор показателей">
                   <button type="button" className={view === "main" ? "active" : ""} onClick={() => { setView("main"); setPage(1); }}>Основные показатели</button>
                   <button type="button" className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setPage(1); }}>Все показатели</button>
@@ -617,7 +678,7 @@ export function ResultViewer({
                 </div>}
               </div>
               {isGeneral && <div className="resultInfo"><span><strong>{overall ? "Общий срез." : "Общий срез не сохранён."}</strong> Здесь месяц и неделя не применяются; строки листа остаются как в сохранённом файле.</span><span>{overall ? activePeriodLabel.replace("Общий срез · ", "") : `Первый сохранённый срез: ${firstSavedPeriodLabel}`}</span></div>}
-              {!isGeneral && !activePeriod && <div className="resultInfo resultInfo--missing"><span>Этот срез не сохранён в отчёте. Показатели и строки недоступны.</span></div>}
+              {!multiWeek && !isGeneral && !activePeriod && <div className="resultInfo resultInfo--missing"><span>Этот срез не сохранён в отчёте. Показатели и строки недоступны.</span></div>}
               <div className="resultToolbar">
                 <label className="resultSearch"><span className="visuallyHidden">Поиск по таблице</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Поиск по таблице..." /></label>
                 <button className="resultButton" type="button" onClick={() => { setSort(null); setPage(1); }}>Сбросить сортировку</button>
@@ -640,8 +701,8 @@ export function ResultViewer({
                   page={page}
                   pageCount={pageCount}
                   total={dataTable ? tableResult?.total ?? 0 : localTotal}
-                  loading={dataTable && (!tableResult || tableLoading)}
-                  emptyMessage={dataTable ? "Строки по заданным условиям не найдены." : activePeriod ? "В сохранённом срезе нет строк." : "Срез не сохранён."}
+                  loading={multiWeek ? selectionLoading || (dataTable && selectionIds.length > 0 && tableLoading) : dataTable && (!tableResult || tableLoading)}
+                  emptyMessage={multiWeek && !selectedWeeks.length ? "Отметьте недели для общего итога." : dataTable ? "Строки по заданным условиям не найдены." : activePeriod ? "В сохранённом срезе нет строк." : "Срез не сохранён."}
                   onSort={setSortFor}
                   onFilter={openFilter}
                   onPage={setPage}

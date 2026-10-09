@@ -56,8 +56,11 @@ export const deleteStatusRule = (groupId: number, ruleId: number) =>
 export const fetchExports = (groupId: number) =>
   http<ExportRecord[]>(`${base}/groups/${groupId}/exports`);
 
-export const fetchExportResult = (groupId: number, exportId: number) =>
-  http<SavedExportResult>(`${base}/groups/${groupId}/exports/${exportId}/result`);
+export const fetchExportResult = (groupId: number, exportId: number, periodIds: string[] = []) => {
+  const query = new URLSearchParams();
+  periodIds.forEach((id) => query.append("period_ids", id));
+  return http<SavedExportResult>(`${base}/groups/${groupId}/exports/${exportId}/result${query.size ? `?${query}` : ""}`);
+};
 
 export function fetchExportResultRows(
   groupId: number,
@@ -70,6 +73,7 @@ export function fetchExportResultRows(
     filters?: Record<string, SavedResultFilter>;
     sort?: string | null;
     direction?: "asc" | "desc";
+    periodIds?: string[];
   }
 ) {
   const query = new URLSearchParams({
@@ -78,6 +82,7 @@ export function fetchExportResultRows(
     page_size: String(params.pageSize),
   });
   if (params.query) query.set("query", params.query);
+  params.periodIds?.forEach((id) => query.append("period_ids", id));
   if (params.filters && Object.keys(params.filters).length) query.set("filters", JSON.stringify(params.filters));
   if (params.sort) {
     query.set("sort", params.sort);

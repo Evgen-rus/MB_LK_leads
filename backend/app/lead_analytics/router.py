@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 
 from .. import crud, models, schemas
 from . import db
+from .analytics import status_summary, summarize
 from .config import RUNS_DIR
 from .excel_reader import list_sheets, read_excel_sheet
 from .export_history import (
@@ -148,6 +149,48 @@ def _saved_sheet_name(path: Path, table: str, period_start: str, period_end: str
         return next((name for name in list_sheets(path) if name == prefix or name.startswith(prefix + " ")), None)
     except (OSError, ValueError, zipfile.BadZipFile):
         return None
+
+
+def _selected_result_data(
+    item: dict[str, Any], periods: list[dict[str, Any]], period_ids: list[str],
+) -> pd.DataFrame:
+    by_id = {period["id"]: period for period in periods}
+    if not period_ids or len(period_ids) > 64 or any(value not in by_id for value in period_ids):
+        raise HTTPException(status_code=400, detail="Выберите от 1 до 64 сохранённых периодов этого отчёта")
+    selected = [by_id[value] for value in set(period_ids)]
+    start = min(period["period_start"] for period in selected)
+    end = max(period["period_end"] for period in selected)
+    covering = next((period for period in periods
+                     if period["period_start"] <= start and period["period_end"] >= end), None)
+    path = analysis_report_path(item.get("report_file_name"))
+    unavailable = "Для объединения недель нужны сохранённые строки общего среза. Сформируйте новую аналитику."
+    if covering is None or not path or not path.is_file():
+        raise HTTPException(status_code=409, detail=unavailable)
+    sheet = _saved_sheet_name(path, "data", covering["period_start"], covering["period_end"])
+    if sheet is None:
+        raise HTTPException(status_code=409, detail=unavailable)
+    try:
+        # shortcut: выборка читает сохранённый лист целиком, для больших архивов нужен индексированный снимок.
+        frame = read_excel_sheet(path, sheet)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=409, detail=unavailable) from exc
+    required = {"Дата", "Группа статуса", "Исходный статус", "Домен", "Полный источник", "Канал"}
+    if not required.issubset(frame.columns):
+        raise HTTPException(status_code=409, detail=unavailable)
+    dates = pd.to_datetime(frame["Дата"], errors="coerce")
+    mask = pd.Series(False, index=frame.index)
+    for period in selected:
+        mask |= (dates >= pd.Timestamp(period["period_start"])) & (
+            dates < pd.Timestamp(period["period_end"]) + pd.Timedelta(days=1)
+        )
+    return frame.loc[mask].copy()
+
+
+def _result_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows = [{key: _safe_cell(value) for key, value in row.items()} for row in frame.to_dict("records")]
+    for row in rows:
+        row["_fills"] = _metric_fills(row)
+    return rows
 
 
 def _validated_filters(raw: str | None, columns: list[str]) -> dict[str, dict[str, Any]]:
@@ -1100,9 +1143,23 @@ def build_router(
         )) for item in list_exports(db.group_key(group_id))]
 
     @router.get("/groups/{group_id}/exports/{export_id}/result")
-    def saved_export_result(group_id: int, export_id: int) -> dict[str, Any]:
+    def saved_export_result(
+        group_id: int, export_id: int, period_ids: list[str] | None = Query(default=None),
+    ) -> dict[str, Any]:
         _group(group_id)
         item, periods, breakdowns = _read_saved_result(group_id, export_id)
+        if period_ids is not None:
+            data = _selected_result_data(item, periods, period_ids)
+            selected = [period for period in periods if period["id"] in period_ids]
+            periods = [{
+                "id": "selection", "period_start": min(period["period_start"] for period in selected),
+                "period_end": max(period["period_end"] for period in selected),
+                "metrics": _result_records(summarize(data, []))[0],
+            }]
+            breakdowns = {"selection": {
+                kind: _result_records(summarize(data, list(dimensions)))
+                for kind, dimensions in BREAKDOWN_DIMENSIONS.items()
+            }}
         return {
             "id": export_id,
             "period_start": item["period_start"],
@@ -1122,23 +1179,30 @@ def build_router(
         filters: str | None = Query(default=None, max_length=10000),
         sort: str | None = None,
         direction: Literal["asc", "desc"] = "desc",
+        period_ids: list[str] | None = Query(default=None),
     ) -> dict[str, Any]:
         _group(group_id)
         item, periods, _ = _read_saved_result(group_id, export_id)
-        path = analysis_report_path(item.get("report_file_name"))
+        if period_ids is not None:
+            frame = _selected_result_data(item, periods, period_ids)
+            if table == "statuses":
+                frame = status_summary(frame)
+        else:
+            path = analysis_report_path(item.get("report_file_name"))
         unavailable = {"columns": [], "rows": [], "values": {}, "total": 0, "page": page,
                        "page_size": page_size, "available": False}
-        if not path or not path.is_file() or not periods:
-            return unavailable
-        period = periods[0]
-        sheet_name = _saved_sheet_name(path, table, period["period_start"], period["period_end"])
-        if sheet_name is None:
-            return unavailable
-        try:
-            # ponytail: фильтрация читает лист целиком; для очень больших архивов нужен индексированный снимок.
-            frame = read_excel_sheet(path, sheet_name)
-        except (OSError, ValueError, zipfile.BadZipFile):
-            return unavailable
+        if period_ids is None:
+            if not path or not path.is_file() or not periods:
+                return unavailable
+            period = periods[0]
+            sheet_name = _saved_sheet_name(path, table, period["period_start"], period["period_end"])
+            if sheet_name is None:
+                return unavailable
+            try:
+                # ponytail: фильтрация читает лист целиком; для очень больших архивов нужен индексированный снимок.
+                frame = read_excel_sheet(path, sheet_name)
+            except (OSError, ValueError, zipfile.BadZipFile):
+                return unavailable
         columns = [str(column) for column in frame.columns]
         if sort and sort not in columns:
             raise HTTPException(status_code=400, detail="Неизвестная колонка сортировки")
