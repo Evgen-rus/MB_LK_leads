@@ -69,6 +69,7 @@ export type GoogleSheetsExport = {
 
 export type ExportRecord = {
   id: number;
+  published: boolean;
   export_number: number;
   report_available: boolean;
   period_start: string;
@@ -84,6 +85,8 @@ export type ExportRecord = {
   demand_rate: number;
   periods: ExportPeriodRecord[];
 };
+
+export type ClientExportRecord = ExportRecord & { group_id: number; group_name: string };
 
 export type AnalysisPeriod = {
   period_start: string;

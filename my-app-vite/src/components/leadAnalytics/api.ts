@@ -10,6 +10,7 @@ import type {
   SavedResultTable,
   AnalyzeSetup,
   ExportRecord,
+  ClientExportRecord,
   Mapping,
   ProcessingJob,
   StatusRuleItem,
@@ -19,6 +20,7 @@ import type {
 } from "./types";
 
 const base = "/admin/analytics";
+const resultBase = (client: boolean) => client ? "/analytics" : base;
 const json = (method: string, value?: unknown): RequestInit => ({
   method,
   ...(value === undefined ? {} : { body: JSON.stringify(value) })
@@ -56,10 +58,15 @@ export const deleteStatusRule = (groupId: number, ruleId: number) =>
 export const fetchExports = (groupId: number) =>
   http<ExportRecord[]>(`${base}/groups/${groupId}/exports`);
 
-export const fetchExportResult = (groupId: number, exportId: number, periodIds: string[] = []) => {
+export const fetchClientExports = () => http<ClientExportRecord[]>("/analytics/exports");
+
+export const setExportPublication = (groupId: number, exportId: number, published: boolean) =>
+  http<{ published: boolean }>(`${base}/groups/${groupId}/exports/${exportId}/publication`, json("PUT", { published }));
+
+export const fetchExportResult = (groupId: number, exportId: number, periodIds: string[] = [], client = false) => {
   const query = new URLSearchParams();
   periodIds.forEach((id) => query.append("period_ids", id));
-  return http<SavedExportResult>(`${base}/groups/${groupId}/exports/${exportId}/result${query.size ? `?${query}` : ""}`);
+  return http<SavedExportResult>(`${resultBase(client)}/groups/${groupId}/exports/${exportId}/result${query.size ? `?${query}` : ""}`);
 };
 
 export function fetchExportResultRows(
@@ -74,7 +81,8 @@ export function fetchExportResultRows(
     sort?: string | null;
     direction?: "asc" | "desc";
     periodIds?: string[];
-  }
+  },
+  client = false,
 ) {
   const query = new URLSearchParams({
     table: params.table,
@@ -88,14 +96,14 @@ export function fetchExportResultRows(
     query.set("sort", params.sort);
     query.set("direction", params.direction ?? "desc");
   }
-  return http<SavedResultRows>(`${base}/groups/${groupId}/exports/${exportId}/result/rows?${query}`);
+  return http<SavedResultRows>(`${resultBase(client)}/groups/${groupId}/exports/${exportId}/result/rows?${query}`);
 }
 
 export const deleteExport = (groupId: number, exportId: number) =>
   http<{ deleted: boolean }>(`${base}/groups/${groupId}/exports/${exportId}`, json("DELETE"));
 
-export const downloadExport = (groupId: number, exportId: number, filename: string) =>
-  downloadApiFile(`${base}/groups/${groupId}/exports/${exportId}/download`, filename);
+export const downloadExport = (groupId: number, exportId: number, filename: string, client = false) =>
+  downloadApiFile(`${resultBase(client)}/groups/${groupId}/exports/${exportId}/download`, filename);
 
 export async function prepareRun(
   groupId: number,

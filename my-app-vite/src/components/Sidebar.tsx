@@ -179,7 +179,7 @@ function Sidebar({ active, onNavigate, role = 'client' }: SidebarProps) {
             </span>
             <span className="nav-label">Отчеты</span>
           </li>
-          {isAdmin && (
+          {!isAgent && (
             <li className={active === 'analytics' ? 'active' : ''} style={{ padding: 0 }}>
               <button type="button" className="sidebar-nav-button" onClick={() => navigate('analytics')}>
                 <span className="nav-icon" aria-hidden>

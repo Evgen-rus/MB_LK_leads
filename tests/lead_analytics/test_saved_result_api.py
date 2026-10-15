@@ -1,14 +1,16 @@
+import sqlite3
 import uuid
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from backend.app.lead_analytics import db, export_history
 from backend.app.lead_analytics.export_history import ExportMetadata, ExportPeriod, save_analysis_export
-from backend.app.lead_analytics.router import build_router
+from backend.app.lead_analytics.router import build_client_router, build_router
 
 
 @pytest.fixture
@@ -19,6 +21,11 @@ def api(tmp_path, monkeypatch):
     app.include_router(build_router(lambda: {"id": 1}, lambda: None,
                                     lambda value: value or "", lambda value: value or "",
                                     lambda value: value or ""))
+    def current_user(request: Request):
+        user_id = int(request.headers.get("x-user-id", "2"))
+        return SimpleNamespace(id=user_id, role="client" if user_id > 1 else "admin")
+
+    app.include_router(build_client_router(current_user))
     return TestClient(app)
 
 
@@ -61,6 +68,32 @@ def _workbook(path, period_label="01.01-31.01"):
     data.append(["D", 0.04, 2, "beta"])
     data.append(["E", 0.05, 3, None])
     book.save(path)
+
+
+def test_existing_exports_migrate_to_private_by_default(tmp_path):
+    path = tmp_path / "legacy-analytics.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("""
+            CREATE TABLE analysis_exports (
+                id INTEGER PRIMARY KEY, project_code TEXT NOT NULL, export_number INTEGER NOT NULL,
+                period_start TEXT NOT NULL, period_end TEXT NOT NULL, analysis_date TEXT NOT NULL,
+                source_file_name TEXT NOT NULL, report_file_name TEXT, total_count INTEGER NOT NULL DEFAULT 0,
+                missed_count INTEGER NOT NULL DEFAULT 0, missed_rate REAL NOT NULL DEFAULT 0,
+                quality_count INTEGER NOT NULL DEFAULT 0, quality_rate REAL NOT NULL DEFAULT 0,
+                demand_count INTEGER NOT NULL DEFAULT 0, demand_rate REAL NOT NULL DEFAULT 0,
+                metrics_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            INSERT INTO analysis_exports(id, project_code, export_number, period_start, period_end,
+                analysis_date, source_file_name, created_at, updated_at)
+            VALUES (1, 'lk-group:1', 1, '2026-01-01', '2026-01-31', '2026-02-01', 'source.xlsx', 'now', 'now')
+        """)
+
+    db.init_db(path)
+
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT published FROM analysis_exports WHERE id=1").fetchone() == (0,)
 
 
 def test_result_api_returns_saved_period_metrics_breakdowns_and_colors(api, tmp_path, monkeypatch):
@@ -180,6 +213,50 @@ def test_result_api_is_group_scoped(api, tmp_path, monkeypatch):
     assert api.get(
         f"/admin/analytics/groups/{second_group}/exports/{export_id}/result/rows?table=data"
     ).status_code == 404
+
+
+def test_client_access_tracks_publication_owner_and_export_deletion(api, tmp_path, monkeypatch):
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    monkeypatch.setattr(export_history, "ANALYSIS_REPORTS_DIR", report_dir)
+    period = [ExportPeriod("2026-01-01", "2026-01-31")]
+    group_id = db.create_group(2, "Client group", [20], None)
+    other_group_id = db.create_group(3, "Other group", [30], None)
+    filename, other_filename = f"{uuid.uuid4().hex}.xlsx", f"{uuid.uuid4().hex}.xlsx"
+    _workbook(report_dir / filename)
+    _workbook(report_dir / other_filename)
+    export_id = _save_export(group_id, period, filename)
+    other_export_id = _save_export(other_group_id, period, other_filename)
+
+    own = f"/admin/analytics/groups/{group_id}/exports/{export_id}"
+    other = f"/admin/analytics/groups/{other_group_id}/exports/{other_export_id}"
+    client = {"x-user-id": "2"}
+    assert api.get("/analytics/exports", headers=client).json() == []
+    assert api.get(f"/analytics/groups/{group_id}/exports/{export_id}/result", headers=client).status_code == 404
+    assert api.put(own + "/publication", json={"published": True}).json() == {"published": True}
+    assert api.put(other + "/publication", json={"published": True}).json() == {"published": True}
+
+    reports = api.get("/analytics/exports", headers=client)
+    assert reports.status_code == 200
+    assert [(item["group_id"], item["group_name"], item["id"], item["published"])
+            for item in reports.json()] == [(group_id, "Client group", export_id, True)]
+    base = f"/analytics/groups/{group_id}/exports/{export_id}"
+    assert api.get(base + "/result", headers=client).status_code == 200
+    rows = api.get(base + "/result/rows?table=data", headers=client)
+    assert rows.status_code == 200 and rows.json()["available"]
+    assert api.get(base + "/download", headers=client).status_code == 200
+    assert api.get(f"/analytics/groups/{other_group_id}/exports/{other_export_id}/result",
+                   headers=client).status_code == 404
+
+    assert api.put(own + "/publication", json={"published": False}).json() == {"published": False}
+    assert api.get("/analytics/exports", headers=client).json() == []
+    for suffix in ("/result", "/result/rows?table=data", "/download"):
+        assert api.get(base + suffix, headers=client).status_code == 404
+
+    assert api.put(own + "/publication", json={"published": True}).status_code == 200
+    assert api.delete(own).status_code == 200
+    assert api.get("/analytics/exports", headers=client).json() == []
+    assert api.get(base + "/result", headers=client).status_code == 404
 
 
 def test_rows_api_filters_sorts_then_paginates_and_handles_missing_archive(api, tmp_path, monkeypatch):

@@ -114,6 +114,7 @@ def init_db(db_path: Path | None = None) -> None:
                 metrics_json TEXT NOT NULL DEFAULT '{}',
                 settings_json TEXT NOT NULL DEFAULT '{}',
                 run_id TEXT,
+                published INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(project_code, export_number)
@@ -215,6 +216,8 @@ def init_db(db_path: Path | None = None) -> None:
             conn.execute("ALTER TABLE analysis_exports ADD COLUMN run_id TEXT")
         if "settings_json" not in export_columns:
             conn.execute("ALTER TABLE analysis_exports ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'")
+        if "published" not in export_columns:
+            conn.execute("ALTER TABLE analysis_exports ADD COLUMN published INTEGER NOT NULL DEFAULT 0")
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(status_rules)")}
         if "pattern_key" not in columns:
             conn.execute("ALTER TABLE status_rules ADD COLUMN pattern_key TEXT")

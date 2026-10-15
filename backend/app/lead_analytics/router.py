@@ -31,6 +31,7 @@ from .export_history import (
     analysis_report_path,
     delete_analysis_export,
     list_exports,
+    set_export_published,
 )
 from .sheets_reader import parse_spreadsheet_url, read_spreadsheet_url
 from .matcher import match_files
@@ -136,6 +137,101 @@ def _read_saved_result(
         row["_fills"] = _metric_fills(row)
         breakdowns[period_id][kind].append(row)
     return dict(export), output_periods, breakdowns
+
+
+def _saved_export_result_response(
+    group_id: int, export_id: int, period_ids: list[str] | None,
+) -> dict[str, Any]:
+    item, periods, breakdowns = _read_saved_result(group_id, export_id)
+    if period_ids is not None:
+        data = _selected_result_data(item, periods, period_ids)
+        selected = [period for period in periods if period["id"] in period_ids]
+        periods = [{
+            "id": "selection", "period_start": min(period["period_start"] for period in selected),
+            "period_end": max(period["period_end"] for period in selected),
+            "metrics": _result_records(summarize(data, []))[0],
+        }]
+        breakdowns = {"selection": {
+            kind: _result_records(summarize(data, list(dimensions)))
+            for kind, dimensions in BREAKDOWN_DIMENSIONS.items()
+        }}
+    return {
+        "id": export_id,
+        "period_start": item["period_start"],
+        "period_end": item["period_end"],
+        "periods": periods,
+        "breakdowns": breakdowns,
+    }
+
+
+def _saved_export_rows_response(
+    group_id: int, export_id: int, table: Literal["data", "statuses"], page: int, page_size: int,
+    query: str, filters: str | None, sort: str | None, direction: Literal["asc", "desc"],
+    period_ids: list[str] | None,
+) -> dict[str, Any]:
+    item, periods, _ = _read_saved_result(group_id, export_id)
+    if period_ids is not None:
+        frame = _selected_result_data(item, periods, period_ids)
+        if table == "statuses":
+            frame = status_summary(frame)
+    else:
+        path = analysis_report_path(item.get("report_file_name"))
+    unavailable = {"columns": [], "rows": [], "values": {}, "total": 0, "page": page,
+                   "page_size": page_size, "available": False}
+    if period_ids is None:
+        if not path or not path.is_file() or not periods:
+            return unavailable
+        period = periods[0]
+        sheet_name = _saved_sheet_name(path, table, period["period_start"], period["period_end"])
+        if sheet_name is None:
+            return unavailable
+        try:
+            # ponytail: фильтрация читает лист целиком; для очень больших архивов нужен индексированный снимок.
+            frame = read_excel_sheet(path, sheet_name)
+        except (OSError, ValueError, zipfile.BadZipFile):
+            return unavailable
+    columns = [str(column) for column in frame.columns]
+    if sort and sort not in columns:
+        raise HTTPException(status_code=400, detail="Неизвестная колонка сортировки")
+    parsed_filters = _validated_filters(filters, columns)
+    rows = [{key: _safe_cell(value) for key, value in row.items()} for row in frame.to_dict("records")]
+    values = {
+        column: sorted({"" if row.get(column) is None else str(row[column]) for row in rows}, key=str.casefold)
+        for column in columns
+        if any(isinstance(row.get(column), str) for row in rows) or all(row.get(column) is None for row in rows)
+    }
+    selected = _filter_and_sort_rows(rows, query, parsed_filters, sort, direction)
+    total = len(selected)
+    start = (page - 1) * page_size
+    return {
+        "columns": columns,
+        "rows": selected[start:start + page_size],
+        "values": values,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "available": True,
+    }
+
+
+def _saved_export_record(group_id: int, export_id: int) -> dict[str, Any]:
+    item = next((record for record in list_exports(db.group_key(group_id)) if int(record["id"]) == export_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Выгрузка не найдена")
+    return item
+
+
+def _saved_export_download(group: dict[str, Any], item: dict[str, Any]) -> FileResponse:
+    path = analysis_report_path(item.get("report_file_name"))
+    if not path or not path.is_file():
+        raise HTTPException(status_code=404, detail="Файл отчёта для этой выгрузки недоступен")
+    run = db.get_run(str(item.get("run_id"))) if item.get("run_id") else None
+    report_group_name = run["group_name"] if run else group["name"]
+    source_sheet_name = (item.get("settings") or {}).get("source_sheet_name")
+    if not source_sheet_name and item.get("run_id"):
+        source_sheet_name = _matched_source_sheet_name(str(item["run_id"]))
+    return FileResponse(path, filename=analysis_download_filename(item, str(report_group_name), source_sheet_name),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def _saved_sheet_name(path: Path, table: str, period_start: str, period_end: str) -> str | None:
@@ -333,6 +429,7 @@ class ExportPeriodRecord(BaseModel):
 class ExportRecord(BaseModel):
     id: int
     export_number: int
+    published: bool = False
     report_available: bool
     period_start: str
     period_end: str
@@ -346,6 +443,15 @@ class ExportRecord(BaseModel):
     demand_count: int
     demand_rate: float
     periods: list[ExportPeriodRecord]
+
+
+class ClientExportRecord(ExportRecord):
+    group_id: int
+    group_name: str
+
+
+class PublicationPayload(BaseModel):
+    published: bool
 
 
 class SheetPreview(BaseModel):
@@ -1143,31 +1249,19 @@ def build_router(
             (path := analysis_report_path(item.get("report_file_name"))) and path.is_file()
         )) for item in list_exports(db.group_key(group_id))]
 
+    @router.put("/groups/{group_id}/exports/{export_id}/publication")
+    def set_export_publication(group_id: int, export_id: int, payload: PublicationPayload) -> dict[str, bool]:
+        _group(group_id)
+        if not set_export_published(db.group_key(group_id), export_id, payload.published):
+            raise HTTPException(status_code=404, detail="Выгрузка не найдена")
+        return {"published": payload.published}
+
     @router.get("/groups/{group_id}/exports/{export_id}/result")
     def saved_export_result(
         group_id: int, export_id: int, period_ids: list[str] | None = Query(default=None),
     ) -> dict[str, Any]:
         _group(group_id)
-        item, periods, breakdowns = _read_saved_result(group_id, export_id)
-        if period_ids is not None:
-            data = _selected_result_data(item, periods, period_ids)
-            selected = [period for period in periods if period["id"] in period_ids]
-            periods = [{
-                "id": "selection", "period_start": min(period["period_start"] for period in selected),
-                "period_end": max(period["period_end"] for period in selected),
-                "metrics": _result_records(summarize(data, []))[0],
-            }]
-            breakdowns = {"selection": {
-                kind: _result_records(summarize(data, list(dimensions)))
-                for kind, dimensions in BREAKDOWN_DIMENSIONS.items()
-            }}
-        return {
-            "id": export_id,
-            "period_start": item["period_start"],
-            "period_end": item["period_end"],
-            "periods": periods,
-            "breakdowns": breakdowns,
-        }
+        return _saved_export_result_response(group_id, export_id, period_ids)
 
     @router.get("/groups/{group_id}/exports/{export_id}/result/rows")
     def saved_export_rows(
@@ -1183,66 +1277,14 @@ def build_router(
         period_ids: list[str] | None = Query(default=None),
     ) -> dict[str, Any]:
         _group(group_id)
-        item, periods, _ = _read_saved_result(group_id, export_id)
-        if period_ids is not None:
-            frame = _selected_result_data(item, periods, period_ids)
-            if table == "statuses":
-                frame = status_summary(frame)
-        else:
-            path = analysis_report_path(item.get("report_file_name"))
-        unavailable = {"columns": [], "rows": [], "values": {}, "total": 0, "page": page,
-                       "page_size": page_size, "available": False}
-        if period_ids is None:
-            if not path or not path.is_file() or not periods:
-                return unavailable
-            period = periods[0]
-            sheet_name = _saved_sheet_name(path, table, period["period_start"], period["period_end"])
-            if sheet_name is None:
-                return unavailable
-            try:
-                # ponytail: фильтрация читает лист целиком; для очень больших архивов нужен индексированный снимок.
-                frame = read_excel_sheet(path, sheet_name)
-            except (OSError, ValueError, zipfile.BadZipFile):
-                return unavailable
-        columns = [str(column) for column in frame.columns]
-        if sort and sort not in columns:
-            raise HTTPException(status_code=400, detail="Неизвестная колонка сортировки")
-        parsed_filters = _validated_filters(filters, columns)
-        rows = [{key: _safe_cell(value) for key, value in row.items()} for row in frame.to_dict("records")]
-        values = {
-            column: sorted({"" if row.get(column) is None else str(row[column]) for row in rows}, key=str.casefold)
-            for column in columns
-            if any(isinstance(row.get(column), str) for row in rows) or all(row.get(column) is None for row in rows)
-        }
-        selected = _filter_and_sort_rows(rows, query, parsed_filters, sort, direction)
-        total = len(selected)
-        start = (page - 1) * page_size
-        return {
-            "columns": columns,
-            "rows": selected[start:start + page_size],
-            "values": values,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "available": True,
-        }
+        return _saved_export_rows_response(
+            group_id, export_id, table, page, page_size, query, filters, sort, direction, period_ids,
+        )
 
     @router.get("/groups/{group_id}/exports/{export_id}/download")
     def download_export(group_id: int, export_id: int) -> FileResponse:
         group = _group(group_id)
-        item = next((record for record in list_exports(db.group_key(group_id)) if int(record["id"]) == export_id), None)
-        if item is None:
-            raise HTTPException(status_code=404, detail="Выгрузка не найдена")
-        path = analysis_report_path(item.get("report_file_name"))
-        if not path or not path.is_file():
-            raise HTTPException(status_code=404, detail="Файл отчёта для этой выгрузки недоступен")
-        run = db.get_run(str(item.get("run_id"))) if item.get("run_id") else None
-        report_group_name = run["group_name"] if run else group["name"]
-        source_sheet_name = (item.get("settings") or {}).get("source_sheet_name")
-        if not source_sheet_name and item.get("run_id"):
-            source_sheet_name = _matched_source_sheet_name(str(item["run_id"]))
-        return FileResponse(path, filename=analysis_download_filename(item, str(report_group_name), source_sheet_name),
-                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        return _saved_export_download(group, _saved_export_record(group_id, export_id))
 
     @router.delete("/groups/{group_id}/exports/{export_id}")
     def delete_export(group_id: int, export_id: int) -> dict[str, bool]:
@@ -1331,5 +1373,77 @@ def build_router(
             raise HTTPException(status_code=409, detail="Задание ещё не завершено")
         path = _stored_output(group_id, str(job["run_id"]), str(job["output_file_name"]))
         return _preview(path)
+
+    return router
+
+
+def build_client_router(current_user: Callable[..., Any]) -> APIRouter:
+    router = APIRouter(prefix="/analytics", tags=["client-analytics"])
+
+    def require_client(user: models.User = Depends(current_user)) -> int:
+        if int(user.id) == 1 or not crud.is_client_user(user):
+            raise HTTPException(status_code=403, detail="Client access required")
+        return int(user.id)
+
+    def owned_published_export(client_id: int, group_id: int, export_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        group = db.get_group(group_id)
+        if group is None or int(group["client_id"]) != client_id:
+            raise HTTPException(status_code=404, detail="Выгрузка не найдена")
+        item = _saved_export_record(group_id, export_id)
+        if not item["published"]:
+            raise HTTPException(status_code=404, detail="Выгрузка не найдена")
+        return group, item
+
+    @router.get("/exports", response_model=list[ClientExportRecord])
+    def published_exports(client_id: int = Depends(require_client)) -> list[ClientExportRecord]:
+        result = []
+        for group in db.list_groups(client_id):
+            for item in list_exports(db.group_key(int(group["id"]))):
+                if not item["published"]:
+                    continue
+                run = db.get_run(str(item["run_id"])) if item.get("run_id") else None
+                result.append(ClientExportRecord(
+                    **item,
+                    group_id=int(group["id"]),
+                    group_name=str(run["group_name"] if run else group["name"]),
+                    report_available=bool(
+                        (path := analysis_report_path(item.get("report_file_name"))) and path.is_file()
+                    ),
+                ))
+        return result
+
+    @router.get("/groups/{group_id}/exports/{export_id}/result")
+    def published_export_result(
+        group_id: int, export_id: int, period_ids: list[str] | None = Query(default=None),
+        client_id: int = Depends(require_client),
+    ) -> dict[str, Any]:
+        owned_published_export(client_id, group_id, export_id)
+        return _saved_export_result_response(group_id, export_id, period_ids)
+
+    @router.get("/groups/{group_id}/exports/{export_id}/result/rows")
+    def published_export_rows(
+        group_id: int,
+        export_id: int,
+        table: Literal["data", "statuses"],
+        page: int = Query(1, ge=1),
+        page_size: int = Query(100, ge=1, le=500),
+        query: str = Query("", max_length=500),
+        filters: str | None = Query(default=None, max_length=10000),
+        sort: str | None = None,
+        direction: Literal["asc", "desc"] = "desc",
+        period_ids: list[str] | None = Query(default=None),
+        client_id: int = Depends(require_client),
+    ) -> dict[str, Any]:
+        owned_published_export(client_id, group_id, export_id)
+        return _saved_export_rows_response(
+            group_id, export_id, table, page, page_size, query, filters, sort, direction, period_ids,
+        )
+
+    @router.get("/groups/{group_id}/exports/{export_id}/download")
+    def download_published_export(
+        group_id: int, export_id: int, client_id: int = Depends(require_client),
+    ) -> FileResponse:
+        group, item = owned_published_export(client_id, group_id, export_id)
+        return _saved_export_download(group, item)
 
     return router

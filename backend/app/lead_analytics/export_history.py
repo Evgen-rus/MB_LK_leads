@@ -295,6 +295,15 @@ def delete_analysis_export(project: str, export_number: int) -> bool:
     return True
 
 
+def set_export_published(project: str, export_id: int, published: bool) -> bool:
+    with db.connect() as conn:
+        cursor = conn.execute(
+            "UPDATE analysis_exports SET published=?, updated_at=? WHERE project_code=? AND id=?",
+            (int(published), db.now_text(), project, export_id),
+        )
+    return cursor.rowcount > 0
+
+
 def list_exports(project: str) -> list[dict[str, Any]]:
     with db.connect() as conn:
         rows = conn.execute(
@@ -596,6 +605,7 @@ def _export_row(row: Any) -> dict[str, Any]:
         "report_file_name": row["report_file_name"],
         "run_id": row["run_id"],
         "settings": json.loads(row["settings_json"] or "{}"),
+        "published": bool(row["published"]),
         "total_count": row["total_count"],
         "missed_count": row["missed_count"],
         "missed_rate": row["missed_rate"],

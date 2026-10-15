@@ -38,6 +38,7 @@ const AdminLeadsTable = lazy(() => import('./components/AdminLeadsTable'));
 const AdminBlacklist = lazy(() => import('./components/AdminBlacklist'));
 const AdminReports = lazy(() => import('./components/AdminReports'));
 const AdminAnalytics = lazy(() => import('./components/AdminAnalytics'));
+const ClientAnalytics = lazy(() => import('./components/ClientAnalytics'));
 const AdminClientsScreen = lazy(() => import('./components/AdminClientsScreen'));
 const AdminAgentsScreen = lazy(() => import('./components/AdminAgentsScreen'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
@@ -225,7 +226,7 @@ function App() {
   // Подтягиваем сохранённую вкладку после определения роли; если нет прав — откатываем.
   useEffect(() => {
     if (!authChecked || needLogin) return;
-    if (!isAdmin && (view === 'agents' || view === 'admin-dashboard' || view === 'analytics')) {
+    if ((!isAdmin && (view === 'agents' || view === 'admin-dashboard')) || (isAgent && view === 'analytics')) {
       setView(isManager ? 'admin-clients' : 'client-dashboard');
       try {
         localStorage.setItem(STORAGE_VIEW_KEY, isManager ? 'admin-clients' : 'client-dashboard');
@@ -775,7 +776,7 @@ function App() {
             ) : view === 'leads' ? (
               isManager ? <AdminLeadsTable initialFilter={adminLeadsPrefill ?? undefined} /> : <LeadsTable projects={rows} initialFilter={leadsPrefill ?? undefined} />
             ) : view === 'analytics' ? (
-              isAdmin ? <AdminAnalytics /> : null
+              isAdmin ? <AdminAnalytics /> : !isAgent ? <ClientAnalytics /> : null
             ) : view === 'reports' ? (
               isManager ? <AdminReports managerRole={isAdmin ? 'admin' : 'agent'} /> : <Reports />
           ) : view === 'activity' ? (

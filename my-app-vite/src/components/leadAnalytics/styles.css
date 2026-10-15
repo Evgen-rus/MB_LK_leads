@@ -645,6 +645,17 @@
 .lead-analytics .historyWrap{
   max-height: 320px;
 }
+@media (max-width: 600px) {
+  .lead-analytics .clientAnalyticsHistory { max-height: none; min-height: 0; overflow: visible; }
+  .lead-analytics .clientAnalyticsHistory table,
+  .lead-analytics .clientAnalyticsHistory tbody,
+  .lead-analytics .clientAnalyticsHistory tr,
+  .lead-analytics .clientAnalyticsHistory td { display: block; width: 100%; min-width: 0; }
+  .lead-analytics .clientAnalyticsHistory thead { display: none; }
+  .lead-analytics .clientAnalyticsHistory td { white-space: normal; text-align: left; }
+  .lead-analytics .clientAnalyticsHistory td:first-child { font-weight: 600; }
+  .lead-analytics .clientAnalyticsHistory td[data-label]::before { content: attr(data-label) ": "; }
+}
 .lead-analytics .confirmBar{
   margin-top: 12px;
   border: 1px solid #f6c7bf;

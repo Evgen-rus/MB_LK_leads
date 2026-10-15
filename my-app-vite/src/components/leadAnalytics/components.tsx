@@ -907,7 +907,8 @@ export function ExportHistory({
   onCancelDelete,
   onConfirmDelete,
   onDownload,
-  onOpenResult
+  onOpenResult,
+  onPublication
 }: {
   groupName: string;
   exports: ExportRecord[];
@@ -918,6 +919,7 @@ export function ExportHistory({
   onConfirmDelete: () => void;
   onDownload: (exportId: number) => void;
   onOpenResult: (exportId: number) => void;
+  onPublication: (exportId: number, published: boolean) => void;
 }) {
   const hasGroup = groupName.trim().length > 0;
   const [expandedExports, setExpandedExports] = useState<Record<number, boolean>>({});
@@ -1012,6 +1014,10 @@ export function ExportHistory({
                           Excel
                         </button>
                       )}
+                      <button className="ghostButton" type="button" disabled={loading} onClick={() => onPublication(item.id, !item.published)}>
+                        {item.published ? "Снять публикацию" : "Опубликовать клиенту"}
+                      </button>
+                      {item.published && <span>Опубликовано клиенту</span>}
                       <button className="dangerButton" disabled={loading} onClick={() => onAskDelete(item.id)}>
                         Удалить
                       </button>
@@ -1025,7 +1031,7 @@ export function ExportHistory({
       )}
       {deletingExport !== null && (
         <div className="confirmBar">
-          <span>Удалить выбранный отчёт из истории?</span>
+          <span>Удалить выбранный отчёт из истории? У клиента он тоже станет недоступен.</span>
           <div className="actions">
             <button className="dangerButton" disabled={loading} onClick={onConfirmDelete}>
               Удалить

@@ -190,15 +190,19 @@ export function ResultViewer({
   onDownload,
   canDownload,
   canStartNew,
+  client = false,
+  publicationAction,
 }: {
   groupName: string;
   groupId: number;
   exportId: number;
   onBack: () => void;
-  onNewAnalysis: () => void;
+  onNewAnalysis?: () => void;
   onDownload: () => void;
   canDownload: boolean;
   canStartNew: boolean;
+  client?: boolean;
+  publicationAction?: React.ReactNode;
 }) {
   const [result, setResult] = useState<SavedExportResult | null>(null);
   const [resultLoading, setResultLoading] = useState(true);
@@ -233,12 +237,12 @@ export function ResultViewer({
     setResultLoading(true);
     setResultError("");
     setResult(null);
-    fetchExportResult(groupId, exportId)
+    fetchExportResult(groupId, exportId, [], client)
       .then((data) => { if (active) setResult(data); })
       .catch((error: unknown) => { if (active) setResultError(error instanceof Error ? error.message : "Не удалось открыть сохранённую аналитику"); })
       .finally(() => { if (active) setResultLoading(false); });
     return () => { active = false; };
-  }, [groupId, exportId, refresh]);
+  }, [groupId, exportId, refresh, client]);
 
   useEffect(() => {
     setMultiWeek(false);
@@ -254,13 +258,13 @@ export function ResultViewer({
     setSelectionLoading(selectionIds.length > 0);
     if (!selectionIds.length) return;
     const timer = window.setTimeout(() => {
-      fetchExportResult(groupId, exportId, selectionIds)
+      fetchExportResult(groupId, exportId, selectionIds, client)
         .then((data) => { if (active) setSelectionResult(data); })
         .catch((error: unknown) => { if (active) setSelectionError(error instanceof Error ? error.message : "Не удалось объединить недели"); })
         .finally(() => { if (active) setSelectionLoading(false); });
     }, 160);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [groupId, exportId, selectionIds, refresh]);
+  }, [groupId, exportId, selectionIds, refresh, client]);
 
   useEffect(() => {
     if (!result || (multiWeek && !selectionIds.length) || (tab !== "data" && tab !== "statuses")) {
@@ -284,7 +288,7 @@ export function ResultViewer({
         sort: sort?.key ?? null,
         direction: sort?.direction,
         periodIds: selectionIds,
-      })
+      }, client)
         .then((data) => {
           if (active && requestId === tableRequest.current) setTableResult(data);
         })
@@ -296,7 +300,7 @@ export function ResultViewer({
         });
     }, 160);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [result, groupId, exportId, tab, page, query, filters, sort, multiWeek, selectionIds]);
+  }, [result, groupId, exportId, tab, page, query, filters, sort, multiWeek, selectionIds, client]);
 
   useEffect(() => {
     if (!filterKey) return;
@@ -545,6 +549,7 @@ export function ResultViewer({
           <p>{headingRangeLabel} · аналитика №{exportId}</p>
         </div>
         <div className="resultHeroActions">
+          {publicationAction}
           <button className="resultButton resultButton--primary" type="button" onClick={onDownload} disabled={!canDownload} title={canDownload ? "Скачать сохранённый Excel-отчёт" : "Excel-файл недоступен; сохранённые показатели можно просмотреть здесь."}>
             <svg aria-hidden="true" viewBox="0 0 16 16" className="resultDownloadIcon"><path d="M8 2.5v7M5 7l3 3 3-3M3 12.5v1h10v-1" /></svg> {multiWeek ? "Excel всего отчёта" : "Скачать Excel"}
           </button>

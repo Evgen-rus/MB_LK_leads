@@ -18,6 +18,7 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
   }, { value: token, view: savedView });
   const analyticsRequests: string[] = [];
   let analysisFinished = false;
+  let published = false;
   const lkMapping = { sheet_name: 'leads', date_column: 'Дата', phone_column: 'Телефон', source_column: 'Источники', lkid_column: 'lk id', project_column: 'Проект' };
   const clientMapping = { sheet_name: 'Sheet1', date_column: 'Дата', phone_column: 'Телефон', lkid_column: 'LKID', status_column: 'Статус' };
   const analyzeMapping = { sheet_name: 'Сопоставленные', date_column: 'Дата из ЛК', phone_column: 'Телефон', source_column: 'Полный источник из ЛК', status_column: 'Статус клиента' };
@@ -42,9 +43,14 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
   const job = (id: number, kind: 'match' | 'analyze', status = 'completed') => ({ id, run_id: 'synthetic-run', kind, status, phase: 'Готово', processed_rows: 1, total_rows: 1, error_text: null, output_file_name: 'synthetic.xlsx', export_id: kind === 'analyze' && status === 'completed' ? 5 : null });
   await page.route(/http:\/\/(localhost|127\.0\.0\.1):8000\//, async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.startsWith('/admin/analytics')) analyticsRequests.push(path + new URL(route.request().url()).search);
+    if (path.startsWith('/admin/analytics') || path.startsWith('/analytics')) analyticsRequests.push(path + new URL(route.request().url()).search);
     let result: unknown = { items: [], total: 0 };
     if (path === '/me') result = { id: 2, name: 'Тестовый клиент', role, login: 'synthetic' };
+    else if (path === '/analytics/exports') result = [{ ...report, published: true, group_id: group.id, group_name: group.name }];
+    else if (path.endsWith('/exports/5/publication')) {
+      published = route.request().postDataJSON().published;
+      result = { published };
+    }
     else if (path === '/admin/users') result = [];
     else if (path === '/admin/analytics/clients') result = [{ id: 2, name: 'Тестовый клиент' }];
     else if (path.endsWith('/projects') && path.startsWith('/admin/analytics')) result = [
@@ -62,7 +68,7 @@ async function preparePage(page: Page, role: 'admin' | 'agent' | 'client' = 'adm
         values: { 'Полный источник': ['', 'synthetic alpha', 'synthetic beta'], 'Канал': ['Поиск', 'Рекомендация'] } };
     }
     else if (path.endsWith('/exports/5/result')) result = savedResult;
-    else if (path.endsWith('/exports') && path.startsWith('/admin/analytics')) result = workflow ? (analysisFinished ? [report, { ...report, id: 6, export_number: 2 }] : []) : [report];
+    else if (path.endsWith('/exports') && path.startsWith('/admin/analytics')) result = workflow ? (analysisFinished ? [{ ...report, published }, { ...report, id: 6, export_number: 2, published: false }] : []) : [{ ...report, published }];
     else if (path.endsWith('/status-rules')) result = { project_rules: [], system_rules: [], status_groups: ['Качественные', 'Недозвон'] };
     else if (path.endsWith('/exports/5/download')) {
       expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
@@ -566,7 +572,7 @@ test('client status rules can be resolved, added, edited and deleted across grou
   await expect(row).toHaveCount(0);
 });
 
-for (const role of ['agent', 'client'] as const) {
+for (const role of ['agent'] as const) {
   test(`${role} cannot open saved analytics section`, async ({ page }) => {
     const requests = await preparePage(page, role, 'analytics');
     await page.goto('/');
@@ -576,3 +582,47 @@ for (const role of ['agent', 'client'] as const) {
     expect(requests).toEqual([]);
   });
 }
+
+test('client explores a published snapshot using only client endpoints', async ({ page }, info) => {
+  const requests = await preparePage(page, 'client', 'analytics');
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Открыть аналитику', exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('client-analytics-desktop.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await expect(page.getByRole('heading', { name: group.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Новая аналитика', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Опубликовать клиенту', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Клиент', exact: true })).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Данные', exact: true }).click();
+  await expect(page.getByText('synthetic alpha', { exact: true })).toBeVisible();
+  await expect.poll(() => requests.some(path => path.startsWith('/analytics/groups/11/exports/5/result/rows'))).toBeTruthy();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Скачать Excel', exact: true }).click();
+  expect((await download).suggestedFilename()).toContain('.xlsx');
+  await page.getByRole('button', { name: 'К истории', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Открыть аналитику', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath('client-analytics-mobile.png'), fullPage: true });
+  expect(requests.every(path => path.startsWith('/analytics/'))).toBeTruthy();
+});
+
+test('client sees an empty analytics section before publication', async ({ page }) => {
+  await preparePage(page, 'client', 'analytics');
+  await page.route('**/analytics/exports', route => route.fulfill({ json: [] }));
+  await page.goto('/');
+  await expect(page.getByText('Аналитика пока не опубликована', { exact: true })).toBeVisible();
+});
+
+test('admin publishes and unpublishes the saved report from its viewer', async ({ page }) => {
+  const requests = await preparePage(page, 'admin', 'analytics');
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
+  await page.getByRole('combobox', { name: 'Группа', exact: true }).selectOption('11');
+  await page.getByRole('button', { name: 'История', exact: true }).click();
+  await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
+  await page.getByRole('button', { name: 'Опубликовать клиенту', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Снять публикацию', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Снять публикацию', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Опубликовать клиенту', exact: true })).toBeEnabled();
+  expect(requests.filter(path => path.endsWith('/publication'))).toHaveLength(2);
+});

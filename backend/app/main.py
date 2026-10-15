@@ -136,6 +136,7 @@ def get_settings():
 
 
 load_dotenv()
+from .lead_analytics.router import build_client_router as build_client_analytics_router
 from .lead_analytics.router import build_router as build_analytics_router
 logging_setup.setup_logging()
 settings = get_settings()
@@ -5300,6 +5301,7 @@ app.include_router(build_analytics_router(
     require_admin, get_db,
     _source_code_for_display, _source_text_for_display, _project_name_for_display,
 ))
+app.include_router(build_client_analytics_router(require_auth))
 
 # Machine authentication is isolated from human admin/JWT authorization.
 from .agent_api.router import build_app as build_agent_app

@@ -21,7 +21,8 @@ import {
   queueAnalyzeJob,
   queueMatchJob,
   updateGroup,
-  updateStatusRule
+  updateStatusRule,
+  setExportPublication
 } from "./api";
 import {
   AnalyzeSummary,
@@ -601,6 +602,20 @@ export default function LeadAnalytics() {
     }
   }
 
+  async function publishReport(exportId: number, published: boolean) {
+    if (!selectedGroup) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await setExportPublication(selectedGroup.id, exportId, published);
+      setSavedExports((items) => items.map((item) => item.id === exportId ? { ...item, published: result.published } : item));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось изменить публикацию отчёта");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function downloadReport(exportId: number) {
     if (!selectedGroup) return;
     setLoading(true);
@@ -858,6 +873,7 @@ export default function LeadAnalytics() {
         onCancelDelete={() => setDeletingExport(null)}
         onConfirmDelete={() => void confirmDeleteExport()}
         onDownload={(exportId) => void downloadReport(exportId)}
+        onPublication={(exportId, published) => void publishReport(exportId, published)}
         onOpenResult={(exportId) => { setError(""); setResultFromRun(false); setResultExportId(exportId); setHistoryOpen(false); }}
       />}
 
@@ -866,6 +882,9 @@ export default function LeadAnalytics() {
         groupName={selectedGroup.name}
         groupId={selectedGroup.id}
         exportId={resultExportId}
+        publicationAction={<button type="button" className="resultButton" disabled={loading} onClick={() => void publishReport(resultExportId, !savedExports.find((item) => item.id === resultExportId)?.published)}>
+          {savedExports.find((item) => item.id === resultExportId)?.published ? "Снять публикацию" : "Опубликовать клиенту"}
+        </button>}
         canStartNew={!isArchived}
         canDownload={Boolean(savedExports.find((item) => item.id === resultExportId)?.report_available)}
         onBack={() => { setResultFromRun(false); setResultExportId(null); setHistoryOpen(true); }}
