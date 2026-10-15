@@ -706,6 +706,7 @@ def _export_lk_snapshot(
         for row in crud.iter_provider_leads_for_export(
             session, start_local=start, end_local=end_exclusive, max_rows=count,
             project_ids=project_ids, user_info=user_info, expose_internal_names=True,
+            include_competitor_names=True,
         ):
             ws.append([
                 row["imported_at"], row["phone"], source_code_for_display(row["source"]),

@@ -8,12 +8,12 @@ import uuid
 from io import BytesIO
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from backend.app import models
+from backend.app import crud, models
 from backend.app.lead_analytics import db
 from backend.app.lead_analytics import export_history, router as analytics_router
 from backend.app.lead_analytics.export_history import ExportMetadata, ExportPeriod, save_analysis_export
@@ -150,6 +150,55 @@ def test_internal_lk_snapshot_reads_all_rows_over_old_export_limit(tmp_path, mon
     workbook = load_workbook(target, read_only=True)
     assert sum(1 for _ in workbook.active.iter_rows()) == 15_002
     workbook.close()
+
+
+@pytest.mark.parametrize("channel,subdomain,names,lead_source,expected", [
+    ("B4", "8 (999) 123-45-67;79990000000", {"79991234567": "Конкурент"}, "provider", "общ_Конкурент_8 (999) 123-45-67"),
+    ("B4", "79990000000", {"79991234567": "Конкурент"}, "provider", "общ_79990000000"),
+    ("B4", "79991234567", {}, "provider", "общ_79991234567"),
+    ("B4", None, {"79991234567": "Конкурент"}, "provider", "общ"),
+    ("B4", " ;79991234567", {"79991234567": "Конкурент"}, "provider", "общ"),
+    ("B1", "79991234567", {"79991234567": "Конкурент"}, "provider", "общ_79991234567"),
+    ("B4", "79991234567", {"79991234567": "Конкурент"}, "pixel", "https://example.test/page"),
+])
+def test_internal_lk_snapshot_uses_d_competitor_names(api, tmp_path, channel, subdomain, names, lead_source, expected):
+    from backend.app.lead_analytics.source_utils import extract_domain
+
+    target = tmp_path / "lk.xlsx"
+    with api.app.state.test_session_factory() as session:
+        project = session.get(models.Project, 20)
+        project.data_source_code = channel
+        project.competitor_names = names
+        lead = models.ProviderLead(
+            vid="synthetic", project_id=20, project_name=f"{channel}_Тест_общ",
+            imported_at=datetime(2026, 1, 2), phone="79991111111",
+            prov_chanel=channel, prov_source="общ", subdomain=subdomain,
+            lead_source=lead_source, pixel_url="https://example.test/page" if lead_source == "pixel" else None,
+        )
+        session.add(lead)
+        session.commit()
+        ordinary_source = crud._provider_lead_to_export_row(lead, project=project)["utm_campaign"]
+        count = _export_lk_snapshot(
+            session, 2, [20], datetime(2026, 1, 1), datetime(2026, 1, 3), target,
+            lambda value: value or "", lambda value: value or "", lambda value: value or "",
+        )
+        assert count == 1
+        session.refresh(lead)
+        assert lead.subdomain == subdomain
+        assert ordinary_source == (
+            lead.pixel_url if lead_source == "pixel" else crud._build_utm_campaign("общ", subdomain)
+        )
+        project.competitor_names = {"79991234567": "Новое название"}
+        session.commit()
+
+    workbook = load_workbook(target, read_only=True)
+    try:
+        rows = list(workbook.active.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+    assert rows[1][3] == expected
+    if lead_source == "provider":
+        assert extract_domain(rows[1][3]) == "общ"
 
 
 def test_internal_lk_snapshot_cleans_openpyxl_temp_file_on_iterator_error(tmp_path, monkeypatch):

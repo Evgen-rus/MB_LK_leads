@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from .time_utils import as_local_naive, now_msk, now_msk_naive
 from .provider_lead_ids import format_provider_lead_lk_id
-from .competitor_names import normalize_competitor_names
+from .competitor_names import find_competitor_name, normalize_competitor_names
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import html
 import os
@@ -2997,14 +2997,14 @@ def _first_subdomain_value(subdomain: Optional[str]) -> Optional[str]:
     return first or None
 
 
-def _build_utm_campaign(prov_source: Optional[str], subdomain: Optional[str]) -> Optional[str]:
+def _build_utm_campaign(
+    prov_source: Optional[str], subdomain: Optional[str], competitor_name: Optional[str] = None,
+) -> Optional[str]:
     source = str(prov_source or "").strip()
     first_subdomain = _first_subdomain_value(subdomain)
-    if source and first_subdomain:
-        return f"{source}_{first_subdomain}"
-    if source:
-        return source
-    return first_subdomain
+    if first_subdomain:
+        return "_".join(part for part in (source, competitor_name, first_subdomain) if part)
+    return source or None
 
 
 def _provider_lead_to_export_row(
@@ -3012,6 +3012,7 @@ def _provider_lead_to_export_row(
     user_info: Optional[schemas.UserInfo] = None,
     project: Optional[models.Project] = None,
     expose_internal_name: bool = True,
+    include_competitor_names: bool = False,
 ) -> dict:
     phone_value = lead.phone
     if not phone_value and lead.phones_raw:
@@ -3021,6 +3022,11 @@ def _provider_lead_to_export_row(
             phone_value = None
     display_dt = _provider_lead_display_dt(lead)
     project_name = lead.project_name or ""
+    competitor_name = (
+        find_competitor_name(project.competitor_names, lead.subdomain)
+        if include_competitor_names and project is not None and project.data_source_code == "B4"
+        else None
+    )
     if not expose_internal_name and project is not None:
         project_name = _clean_client_internal_prefix_from_name(
             project_name,
@@ -3038,7 +3044,7 @@ def _provider_lead_to_export_row(
         "utm_campaign": (
             lead.pixel_url
             if getattr(lead, "lead_source", LEAD_SOURCE_PROVIDER) == LEAD_SOURCE_PIXEL
-            else _build_utm_campaign(lead.prov_source, lead.subdomain)
+            else _build_utm_campaign(lead.prov_source, lead.subdomain, competitor_name)
         ),
         "user_login": user_info.login if user_info else "",
         "user_name": (user_info.name or user_info.login) if user_info else "",
@@ -3056,6 +3062,7 @@ def iter_provider_leads_for_export(
     collection_sources: Optional[List[str]] = None,
     user_info: Optional[schemas.UserInfo] = None,
     expose_internal_names: bool = True,
+    include_competitor_names: bool = False,
 ) -> Iterator[dict]:
     remaining = max(0, int(max_rows))
     if remaining == 0:
@@ -3125,6 +3132,7 @@ def iter_provider_leads_for_export(
                 user_info=row_user_info,
                 project=project,
                 expose_internal_name=expose_internal_names,
+                include_competitor_names=include_competitor_names,
             )
 
         remaining -= len(batch)
