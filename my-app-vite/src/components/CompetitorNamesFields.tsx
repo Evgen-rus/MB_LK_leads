@@ -18,6 +18,7 @@ function CompetitorNamesFields({ phones, value, onChange, disabled = false }: Co
           <input
             type="text"
             maxLength={120}
+            placeholder="Например, example.ru"
             aria-label={`Название конкурента для телефона ${phone}`}
             value={value[phone] || ''}
             onChange={(event) => onChange({ ...value, [phone]: event.target.value })}
