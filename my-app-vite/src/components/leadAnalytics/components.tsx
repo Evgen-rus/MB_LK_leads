@@ -1017,7 +1017,6 @@ export function ExportHistory({
                       <button className="ghostButton" type="button" disabled={loading} onClick={() => onPublication(item.id, !item.published)}>
                         {item.published ? "Отозвать" : "Опубликовать"}
                       </button>
-                      {item.published && <span>Опубликовано клиенту</span>}
                       <button className="dangerButton" disabled={loading} onClick={() => onAskDelete(item.id)}>
                         Удалить
                       </button>
