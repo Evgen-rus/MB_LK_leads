@@ -591,7 +591,7 @@ test('client explores a published snapshot using only client endpoints', async (
   await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
   await expect(page.getByRole('heading', { name: group.name, exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Новая аналитика', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Опубликовать клиенту', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Опубликовать', exact: true })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Клиент', exact: true })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Данные', exact: true }).click();
   await expect(page.getByText('synthetic alpha', { exact: true })).toBeVisible();
@@ -613,16 +613,23 @@ test('client sees an empty analytics section before publication', async ({ page 
   await expect(page.getByText('Аналитика пока не опубликована', { exact: true })).toBeVisible();
 });
 
-test('admin publishes and unpublishes the saved report from its viewer', async ({ page }) => {
+test('admin publishes and revokes the report with history actions contained in the table', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
   const requests = await preparePage(page, 'admin', 'analytics');
   await page.goto('/');
   await page.getByRole('combobox', { name: 'Клиент', exact: true }).selectOption('2');
   await page.getByRole('combobox', { name: 'Группа', exact: true }).selectOption('11');
   await page.getByRole('button', { name: 'История', exact: true }).click();
   await page.getByRole('button', { name: 'Открыть аналитику', exact: true }).click();
-  await page.getByRole('button', { name: 'Опубликовать клиенту', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Снять публикацию', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Снять публикацию', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Опубликовать клиенту', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Опубликовать', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Отозвать', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'К истории', exact: true }).click();
+  const history = page.locator('.historyWrap');
+  expect(await history.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  const actions = page.locator('.historyActions');
+  expect(await actions.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: info.outputPath('history-publication-actions.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Отозвать', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Опубликовать', exact: true })).toBeEnabled();
   expect(requests.filter(path => path.endsWith('/publication'))).toHaveLength(2);
 });

@@ -993,7 +993,7 @@ export function ExportHistory({
                     ))}
                   </td>
                   <td>
-                    <div className="actions">
+                    <div className="actions historyActions">
                       <button
                         className="ghostButton"
                         type="button"
@@ -1015,7 +1015,7 @@ export function ExportHistory({
                         </button>
                       )}
                       <button className="ghostButton" type="button" disabled={loading} onClick={() => onPublication(item.id, !item.published)}>
-                        {item.published ? "Снять публикацию" : "Опубликовать клиенту"}
+                        {item.published ? "Отозвать" : "Опубликовать"}
                       </button>
                       {item.published && <span>Опубликовано клиенту</span>}
                       <button className="dangerButton" disabled={loading} onClick={() => onAskDelete(item.id)}>

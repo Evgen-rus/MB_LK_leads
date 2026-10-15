@@ -883,7 +883,7 @@ export default function LeadAnalytics() {
         groupId={selectedGroup.id}
         exportId={resultExportId}
         publicationAction={<button type="button" className="resultButton" disabled={loading} onClick={() => void publishReport(resultExportId, !savedExports.find((item) => item.id === resultExportId)?.published)}>
-          {savedExports.find((item) => item.id === resultExportId)?.published ? "Снять публикацию" : "Опубликовать клиенту"}
+          {savedExports.find((item) => item.id === resultExportId)?.published ? "Отозвать" : "Опубликовать"}
         </button>}
         canStartNew={!isArchived}
         canDownload={Boolean(savedExports.find((item) => item.id === resultExportId)?.report_available)}

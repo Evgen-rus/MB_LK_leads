@@ -645,6 +645,14 @@
 .lead-analytics .historyWrap{
   max-height: 320px;
 }
+.lead-analytics .historyActions {
+  width: 230px;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  white-space: normal;
+}
 @media (max-width: 600px) {
   .lead-analytics .clientAnalyticsHistory { max-height: none; min-height: 0; overflow: visible; }
   .lead-analytics .clientAnalyticsHistory table,
