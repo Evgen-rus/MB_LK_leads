@@ -646,13 +646,15 @@
   max-height: 320px;
 }
 .lead-analytics .historyActions {
-  width: 230px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px;
+  width: 250px;
   max-width: 100%;
-  flex-wrap: wrap;
-  justify-content: flex-start;
   gap: 8px;
   white-space: normal;
 }
+.lead-analytics .historyPublicationAction { grid-area: 2 / 1; }
+.lead-analytics .historyDeleteAction { grid-area: 2 / 2; }
 @media (max-width: 600px) {
   .lead-analytics .clientAnalyticsHistory { max-height: none; min-height: 0; overflow: visible; }
   .lead-analytics .clientAnalyticsHistory table,

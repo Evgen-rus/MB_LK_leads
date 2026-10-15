@@ -628,6 +628,14 @@ test('admin publishes and revokes the report with history actions contained in t
   expect(await history.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
   const actions = page.locator('.historyActions');
   expect(await actions.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  const openBox = (await actions.getByRole('button', { name: 'Открыть аналитику', exact: true }).boundingBox())!;
+  const excelBox = (await actions.getByRole('button', { name: 'Excel', exact: true }).boundingBox())!;
+  const revokeBox = (await actions.getByRole('button', { name: 'Отозвать', exact: true }).boundingBox())!;
+  const deleteBox = (await actions.getByRole('button', { name: 'Удалить', exact: true }).boundingBox())!;
+  expect(openBox.y).toBe(excelBox.y);
+  expect(revokeBox.y).toBe(deleteBox.y);
+  expect(revokeBox.y).toBeGreaterThan(openBox.y);
+  expect([openBox.x, openBox.width, excelBox.x, excelBox.width]).toEqual([revokeBox.x, revokeBox.width, deleteBox.x, deleteBox.width]);
   await page.screenshot({ path: info.outputPath('history-publication-actions.png'), fullPage: true });
   await page.getByRole('button', { name: 'Отозвать', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Опубликовать', exact: true })).toBeEnabled();

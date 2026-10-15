@@ -1014,10 +1014,10 @@ export function ExportHistory({
                           Excel
                         </button>
                       )}
-                      <button className="ghostButton" type="button" disabled={loading} onClick={() => onPublication(item.id, !item.published)}>
+                      <button className="ghostButton historyPublicationAction" type="button" disabled={loading} onClick={() => onPublication(item.id, !item.published)}>
                         {item.published ? "Отозвать" : "Опубликовать"}
                       </button>
-                      <button className="dangerButton" disabled={loading} onClick={() => onAskDelete(item.id)}>
+                      <button className="dangerButton historyDeleteAction" disabled={loading} onClick={() => onAskDelete(item.id)}>
                         Удалить
                       </button>
                     </div>
