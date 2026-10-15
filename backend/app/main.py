@@ -158,6 +158,19 @@ engine, SessionLocal = db.init_engine_and_session(
 models.Base.metadata.create_all(bind=engine)
 
 
+def _ensure_project_competitor_names_column() -> None:
+    inspector = inspect(engine)
+    if "projects" not in set(inspector.get_table_names()):
+        return
+    columns = {col.get("name") for col in inspector.get_columns("projects")}
+    if "competitor_names" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN competitor_names JSON"))
+
+
+_ensure_project_competitor_names_column()
+
+
 def _ensure_audit_event_columns() -> None:
     """
     Лёгкая схема-эволюция для существующих БД без отдельного мигратора.
@@ -1090,6 +1103,7 @@ def _build_project_update_from_create_item(item: schemas.CreateProjectItem, *, n
         regions=item.regions or [],
         sites=item.sites,
         phones=item.phones,
+        competitorNames=item.competitorNames,
         smsSenderName=item.smsSenderName,
         days=item.days,
     )
@@ -1777,6 +1791,7 @@ def _project_update_data_for_operation(project: models.Project, patch: dict, *, 
         "regions": list(project.regions or []),
         "sites": list(project.sites or []),
         "phones": list(project.phones or []),
+        "competitorNames": getattr(project, "competitor_names", None),
         "smsSenderName": project.sms_sender_name,
         "days": _project_days_for_operation(project),
     }

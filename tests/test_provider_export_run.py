@@ -294,6 +294,38 @@ def _exported_ids(s) -> set[int]:
 # 1. Старая NULL-история вне текущей очереди не занимает квоту
 # -------------------------------------------------------------------
 
+@pytest.mark.parametrize("channel", ["B1", "B4"])
+@pytest.mark.parametrize("subdomain,expected_suffix", [
+    ("8 (999) 123-45-67;79990000000", "_Конкурент_8 (999) 123-45-67"),
+    ("79990000000", "_79990000000"),
+    (None, ""),
+])
+def test_competitor_mapping_enriches_only_new_d_sheet_rows(session, monkeypatch, channel, subdomain, expected_suffix):
+    _make_client_and_group(session)
+    project = session.get(models.Project, 10)
+    project.name = f"{channel}_[LR999] Тест_общ"
+    project.data_source_code = channel
+    project.competitor_names = {"79991234567": "Конкурент"}
+    _make_lead(session, 900, 10, when=_hours_ago(1))
+    lead = session.get(models.ProviderLead, 900)
+    lead.project_name = project.name
+    lead.subdomain = subdomain
+    _make_lead(session, 901, 10, when=_hours_ago(1), exported_at=_now())
+    session.commit()
+
+    sheets = FakeSheets()
+    _run(session, sheets, monkeypatch=monkeypatch)
+
+    assert len(sheets.appended) == 1
+    row = sheets.appended[0]
+    suffix = expected_suffix if channel == "B4" else ""
+    assert row[4] == project.name + suffix
+    assert row[5] == "ГЦК [LR999] Тест_общ" + suffix
+    assert row[6] == (subdomain or "")
+    session.refresh(lead)
+    assert lead.subdomain == subdomain
+
+
 def test_old_history_outside_queue_does_not_consume_group_quota(session, monkeypatch):
     """
     Регрессия: build_export_plan перечитывал ВСЕ NULL-лиды проектов.

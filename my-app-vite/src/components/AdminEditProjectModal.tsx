@@ -5,7 +5,7 @@ import { normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { ProjectStatus, ProjectMutableStatus, CollectionSource } from '../types/project';
 import { updateAdminProject, type AdminProject, type AdminProjectUpdate } from '../api';
 import { preventNumberInputWheel } from '../utils/numberInput';
-import { normalizePhonesMultiline } from '../utils/phones';
+import { competitorNamesForPhones, normalizePhonesMultiline } from '../utils/phones';
 import {
   RAW_SOURCE_CODES,
   formatProjectNameForDisplay,
@@ -18,6 +18,7 @@ import {
 } from '../utils/sourceCodeDisplay';
 import RegionPicker from './RegionPicker';
 import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
+import CompetitorNamesFields from './CompetitorNamesFields';
 
 type DayAbbrev = 'Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс';
 
@@ -52,6 +53,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
 
   const [sitesText, setSitesText] = useState((project.sites || []).join('\n'));
   const [phonesText, setPhonesText] = useState((project.phones || []).join('\n'));
+  const [competitorNames, setCompetitorNames] = useState<Record<string, string>>(project.competitorNames || {});
   const [sitesError, setSitesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState(project.smsSenderName || '');
   const [phonesError, setPhonesError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
 
   const sitesParsed = useMemo(() => parseList(sitesText), [sitesText]);
   const phonesParsed = useMemo(() => parseList(phonesText), [phonesText]);
+  const normalizedPhones = useMemo(() => normalizePhonesMultiline(phonesText).normalized, [phonesText]);
   function sanitizeSites() { setSitesText(uniqueList(parseList(sitesText)).join('\n')); }
   function sanitizePhones() {
     const res = normalizePhonesMultiline(phonesText);
@@ -193,6 +196,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
         ? normalizeStringArray(uniqueList(sitesParsed))
         : [],
       phones: phonesNow,
+      ...(project.dataSourceCode === 'B4' ? { competitorNames: competitorNamesForPhones(phonesNow, competitorNames) } : {}),
       smsSenderName: (sourceNow === 'СМС' || sourceNow === 'Пересечение')
         ? normalizeOptionalString(smsSenderName)
         : undefined,
@@ -206,11 +210,12 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
     if (!arraysEqual(original.regions, current.regions)) return true;
     if (!arraysEqual(original.sites, current.sites)) return true;
     if (!arraysEqual(original.phones, current.phones)) return true;
+    if (project.dataSourceCode === 'B4' && JSON.stringify(competitorNamesForPhones(original.phones, project.competitorNames)) !== JSON.stringify(current.competitorNames)) return true;
     if (original.smsSenderName !== current.smsSenderName) return true;
     if (!daysEqual(original.days, current.days)) return true;
     return false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, status, dataLimit, regionMode, regions, sitesParsed, phonesText, smsSenderName, days, project.collectionSource]);
+  }, [name, status, dataLimit, regionMode, regions, sitesParsed, phonesText, smsSenderName, days, competitorNames, project.collectionSource]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -279,6 +284,7 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
       regions: normalizeRegionValues(regions),
       sites: (source === 'Сайты' || source === 'Ретросайты' || source === 'Пересечение') ? uniqueList(sitesParsed) : undefined,
       phones,
+      ...(project.dataSourceCode === 'B4' ? { competitorNames: competitorNamesForPhones(phones || [], competitorNames) } : {}),
       smsSenderName: (source === 'СМС' || source === 'Пересечение') ? (smsSenderName.trim() || undefined) : undefined,
       days,
     };
@@ -408,6 +414,10 @@ function AdminEditProjectModal({ project, onClose, onSubmit, readOnly = false, a
                   </div>
                 )}
               </label>
+            )}
+
+            {project.dataSourceCode === 'B4' && (source === 'Звонки' || source === 'Ретрозвонки' || source === 'Пересечение') && (
+              <CompetitorNamesFields phones={normalizedPhones} value={competitorNames} onChange={setCompetitorNames} disabled={readOnly} />
             )}
 
             {(source === 'СМС' || source === 'Пересечение') && (

@@ -23,6 +23,7 @@ export interface Project {
   regions?: string[];
   sites?: string[];
   phones?: string[];
+  competitorNames?: Record<string, string>;
   smsSenderName?: string;
   dataLimit: number; // отображается как «Лимит»
   isTop: boolean; // ручная отметка «Топ»

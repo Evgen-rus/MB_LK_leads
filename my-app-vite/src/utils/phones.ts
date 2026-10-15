@@ -73,4 +73,16 @@ export function normalizePhonesMultiline(text: string): NormalizePhonesResult {
   };
 }
 
+export function competitorNamesForPhones(
+  phones: string[],
+  value: Record<string, string> | undefined,
+): Record<string, string> {
+  return Object.fromEntries(
+    phones
+      .map((phone) => [phone, value?.[phone]?.trim() || ''] as const)
+      .filter(([, name]) => name.length > 0)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
 

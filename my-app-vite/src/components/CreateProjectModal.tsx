@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { normalizeRegionValues, regionLabelByCode } from '../data/regions';
 import type { CollectionSource, ProjectMutableStatus } from '../types/project';
 import { preventNumberInputWheel } from '../utils/numberInput';
-import { normalizePhonesMultiline } from '../utils/phones';
+import { competitorNamesForPhones, normalizePhonesMultiline } from '../utils/phones';
 import {
   RAW_SOURCE_CODES,
   formatSourceTextForDisplay,
@@ -10,6 +10,7 @@ import {
 } from '../utils/sourceCodeDisplay';
 import RegionPicker from './RegionPicker';
 import RegionQuickTools, { type RegionSourceProject } from './RegionQuickTools';
+import CompetitorNamesFields from './CompetitorNamesFields';
 
 type ProjectDataSourceCode = 'B1' | 'B2' | 'B3' | 'B4' | 'UNMAPPED';
 
@@ -24,6 +25,7 @@ type SubmitItem = {
   regions: string[];
   sites?: string[];
   phones?: string[];
+  competitorNames?: Record<string, string>;
   smsSenderName?: string;
   days: ('Пн'|'Вт'|'Ср'|'Чт'|'Пт'|'Сб'|'Вс')[];
 };
@@ -147,6 +149,7 @@ function CreateProjectModal({
 
   const [sitesText, setSitesText] = useState('');
   const [phonesText, setPhonesText] = useState('');
+  const [competitorNames, setCompetitorNames] = useState<Record<string, string>>({});
   const [phonesError, setPhonesError] = useState<string | null>(null);
   const [smsSenderName, setSmsSenderName] = useState('');
 
@@ -263,6 +266,7 @@ function CreateProjectModal({
 
   const sitesParsed = useMemo(() => parseList(sitesText), [sitesText]);
   const phonesParsed = useMemo(() => parseList(phonesText), [phonesText]);
+  const normalizedPhones = useMemo(() => normalizePhonesMultiline(phonesText).normalized, [phonesText]);
 
   function sanitizeSites() {
     const unique = uniqueList(parseList(sitesText));
@@ -403,6 +407,7 @@ function CreateProjectModal({
       regions: normalizeRegionValues(regions),
       sites,
       phones,
+      competitorNames: code === 'B4' && phones ? competitorNamesForPhones(phones, competitorNames) : undefined,
       smsSenderName: collectionSource === 'СМС' || collectionSource === 'Пересечение' ? (smsSenderName.trim() || undefined) : undefined,
       days,
     }));
@@ -624,6 +629,10 @@ function CreateProjectModal({
                   </div>
                 )}
               </label>
+            )}
+
+            {selectedCodes.includes('B4') && (collectionSource === 'Звонки' || collectionSource === 'Ретрозвонки' || collectionSource === 'Пересечение') && (
+              <CompetitorNamesFields phones={normalizedPhones} value={competitorNames} onChange={setCompetitorNames} />
             )}
 
               {(collectionSource === 'СМС' || collectionSource === 'Пересечение') && (

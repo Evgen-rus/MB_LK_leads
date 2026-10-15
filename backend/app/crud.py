@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from .time_utils import as_local_naive, now_msk, now_msk_naive
 from .provider_lead_ids import format_provider_lead_lk_id
+from .competitor_names import normalize_competitor_names
 from typing import Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Any, Literal
 import html
 import os
@@ -1039,6 +1040,7 @@ def _project_to_out(
         regions=p.regions,  # type: ignore
         sites=p.sites,  # type: ignore
         phones=p.phones,  # type: ignore
+        competitorNames=getattr(p, "competitor_names", None),
         smsSenderName=p.sms_sender_name,  # type: ignore
         dataLimit=p.data_limit,
         isTop=bool(getattr(p, "is_top", False)),
@@ -2493,6 +2495,9 @@ def build_project_model_from_create_item(
         regions=item.regions or None,
         sites=sites,
         phones=phones,
+        competitor_names=(normalize_competitor_names(item.competitorNames) or None)
+        if data_source_code == "B4"
+        else None,
         sms_sender_name=sms,
         status=item.status,
         delivery_status='На модерации',
@@ -2662,6 +2667,12 @@ def update_project(
         p.sites = update.sites or None
         p.phones = update.phones or None
         p.sms_sender_name = update.smsSenderName or None
+    if "competitorNames" in update.model_fields_set:
+        p.competitor_names = (
+            normalize_competitor_names(update.competitorNames) or None
+            if p.data_source_code == "B4"
+            else None
+        )
     p.days_received = _join_days(update.days)
     p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)
     p.updated_at = now_msk()
@@ -6546,6 +6557,12 @@ def admin_update_project(
     p.regions = update.regions or None
     p.sites = update.sites or None
     p.phones = update.phones or None
+    if "competitorNames" in update.model_fields_set:
+        p.competitor_names = (
+            normalize_competitor_names(update.competitorNames) or None
+            if p.data_source_code == "B4"
+            else None
+        )
     p.sms_sender_name = update.smsSenderName or None
     p.days_received = _join_days(update.days)
     p.sources_count = _calc_sources_count(p.sites, p.phones, p.sms_sender_name)

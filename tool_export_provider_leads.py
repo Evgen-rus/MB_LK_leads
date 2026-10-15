@@ -22,9 +22,9 @@
  B id           -> vid
  C Phone        -> первый телефон
  D Unused       -> пусто
- E Project Tag  -> project_name (+ "_first_subdomain" только для B4_, если subdomain есть)
+ E Project Tag  -> project_name (+ "_конкурент_first_subdomain" для B4_, конкурент необязателен)
  F GCK Tag      -> "ГЦК " + project_name без префикса B1_/B2_/B3_/B4_
-                   (+ "_first_subdomain" только для B4_, если subdomain есть)
+                   (+ "_конкурент_first_subdomain" для B4_, если subdomain есть)
  G Check_mark   -> subdomain
  H lk id        -> 30100000 + id
 """
@@ -46,6 +46,7 @@ from sqlalchemy import select, text, update
 
 from backend.app import daily_export_limit_groups as limit_groups
 from backend.app import db, models, logging_setup
+from backend.app.competitor_names import find_competitor_name
 from backend.app.provider_lead_ids import format_provider_lead_lk_id
 from backend.app.time_utils import now_msk, now_msk_naive
 
@@ -87,25 +88,25 @@ def _is_b4_project_name(project_name: Optional[str]) -> bool:
     return bool(project_name and project_name.startswith("B4_"))
 
 
-def _build_project_tag(project_name: Optional[str], subdomain: Optional[str]) -> str:
+def _build_project_tag(project_name: Optional[str], subdomain: Optional[str], competitor_names: Optional[Dict[str, str]] = None) -> str:
     base = (project_name or "").strip()
     if not base:
         return ""
     if _is_b4_project_name(project_name):
-        return _append_subdomain_suffix(project_name, subdomain)
+        return _append_subdomain_suffix(project_name, subdomain, competitor_names)
     return base
 
 
-def _build_gck_tag(project_name: Optional[str], subdomain: Optional[str]) -> str:
+def _build_gck_tag(project_name: Optional[str], subdomain: Optional[str], competitor_names: Optional[Dict[str, str]] = None) -> str:
     gck_base = _to_gck_tag(project_name)
     if not gck_base:
         return ""
     if _is_b4_project_name(project_name):
-        return _append_subdomain_suffix(gck_base, subdomain)
+        return _append_subdomain_suffix(gck_base, subdomain, competitor_names)
     return gck_base
 
 
-def _append_subdomain_suffix(value: Optional[str], subdomain: Optional[str]) -> str:
+def _append_subdomain_suffix(value: Optional[str], subdomain: Optional[str], competitor_names: Optional[Dict[str, str]] = None) -> str:
     base = (value or "").strip()
     raw_suffix = (subdomain or "").strip()
     suffix = raw_suffix.split(";", 1)[0].strip() if raw_suffix else ""
@@ -113,6 +114,9 @@ def _append_subdomain_suffix(value: Optional[str], subdomain: Optional[str]) -> 
         return ""
     if not suffix:
         return base
+    competitor = find_competitor_name(competitor_names, subdomain)
+    if competitor:
+        return f"{base}_{competitor}_{suffix}"
     return f"{base}_{suffix}"
 
 
@@ -671,6 +675,20 @@ def _run_export(
     existing_ids = _get_existing_ids(service, sheet_id, sheet_name)
     existing_rows_count = len(existing_ids)
 
+    project_ids = {int(row.project_id) for row in selected if row.project_id is not None}
+    competitor_names_by_project: Dict[int, Dict[str, str]] = {}
+    if project_ids:
+        with SessionLocal() as s:
+            competitor_names_by_project = {
+                int(project_id): names or {}
+                for project_id, names in s.execute(
+                    select(models.Project.id, models.Project.competitor_names).where(
+                        models.Project.id.in_(project_ids),
+                        models.Project.data_source_code == "B4",
+                    )
+                )
+            }
+
     out_rows: List[List[str]] = []
     duplicate_ids: List[int] = []
     skipped_count = 0
@@ -679,8 +697,9 @@ def _run_export(
             skipped_count += 1
             duplicate_ids.append(int(r.id))
             continue
-        project_tag = _build_project_tag(r.project_name, r.subdomain)
-        gck_tag = _build_gck_tag(r.project_name, r.subdomain)
+        competitor_names = competitor_names_by_project.get(r.project_id)
+        project_tag = _build_project_tag(r.project_name, r.subdomain, competitor_names)
+        gck_tag = _build_gck_tag(r.project_name, r.subdomain, competitor_names)
         out_rows.append(
             [
                 _format_dt(r.prov_created_at),

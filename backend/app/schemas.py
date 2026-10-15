@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from .competitor_names import normalize_competitor_names
+
 
 Day = Literal['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
 CreateProjectStatus = Literal['Активен', 'На паузе']
@@ -56,10 +58,14 @@ class CreateProjectItem(BaseModel):
     regions: List[str] = []
     sites: Optional[List[str]] = None
     phones: Optional[List[str]] = None
+    competitorNames: Optional[Dict[str, str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
 
     _normalize_phones = field_validator("phones")(_normalize_project_phones)
+    _normalize_competitor_names = field_validator("competitorNames")(
+        lambda value: normalize_competitor_names(value) or None
+    )
 
 
 class CreateProjectsPayload(BaseModel):
@@ -75,10 +81,14 @@ class ProjectUpdate(BaseModel):
     regions: List[str] = []
     sites: Optional[List[str]] = None
     phones: Optional[List[str]] = None
+    competitorNames: Optional[Dict[str, str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
 
     _normalize_phones = field_validator("phones")(_normalize_project_phones)
+    _normalize_competitor_names = field_validator("competitorNames")(
+        lambda value: normalize_competitor_names(value) or None
+    )
 
 
 class ProjectTopUpdate(BaseModel):
@@ -97,6 +107,7 @@ class ProjectOut(BaseModel):
     regions: Optional[List[str]] = None
     sites: Optional[List[str]] = None
     phones: Optional[List[str]] = None
+    competitorNames: Optional[Dict[str, str]] = None
     smsSenderName: Optional[str] = None
     dataLimit: int
     isTop: bool = False
@@ -319,10 +330,14 @@ class AdminProjectUpdate(BaseModel):
     regions: List[str] = []
     sites: Optional[List[str]] = None
     phones: Optional[List[str]] = None
+    competitorNames: Optional[Dict[str, str]] = None
     smsSenderName: Optional[str] = None
     days: List[Day]
 
     _normalize_phones = field_validator("phones")(_normalize_project_phones)
+    _normalize_competitor_names = field_validator("competitorNames")(
+        lambda value: normalize_competitor_names(value) or None
+    )
 
 
 class ClientErrorIn(BaseModel):

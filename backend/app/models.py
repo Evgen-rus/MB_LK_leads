@@ -114,6 +114,7 @@ class Project(Base):
     regions = Column(JSON, nullable=True)
     sites = Column(JSON, nullable=True)
     phones = Column(JSON, nullable=True)
+    competitor_names = Column(JSON, nullable=True)
     sms_sender_name = Column(String, nullable=True)
 
     status = Column(String, nullable=False)  # 'Активен' | 'На паузе' | 'Удалён' | 'Архив' | 'Блокировка оператора'

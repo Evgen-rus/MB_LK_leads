@@ -111,6 +111,7 @@ export type CreateProjectItem = {
   regions: string[];
   sites?: string[];
   phones?: string[];
+  competitorNames?: Record<string, string>;
   smsSenderName?: string;
   days: Day[];
 };
@@ -124,6 +125,7 @@ export type ProjectUpdatePayload = {
   regions: string[];
   sites?: string[];
   phones?: string[];
+  competitorNames?: Record<string, string>;
   smsSenderName?: string;
   days: Day[];
 };
@@ -836,6 +838,7 @@ export type AdminProjectUpdate = {
   regions: string[];
   sites?: string[];
   phones?: string[];
+  competitorNames?: Record<string, string>;
   smsSenderName?: string;
   days: Day[];
 };
