@@ -280,6 +280,10 @@ def _ensure_month_sheet(service, spreadsheet_id: str, sheet_name: str, imported_
         _safe_google_call(
             lambda: service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=copy_body).execute()
         )
+        _copy_dropdown_validation_to_rows(
+            service, spreadsheet_id, int(created_props["sheetId"]), 2, 2,
+            source_sheet_id=int(source_props["sheetId"]),
+        )
 
     return created_props
 
@@ -344,28 +348,33 @@ def _copy_dropdown_validation_to_rows(
     sheet_id: int,
     start_row: int,
     end_row: int,
+    *,
+    source_sheet_id: Optional[int] = None,
 ) -> None:
+    destination = {
+        "sheetId": sheet_id,
+        "startRowIndex": start_row - 1,
+        "endRowIndex": end_row,
+        "startColumnIndex": DROPDOWN_COLUMN_INDEX,
+        "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
+    }
     body = {
         "requests": [
             {
                 "copyPaste": {
                     "source": {
-                        "sheetId": sheet_id,
+                        "sheetId": sheet_id if source_sheet_id is None else source_sheet_id,
                         "startRowIndex": DROPDOWN_TEMPLATE_ROW_INDEX,
                         "endRowIndex": DROPDOWN_TEMPLATE_ROW_INDEX + 1,
                         "startColumnIndex": DROPDOWN_COLUMN_INDEX,
                         "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
                     },
-                    "destination": {
-                        "sheetId": sheet_id,
-                        "startRowIndex": start_row - 1,
-                        "endRowIndex": end_row,
-                        "startColumnIndex": DROPDOWN_COLUMN_INDEX,
-                        "endColumnIndex": DROPDOWN_COLUMN_INDEX + 1,
-                    },
-                    "pasteType": "PASTE_DATA_VALIDATION",
+                    "destination": destination,
+                    "pasteType": "PASTE_NORMAL",
                 }
-            }
+            },
+            # Копируем список целиком, но выбранный в образце статус не переносим.
+            {"repeatCell": {"range": destination, "cell": {}, "fields": "userEnteredValue"}},
         ]
     }
     _safe_google_call(
